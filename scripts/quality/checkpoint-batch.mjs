@@ -8,12 +8,14 @@
 //     "vms": ["bx_..."], "create": 4, "spares": 2, "name": "ckpt-night",
 //     "arms": { "main": { "root": "/checkout", "ref": "COMMIT", "jar": "/main.jar", "env": {} }, "int": { ... } },
 //     "meter": { "command": "prints the percent of the Codex allowance left", "floorPercent": 10 },
+//     "copyConcurrency": 8 (games copied home at once), "drain": "delete" (delete every machine, listed ones too, once it has no further game),
 //     "savepoints": { "nether": { "file": "/sp/9-nether-entry-123456789-v2.json", "repeats": 4, "targets": ["fortress", "blaze_rod"], "arms": ["main", "int"] } } }  (arms optional: default all)
 // Each arm is `git archive REF` of its root plus that root's coordinator/node_modules, and its jar. Every repeat of a
 // save point draws one loot salt that all arms share (lib/checkpoint-batch-core.mjs). A game runs scripts/quality/run-long.mjs
 // --checkpoint under eatmydata (boat disks sync slowly; see lib/boat-pool.mjs) with the Codex provider, the observer cap in
-// log mode and the arm's env. Machines are created with --no-auto-stop and are never stopped or deleted here: boat starts
-// are the scarce resource, so they stay up for reuse. The sign-in is copied to each machine, checked against its source
+// log mode and the arm's env. Listed machines (vms) are kept for reuse, since boat starts are scarce; machines the batch
+// created (create, spares) are deleted when it ends, and with drain "delete" every machine is deleted as soon as it has no
+// further game, because an idle machine bills in full. Finished games are copied home in parallel and checked by sha. The sign-in is copied to each machine, checked against its source
 // hash after every game (a changed hash means Codex refreshed it there, which can sign out the source machine, so no new
 // game starts), kept out of every copy-back, and removed from every machine when the batch ends.
 // Output: OUT/games/ID/{run.log,done,report/long-run.json,game.tgz (everything, raw journals under raw/)}, OUT/state.json, OUT/summary.json, OUT/summary.txt, OUT/batch.log.
@@ -22,7 +24,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { appendFile, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { createMachine, download, installCodex, machineState, quote, remote, removeCodexSignIn, upload, waitHydrated } from './lib/boat-pool.mjs';
+import { createMachine, destroyMachine, download, installCodex, machineState, quote, remote, removeCodexSignIn, upload, waitHydrated } from './lib/boat-pool.mjs';
 import { readArtifactReport } from '../../coordinator/src/benchmark/report-artifacts.mjs';
 import { canStart, codexHomes, expandPlan, loseGame, nextGame, scoreGame, summarize, summaryText } from './lib/checkpoint-batch-core.mjs';
 
@@ -31,7 +33,8 @@ const args = process.argv.slice(2);
 const flag = name => { const i = args.indexOf(`--${name}`); return i < 0 ? undefined : args[i + 1]; };
 if (args.includes('--help') || (!flag('score') && (!flag('plan') || !flag('out')))) { console.log(USAGE); process.exit(args.includes('--help') ? 0 : 2); }
 
-const POLL_MS = 60_000, LOST_AFTER_MS = 5 * 60_000, LIVE = new Set(['provisioned', 'cloning', 'ready', 'idle', 'running']);
+// CHECKPOINT_POLL_MS shortens the pass for the fake-boat test (coordinator/test/checkpoint-batch-loop.test.mjs).
+const POLL_MS = Number(process.env.CHECKPOINT_POLL_MS ?? 60_000), LOST_AFTER_MS = 5 * 60_000, LIVE = new Set(['provisioned', 'cloning', 'ready', 'idle', 'running']);
 const sha = file => createHash('sha256').update(readFileSync(file)).digest('hex');
 
 if (flag('score')) {
@@ -150,7 +153,7 @@ async function start(vm, game) {
 	await upload(vm.id, authFiles[game.account], '.codex/auth.json');
 	const copied = (await remote(vm.id, 'chmod 600 ~/.codex/auth.json; sha256sum ~/.codex/auth.json | cut -c1-64')).trim();
 	if (copied !== authShas[game.account]) throw new Error(`sign-in ${game.account + 1} did not copy intact to ${vm.id}`);
-	game.state = 'running'; game.attempts++; game.machine = vm.id; game.startedAt = new Date().toISOString(); vm.game = game.id; vm.lastSeen = Date.now();
+	game.state = 'running'; game.attempts++; game.machine = vm.id; game.startedAt = new Date().toISOString(); vm.game = game.id; vm.signInRemoved = false;
 	await remote(vm.id, `rm -rf ~/ck/games/${game.id}; mkdir -p ~/ck/games/${game.id}\nsetsid nohup ~/ck/game.sh ${game.id} ${game.arm} "$HOME/ck/sp/${game.savepoint}.json" ${plan.minutes} ${game.salt} ${quote(plan.model ?? 'gpt-6.2-sol')} ${quote(plan.effort ?? 'low')} > /dev/null 2>&1 < /dev/null &\necho started`);
 	await log(`started ${game.id} on ${vm.id} (salt ${game.salt}, sign-in ${game.account + 1}, attempt ${game.attempts})`);
 }
@@ -159,13 +162,23 @@ async function fetch(vm, game) {
 	// The raw run folder is copied without the world, the per-run Codex home (it holds a copy of the sign-in) or RCON secrets.
 	const text = await remote(vm.id, `cd ~/ck/games/${game.id}; raw=$(sed -n 's/^Running [^:]*: //p' run.log | tail -1)
 if [ -n "$raw" ] && [ -d "$raw" ]; then rm -rf raw; mkdir raw; tar -C "$raw" --exclude=server --exclude=.codex-home --exclude=auth.json --exclude=rcon-password.txt --exclude=secret.txt -cf - . | tar -C raw -xf -; rm -rf "$raw/server"; fi
-tar --exclude=auth.json --exclude=.codex-home -czf ../${game.id}.tgz . && echo ok; sha256sum ~/.codex/auth.json | cut -c1-64`, { timeoutMs: 15 * 60_000 });
-	const remoteSha = text.trim().split('\n').pop();
-	if (remoteSha !== authShas[game.account]) { signInChanged = true; await log(`SIGN-IN CHANGED on ${vm.id}: Codex refreshed it there; no new game starts`); }
+[ -n "$raw" ] && find "$raw" -path '*.codex-home/auth.json' -exec sha256sum {} + 2>/dev/null | cut -c1-64 | sed 's/^/run=/'
+tar --exclude=auth.json --exclude=.codex-home -czf ../${game.id}.tgz . && echo ok; echo tgz=$(sha256sum ../${game.id}.tgz | cut -c1-64); sha256sum ~/.codex/auth.json | cut -c1-64`, { timeoutMs: 15 * 60_000 });
+	const lines = text.trim().split('\n'), remoteSha = lines.pop();
+	// The game's coordinator works on its own copy of the sign-in (.codex-home under the run folder), so a refresh during
+	// the game shows there, not in ~/.codex: both must still match the source.
+	const runShas = lines.filter(l => l.startsWith('run=')).map(l => l.slice(4));
+	const changed = [remoteSha, ...runShas].some(hash => hash !== authShas[game.account]);
+	if (changed) { signInChanged = true; await log(`SIGN-IN CHANGED on ${vm.id}${runShas.some(h => h !== authShas[game.account]) ? ' (the game\'s own copy)' : ''}: Codex refreshed it there; no new game starts`); }
+	const tgzSha = lines.find(l => l.startsWith('tgz='))?.slice(4);
 	const dest = path.join(out, 'games', game.id);
 	await rm(dest, { recursive: true, force: true }); await mkdir(dest, { recursive: true });
 	// The raw journals stay packed in game.tgz (about 1 GB unpacked per 90-minute game); only the report and logs unpack.
-	await download(vm.id, `ck/games/${game.id}.tgz`, path.join(dest, 'game.tgz'));
+	// A failed or partial copy (a full local disk, a dropped scp) is this computer's problem, not the machine's: it is
+	// marked local so the machine is not dropped, and the next pass copies the game again from the machine.
+	const local = error => Object.assign(error, { local: true });
+	await download(vm.id, `ck/games/${game.id}.tgz`, path.join(dest, 'game.tgz')).catch(error => { throw local(error); });
+	if (tgzSha && sha(path.join(dest, 'game.tgz')) !== tgzSha) throw local(new Error(`copy of ${game.id} does not match the machine's (sha), copied again next pass`));
 	// tar exits non-zero when a member is missing (a game that died before its report): the rest still unpacks, and a
 	// missing report scores unknown.
 	try { execFileSync('tar', ['-xzf', path.join(dest, 'game.tgz'), '-C', dest, './done', './run.log', './ledger.json', './report'], { stdio: 'ignore' }); }
@@ -197,42 +210,61 @@ for (let i = 0; i < (plan.create ?? 0); i++) machines.push(await addMachine('poo
 await save();
 await log(`batch: ${games.length} games, ${plan.minutes} min, ${machines.length} machines, deadline ${plan.deadline}`);
 // Prepare every machine at once (about a minute each), so the first wave starts together; one that fails is retried in the loop.
-await Promise.all(machines.map(vm => prepare(vm).then(() => { vm.lastSeen = Date.now(); return log(`prepared ${vm.id}`); }, error => log(`machine ${vm.id}: ${error.message.split('\n')[0].slice(0, 300)}`))));
+await Promise.all(machines.map(vm => prepare(vm).then(() => { vm.failingSince = null; return log(`prepared ${vm.id}`); }, error => log(`machine ${vm.id}: ${error.message.split('\n')[0].slice(0, 300)}`))));
+
+const noMoreGames = () => stopped || signInChanged || existsSync(path.join(out, 'STOP')) || !canStart(Date.now(), plan) || !nextGame(games);
+// plan.drain "delete": every machine is deleted once it has no further game and its sign-in is off (idle machines bill
+// in full). Otherwise only the machines this batch created are deleted, at the end; listed (reused) ones are kept.
+const deletes = vm => plan.drain === 'delete' || vm.created;
+async function retire(vm) {
+	if (!vm.signInRemoved) { await removeCodexSignIn(vm.id); vm.signInRemoved = true; await log(`removed the sign-in from ${vm.id} (no further game for it)`); }
+	if (plan.drain === 'delete' && !vm.deleted) { await destroyMachine(vm.id); vm.deleted = true; await log(`deleted ${vm.id} (no further game for it)`); }
+}
+
+// One machine's turn in a pass: prepare, check its game, copy a finished one home and retire the machine when no game
+// is left for it. Errors count against the machine only when it stops answering: a machine is dropped after it failed
+// for LOST_AFTER_MS in a row (or boat no longer lists it), never because of a local copy failure.
+async function tend(vm, step) {
+	try { await step(); vm.failingSince = null; }
+	catch (error) {
+		await log(`machine ${vm.id}: ${error.message.split('\n')[0].slice(0, 300)}`);
+		if (error.local) return;
+		vm.failingSince ??= Date.now();
+		const gone = await machineState(vm.id).then(s => !LIVE.has(s)).catch(() => false);
+		if (gone || Date.now() - vm.failingSince > LOST_AFTER_MS) {
+			vm.lost = true;
+			if (vm.game) { const g = loseGame(games, vm.game, `machine ${vm.id} stopped answering`); await log(`lost ${vm.id}; ${g.id} is ${g.state}`); vm.game = null; }
+			if (spares > 0 && canStart(Date.now(), plan)) { spares--; machines.push(await addMachine('replacement').catch(async e => { await log(`replacement failed: ${e.message}`); return { id: 'none', lost: true }; })); }
+		}
+	}
+}
+async function check(vm) {
+	if (!vm.prepared) { await prepare(vm); await log(`prepared ${vm.id}`); }
+	// An idle machine that failed last time must answer before it counts as healthy again.
+	if (!vm.game) { if (vm.failingSince) await remote(vm.id, 'true', { timeoutMs: 60_000 }); return; }
+	const game = games.find(g => g.id === vm.game);
+	const status = await remote(vm.id, `test -f ~/ck/games/${game.id}/done && echo DONE || echo RUNNING`, { timeoutMs: 120_000 });
+	if (!/DONE/.test(status) && Date.now() - Date.parse(game.startedAt) > (plan.minutes + 30) * 60_000) {
+		// A game past its window plus half an hour is hung: end its session (run-long writes its partial timeline on SIGTERM).
+		await remote(vm.id, `sid=$(ps -o sid= -p "$(pgrep -f 'ck/game.sh ${game.id} ' | head -1)" 2>/dev/null | tr -d ' '); [ -n "$sid" ] && pkill -TERM -s "$sid"; sleep 20; echo "exit timeout $(date -Is)" > ~/ck/games/${game.id}/done`);
+		await log(`timed out ${game.id} on ${vm.id}`);
+	}
+	if (/DONE/.test(status)) { await fetch(vm, game); vm.game = null; }
+}
+// Copies home run in parallel (each is one scp of about 100 MB): a wave that ends together comes back in minutes, not
+// one game after another.
+async function eachLimited(items, limit, fn) {
+	const queue = [...items];
+	await Promise.all(Array.from({ length: Math.min(limit, queue.length) }, async () => { while (queue.length) await fn(queue.shift()); }));
+}
+const copyLimit = plan.copyConcurrency ?? 8;
 
 while (true) {
-	for (const vm of machines.filter(m => !m.lost)) {
-		try {
-			if (!vm.prepared) { await prepare(vm); await log(`prepared ${vm.id}`); }
-			vm.lastSeen = Date.now();
-			if (vm.game) {
-				const game = games.find(g => g.id === vm.game);
-				const status = await remote(vm.id, `test -f ~/ck/games/${game.id}/done && echo DONE || echo RUNNING`, { timeoutMs: 120_000 });
-				if (!/DONE/.test(status) && Date.now() - Date.parse(game.startedAt) > (plan.minutes + 30) * 60_000) {
-					// A game past its window plus half an hour is hung: end its session (run-long writes its partial timeline on SIGTERM).
-					await remote(vm.id, `sid=$(ps -o sid= -p "$(pgrep -f 'ck/game.sh ${game.id} ' | head -1)" 2>/dev/null | tr -d ' '); [ -n "$sid" ] && pkill -TERM -s "$sid"; sleep 20; echo "exit timeout $(date -Is)" > ~/ck/games/${game.id}/done`);
-					await log(`timed out ${game.id} on ${vm.id}`);
-				}
-				if (/DONE/.test(status)) {
-					await fetch(vm, game); vm.game = null;
-					// A machine that will get no further game loses its sign-in now, not only when the whole batch ends.
-					if (stopped || signInChanged || existsSync(path.join(out, 'STOP')) || !canStart(Date.now(), plan) || !nextGame(games)) {
-						await removeCodexSignIn(vm.id); vm.signInRemoved = true; await log(`removed the sign-in from ${vm.id} (no further game for it)`);
-					}
-				}
-			}
-			if (!vm.game && !stopped && !signInChanged && !existsSync(path.join(out, 'STOP')) && canStart(Date.now(), plan) && underCap() && await meterOk()) {
-				const game = nextGame(games);
-				if (game) await start(vm, game);
-			}
-		} catch (error) {
-			await log(`machine ${vm.id}: ${error.message.split('\n')[0].slice(0, 300)}`);
-			const gone = await machineState(vm.id).then(s => !LIVE.has(s)).catch(() => false);
-			if (gone || Date.now() - (vm.lastSeen ?? Date.now()) > LOST_AFTER_MS) {
-				vm.lost = true;
-				if (vm.game) { const g = loseGame(games, vm.game, `machine ${vm.id} stopped answering`); await log(`lost ${vm.id}; ${g.id} is ${g.state}`); vm.game = null; }
-				if (spares > 0 && canStart(Date.now(), plan)) { spares--; machines.push(await addMachine('replacement').catch(async e => { await log(`replacement failed: ${e.message}`); return { id: 'none', lost: true }; })); }
-			}
-		}
+	await eachLimited(machines.filter(m => !m.lost && !m.deleted), copyLimit, vm => tend(vm, () => check(vm)));
+	// Starts stay one at a time, so two machines never take the same game.
+	for (const vm of machines.filter(m => !m.lost && !m.deleted && m.prepared && !m.game)) {
+		if (noMoreGames()) { await tend(vm, () => retire(vm)); continue; }
+		if (underCap() && await meterOk()) await tend(vm, async () => { const game = nextGame(games); if (game) await start(vm, game); });
 	}
 	await save(); await writeSummary(out, state);
 	const running = machines.some(m => m.game && !m.lost);
@@ -242,10 +274,12 @@ while (true) {
 }
 for (const g of games.filter(g => g.state === 'queued')) g.state = 'not started';
 // Every machine of the batch, lost and half-prepared ones included (one that comes back must not keep it); a failure is logged.
-for (const vm of machines.filter(m => m.id !== 'none')) {
+for (const vm of machines.filter(m => m.id !== 'none' && !m.deleted)) {
 	await removeCodexSignIn(vm.id).then(() => log(`removed the sign-in from ${vm.id}`)).catch(e => log(`could not remove the sign-in from ${vm.id}: ${e.message}`));
+	// Batch-created extras (and every machine under drain "delete") are deleted, never left idle; a failure is logged.
+	if (deletes(vm)) await destroyMachine(vm.id).then(() => { vm.deleted = true; return log(`deleted ${vm.id}`); }).catch(e => log(`could not delete ${vm.id}: ${e.message}`));
 }
 state.endedAt = new Date().toISOString();
 await save(); await writeSummary(out, state);
-await log(`batch ended; machines left running: ${machines.filter(m => !m.lost).map(m => m.id).join(' ')}`);
+await log(`batch ended; machines left running: ${machines.filter(m => !m.lost && !m.deleted).map(m => m.id).join(' ') || 'none'}`);
 console.log(await readFile(path.join(out, 'summary.txt'), 'utf8'));

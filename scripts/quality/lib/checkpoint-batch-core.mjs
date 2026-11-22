@@ -84,7 +84,10 @@ export function loseGame(games, id, reason) {
  */
 export function scoreGame(report, targets, { inheritedMs = 30_000 } = {}) {
 	const timeline = report?.timeline ?? report;
-	if (!timeline || !Array.isArray(timeline.milestones)) return { known: false, targets: Object.fromEntries(targets.map(t => [t, null])), deaths: null };
+	// A game that failed before any gameplay was observed still writes a report, with a fallback timeline of unreached
+	// milestones and no deaths: it is unknown, never an unplayed 0.
+	const unplayed = report?.measurementStatus === 'UNAVAILABLE' || (timeline && !Number.isFinite(timeline.startedAt));
+	if (!timeline || !Array.isArray(timeline.milestones) || unplayed) return { known: false, targets: Object.fromEntries(targets.map(t => [t, null])), deaths: null };
 	const byId = new Map(timeline.milestones.map(m => [m.id, m]));
 	const result = {};
 	const inherited = [];

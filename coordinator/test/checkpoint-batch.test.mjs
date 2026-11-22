@@ -39,7 +39,7 @@ test('checkpoint batch picks the waiting arm of a started repeat first, then req
 });
 
 test('checkpoint batch scores earned targets only, keeps inherited and missing ones unknown, and counts deaths', () => {
-	const report = { timeline: { playedMs: 5_400_000, stopReason: 'WALL_CLOCK_BUDGET', milestones: [
+	const report = { timeline: { startedAt: 1_795_290_758_148, playedMs: 5_400_000, stopReason: 'WALL_CLOCK_BUDGET', milestones: [
 		{ id: 'fortress', reached: true, elapsedMs: 1_800_000 }, { id: 'blaze_rod', reached: false, elapsedMs: null }, { id: 'iron_pickaxe', reached: true, elapsedMs: 1000 },
 	], deaths: [{ cause: 'lava' }], unexplainedDeaths: 1 } };
 	const score = scoreGame(report, ['fortress', 'blaze_rod', 'iron_pickaxe']);
@@ -47,6 +47,11 @@ test('checkpoint batch scores earned targets only, keeps inherited and missing o
 	assert.deepEqual(score.inherited, ['iron_pickaxe']);
 	assert.equal(score.deaths, 2);
 	assert.deepEqual(scoreGame(null, ['fortress']), { known: false, targets: { fortress: null }, deaths: null });
+	// A game that failed before any gameplay was observed: run-long's fallback timeline has every milestone unreached, no
+	// deaths and no start. It is unknown, not a played game with 0 targets and 0 deaths.
+	const fallback = { measurementStatus: 'UNAVAILABLE', timeline: { startedAt: null, milestones: [{ id: 'fortress', reached: false, elapsedMs: null }], deaths: [] } };
+	assert.equal(scoreGame(fallback, ['fortress']).known, false);
+	assert.equal(scoreGame({ ...fallback, measurementStatus: 'INCOMPLETE' }, ['fortress']).known, false);
 	const games = [{ savepoint: 'nether', arm: 'main', state: 'done', score }, { savepoint: 'nether', arm: 'main', state: 'lost', score: scoreGame(null, ['fortress', 'blaze_rod']) }];
 	const row = summarize(games, plan()).find(r => r.savepoint === 'nether' && r.arm === 'main');
 	assert.deepEqual([row.games, row.known, row.lost, row.targets.fortress.reached, row.targets.fortress.of, row.deaths], [2, 1, 1, 1, 1, 2]);
