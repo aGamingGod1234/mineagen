@@ -25,22 +25,33 @@ public final class EscapeMoves {
 		Result tick(ServerPlayer player, Consumer<AgentInputState> input);
 	}
 
-	/** Swim to the nearest breathable cell the player has seen; with none, rise holding jump with the view tilted up. */
+	/**
+	 * Swim to the nearest breathable cell the player has seen; under a seen ceiling with none, duck out beside it (the
+	 * reflex's duck-out, travel's PEEK); with neither, rise holding jump with the view tilted up.
+	 */
 	public static Move swimUp() {
 		Move swim = adapt(new ReflexActions.SwimUp(), null);
 		// The reflex's blind rise (no seen air) holds jump with no progress check; under a roof it would hold until the air
-		// ran out. Here the eyes must rise half a block in every 2 s, or the move hands the choice back.
-		double[] mark = {Double.NaN};
+		// ran out. Here the eyes must rise or move across half a block in every 2 s (ducking out from under a ledge moves
+		// across, not up), or the move hands the choice back.
+		double[] mark = {Double.NaN, 0.0D, 0.0D};
 		int[] ticks = {0};
 		return (player, input) -> {
 			double eye = player.getEyeY();
-			if (Double.isNaN(mark[0])) mark[0] = eye;
+			if (Double.isNaN(mark[0])) { mark[0] = eye; mark[1] = player.getX(); mark[2] = player.getZ(); }
 			if (++ticks[0] % BLIND_WINDOW_TICKS == 0) {
-				if (eye - mark[0] < BLIND_MIN_RISE && ReflexActions.airRoute(player) == null) return new Result(Status.FAILED, "not rising toward air (no seen air route, under 0.5 blocks in 2 s)");
-				mark[0] = eye;
+				if (!madeWay(eye - mark[0], Math.hypot(player.getX() - mark[1], player.getZ() - mark[2])) && ReflexActions.airRoute(player) == null) {
+					return new Result(Status.FAILED, "not getting toward air (no seen air route, under 0.5 blocks up or across in 2 s)");
+				}
+				mark[0] = eye; mark[1] = player.getX(); mark[2] = player.getZ();
 			}
 			return swim.tick(player, input);
 		};
+	}
+
+	/** A blind swim's 2 s window made way: the eyes rose, or the body moved across (out from under a ledge), half a block. */
+	static boolean madeWay(double rise, double across) {
+		return rise >= BLIND_MIN_RISE || across >= BLIND_MIN_RISE;
 	}
 
 	static final int BLIND_WINDOW_TICKS = 40;

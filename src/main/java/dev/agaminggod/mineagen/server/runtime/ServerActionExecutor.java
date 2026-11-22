@@ -950,7 +950,7 @@ public final class ServerActionExecutor {
 			case ESCAPE -> ActiveAction.controller(request, player, new dev.agaminggod.mineagen.server.runtime.controller.ServerEscapeController(
 					integer(arguments, "timeoutMs"), GameClock.nowMs(), escapeEnvironment(request)));
 			case BARTER_UNTIL -> ActiveAction.controller(request, player, new ServerBarterController(
-					string(arguments, "itemId"), integer(arguments, "count"), integer(arguments, "timeoutMs"), GameClock.nowMs()));
+					string(arguments, "itemId"), integer(arguments, "count"), integer(arguments, "timeoutMs"), GameClock.nowMs(), barterEnvironment(request)));
 			// Turns over a few ticks like a player instead of snapping; finishes on the exact lookAt rotation.
 			case LOOK_AT -> ActiveAction.controller(request, player, new ServerLookController(new Vec3(
 					number(arguments, "x"),
@@ -1959,6 +1959,35 @@ public final class ServerActionExecutor {
 			}
 			public Vec3 aim(ServerPlayer body, BlockPos at, Direction face, String itemId) { return shelterEnvironment(parent, itemId).aim(body, at, face); }
 			public String place(ServerPlayer body, BlockPos at, Direction face, String itemId) { return shelterEnvironment(parent, itemId).place(body, at, face); }
+		};
+	}
+
+	/** barter_until's hands: the craft transaction (gold blocks or nuggets into ingots) and placing a carried table. */
+	private ServerBarterController.Environment barterEnvironment(ServerActionRequest parent) {
+		return new ServerBarterController.Environment() {
+			public dev.agaminggod.mineagen.server.runtime.controller.ServerController craft(ServerPlayer body, String recipeId, int count, BlockPos table, long timeoutMs) {
+				JsonObject args = new JsonObject();
+				args.addProperty("recipeId", recipeId); args.addProperty("count", count); args.addProperty("timeoutMs", timeoutMs);
+				if (table != null) { args.addProperty("x", table.getX()); args.addProperty("y", table.getY()); args.addProperty("z", table.getZ()); }
+				ServerActionRequest internal = new ServerActionRequest(parent.agentId(), parent.goalRevision(), parent.actionId(),
+						table == null ? ActionType.CRAFT_INVENTORY : ActionType.CRAFT_TABLE, args, parent.provenance(), parent.traceId());
+				ActiveAction craft = ActiveAction.transaction(internal, body, advancedInteractions.begin(body, internal, args));
+				if (table != null) craft.transactionAimTarget = () -> TargetSightline.block(body, table, null);
+				return new dev.agaminggod.mineagen.server.runtime.controller.ServerController() {
+					public TickResult tick(ServerPlayer player, long now) {
+						ServerActionResult result = craft.tick(now);
+						if (result == null) return TickResult.running(0.0D);
+						craft.cleanup();
+						return result.state() == ServerActionState.SUCCEEDED ? TickResult.succeeded(result.reasonCode(), result.message())
+								: TickResult.failed(result.reasonCode(), result.message(), 0.0D);
+					}
+					public void cancel(ServerPlayer player) { craft.cancel("Barter ended"); }
+				};
+			}
+			public String place(ServerPlayer body, BlockPos at, Direction face, String itemId) {
+				try { return shelterEnvironment(parent, itemId).place(body, at, face); }
+				catch (AgentDomainException refused) { return refused.getMessage(); }
+			}
 		};
 	}
 
@@ -3690,6 +3719,9 @@ public final class ServerActionExecutor {
 				long accepted = Math.max(0L, AgentInputRuntime.controller(player).acceptedUses(request.agentId()) - useAcceptedBaseline);
 				if (useElapsedTicks >= useDurationTicks || useOnce && accepted > 0) {
 					if (!useStartObserved) useFoodRefusal = fullHungerRefusal(player, useHand);
+					// A block or entity in reach takes the click before the held item (a door opens, a villager trades): the
+					// receipt names it, so a throw it took is not read as thrown. Read before the release, which clears it.
+					String takenBy = accepted > 0 ? AgentInputRuntime.controller(player).lastAcceptedUseTarget(request.agentId()) : null;
 					releaseInput();
 					if (bucketRay != null) {
 						ItemStack after = player.getItemInHand(useHand);
@@ -3707,7 +3739,8 @@ public final class ServerActionExecutor {
 					return accepted > 0
 							? result(ServerActionState.SUCCEEDED, "USE_INPUT_CONFIRMED",
 									useFeedback("Held use for " + useElapsedTicks + " server ticks; accepted interactions=" + accepted
-											+ ", using state observed=" + useStartObserved + ", input released=true; downstream effects are unconfirmed",
+											+ ", using state observed=" + useStartObserved + ", input released=true; downstream effects are unconfirmed"
+											+ (takenBy == null ? "" : "; the click went to " + takenBy + ", not to the held item in the air"),
 											useFoodRefusal, useStartObserved), now)
 							: result(ServerActionState.FAILED, "USE_NOT_ACCEPTED", Objects.requireNonNullElse(
 									useFoodRefusal, "Held use input was released without an accepted vanilla interaction"), now);

@@ -3,7 +3,7 @@
 // 4-high pillar the body cannot reach, and a calm one on the open floor. Each trial runs one production fight_until
 // (enderman until one more ender pearl, 120 s) and counts the sword approaches that ended unreachable, the kills and the
 // time to the first pearl. The switch is on by default; SKIP_UNREACHABLE=0 starts the server with it off, the control arm.
-// A trial passes when the pillar enderman was provoked, the reachable one was killed, at most 3 approaches ended
+// A trial passes when the pillar enderman was provoked, the reachable one was killed (or the pillar one, drawn down), at most 3 approaches ended
 // unreachable and the body lived: the switch-on bar. The pearl is recorded, not judged (a kill drops 0 or 1, vanilla). Run the switch-off control with --descriptive (it is pinned and fails the bar).
 // Exit (strict, the default): 0 all passed, 1 a trial failed, 2 invalid evidence (an error or missing trials).
 // FIXTURE_TICK_RATE runs each trial faster: the room is built at 20 TPS, and from the provoking stare to the end of the
@@ -138,7 +138,10 @@ try {
 			pillarStillOnPillar: pillarLeft, keptOn: Number(/kept on (\d+) that left reach/.exec(message)?.[1] ?? 0),
 			passedOver: Number(/out of reach: passed over (\d+)/.exec(message)?.[1] ?? 0), healthEnd: await health().catch(() => null), message: message.slice(0, 1600), ...play };
 		if (result.state === 'ERROR') row.error = `fight_until never returned: ${result.message}`;
-		row.pass = row.provoked && row.groundKilledS !== null && row.unreachableApproaches <= 3 && row.healthEnd > 0;
+		// A kill counts on either enderman: drawing the pillar one down and killing it is what a player does too (the bot
+		// backs off until it teleports across). Pinned on it (more than 3 approaches out of reach) still fails.
+		row.killedPillar = row.kills >= 1 && pillarLeft === false;
+		row.pass = row.provoked && (row.groundKilledS !== null || row.killedPillar) && row.unreachableApproaches <= 3 && row.healthEnd > 0;
 		trials.push(row);
 		console.log(`[unreachable] ${on ? 'on' : 'off'} #${trial}: ${row.reasonCode} in ${seconds} s, unreachable approaches ${row.unreachableApproaches}, kills ${row.kills}, ground killed at ${groundKilledS} s, pearls ${gained}, first pearl ${row.firstPearlS} s`);
 		await writeFile(path.join(out, 'trials.json'), JSON.stringify(trials, null, 1));

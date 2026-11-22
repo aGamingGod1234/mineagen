@@ -30,8 +30,8 @@ public final class AgentRosterGridLayoutVerification {
 		assertEquals(1, single.pageSize(), "single roster exposes its only entry");
 		assertEquals(240, single.tileWidth(), "single tile width is enlarged but concise");
 		assertEquals(72, single.tileHeight(), "single tile height remains a concise enlarged target");
-		assertEquals(new AgentRosterGridLayout.Bounds(130, 64, 370, 136), single.gridBounds(),
-				"single tile is centered in the roster region");
+		assertEquals(new AgentRosterGridLayout.Bounds(0, 0, 240, 72), single.gridBounds(),
+				"single tile starts at the top-left of the roster region");
 		assertEquals(single.gridBounds(), single.tileBounds(0), "single tile consumes its active grid bounds");
 		return 13;
 	}
@@ -43,7 +43,7 @@ public final class AgentRosterGridLayoutVerification {
 		assertEquals(418, below.gridBounds().width(),
 				"integer-pixel two-column grid consumes its centered usable width exactly");
 		assertEquals(64, below.tileHeight(), "multi-entry tile height stays below the card-like cap");
-		assertEquals(58, below.gridBounds().top(), "capped two-column grid is vertically centered");
+		assertEquals(0, below.gridBounds().top(), "capped two-column grid starts at the top of its region");
 		assertEquals(6, below.tileBounds(1).left() - below.tileBounds(0).right(),
 				"horizontal tile gap is exactly six pixels");
 
@@ -75,10 +75,10 @@ public final class AgentRosterGridLayoutVerification {
 		AgentRosterGridLayout paged = AgentRosterGridLayout.calculate(0, 0, 420, 102, 9);
 		assertTrue(paged.hasPager(), "pager is reserved when one more entry cannot fit");
 		assertEquals(18, paged.pagerBounds().height(), "pager height is exactly eighteen pixels");
-		assertEquals(7, paged.gridBounds().top(),
-				"capped grid is centered in the region above the pager reserve");
-		assertEquals(7, paged.pagerBounds().top() - 6 - paged.gridBounds().bottom(),
-				"capped grid leaves balanced space before the six-pixel pager reserve");
+		assertEquals(0, paged.gridBounds().top(),
+				"capped grid starts at the top of the region above the pager reserve");
+		assertEquals(14, paged.pagerBounds().top() - 6 - paged.gridBounds().bottom(),
+				"the pager stays bottom-aligned below a top-aligned grid");
 		assertEquals(1, paged.rows(), "row capacity is recalculated after pager reservation");
 		assertEquals(4, paged.pageSize(), "recalculated pager page exposes one readable row");
 
@@ -86,10 +86,10 @@ public final class AgentRosterGridLayoutVerification {
 		assertTrue(compact.hasPager(), "compact overflowing roster reserves its pager");
 		assertEquals(1, compact.rows(), "compact roster drops a row before shrinking below 48 pixels");
 		assertEquals(64, compact.tileHeight(), "remaining compact row respects the concise tile-height cap");
-		assertEquals(16, compact.gridBounds().top(),
-				"compact active grid is vertically centered above its bottom-aligned pager");
-		assertEquals(16, compact.pagerBounds().top() - 6 - compact.gridBounds().bottom(),
-				"compact active grid keeps balanced breathing room above the pager reserve");
+		assertEquals(0, compact.gridBounds().top(),
+				"compact active grid starts at the top above its bottom-aligned pager");
+		assertEquals(32, compact.pagerBounds().top() - 6 - compact.gridBounds().bottom(),
+				"compact pager stays bottom-aligned below the grid");
 		assertEquals(2, compact.pageSize(), "compact page size follows the reduced readable row count");
 
 		AgentRosterGridLayout many = AgentRosterGridLayout.calculate(0, 0, 420, 300, 80);
@@ -110,15 +110,17 @@ public final class AgentRosterGridLayoutVerification {
 		AgentControlLayout mediumShell = AgentControlLayout.calculate(700, 360);
 		AgentRosterGridLayout medium = fromCanvas(mediumShell, 16);
 		assertEquals(4, medium.columns(), "700 by 360 canvas uses four roster columns");
-		assertEquals(4, medium.rows(), "700 by 360 canvas fits four readable roster rows");
-		assertTrue(!medium.hasPager(), "700 by 360 canvas needs no pager for sixteen entries");
+		assertEquals(3, medium.rows(), "700 by 360 overview fits three readable rows under its title and filters");
+		assertTrue(medium.hasPager(), "700 by 360 overview pages sixteen entries: twelve per page plus a pager");
+		assertEquals(12, medium.pageSize(), "700 by 360 overview shows twelve agents per page");
 		assertTrue(medium.tileWidth() >= 24 && medium.tileHeight() >= 48,
 				"700 by 360 tiles meet the readable target contract");
 
 		AgentControlLayout compactShell = AgentControlLayout.calculate(320, 240);
 		AgentRosterGridLayout compact = fromCanvas(compactShell, 16);
 		assertEquals(2, compact.columns(), "320 by 240 canvas switches to two roster columns");
-		assertEquals(1, compact.rows(), "320 by 240 canvas favors one readable row with paging");
+		assertEquals(2, compact.rows(), "320 by 240 overview fits two readable rows under its filters");
+		assertEquals(4, compact.pageSize(), "320 by 240 overview shows four agents per page");
 		assertTrue(compact.hasPager(), "320 by 240 canvas pages the sixteen-entry roster");
 		assertTrue(compact.tileWidth() >= 24 && compact.tileHeight() >= 48,
 				"320 by 240 tiles meet the readable target contract");
@@ -269,10 +271,11 @@ public final class AgentRosterGridLayoutVerification {
 		return 18;
 	}
 
+	/** The roster region the live overview uses: below the page title, and below the filters once they show. */
 	private static AgentRosterGridLayout fromCanvas(AgentControlLayout shell, int totalEntries) {
-		return AgentRosterGridLayout.calculate(
-				shell.canvasLeft(), shell.contentTop(), shell.canvasRight(), shell.contentBottom(), totalEntries
-		);
+		AgentControlLayout.Bounds region = AgentControlScreen.overviewRosterBounds(
+				shell, AgentControlLayout.rosterFiltersVisible(totalEntries));
+		return AgentRosterGridLayout.calculate(region.left(), region.top(), region.right(), region.bottom(), totalEntries);
 	}
 
 	private static void expectFailure(Runnable operation, String label) {
