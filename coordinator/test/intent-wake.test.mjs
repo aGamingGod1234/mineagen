@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { LiveTaskViews } from '../src/live-task-view.mjs';
 import { skillFitsLine, SKILL_FITS_BYTES } from '../src/skill-fits.mjs';
 import { workNotices } from '../src/work-notices.mjs';
+import { needResources } from '../src/need-sources.mjs';
 import { buildNativeEventInput } from '../src/dynamic-main.mjs';
 import { ModelObservationViews, encodeNativeEventInput, decodeModelFacts } from '../src/model-fact-encoding.mjs';
 
@@ -84,6 +85,9 @@ test('iron-step anchors name the ore and break_block only with a live suitable c
  await v.observe(rec, o);
  await plan(v, rec, [step('iron', 'tool:pickaxe:iron+')]);
  assert.match(v.skillLine(rec), /break_block.*for iron/);
+ // The dig/travel sighting wake reads the same needs: an unmet iron pickaxe is iron to stop for, a has: term alone is not.
+ assert.equal(v.openNeeds(rec, { frame: true }).some(n => n.id === 'minecraft:iron_ingot'), false);
+ assert.deepEqual(needResources(v.toolNeeds(rec).map(n => n.id)), ['iron']);
 });
 
 test('distant owned stations share one portability notice; crafting an inferior tool reports usable higher gear in wakes and action results', () => {

@@ -557,15 +557,24 @@ export class LiveTaskViews {
  }
  /** One goal skill whose preconditions hold now (skill-fits.mjs), from the plan's open counted needs; null otherwise. */
  skillLine(record) {
-  const needs = this.openNeeds(record, { frame: true });
+  const needs = this.toolNeeds(record);
   const state = this.#state(record), { known } = this.#memory(record, state);
+  if (!needs.length) return null;
+  return skillFitsLine({ observation: state.observation, needs, sightings: (known?.sightings ?? []).map(row => ({ ...row, kind: sightingKind(row) })), lavaPools: state.known.lavaPools ?? [] });
+ }
+ /**
+  * openNeeds with frame:true, plus the iron an unmet tool:pickaxe:iron+ on the next unfinished step still needs
+  * (openNeeds counts has: terms only). The skill line and the dig/travel sighting wake read the same list.
+  */
+ toolNeeds(record) {
+  const needs = this.openNeeds(record, { frame: true });
+  const state = this.#state(record);
   const step = firstUnfinished(state);
   if (step?.check && /tool:pickaxe:iron\+/.test(step.check) && !needs.some(n => n.id === 'minecraft:iron_ingot')) {
    const result = evaluatePlanCheck('tool:pickaxe:iron+', state.observation, state.known);
    if (result.ok === false) needs.unshift({ id: 'minecraft:iron_ingot', have: 0, need: 3, step: step.id });
   }
-  if (!needs.length) return null;
-  return skillFitsLine({ observation: state.observation, needs, sightings: (known?.sightings ?? []).map(row => ({ ...row, kind: sightingKind(row) })), lavaPools: state.known.lavaPools ?? [] });
+  return needs;
  }
  /**
   * The plan's open counted needs in plan order (the next unfinished step first): { id, have, need, step, label } for

@@ -1241,9 +1241,9 @@ export class DynamicCoordinator extends EventEmitter {
 					// Only a sample the step would fold (an ordinary trigger, no failure owed): danger keeps its own path.
 					const needSighting = step === null || !SIGHTING_STEPS.has(step) || !stepFolds(step, attention, observation) || failureSteerOwed ? null
 						: this.#nativeRuntime.stepNeedSighting(record, observation, () => {
-							// The plan's open needs (a frame still to cast counts as obsidian); without a plan, what the goal itself
-							// asks to acquire ("get iron").
-							const names = needResources(this.#taskViews.openNeeds(record, { frame: true }).map((need) => need.id));
+							// The plan's open needs (a frame still to cast counts as obsidian, an unmet iron pickaxe as iron); without a
+							// plan, what the goal itself asks to acquire ("get iron").
+							const names = needResources(this.#taskViews.toolNeeds(record).map((need) => need.id));
 							return sightingNeeded(names.length ? names : textResources(record.currentGoal ?? ''));
 						});
 					if (needSighting !== null) {
