@@ -396,4 +396,11 @@ test('game facts review cases: a sample-only death is measured from the dead sam
 	const [lost] = portal.finish({ startedAt: 0, deaths: [{ at: 10_000, damageType: 'minecraft:fall' }] }).deaths;
 	assert.equal(lost.fall, null);
 	assert.equal(lost.respawn.secondsAfterDeath, 3, 'the living sample whose counter stepped is the respawn');
+	// Two deaths with no sample between them: the second death's respawn is not the first one's.
+	const twice = gameFacts();
+	twice.sample({ at: 5000, health: 20, deathCounter: 0, dimension: 'minecraft:overworld', position: { x: 0, y: 64, z: 0 } });
+	twice.sample({ at: 14_000, health: 20, deathCounter: 2, dimension: 'minecraft:overworld', position: { x: 0, y: 64, z: 0 } });
+	const [a, b] = twice.finish({ startedAt: 0, deaths: [{ at: 10_000, damageType: 'minecraft:fall' }, { at: 11_000, damageType: 'minecraft:fall' }] }).deaths;
+	assert.equal(a.respawn, null);
+	assert.equal(b.respawn.secondsAfterDeath, 3);
 });

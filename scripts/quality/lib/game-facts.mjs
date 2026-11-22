@@ -69,7 +69,7 @@ export function describeDeaths(deaths, { trails = [], samples = [], startedAt = 
 		const top = fallTop(points, position?.y);
 		// The respawn is the first living sample after the body was seen dead (or after its death counter stepped).
 		// A living sample whose death counter stepped is already the respawned body.
-		const step = dead ? null : samples.find((s) => s.at >= death.at && stepped(s)) ?? null;
+		const step = dead ? null : samples.find((s) => s.at >= death.at && (!finite(death.nextAt) || s.at < death.nextAt) && stepped(s)) ?? null;
 		const deadAt = dead?.at ?? step?.at ?? null;
 		const respawn = step?.health > 0 ? step : finite(deadAt) ? samples.find((s) => s.at > deadAt && s.at > death.at && s.health > 0 && (!finite(death.nextAt) || s.at < death.nextAt)) ?? null : null;
 		const fallDistance = before.filter((s) => s.dimension === dimension).reduce((m, s) => finite(s.fallDistance) ? Math.max(m ?? 0, s.fallDistance) : m, null);
