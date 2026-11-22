@@ -99,6 +99,28 @@ test('one course that errored leaves the other courses in its room judged on the
 		assert.deepEqual(merged.new.summary.rooms.map(room => `${room.name} ${room.verdict}`), ['a PASS', 'b PASS', 'c PASS', 'd INVALID']);
 		assert.equal(merged.new.summary.status, 'INVALID', 'the arm still reads INVALID: rerun the course that never played');
 		assert.equal(armTotals(merged.new).pass, 3);
+		// The AI-room report reads the same room the same way.
+		const { roomArmRows } = await import('../../scripts/quality/ai-room-report.mjs');
+		assert.deepEqual((await roomArmRows(dir)).map(row => roomVerdict(row).verdict), ['PASS', 'PASS', 'PASS', 'INVALID']);
+	} finally { await rm(out, { recursive: true, force: true }); }
+});
+
+test('a room that wrote fewer rows than it planned counts its missing rows itself, whatever another room wrote', async () => {
+	const out = await mkdtemp(path.join(os.tmpdir(), 'travel-rows-missing-'));
+	try {
+		const rooms = parseCommands(`@over ${LINE}\n@short ${LINE}`, ['new']);
+		const write = async (name, runs, planned) => {
+			const dir = path.join(out, 'rooms', name, 'new');
+			await mkdir(dir, { recursive: true });
+			await finishRun(runs.map(run => travelRow(run)), { file: path.join(dir, 'result.json'), planned, setExitCode: false });
+		};
+		await write('over', [course('a'), course('b'), course('c')], 2);
+		await write('short', [course('d'), course('e'), course('f')], 4);
+		const outcomes = ['over', 'short'].map(name => ({ room: name, lost: false, worker: 'vm1', attempts: 1, arms: { new: { exit: 0, seconds: 60 } } }));
+		const merged = await mergeArms({ out, rooms, arms: ['new'], outcomes });
+		assert.equal(merged.new.summary.invalid, 1, 'short: course 4 of 4 never written');
+		assert.equal(merged.new.summary.status, 'INVALID');
+		assert.match(merged.new.summary.rooms.at(-1).reason, /planned row 4 of 4 never written/);
 	} finally { await rm(out, { recursive: true, force: true }); }
 });
 

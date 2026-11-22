@@ -230,6 +230,12 @@ export async function mergeArms({ out, rooms, arms, outcomes }) {
 				rows.push({ name: room.room, room: room.room, host: outcome.worker ?? null, attempts: outcome.attempts ?? 0, cantKeepUp: run.cantKeepUp ?? null,
 					pass: false, error: roomInvalid, integrity: roomFlags, startedAt: null, finishedAt: null, deaths: null, damageTaken: null });
 			}
+			// Rows the room planned but never wrote are INVALID rows of that room, as collectRuns counts them, so another
+			// room's extra rows can never make up for them in the arm's count.
+			if (!roomInvalid && !outcome.lost && ownValid) for (let i = roomRows.length; i < own.planned; i++) {
+				rows.push({ name: `${room.room} row ${i + 1}`, room: room.room, host: outcome.worker ?? null, attempts: outcome.attempts ?? 0, cantKeepUp: run.cantKeepUp ?? null,
+					pass: false, error: `planned row ${i + 1} of ${own.planned} never written`, integrity: roomFlags, startedAt: null, finishedAt: null, deaths: null, damageTaken: null });
+			}
 			perRoom.push({ room: room.room, lost: !!outcome.lost, reason: outcome.reason ?? null, rows: roomRows.length, planned: roomPlanned, exit: run.exit ?? null, seconds: run.seconds ?? null, timedOut: !!run.timedOut, cantKeepUp: run.cantKeepUp ?? null });
 		}
 		await mkdir(path.join(out, arm), { recursive: true });
