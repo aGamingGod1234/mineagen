@@ -13,8 +13,8 @@
 //            under the shaft): afloat with the feet in the lake's top cell and the head in the shaft; 16 cobblestone and
 //            an iron pickaxe. The only air is the shaft. Pass: dry footing out of the water.
 //   skeleton the body on open ground with an offhand shield, a skeleton 10 blocks east, a 3x3 stone wall 3 blocks west.
-//   pitskel  the playtest's cave death: a hole 2 deep at 7 health, cobblestone and a stone sword, a bow skeleton at the rim
-//            beside it. Pass: alive, and out of the hole or the skeleton dead, within 40 s.
+//   pitskel  the playtest's cave death: a hole 2 deep and 2 wide at 7 health, cobblestone and a stone sword, a bow skeleton
+//            in the hole beside the body. Pass: alive, and out of the hole or the skeleton dead, within 40 s.
 //   pitcreeper the hole 4 deep with a stone pickaxe only (stairs up) and a creeper on the surface 7 blocks away: out
 //            alive within 60 s; damage and deaths are read too (climbing on must not trade a stop for a blast).
 // Optional regressions (escape jar): archer-direction puts a nearer zombie west of the body and a skeleton east.
@@ -143,7 +143,8 @@ try {
 			await s.command(`item replace entity ${NAME} hotbar.1 with minecraft:iron_pickaxe 1`);
 		} else if (room === 'pitskel') {
 			// The playtest's cave death: a hole 2 deep at 7 health, blocks and a sword carried, a skeleton at the rim beside it.
-			await s.command(`fill ${X} ${F - 2} ${Z} ${X} ${F - 1} ${Z} minecraft:air`);
+			// Two cells wide: the skeleton stands in the hole beside the body, 1 block away, as in the playtest's cave.
+			await s.command(`fill ${X} ${F - 2} ${Z} ${X + 1} ${F - 1} ${Z} minecraft:air`);
 			start = [X + 0.5, F - 2, Z + 0.5];
 			await s.command(`item replace entity ${NAME} hotbar.0 with minecraft:cobblestone 16`);
 			await s.command(`item replace entity ${NAME} hotbar.1 with minecraft:stone_sword 1`);
@@ -206,7 +207,7 @@ try {
 		if (room === 'pitskel') {
 			await s.command('difficulty normal');
 			await s.command(`damage ${NAME} 13 minecraft:generic`);
-			await s.command(`summon minecraft:skeleton ${X + 1.5} ${F} ${Z + 0.5} {PersistenceRequired:1b,equipment:{mainhand:{id:"minecraft:bow",count:1}}}`);
+			await s.command(`summon minecraft:skeleton ${X + 1.5} ${F - 2} ${Z + 0.5} {PersistenceRequired:1b,equipment:{mainhand:{id:"minecraft:bow",count:1}}}`);
 			await sleep(500);
 		}
 		if (room === 'skeleton') {
