@@ -4,6 +4,7 @@
 // Choices between ways are by a rough cost in body time: a log is cheap, an ore found by digging is dear, a tool not yet
 // held adds its own cost, a block in view is cheaper than one to search for.
 import { howtoIndex, resolveHowtoTopic } from './howto.mjs';
+import { chestYield, lootYields } from './loot-sources.mjs';
 
 // Stations the body can use: crafting in the inventory grid or at a table, smelting in a furnace. Blast furnaces,
 // smokers and campfires smelt the same things slower or need more, stonecutters and smithing are out of scope.
@@ -40,9 +41,23 @@ const SEEN_FACTOR = 0.4;
 const WORN_USES = 3;
 const SPARE_STICKS = 8;
 const STATION_COST = { crafting_table: 1.5, furnace: 9 };
+// Loot (loot-sources.mjs): a cost unit is about 5 s of body time (a log is 1, an unseen iron ore 8). A walk covers about
+// 20 blocks in that time; opening a chest and taking from it is about 3 s; finding a chest not yet seen inside a
+// structure (looking into its houses or rooms) about 10 s. A visit's cost spreads over the mean count it yields.
+const WALK_BLOCKS = 20;
+const OPEN_COST = 0.6;
+const FIND_CHEST_COST = 2;
+// Mobs a world builds rather than spawns (iron golems): a way only once seen here, and only with the gear to win the
+// fight, priced by the fight. A golem has 100 health (five zombies) and hits for 7-21, so melee without iron armour and
+// an iron weapon is a death, never a way; it drops 3-5 iron ingots.
+const BUILT_MOBS = {
+	iron_golem: { kill: HOSTILE_KILL * 5, drops: { iron_ingot: 4 }, ready: (gear) => gear.armor >= 15 && gear.weapon >= TOOL_TIERS.indexOf('iron') },
+};
+const TOOL_TIERS = ['wooden', 'golden', 'stone', 'copper', 'iron', 'diamond', 'netherite'];
 
 export const OBTAIN_STATIONS = Object.freeze(['crafting_table', 'furnace']);
 const EQUIPMENT = /_(pickaxe|shovel|axe|hoe|sword|spear|helmet|chestplate|leggings|boots|horse_armor|nautilus_armor)$/;
+const NO_GEAR = Object.freeze({ armor: 0, weapon: -1 });
 const short = (id) => String(id ?? '').replace(/^(#?)minecraft:/, '$1');
 const full = (id) => `minecraft:${short(id)}`;
 
@@ -100,8 +115,9 @@ export function keepPickaxeMakings(held, ids = [], index = howtoIndex()) {
  * planner; a value reached through a cycle is not memoized.
  */
 class Costs {
-	constructor(index, held, seen, dimension) {
+	constructor(index, held, seen, dimension, loot = [], gear = NO_GEAR, yields = null) {
 		this.index = index; this.held = held; this.seen = seen; this.dimension = short(dimension); this.memo = new Map();
+		this.loot = loot; this.gear = gear; this.yields = yields;
 	}
 
 	members(spec) {
@@ -150,6 +166,12 @@ class Costs {
 		for (const [mob, flags] of this.index.mobDrops[id] ?? []) {
 			// A mob is a way where it spawns (cows only in the Overworld). Outside the Overworld only the eye hunts count: a
 			// coal or gold plan must not send the body after wither skeletons, ghasts or piglins.
+			const built = BUILT_MOBS[mob];
+			if (built) {
+				if (!this.seen.has(mob) || !built.ready(this.gear) || !(built.drops[id] > 0)) continue;
+				consider({ kind: 'kill', mobs: [mob] }, (built.kill * SEEN_FACTOR) / built.drops[id]);
+				continue;
+			}
 			if (!(this.index.mobSpawns?.[mob] ?? []).some((place) => place.split(' ')[0] === this.dimension)) continue;
 			if (this.dimension !== 'overworld' && !AWAY_KILLS.has(mob)) continue;
 			let cost = HOSTILE.test(mob) ? HOSTILE_KILL : PASSIVE_KILL;
@@ -159,6 +181,18 @@ class Costs {
 			if (this.seen.has(mob)) cost *= SEEN_FACTOR;
 			consider({ kind: 'kill', mobs: [mob] }, cost);
 		}
+		// Chests the body knows of or a structure whose chests it can look for: the walk and the opening, over the mean
+		// count of this item one chest holds. Another way stays in the plan's reach: a chest that lacks it is opened once,
+		// then no longer a source, and the next plan mines.
+		const looted = [];
+		for (const source of this.loot) {
+			const per = chestYield(source.tables, id, this.yields ?? lootYields());
+			if (!(per > 0)) continue;
+			const visit = source.distance / WALK_BLOCKS + OPEN_COST + (source.kind === 'structure' ? FIND_CHEST_COST : 0);
+			looted.push({ source, cost: visit / per });
+		}
+		looted.sort((a, b) => a.cost - b.cost);
+		if (looted.length > 0) consider({ kind: 'loot', sources: looted.map((row) => row.source) }, looted[0].cost);
 		if (!(cycle && best.cost === Infinity)) this.memo.set(id, best);
 		return cycle && best.cost === Infinity ? { cost: Infinity, cycle: true } : best;
 	}
@@ -201,10 +235,12 @@ class Costs {
  *   pickaxe, shield, buckets and flint and steel together, sharing stations, tools and fuel).
  *   held: Map short id -> count. seen: Set of short block/mob ids in view or remembered nearby.
  *   stations: { crafting_table: boolean, furnace: boolean } for one placed within walking reach.
+ *   loot: sources from loot-sources.mjs lootSources (chests known, structures to search), nearest first.
+ *   gear: { armor (points worn), weapon (best sword or axe tier index held, -1 none) } for built-mob fights.
  * Returns { ops, needs, fuel, unreachable }: unreachable lists ids with no way the body can do.
  */
-export function planObtain({ ids, count, also = [] }, { held = new Map(), seen = new Set(), stations = {}, index = howtoIndex(), coalFirst = false, dimension = 'minecraft:overworld', costHeld = held } = {}) {
-	const costs = new Costs(index, costHeld, seen, dimension);
+export function planObtain({ ids, count, also = [] }, { held = new Map(), seen = new Set(), stations = {}, index = howtoIndex(), coalFirst = false, dimension = 'minecraft:overworld', costHeld = held, loot = [], gear = NO_GEAR, yields = null } = {}) {
+	const costs = new Costs(index, costHeld, seen, dimension, loot, gear, yields);
 	const pool = new Map(held);
 	const ops = new Map(), needs = new Map(), unreachable = new Set(), stationNeed = new Set();
 	let smelts = 0;
@@ -221,6 +257,7 @@ export function planObtain({ ids, count, also = [] }, { held = new Map(), seen =
 		const key = `${way.kind}:${[...accept].sort().join(',')}`;
 		const need = needs.get(key) ?? { kind: way.kind, accept: [...new Set(accept)], blocks: [], mobs: [], count: 0, tool: null, chance: false };
 		need.count += n;
+		if (way.sources) need.sources = way.sources;
 		for (const block of way.blocks ?? []) if (!need.blocks.includes(block)) need.blocks.push(block);
 		for (const mob of way.mobs ?? []) if (!need.mobs.includes(mob)) need.mobs.push(mob);
 		if (tool) need.tool = tool;
@@ -241,7 +278,7 @@ export function planObtain({ ids, count, also = [] }, { held = new Map(), seen =
 		if (shortfall === 0) return;
 		// A member made from other members of the same group (oak wood from oak logs) is never a way to the group.
 		const priced = members.map((member) => ({ member, ...costs.of(member, path) })).filter((row) => row.cost < Infinity)
-			.filter((row) => members.length === 1 || row.way.kind === 'mine' || row.way.kind === 'kill' || !row.way.inputs.some(([input]) => costs.members(input).some((m) => members.includes(m))))
+			.filter((row) => members.length === 1 || row.way.kind === 'mine' || row.way.kind === 'kill' || row.way.kind === 'loot' || !row.way.inputs.some(([input]) => costs.members(input).some((m) => members.includes(m))))
 			.sort((a, b) => a.cost - b.cost);
 		if (priced.length === 0) { unreachable.add(spec); return; }
 		const ties = priced.filter((row) => row.cost <= priced[0].cost * 1.25 + 0.01);
@@ -267,7 +304,7 @@ export function planObtain({ ids, count, also = [] }, { held = new Map(), seen =
 			return;
 		}
 		const { member, way } = priced[0];
-		if (way.kind === 'mine' || way.kind === 'kill') {
+		if (way.kind === 'mine' || way.kind === 'kill' || way.kind === 'loot') {
 			addNeed([member], way, shortfall, way.tool);
 			if (way.tool) demandTool(way.tool, path);
 			return;
@@ -320,7 +357,7 @@ export function planObtain({ ids, count, also = [] }, { held = new Map(), seen =
 	// and stations in the cost context, since they are reusable rather than recipe inputs.
 	const alternativeCosts = new Map([...held].filter(([id]) => EQUIPMENT.test(id) || STATIONS.has(id)));
 	if (unreachable.size > 0 && costHeld === held && alternativeCosts.size < held.size) {
-		return planObtain({ ids, count, also }, { held, seen, stations, index, coalFirst, dimension, costHeld: alternativeCosts });
+		return planObtain({ ids, count, also }, { held, seen, stations, index, coalFirst, dimension, costHeld: alternativeCosts, loot, gear, yields });
 	}
 	return { ops: [...ops.values()], needs: [...needs.values()], fuel, unreachable: [...unreachable], tools: [...tools] };
 }

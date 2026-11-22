@@ -2651,6 +2651,8 @@ export class NativeToolRuntime {
 				} catch { /* the sample's own rows still serve */ }
 				return rows;
 			},
+			// The open menu (a chest obtain opened to loot): its identity and slots, one page.
+			menu: async () => this.#inspect({ kind: 'inspect', section: 'menu', offset: 0, limit: 64 }, record, { withSearch: false }),
 			stopped: () => !current(),
 			interrupted,
 			// The fork that stopped this run ({reasonCode, message}), or null for danger: obtain ends with its code.
@@ -2663,9 +2665,11 @@ export class NativeToolRuntime {
 		};
 		// Stations an earlier obtain placed and did not pick up (danger ended it) are this call's to pick up, and the
 		// furnace loads it left smelting are this call's to take out. Flooded approaches share this per-agent ledger.
-		if (!this.#obtainPlaced.has(record.agentId)) this.#obtainPlaced.set(record.agentId, { placed: [], loads: [], approaches: [] });
+		// Chests opened and structures searched for loot (loot-sources.mjs) are kept the same way, so no call loots twice.
+		if (!this.#obtainPlaced.has(record.agentId)) this.#obtainPlaced.set(record.agentId, { placed: [], loads: [], approaches: [], looted: { opened: [], searched: [], structures: [] } });
 		const kept = this.#obtainPlaced.get(record.agentId);
-		const stations = { now: this.#clock.now, placed: kept.placed, loads: kept.loads, approaches: kept.approaches };
+		kept.looted ??= { opened: [], searched: [], structures: [] };
+		const stations = { now: this.#clock.now, placed: kept.placed, loads: kept.loads, approaches: kept.approaches, looted: kept.looted };
 		const result = await runObtain(tool.arguments, body, stations);
 		if (!this.#kitHabit || result?.state !== 'SUCCEEDED' || interrupted() || !current()) return result;
 		// The kit habit (kit-habit.mjs): from what is held, keep a shield, armour and food in reach before handing back.
