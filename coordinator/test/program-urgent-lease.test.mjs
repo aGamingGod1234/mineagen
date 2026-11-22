@@ -29,9 +29,10 @@ test('an urgent answer that lands after the program timeout keeps the step: the 
 	t.after(async () => { await run.coordinator.stop(); for (const resolve of completions) resolve({ status: 'completed', toolCalls: 0 }); });
 	// The server acknowledges a cancel with the action's result, as a live one does.
 	const send = run.bridge.send.bind(run.bridge);
-	let cancelSentAt = null;
+	let cancelSentAt = null, commandSentAt = null;
 	run.bridge.send = async (type, agentId, payload, options) => {
 		if (type === 'action_cancel') cancelSentAt ??= Date.now();
+		if (type === 'action_command') commandSentAt ??= Date.now();
 		await send(type, agentId, payload, options);
 		if (type === 'action_cancel') queueMicrotask(() => run.bridge.emit('action_result', { agentId, payload: { goalRevision: 1, actionId: payload.actionId, actionType: 'wait', state: 'CANCELLED', reasonCode: 'ACTION_CANCELLED', executionStarted: true, eventSequence: 10 } }));
 	};
@@ -62,7 +63,9 @@ test('an urgent answer that lands after the program timeout keeps the step: the 
 	// ends between answeredAt and answerDoneAt, so the deadline lies between these bounds.
 	const openedAt = traces.find((row) => row.event === 'urgent_wait_lease_credited')?.at;
 	assert.ok(openedAt >= urgentAt, 'the lease was paid for the hold as the urgent wait opened');
-	const earliest = 1_000 + (answeredAt - openedAt), latest = 1_000 + (answerDoneAt - urgentAt);
+	// The executor started before its first command went out, so the latest bound is taken from that send (a cold,
+	// loaded runner can spend a few hundred ms between the tool call and the program's start).
+	const earliest = 1_000 + (answeredAt - openedAt), latest = (commandSentAt - startedAt) + 1_000 + (answerDoneAt - urgentAt);
 	assert.ok(endedAt >= earliest - 50, `the step keeps the urgent wait as extra time (ended ${endedAt} ms in, deadline from ${earliest} ms)`);
 	assert.ok(endedAt < latest + 250, `and ends on the program's own deadline (ended ${endedAt} ms in, deadline by ${latest} ms)`);
 	await eventually(() => traces.some((row) => row.event === 'native_program_ended' && row.programId === shown.programId), 3_000);

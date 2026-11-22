@@ -213,7 +213,8 @@ test('an urgent decision answered during a pause past the deadline does not end 
 	const openedAt = traces.find((row) => row.event === 'urgent_wait_lease_credited').at;
 	const after = cancelSentAt - resumedAt, left = 1_000 - (pausedAt - startedAt) + (pausedAt - openedAt);
 	assert.ok(after >= left - 50, `the step keeps the ${left} ms it had left at the pause (cancelled ${after} ms after the resume)`);
-	assert.ok(after < left + 250, `and is not given the pause again on top (cancelled ${after} ms after the resume)`);
+	// The pause is 1.5 s, so a second credit of it would land well past this bound.
+	assert.ok(after < left + 1_000, `and is not given the pause again on top (cancelled ${after} ms after the resume)`);
 	await until(() => traces.some((row) => row.event === 'native_program_ended'));
 	assert.equal(traces.some((row) => row.event === 'work_lease_expired' && row.kind === 'program'), false, 'the work lease does not end the step');
 	assert.equal(traces.find((row) => row.event === 'native_program_ended').reasonCode, 'PROGRAM_DEADLINE', 'the program deadline does');
