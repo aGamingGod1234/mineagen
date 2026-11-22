@@ -90,6 +90,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/quality/stake-ci.mjs --post-status
+      # The gate's own tests: its rules, the commit and push hooks, and the pull request text it reads.
+      - name: Test the publication gate
+        if: steps.changes.outputs.code == 'true'
+        run: node --test scripts/tests/public-export.test.mjs
       - name: Check model-facing contracts
         if: steps.changes.outputs.code == 'true'
         working-directory: coordinator
