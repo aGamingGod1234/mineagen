@@ -556,8 +556,8 @@ public final class AgentCommands {
 			} else {
 				var draft = submission.pendingDraft().orElseThrow();
 				String name = manager(context).displayName(manager(context).registry().require(draft.agentId()));
-				// Not a confirmed result yet: the server may still refuse the draft, so the Control Center keeps its
-				// neutral pending line instead of showing this as a green success.
+				// Not a confirmed result: the server may still refuse the draft, so nothing is recorded for the Control
+				// Center rather than a green success. The draft's later outcome still reaches chat only.
 				String interpreting = "The coordinator is interpreting the goal for " + name
 						+ ". It will " + operationName + " automatically after server validation.";
 				context.getSource().sendSuccess(() -> Component.literal(interpreting), false);

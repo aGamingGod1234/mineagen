@@ -1513,20 +1513,29 @@ public final class AgentControlScreen extends Screen {
 		int headerRoom = Math.max(24, base.contentRight() - headerStatusLeft(base) - 10);
 		if (ConsoleText.width(font, text) <= headerRoom) return List.of();
 		java.util.function.ToIntFunction<String> measure = value -> ConsoleText.width(font, value);
-		return capBannerLines(AgentControlResult.wrap(text, bannerTextWidth(base), measure), height, bannerTextWidth(base), measure);
+		return capBannerLines(AgentControlResult.wrap(text, bannerTextWidth(base), measure), maxBannerLines(width, height),
+				bannerTextWidth(base), measure);
+	}
+
+	/** Bottom of the Manage page's last control row (its three label-and-row groups), the tallest fixed page. */
+	static int manageRowsBottom(AgentControlLayout layout) {
+		return bodyTop(layout) + 3 * (LABEL_HEIGHT + ROW_HEIGHT + FORM_GAP) - FORM_GAP;
 	}
 
 	/**
-	 * Most banner lines a screen this tall can hold without pushing a page's last controls into the footer: 3 from 270
-	 * GUI px, 2 from 240, none below (the header then shows the text shortened, as before the banner existed).
+	 * Most banner lines (up to 3) this screen holds while the Manage page's last row still ends above the footer,
+	 * measured on the real layout. 0 means no banner: the header then shows the text shortened, as before.
 	 */
-	static int maxBannerLines(int screenHeight) {
-		return screenHeight >= 270 ? 3 : screenHeight >= 240 ? 2 : 0;
+	static int maxBannerLines(int screenWidth, int screenHeight) {
+		for (int lines = 3; lines > 0; lines--) {
+			AgentControlLayout with = AgentControlLayout.calculate(screenWidth, screenHeight, bannerInset(lines));
+			if (manageRowsBottom(with) <= with.footerY()) return lines;
+		}
+		return 0;
 	}
 
-	/** {@code lines} within {@link #maxBannerLines}; the last kept line carries the rest, shortened with "...". */
-	static List<String> capBannerLines(List<String> lines, int screenHeight, int width, java.util.function.ToIntFunction<String> measure) {
-		int max = maxBannerLines(screenHeight);
+	/** {@code lines} within {@code max}; the last kept line carries the rest, shortened with "...". */
+	static List<String> capBannerLines(List<String> lines, int max, int width, java.util.function.ToIntFunction<String> measure) {
 		if (lines.size() <= max) return lines;
 		if (max == 0) return List.of();
 		List<String> kept = new java.util.ArrayList<>(lines.subList(0, max - 1));

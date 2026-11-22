@@ -82,7 +82,7 @@ public final class AgentControlLayoutVerification {
 		verifyReviewFixes();
 		verifyStatusBanner();
 		verifyBannerCap();
-		return 51;
+		return 62;
 	}
 
 	/** Pending feedback is neutral, and a long offline reason gets a measured banner that the Now card stays below. */
@@ -126,21 +126,28 @@ public final class AgentControlLayoutVerification {
 		}
 	}
 
-	/** Short screens hold fewer banner lines, so the Task editor and the Manage rows keep clear of the footer. */
+	/** The banner holds only as many lines as keep the Manage page's last row above the footer. */
 	private static void verifyBannerCap() {
 		java.util.function.ToIntFunction<String> measure = text -> text.length() * 6;
 		List<String> four = List.of("one two", "three four", "five six", "seven eight");
-		assertEquals(3, AgentControlScreen.capBannerLines(four, 270, 600, measure).size(),
-				"a 270-tall screen holds three banner lines");
-		List<String> two = AgentControlScreen.capBannerLines(four, 240, 600, measure);
-		assertEquals(List.of("one two", "three four five six seven eight..."), two,
-				"a 240-tall screen holds two lines and the last one carries the rest");
-		assertTrue(AgentControlScreen.capBannerLines(four, 239, 600, measure).isEmpty(),
-				"below 240 the banner gives way to the shortened header line");
-		assertTrue(AgentControlScreen.capBannerLines(four, 240, 60, measure).get(1).length() * 6 <= 60,
+		assertEquals(3, AgentControlScreen.capBannerLines(four, 3, 600, measure).size(), "a cap of three keeps three lines");
+		assertEquals(List.of("one two", "three four five six seven eight..."), AgentControlScreen.capBannerLines(four, 2, 600, measure),
+				"a cap of two keeps two lines and the last one carries the rest");
+		assertTrue(AgentControlScreen.capBannerLines(four, 0, 600, measure).isEmpty(),
+				"a cap of zero gives way to the shortened header line");
+		assertTrue(AgentControlScreen.capBannerLines(four, 2, 60, measure).get(1).length() * 6 <= 60,
 				"a shortened last line still fits its width");
-		assertEquals(four.subList(0, 3), AgentControlScreen.capBannerLines(four.subList(0, 3), 360, 600, measure),
+		assertEquals(four.subList(0, 3), AgentControlScreen.capBannerLines(four.subList(0, 3), 3, 600, measure),
 				"lines within the cap are kept as they are");
+		for (int[] size : new int[][] {{320, 180}, {320, 240}, {427, 240}, {480, 270}, {640, 360}}) {
+			String at = " at " + size[0] + "x" + size[1];
+			int lines = AgentControlScreen.maxBannerLines(size[0], size[1]);
+			assertTrue(lines >= 0 && lines <= 3, "the banner cap stays between 0 and 3" + at);
+			AgentControlLayout withBanner = AgentControlLayout.calculate(size[0], size[1], AgentControlScreen.bannerInset(lines));
+			assertTrue(lines == 0 || AgentControlScreen.manageRowsBottom(withBanner) <= withBanner.footerY(),
+					"under the largest allowed banner the Manage page's last row ends above the footer" + at);
+		}
+		assertTrue(AgentControlScreen.maxBannerLines(640, 360) >= 2, "a 640x360 screen holds a multi-line banner");
 	}
 
 	private static void verifyReviewFixes() {
