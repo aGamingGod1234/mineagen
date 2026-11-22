@@ -85,6 +85,7 @@ import { codedRuntimeError, loadDynamicConfig, normalizeDynamicConfig, parseDyna
 import { createVoiceSupervisor } from './voice-worker.mjs';
 import { blockPosition, classifyObservationTrigger, dangerWakeRank, dangerWakeTrigger, DIMENSION_CHANGED_TRIGGER, factualProgressDetails, factualProgressSignature, finiteOrNull, imminentLavaFlow, inHazardContact, isHazardContactRequest, isSelfPreservationTool, isSurvivalReissueTool, KNOCKBACK_LEAD_MS, KNOCKBACK_SETTLE_MS, knockbackHurt, lavaFlowWakeDue, mergeAttentionTrigger, mergePlannerRequest, movementEvidence, nativeBlockPositionKey, nativeObservationSignature, NO_TASK_WAKE_TRIGGERS, rememberResources, routinePerceptionChange, sampleMovement, settleOwnBreak, startOwnBreak, SURVIVAL_EPISODE_QUIET_MS, SURVIVAL_RESTART_MIN_CALL_AGE_MS, survivalDangerShown, survivalFactKeys, withdrawShovedSteps, withoutOwnSightings } from './observation-facts.mjs';
 import { burnFacts, DANGER_DECISION_TRIGGERS, fightSteerDecision, HEALING_EVENT_TRIGGERS, healingFacts, healNudgeVerdict, healWakeVerdict, isConfirmationContextTool, LOW_HEALTH_RECOVERY_TRIGGERS, rejectionTraceFields } from './danger-lines.mjs';
+import { StepStatusPublisher } from './step-status.mjs';
 import { buildNativeEventInput, CONTEXT_ENTRY_TRIGGER, DEFAULT_TASK_REQUEST_TIMEOUT_MS, NEW_CONTEXT_TRIGGERS, UUID_TEXT } from './wake-input.mjs';
 export { loadDynamicConfig, normalizeDynamicConfig, parseDynamicCliArguments, resolveDynamicCliRuntime } from './dynamic-config.mjs';
 export { createVoiceSupervisor, startVoiceWorker } from './voice-worker.mjs';
@@ -121,6 +122,7 @@ const DEFAULT_MAX_PENDING_AGENT_TRANSACTIONS = 16;
 export class DynamicCoordinator extends EventEmitter {
 	#registry;
 	#taskViews;
+	#stepStatus;
 	#decisionLog;
 	#observedMemory;
 	#scheduler;
@@ -272,6 +274,8 @@ export class DynamicCoordinator extends EventEmitter {
 		this.#observedMemory = occupancy;
 		this.#taskViews = new LiveTaskViews({ directory: memoryDirectory ? path.join(memoryDirectory, 'plans') : null,
 			sources: (record, observation, blockPattern) => occupancy.knownSources(record.agentId, observation, blockPattern), instincts: reflexInstincts });
+		// The player's action bar shows what the step is doing (planning_state.stepStatus); display only.
+		this.#stepStatus = new StepStatusPublisher({ send: (epoch, agentId, payload) => this.#sendForEpoch(epoch, 'planning_state', agentId, payload), line: (record) => this.#taskViews.doingLine(record) });
 		this.#healthRegistry = requireDependency(healthRegistry, 'healthRegistry');
 		this.#latencyRegistry = requireDependency(latencyRegistry, 'latencyRegistry');
 		this.#goalSupervisor = requireDependency(goalSupervisor, 'goalSupervisor');
@@ -1067,6 +1071,7 @@ export class DynamicCoordinator extends EventEmitter {
 				if (worldSignals?.endCrystals != null) observation.endCrystals = worldSignals.endCrystals;
 				// After the world signals, so the plan's stage checks read the same End crystal tally the wake shows.
 				await this.#taskViews.observe(record, observation, wireObservation).catch((error) => this.#writeTrace('task_view_observation_error', { code: error?.code ?? 'PLAN_VIEW_ERROR' }));
+				this.#stepStatus.update(record, connectionEpoch);
 				const classified = classifyObservationTrigger(this.#withoutOwnSightings(record.agentId, this.#withoutSoundOnlyAttention(record.agentId, message.payload, wireObservation), wireObservation), wireObservation, worldSignals);
 				let pendingAttention = this.#pendingAttention.get(record.agentId);
 				if (pendingAttention?.goalRevision === record.goalRevision && pendingAttention.trigger === 'movement_loop') {
@@ -2140,6 +2145,7 @@ export class DynamicCoordinator extends EventEmitter {
 			if (request.preserveState !== true) {
 				if (record.state === DynamicAgentState.STARTING) this.#registry.setState(record.agentId, DynamicAgentState.PLANNING, { goalRevision: record.goalRevision });
 				void this.#sendForEpoch(request.connectionEpoch, 'planning_state', record.agentId, { goalRevision: record.goalRevision, state: DynamicAgentState.PLANNING })
+					.then(() => this.#stepStatus.arm(record, request.connectionEpoch))
 					.catch((error) => this.#reportAgentError(record.agentId, error, request.connectionEpoch));
 			}
 		} catch (error) {
@@ -3156,6 +3162,7 @@ export class DynamicCoordinator extends EventEmitter {
 		if (this.#scheduler.hasScheduled(record.agentId)) return;
 		if (request.priority !== 'urgent' && request.receiptMonotonicMs !== null && (this.#providerRetryAfter.get(record.agentId) ?? 0) > request.receiptMonotonicMs) return;
 		void this.#sendForEpoch(request.connectionEpoch, 'planning_state', record.agentId, { goalRevision: record.goalRevision, state: DynamicAgentState.PLANNING })
+			.then(() => this.#stepStatus.arm(record, request.connectionEpoch))
 			.catch((error) => this.#reportAgentError(record.agentId, error, request.connectionEpoch));
 		void this.#scheduleProviderPlan(record, request, { preserveState: false, kind: 'initial' });
 	}

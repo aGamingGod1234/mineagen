@@ -68,12 +68,18 @@ public final class AgentChatReporter {
 				for (String warning : feed.danger(id, player.getHealth(), player.getFoodData().getFoodLevel(), player.isAlive())) {
 					report(manager, record, warning, ChatFormatting.RED);
 				}
+				feed.body(id, player.getX(), player.getY(), player.getZ(), now);
 				if (server.getTickCount() % 20 == 0) {
 					java.util.Set<String> inventory = new java.util.HashSet<>();
+					int pack = 0;
 					for (int slot = 0; slot < player.getInventory().getContainerSize(); slot++) {
 						var stack = player.getInventory().getItem(slot);
-						if (!stack.isEmpty()) inventory.add(net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(stack.getItem()).toString());
+						if (stack.isEmpty()) continue;
+						String item = net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+						inventory.add(item);
+						pack = 31 * pack + (slot + 1) * (item.hashCode() * 31 + stack.getCount());
 					}
+					feed.pack(id, pack, now);
 					for (String item : feed.items(id, inventory)) {
 						report(manager, record, "Obtained " + item.substring(item.indexOf(':') + 1).replace('_', ' ') + ".", ChatFormatting.GREEN);
 					}
@@ -88,7 +94,8 @@ public final class AgentChatReporter {
 						report(manager, record, "Entered " + place + ".", ChatFormatting.LIGHT_PURPLE);
 					}
 				}
-				String status = feed.status(id, now);
+				boolean planning = record.state() == dev.agaminggod.mineagen.agent.AgentLifecycleState.PLANNING;
+				String status = feed.line(id, AgentServerRuntime.stepStatus(server, record.agentId()), planning, now);
 				if (manager.automaticProgress(record.agentId()) && record.state().isActive() && player.isAlive() && !status.isBlank()) {
 					statuses.add(noticeLine(manager.displayName(record), record.profile().provider(), "info", status));
 				}
@@ -175,7 +182,7 @@ public final class AgentChatReporter {
 	}
 
 	public static void stillPlanning(AgentManager manager, AgentRecord record) {
-		// Periodic planner heartbeats do not belong in player chat.
+		// Periodic planner heartbeats do not belong in player chat; tick() shows "Thinking... N s" on the action bar.
 	}
 
 	public static void acting(AgentManager manager, AgentRecord record, ServerActionRequest request) {
