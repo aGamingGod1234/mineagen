@@ -26598,7 +26598,7 @@
       "reason": "Stable plan identities, the intent write path and the now header (including contradicted validity) are exercised. When to read the plan, the four questions (including which known way is fastest and safe for the gear), when to write intent and whether to decide again are model decisions; intent cadence is measured by the combined-stack benchmark gate."
     },
     {
-      "predicate": "Authoritative death/respawn keeps the exact server goal binding, while authored body results arrive through correlated events. Measured action averages and continuation estimates reach the model; fresh terminal observations and exact queued-successor handoff allow reasoning while authored work continues. A known next step sent with after:<actionId> starts the moment the running action succeeds and dispatches nothing otherwise. A body call that arrives while the body stood still since its last action reports stoodStillMs, and moveTo/mine/act/sequence return their inspectAfter page with the receipt.",
+      "predicate": "Authoritative death/respawn keeps the exact server goal binding, while authored body results arrive through correlated events. do_step runs each background verb as one bounded body call that reports back when it ends or stops. A known next step sent with after:<actionId> starts the moment the running action succeeds and dispatches nothing otherwise. A body call that arrives while the body stood still since its last action reports stoodStillMs, and moveTo/mine/act/sequence return their inspectAfter page with the receipt.",
       "checks": [
         {
           "file": "coordinator/test/authoritative-goal-lifecycle.test.mjs",
@@ -26608,26 +26608,6 @@
         {
           "file": "coordinator/test/native-tool-runtime.test.mjs",
           "test": "native body dispatches one correlated action and resolves only its matching result",
-          "type": "node-behavior"
-        },
-        {
-          "file": "coordinator/test/native-program-executor.test.mjs",
-          "test": "measured continuation wakes before a short loop ends despite a long timeout",
-          "type": "node-behavior"
-        },
-        {
-          "file": "coordinator/test/native-program-successor.test.mjs",
-          "test": "progress wake supplies enough facts to queue and hand off without a status read or extra sample",
-          "type": "node-behavior"
-        },
-        {
-          "file": "coordinator/test/native-event-input.test.mjs",
-          "test": "planning due input carries timing and version while keeping the current routine advisory",
-          "type": "node-behavior"
-        },
-        {
-          "file": "coordinator/test/native-program-successor.test.mjs",
-          "test": "the initial runProgram receipt can queue known work without a status call or planning wake",
           "type": "node-behavior"
         },
         {
@@ -26649,6 +26629,11 @@
           "file": "coordinator/test/body-overlap.test.mjs",
           "test": "danger during an after wait returns before the successor starts and leaves the running action alone",
           "type": "node-behavior"
+        },
+        {
+          "file": "coordinator/test/native-minecraft-tools.test.mjs",
+          "test": "do_step maps each verb to the call it runs and rejects a step it cannot run",
+          "type": "node-behavior"
         }
       ],
       "id": "native-instructions:0df9e9d99d4e0a32",
@@ -26662,26 +26647,11 @@
         "line": 107
       },
       "status": "checked",
-      "reason": " The program tools are offered only with MINEAGEN_PROGRAM_TOOLS=on, so the text names a background do_step and reflexes instead."
+      "reason": "The program clauses (looping in background programs, queueing successors from runProgram handles) left this always-sent paragraph with the program tools, which are offered only with MINEAGEN_PROGRAM_TOOLS=on; their witnesses stay on the runProgram and queueProgram descriptions."
     },
     {
-      "predicate": "Native instructions advise checking visibility and targetability before choosing combat or a reported escape, while the model keeps every tactical choice. Template witnesses cover safe exits and skipped threats; the retained food, damage, watcher and parked-goal evidence covers the unchanged clauses. Model uptake of this advice is not a deterministic guarantee.",
+      "predicate": "Native instructions advise checking visibility and targetability before choosing combat or a reported escape, and arming reflexes for threats and heard lava before mining, while the model keeps every tactical choice. heardLava is a player fact and reflex rules arm before the call that carries them acts; the retained food, damage and parked-goal evidence covers the unchanged clauses. Model uptake of this advice is not a deterministic guarantee.",
       "checks": [
-        {
-          "file": "coordinator/test/program-contract-truth.test.mjs",
-          "test": "contract: the published reconsider watcher executes its authored shield when the threat is initially visible",
-          "type": "node-behavior"
-        },
-        {
-          "file": "coordinator/test/arena-script-program-engine.test.mjs",
-          "test": "watchers fire on false-to-true edges and boundary handlers wait for the action result",
-          "type": "node-behavior"
-        },
-        {
-          "file": "coordinator/test/arena-script-program-engine.test.mjs",
-          "test": "fences a replacement behind cancellation and rejects an old action result by generation",
-          "type": "node-behavior"
-        },
         {
           "file": "src/test/java/dev/agaminggod/mineagen/server/runtime/controller/CombatPlanningVerification.java",
           "test": "verifyWeaponChoice + verifyFightPacing + verifyFollowThrough + verifyFleeProgress + verifyMultiThreatFlee",
@@ -26809,6 +26779,16 @@
           "file": "coordinator/test/standing-templates.test.mjs",
           "test": "threat escape prefers a reported safe cell over model escape and skips unsafe exits",
           "type": "node-behavior"
+        },
+        {
+          "file": "coordinator/test/hearing.test.mjs",
+          "test": "heard sounds become player facts with the nearest heard lava for watch conditions",
+          "type": "node-behavior"
+        },
+        {
+          "file": "coordinator/test/reflexes.test.mjs",
+          "test": "a direct action installs its carried rules before it acts and reports them, even when the action is refused",
+          "type": "node-behavior"
         }
       ],
       "id": "native-instructions:8ef7796f286aa96c",
@@ -26822,7 +26802,7 @@
         "line": 109
       },
       "status": "advisory",
-      "reason": "Tactical advice remains a model choice. Deterministic tests verify the reported eligibility and opt-in template behavior; no new gameplay trial measures model uptake. The program tools are offered only with MINEAGEN_PROGRAM_TOOLS=on, so the text names reflexes instead of program watches."
+      "reason": "Tactical advice remains a model choice. Deterministic tests verify the heard-lava fact, reflex arming and the reported eligibility; no gameplay trial measures model uptake. The program watcher clause left with the program tools, which are offered only with MINEAGEN_PROGRAM_TOOLS=on."
     },
     {
       "predicate": "Omitted facts are unknown; failure.changed absent=none. queryMemory pages. exploreFrontier lists moveTo candidates. Reclaim workstations. Claim effects from evidence. No task: takeTask operator requests, end turn; else say. Text is invisible; speech is async.",
@@ -26834,27 +26814,12 @@
         },
         {
           "file": "coordinator/test/native-tool-runtime.test.mjs",
-          "test": "saved programs use an exact notebook key in the current world",
-          "type": "node-behavior"
-        },
-        {
-          "file": "coordinator/test/native-tool-runtime.test.mjs",
-          "test": "saved program lookup paginates fuzzy note matches until the exact key is found",
-          "type": "node-behavior"
-        },
-        {
-          "file": "coordinator/test/native-tool-runtime.test.mjs",
           "test": "exploreFrontier returns observed candidates without choosing or executing a route",
           "type": "node-behavior"
         },
         {
           "file": "coordinator/test/native-tool-runtime.test.mjs",
           "test": "say uses its own communication slot while the body action keeps running",
-          "type": "node-behavior"
-        },
-        {
-          "file": "coordinator/test/program-parameters.test.mjs",
-          "test": "source-like parameter strings stay literal data and cannot add actions to the routine",
           "type": "node-behavior"
         },
         {
@@ -26884,7 +26849,7 @@
         "line": 111
       },
       "status": "checked",
-      "reason": " The program tools are offered only with MINEAGEN_PROGRAM_TOOLS=on, so the text names a background do_step and reflexes instead."
+      "reason": "The live-authorship clause (program.parameters, no noteKey or standing.template) left this always-sent paragraph with the program tools, which are offered only with MINEAGEN_PROGRAM_TOOLS=on; the runProgram description keeps it, with its witnesses."
     },
     {
       "predicate": "runProgram: live-authored source. programStatus/respondProgram: attention. Bound background:true work; queue known successors now. runtime never calls a model; finish verifies goals.",
@@ -36047,7 +36012,7 @@
       "reason": "Revising and re-verifying a routine is a model decision; only the separation of receipts from notes is executable."
     },
     {
-      "predicate": "Reflex rules are sent whole to the mod, which checks them every server tick; rules-only calls never move the body; an existing id is replaced, {id,remove:true} and {id:\"*\",remove:true} remove, an empty list only lists. act, sequence and standing orders carry the same reflexes field: rules install before the call acts, the action itself carries none, and the result or a refusal lists the installed rules. lasts:\"night\"|\"dimension\"|\"lava\" is accepted (other values are refused naming the three), never sent to the mod (a scoped rule without ttlS gets ttl 3600 there), and the coordinator removes the rule at the first dawn after a night was seen, when the dimension differs from the one it was armed in, or a minute after lava was last within 12 blocks; the next wake lists it under expired with that reason, and names a ttl rule's remaining seconds in its last 120 s. {id:\"*\",remove:true} removes only the model's own rules; default rules are removed by id.",
+      "predicate": "Reflex rules are sent whole to the mod, which checks them every server tick; rules-only calls (the reflexes tool, or runProgram({reflexes}) when offered) never move the body; an existing id is replaced, {id,remove:true} and {id:\"*\",remove:true} remove, an empty list only lists. act, sequence, do_step and standing orders carry the same reflexes field: rules install before the call acts, the action itself carries none, and the result or a refusal lists the installed rules. lasts:\"night\"|\"dimension\"|\"lava\" is accepted (other values are refused naming the three), never sent to the mod (a scoped rule without ttlS gets ttl 3600 there), and the coordinator removes the rule at the first dawn after a night was seen, when the dimension differs from the one it was armed in, or a minute after lava was last within 12 blocks; the next wake lists it under expired with that reason, and names a ttl rule's remaining seconds in its last 120 s. {id:\"*\",remove:true} removes only the model's own rules; default rules are removed by id.",
       "checks": [
         {
           "file": "coordinator/test/reflexes.test.mjs",
@@ -36088,6 +36053,11 @@
           "file": "coordinator/test/default-reflexes.test.mjs",
           "test": "the model switches a default off by id until the next respawn or dimension change; \"*\" removes only its own rules",
           "type": "node-behavior"
+        },
+        {
+          "file": "coordinator/test/reflexes.test.mjs",
+          "test": "a do_step carries the same rule as act and mine: normalized alike and armed before its action is sent",
+          "type": "node-behavior"
         }
       ],
       "id": "control:aacbb15253093b39:2bd04c6f6bca7a02",
@@ -36102,7 +36072,7 @@
         "line": 343
       },
       "status": "checked",
-      "reason": " Rules-only installs now name the reflexes tool, offered with or without the program tools."
+      "reason": "Rules-only installs now name the reflexes tool, offered with or without the program tools, and do_step is listed among the carriers it already was in the runtime."
     },
     {
       "predicate": "The exact published JSON tool example is parsed and normalized through the production tool boundary; accepted examples pass and executor-bad-call examples reject before dispatch.",
