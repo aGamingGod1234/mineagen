@@ -12,4 +12,4 @@ A mob that blocks the climb is now fought where the bot stands, with the same st
 
 **Result**
 
-In the playtest's moment rebuilt as a room, deaths fell from 11 of 20 to 4 of 20 (Fisher p = 0.048) and damage from 219 to 116 HP (measured, 10 paired runs per arm at two model speeds).
+In the playtest's moment rebuilt as a room, deaths fell from 14 of 30 to 4 of 30 over two rounds (Fisher p = 0.010; measured, paired runs per arm at two model speeds).
