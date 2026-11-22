@@ -1,4 +1,4 @@
-import { privateInputUrl } from '../scripts/private-inputs.mjs';
+import { privateInputUrl, privateModule } from '../scripts/private-inputs.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -9,6 +9,7 @@ import { isNewContextEventInput, NEW_CONTEXT_EVENT_INSTRUCTION } from '../src/na
 import { validateCaseFile } from '../src/decision-eval/schema.mjs';
 import { observationSha256 } from '../src/decision-eval/capture.mjs';
 import { renderWake } from '../src/decision-eval/render.mjs';
+await privateModule(import.meta.url);
 
 const T0 = 1_800_000_000_000;
 const OW = 'minecraft:overworld', NETHER = 'minecraft:the_nether', END = 'minecraft:the_end';

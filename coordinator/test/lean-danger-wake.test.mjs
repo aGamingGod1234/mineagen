@@ -1,4 +1,4 @@
-import { privateInputUrl } from '../scripts/private-inputs.mjs';
+import { privateInputUrl, privateTest } from '../scripts/private-inputs.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
@@ -96,7 +96,7 @@ test('lean wakes are the survival decisions: danger triggers, low health, hazard
 	assert.equal(isLeanDangerWake({ trigger: 'damage', conversationOnly: true, dangerWake: true }), true);
 });
 
-test('the recorded 9 HP zombie bail-out wake is about 30% smaller and still carries the whole decision', async () => {
+privateTest('the recorded 9 HP zombie bail-out wake is about 30% smaller and still carries the whole decision', async () => {
 	const fixture = JSON.parse(fs.readFileSync(privateInputUrl('coordinator/test/fixtures/decision-eval/train/melee-threat-low-health.json')));
 	const rendered = await renderWake(fixture.cases.find((entry) => entry.id === 'melee-threat-low-health-fullgame-zombie'), { provider: 'codex', model: 'gpt-6.1-sol' });
 	const wake = facts(rendered.encodedInput);

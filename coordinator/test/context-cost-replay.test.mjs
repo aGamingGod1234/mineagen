@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { privateTest } from '../scripts/private-inputs.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { replayContextCost, tokenCost } from '../scripts/context-cost-replay.mjs';
@@ -62,7 +63,7 @@ test('baseline resets are reconstructed explicitly rather than imposed on the ca
 });
 
 for (const [name, baselineUsd] of [['smoke2-8c1ed360', 3.6234896], ['base1-9d44450c', 4.6779214]]) {
-	test(`recorded ${name} baseline remains exact for typical and stress assumptions`, () => {
+	privateTest(`recorded ${name} baseline remains exact for typical and stress assumptions`, () => {
 		const calls = JSON.parse(readFileSync(new URL(`./fixtures/context-cost-replay/${name}.json`, import.meta.url), 'utf8'));
 		for (const [handoffTokens, prefixTokens] of [[37_000, 17_330], [60_000, 0]]) for (const boundaryGrowthShare of [0, 1]) {
 			const result = replayContextCost(calls, { handoffTokens, prefixTokens, boundaryGrowthShare });
