@@ -635,6 +635,7 @@ final class ReflexActions {
 		public Step tick(Context context, Consumer<AgentInputState> input) {
 			braceInPlace = false;
 			inlandTouched = false;
+			if (context.player().onGround()) airTicks = 0;
 			Step step = act(context, input);
 			// A step target is only good while the step branch runs each tick: after a fight or back-out it is stale.
 			if (!inlandTouched) inland = null;
@@ -651,7 +652,7 @@ final class ReflexActions {
 		private Step offBrink(ServerPlayer player, LivingEntity shooter, Consumer<AgentInputState> input, String done) {
 			inlandTouched = true;
 			// In the air (a hit's hop) every shove reads as a survivable drop onto the deck below: judge the brink once landed.
-			airTicks = player.onGround() ? 0 : airTicks + 1;
+			if (!player.onGround()) airTicks++;
 			// Afloat, climbing or caught in a web is not a hit's hop: no wait there, and none past a second.
 			if (!player.onGround() && !player.isInWater() && !player.isInLava() && !player.onClimbable() && airTicks <= 20) {
 				dev.agaminggod.mineagen.server.runtime.controller.BrinkGuard.braceArmed(player);
@@ -679,11 +680,14 @@ final class ReflexActions {
 				// Arrived, out of time, or off the level: the wall-in judges the cell it stands on now. A step that did not
 				// arrive is not tried again at once (the same stand would be chosen): the body braces for a while instead.
 				boolean timedOut = inlandTicks > INLAND_TICKS && dx * dx + dz * dz > 0.15D * 0.15D;
+				boolean offLevel = Math.abs(player.getY() - inland.y) > 0.6D;
 				inland = null;
 				if (timedOut) {
 					braceUntil = player.tickCount + 40;
 					braceNote = "the step inland did not reach its stand";
 				}
+				// Knocked onto another level mid-step: judge the cell it landed on afresh (it may be a lower lip).
+				if (offLevel && !timedOut) return offBrink(player, shooter, input, done);
 				return null;
 			}
 			// Crouched (vanilla keeps a crouched body on its block's edge) with a shove's walk-back armed.
