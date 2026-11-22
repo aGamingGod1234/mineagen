@@ -1,12 +1,6 @@
 # PR #55: Tell the bot the true cost of caves, wake it for needed ore, and stop rejecting harmless slips
 
 
-## The bot lost one call in eleven to typos
-
-- **Problem:** about one call in eleven came back rejected for small slips, such as a `background` flag on a step that runs in the background anyway, a reason one word too long, or `lava` written without `minecraft:`. Each rejection cost a whole model turn.
-- **Solution:** the argument checker now repairs slips whose meaning is unambiguous, and reports what it changed. Anything that changes where the body goes or what it uses is still rejected.
-- **Result:** replaying the 926 recorded calls from 8 games, rejections fell from 83 (9.0%) to 21 (2.3%). Measured by exact replay, with no model calls.
-
 ## Waking the bot when it walks past what it needs
 
 - **Problem:** while the bot dug or walked, it was not woken when the ore it needed or a cave came into view, so it dug on past them.

@@ -156,11 +156,28 @@ test('the options line lists remembered sources nearest first, then typical ways
 			{ what: 'cave', kind: 'cave', air: 60, x: 0, y: 20, z: 30 }, { what: 'shipwreck', kind: 'structure', x: 900, y: 60, z: 0 }, { what: 'minecraft:coal_ore', kind: 'vein', visible: 3, x: 2, y: 16, z: 2 }],
 		blocks: [{ blockId: 'minecraft:iron_ore', x: 39, y: 52, z: 3 }, { blockId: 'minecraft:iron_ore', x: -60, y: 10, z: 0 }, { blockId: 'minecraft:iron_ore', x: -61, y: 10, z: 0 }],
 	};
-	const line = needOptions({ ids: ['minecraft:iron_ingot'], position, known });
+	const stone = [{ itemId: 'minecraft:stone_pickaxe', count: 1 }];
+	const line = needOptions({ ids: ['minecraft:iron_ingot'], position, known, items: stone });
 	// The nearest seen ore and cave each come with a ready step priced in minutes: a vein mine, a walk in and one look.
-	assert.match(line, /^iron: seen iron_ore x4 seen 38m E dy\+36 y52 @38,52,2, iron_ore x2 60m W dy-6 y10 @-60,10,0; possible cave\(air 60\/125\) 30m S dy\+4 y20 @0,20,30; ready: do_step mine @38,52,2 under 1 min, or travel_to cave @0,20,30 and look in under 1 min; ways \(typical\): exposed ore/);
+	assert.match(line, /^iron: seen iron_ore x4 seen 38m E dy\+36 y52 @38,52,2, iron_ore x2 60m W dy-6 y10 @-60,10,0; possible cave\(air 60\/125\) 30m S dy\+4 y20 @0,20,30; ready: travel_to @38,52,2 then do_step mine @38,52,2 under 1 min, or travel_to cave @0,20,30 and look in under 1 min; ways \(typical\): exposed ore/);
 	assert.ok(Buffer.byteLength(line) <= OPTIONS_BYTES);
 	assert.doesNotMatch(line.split('; ways')[0], /coal_ore|shipwreck/, 'unrelated ore is not an iron source; the nearest three are shown');
+	// The mine step is offered only for ore a carried tool harvests: the body refuses the rest with NO_TOOL.
+	assert.match(needOptions({ ids: ['minecraft:iron_ingot'], position, known }), /; ready: travel_to cave @0,20,30 and look in under 1 min; ways/, 'no pickaxe: the cave, not the mine step');
+	const gold = { sightings: [{ what: 'minecraft:gold_ore', kind: 'vein', visible: 4, x: 10, y: 20, z: 5 }], blocks: [] };
+	assert.doesNotMatch(needOptions({ ids: ['minecraft:golden_helmet'], position, known: gold, items: stone }), /ready:/, 'gold needs an iron pickaxe');
+	assert.match(needOptions({ ids: ['minecraft:golden_helmet'], position, known: gold, items: [{ itemId: 'minecraft:iron_pickaxe', count: 1 }] }), /; ready: travel_to @10,20,5 then do_step mine @10,20,5 /, 'mine_vein never walks: ore out of reach is a travel_to first');
+	assert.match(needOptions({ ids: ['minecraft:golden_helmet'], position: { x: 8, y: 20, z: 5 }, known: gold, items: [{ itemId: 'minecraft:iron_pickaxe', count: 1 }] }), /; ready: do_step mine @10,20,5 under 1 min/, 'ore in reach is mined from where the body stands');
+	// The ready step only repeats a shown row's place, so it never takes a remembered source's room: at every cap the
+	// line names the same places as it does without a ready step.
+	const far = { sightings: [{ what: 'minecraft:iron_ore', kind: 'vein', visible: 4, x: 10, y: 50, z: 10 }, { what: 'minecraft:deepslate_iron_ore', kind: 'vein', visible: 3, x: -120, y: 20, z: 40 },
+		{ what: 'cave', kind: 'cave', air: 40, x: 20, y: 40, z: -10 }], blocks: [] };
+	const places = (text) => text.split(/; (?:ready|ways)/)[0].match(/@-?\d+,-?\d+,-?\d+/g) ?? [];
+	for (let cap = 100; cap <= 400; cap += 5) {
+		const at = { x: 0, y: 64, z: 0 };
+		assert.deepEqual(places(needOptions({ ids: ['minecraft:iron_ingot'], position: at, known: far, items: stone, cap })),
+			places(needOptions({ ids: ['minecraft:iron_ingot'], position: at, known: far, cap: cap })), `cap ${cap}`);
+	}
 	assert.match(needOptions({ ids: ['minecraft:iron_ingot'], position, known: null }), /^iron: seen none remembered; ways \(typical\): /);
 	// do_step mine is a vein mine: remembered gravel is listed, never offered as a mine step.
 	const flint = needOptions({ ids: ['minecraft:flint'], position, known: { sightings: [], blocks: [{ blockId: 'minecraft:gravel', x: 3, y: 16, z: 0 }] } });
@@ -930,4 +947,12 @@ test('pearlHuntLine names the nearest walkable enderman within 16 m while pearls
 	assert.match(pearlHuntLine({ observation: { ...observation([enderman(7, 50)], stone), player: { health: 20, armor: 4 } }, position, open }), /not geared for it \(stone weapon with 4 armour\)/);
 	assert.doesNotMatch(pearlHuntLine({ observation: { ...observation([enderman(7, 50)], stone), player: { health: 20, armor: 15 } }, position, open }), /not geared/, 'stone with iron armour is enough');
 	assert.equal(pearlHuntLine({ observation: observation([{ ...enderman(5, 50), targetingAgent: true }], []), position, open }), 'enderman 5 m, level, angry at you; pearls 0/12 open');
+});
+
+test('the obsidian cave option is the cheapest seen cave, not the nearest', () => {
+	// A cave above the bot is never cheaper than digging from here; it must not hide a cave below that is.
+	const above = { kind: 'cave', what: 'cave', air: 60, x: 0, y: 78, z: 6 }, below = { kind: 'cave', what: 'cave', air: 60, x: 20, y: 30, z: 0 };
+	const line = obsidianOptions({ position: { x: 0, y: 70, z: 0 }, known: { sightings: [above, below], blocks: [] } });
+	assert.match(line, /cheapest first: cave 20m E dy-40 y30 ~\d+ \(travel_to @20,30,0, /);
+	assert.doesNotMatch(line, /y78/);
 });
