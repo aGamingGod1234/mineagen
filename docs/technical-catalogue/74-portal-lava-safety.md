@@ -6,6 +6,6 @@
 - **Problem:** mid-cast, the bot kept walking back along the way it came in, which its own cast had blocked, and gave up with lava still in sight.
   **Solution:** when the remembered way cannot take a step, let travel plan the walk, and retry a narrow shore once from a fresh spot.
   **Result:** `away-pair-7` went from 6 of 10 to 10 of 10 (measured, practice rooms, 10 runs each side).
-- **Problem:** digging stairs to lava, instead of a 1-wide shaft, avoids flooded holes, but on a two-pickaxe kit it wears both pickaxes out and walks into spawner rooms.
-  **Solution:** stairs are kept behind a switch, with a pickaxe budget that hands over to the shaft and a flee-and-climb-back from mob caves; the shaft stays the default.
-  **Result:** with stairs on, `lava-gate-8` went from 0 to 7 of 10, but `lava-gate-3` went from 8 to 0 of 10 and `lava-gate-6` deaths went from 0 to 5-7 of 10 (measured, practice rooms), so the default stays the shaft.
+- **Problem:** digging straight down to lava, the bot broke the block it stood on and fell into caves it could not see (one room: a 28-block drop into a mob cave).
+  **Solution:** cut beside the footing and look at the next floor from a supported block, but only while the pickaxes can pay for the extra digging and still keep enough for the search at depth.
+  **Result:** with the check alone, runs with a death in `lava-gate-8` went from 7 to 0 of 10; paying for it all the way down wore out both pickaxes in all 10 `lava-gate-3` runs (7 of 10 passes on main to 0), and with the budget `lava-gate-3` is back to 6 of 10 (measured, practice rooms, 10 runs each side).
