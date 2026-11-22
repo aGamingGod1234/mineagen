@@ -8,7 +8,7 @@ import { finishRun } from '../../scripts/quality/lib/fixture-run.mjs';
 import { stopReplayServer, watchArgs } from '../../scripts/quality/watch-replay.mjs';
 
 const T0 = 1_795_000_000_000;
-// Rows shaped as DangerLog writes them (schema 1).
+// Rows shaped as DangerLog writes them (schema 1; schema 2 adds fields the fold does not read).
 const hit = (atMs, attacker, taken, extra = {}) => ({ type: 'damage', schema: 1, agentId: 'a1', atMs, gameTime: atMs / 50, kind: 'melee', damageType: attacker ? 'minecraft:mob_attack' : 'minecraft:lava',
 	attacker, attackerId: attacker ? `${attacker}-1` : null, amount: taken, taken, blocked: false, lethal: false, ...extra });
 const lines = rows => rows.map(row => typeof row === 'string' ? row : JSON.stringify(row)).join('\n') + '\n';
@@ -31,7 +31,7 @@ test('danger files are found under a room folder, a cut line or another schema i
 		const server = path.join(out, 'seed-7', 'server', 'arena-watch');
 		await mkdir(server, { recursive: true });
 		await mkdir(path.join(out, 'seed-7', 'server', 'world', 'arena-watch'), { recursive: true });
-		await writeFile(path.join(server, 'a1-danger.jsonl'), lines([hit(T0 + 1_000, 'minecraft:zombie', 3), { type: 'onset', schema: 1, agentId: 'a1', atMs: T0 }, { ...hit(T0 + 1_500, 'minecraft:zombie', 1), schema: 2 }, '{"type":"damage","sch']));
+		await writeFile(path.join(server, 'a1-danger.jsonl'), lines([hit(T0 + 1_000, 'minecraft:zombie', 3), { type: 'onset', schema: 1, agentId: 'a1', atMs: T0 }, { ...hit(T0 + 1_500, 'minecraft:zombie', 1), schema: 3 }, '{"type":"damage","sch']));
 		// The copy boot() keeps beside the server: the same rows.
 		assert.equal(await keepDangerFiles(server, path.join(out, 'seed-7', 'arena-watch')), 1);
 		assert.deepEqual((await watchDirs(out)).map(dir => path.relative(out, dir)), [path.join('seed-7', 'arena-watch'), path.join('seed-7', 'server', 'arena-watch')]);
