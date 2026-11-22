@@ -39,6 +39,15 @@ async function writeJsonAtomic(file, value) {
 	await rename(tmp, file);
 }
 
+/**
+ * Whether a failed exclusive create of a lock file means "someone holds it, wait": EEXIST everywhere, and on Windows also
+ * EPERM, EBUSY and EACCES, which it returns while another process has the file open or is deleting it (a lock being
+ * released). Anything else is a real error.
+ */
+export function lockHeld(error, platform = process.platform) {
+	return error?.code === 'EEXIST' || (platform === 'win32' && ['EPERM', 'EBUSY', 'EACCES'].includes(error?.code));
+}
+
 // onStale (tests only) runs after a lock is judged stale and before anything is done about it.
 export function leaseStore({ dir = defaultPoolDir(), leaseStaleMs = 5 * 60_000, mutexStaleMs = 30_000, heartbeatMs = 30_000, now = Date.now, log = () => {}, onStale = null } = {}) {
 	const leasesDir = path.join(dir, 'leases'), asideDir = path.join(dir, 'aside'), idleDir = path.join(dir, 'idle'), mutexFile = path.join(dir, 'mutex'), ledgerFile = path.join(dir, 'starts.json');
@@ -68,7 +77,7 @@ export function leaseStore({ dir = defaultPoolDir(), leaseStaleMs = 5 * 60_000, 
 				try { await handle.writeFile(mine); } finally { await handle.close(); }
 				break;
 			} catch (error) {
-				if (error.code !== 'EEXIST') throw error;
+				if (!lockHeld(error)) throw error;
 			}
 			const text = await readFile(file, 'utf8').catch(() => null);
 			let holder = null;
@@ -78,7 +87,7 @@ export function leaseStore({ dir = defaultPoolDir(), leaseStaleMs = 5 * 60_000, 
 				if (onStale) await onStale(file);
 				const breaker = `${file}.break`;
 				const broke = await open(breaker, 'wx').then(handle => handle.close().then(() => true), error => {
-					if (error.code !== 'EEXIST') throw error;
+					if (!lockHeld(error)) throw error;
 					return false;
 				});
 				if (broke) {
@@ -150,7 +159,7 @@ export function leaseStore({ dir = defaultPoolDir(), leaseStaleMs = 5 * 60_000, 
 			await setup();
 			const file = path.join(dir, 'pool-id');
 			const id = randomBytes(3).toString('hex');
-			await writeFile(file, id, { flag: 'wx' }).catch(error => { if (error.code !== 'EEXIST') throw error; });
+			await writeFile(file, id, { flag: 'wx' }).catch(error => { if (!lockHeld(error)) throw error; });
 			const text = (await readFile(file, 'utf8')).trim();
 			if (!/^[a-z0-9]{1,12}$/.test(text)) throw new Error(`${file} holds no pool id`);
 			return text;

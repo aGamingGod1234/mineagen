@@ -1726,3 +1726,16 @@ test('keepalive --warm never deletes a pool machine matching --keep, and a lease
 		store.stop();
 	} finally { await fake.close(); }
 });
+
+test('a lock file another process holds or is deleting reads as held on Windows, not as an error', async () => {
+	const { lockHeld } = await import('../../scripts/quality/lib/pool-leases.mjs');
+	const error = code => Object.assign(new Error(code), { code });
+	assert.equal(lockHeld(error('EEXIST'), 'linux'), true);
+	assert.equal(lockHeld(error('EEXIST'), 'win32'), true);
+	for (const code of ['EPERM', 'EBUSY', 'EACCES']) {
+		assert.equal(lockHeld(error(code), 'win32'), true, `${code} on Windows: a lock being held or released`);
+		assert.equal(lockHeld(error(code), 'linux'), false, `${code} elsewhere is a real error`);
+	}
+	assert.equal(lockHeld(error('ENOSPC'), 'win32'), false);
+	assert.equal(lockHeld(null, 'win32'), false);
+});
