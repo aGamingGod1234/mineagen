@@ -11,7 +11,8 @@
 //     alive after 10 game minutes, no fall into the void.
 // A body that never stands on the platform (or the island, for --survive), or a run whose death counter is unreadable,
 // is invalid evidence, never a pass. Launch under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME.
-// REPEATS=n plays the room n times on one server (fresh End each time is not possible; repeats after a kill are invalid).
+// Judge with REPEATS=1 (the room list does): the End is not reset between repeats, so a repeat after a kill, a lost fight
+// or a death is INVALID; REPEATS=n is for bring-up only.
 import { writeFile, mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
