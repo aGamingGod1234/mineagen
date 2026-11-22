@@ -164,7 +164,8 @@ async function scanPush(remote) {
    scanLines('ref ' + ref, ref.replace(/^refs\/(?:heads|tags)\//, ''), { exempt: false });
   }
   // An annotated tag carries its own name, message and tagger email, and may point at another tag that carries more.
-  for (let object = localSha, depth = 0; depth < 16 && git(['cat-file', '-t', object]).trim() === 'tag'; depth++) {
+  let object = localSha, depth = 0;
+  for (; depth < 16 && object && git(['cat-file', '-t', object]).trim() === 'tag'; depth++) {
    const tag = git(['cat-file', '-p', object]);
    const cut = tag.indexOf('\n\n'), label = 'tag ' + object.slice(0, 12);
    files += 3;
@@ -172,8 +173,9 @@ async function scanPush(remote) {
    scanLines(label + ' identity', 'tagger-email: ' + identityEmail(tag.match(/^tagger (.*)$/m)?.[1] ?? ''), { exempt: false });
    scanLines(label + ' message', cut < 0 ? '' : tag.slice(cut + 2).replace(/\n$/, ''), { exempt: false });
    object = tag.match(/^object ([0-9a-f]+)$/m)?.[1] ?? '';
-   if (!object) break;
   }
+  // A chain of tags deeper than this is never read to its end, so it is refused instead of passed.
+  if (object && git(['cat-file', '-t', object]).trim() === 'tag') finding('tag ' + localSha.slice(0, 12), 1, 'tag chain deeper than 16', null, false, false);
   if (!known(localSha)) continue;
   // A remote with no tracking refs here (a URL, a new fork or mirror) falls back to every remote's refs: without it the
   // whole history is read, and main's squash merges already carry an account email this push cannot change.

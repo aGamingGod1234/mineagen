@@ -296,6 +296,13 @@ test('the pre-push hook stops a private branch name, tag or new commit before an
   assert.match(nested.stdout + nested.stderr, /tag \w+ name:1: FAIL private host/);
   git('tag', '-d', 'outer');
   git('tag', '-d', 'renamed');
+  // A chain of tags too deep to read to its end is refused, not passed.
+  let below = 'HEAD';
+  for (let i = 0; i < 17; i++) { execFileSync('git', ['-c', 'user.name=Probe', '-c', 'user.email=probe@example.com', 'tag', '-a', 'deep' + i, below, '-m', 'clean'], { cwd: dir }); below = 'deep' + i; }
+  const deep = push('deep16');
+  assert.notEqual(deep.status, 0);
+  assert.match(deep.stdout + deep.stderr, /FAIL tag chain deeper than 16/);
+  for (let i = 0; i < 17; i++) git('tag', '-d', 'deep' + i);
   // A commit another remote already has is still read when it goes to this one: that remote may never have run the gate.
   const mirror = await mkdtemp(path.join(root, '.public-gate-test-remote-'));
   try {
