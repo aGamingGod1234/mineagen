@@ -678,8 +678,12 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		// seen, so an unseen bottom is no step either.
 		const before = await body.observe();
 		const rim = bodyAt(before);
-		const wet = knownBlocks(before).some((row) => row.x === where.x && row.z === where.z && row.y <= where.y && row.y >= where.y - 4
-			&& /(^|:)(lava|water)$/.test(row.blockId));
+		// Only what the body would land in or on counts: the first known block down the pocket's column (a sample never
+		// lists air). Water further down, under the pocket's solid floor, is no reason to stay out.
+		const below = knownBlocks(before).filter((row) => row.x === where.x && row.z === where.z && row.y <= where.y && row.y >= where.y - 4
+			&& !ORE_BLOCKS.test(bare(row.blockId)))
+			.sort((a, b) => b.y - a.y)[0];
+		const wet = below !== undefined && /(^|:)(lava|water)$/.test(below.blockId);
 		if (wet || rim === null) { await pickUpNear(where, need.accept, 6); return; }
 		await act('travel_to', { x: where.x + 0.5, y: where.y, z: where.z + 0.5, tolerance: 0.4, timeoutMs: 20_000 });
 		if (body.interrupted() || body.stopped()) return;

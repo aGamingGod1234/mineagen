@@ -76,3 +76,17 @@ test('the pocket step: never into lava or water, and climbs back out to the rim 
 	const lava = await run([{ blockId: 'minecraft:lava', x: 298, y: 12, z: -262 }]);
 	assert.equal(lava.filter(([type, args]) => type === 'travel_to' && args.tolerance < 1).length, 0, 'no step into a pocket over lava');
 });
+
+test('water under the pocket\'s solid floor does not keep the bot out of a dry pocket', async () => {
+	const calls = [];
+	const o = () => ({ world: { dimension: 'minecraft:overworld' }, player: { x: 299.4, y: 15, z: -261.5, yaw: 90, health: 20, food: 20, onGround: true },
+		inventory: { selectedSlot: 0, items: [{ itemId: 'minecraft:stone_pickaxe', slot: 0, count: 1, remainingDurability: 100 }] },
+		blocks: [{ blockId: 'minecraft:iron_ore', x: 298, y: 14, z: -262 }, { blockId: 'minecraft:stone', x: 298, y: 12, z: -262 }, { blockId: 'minecraft:water', x: 298, y: 11, z: -262 }] });
+	const body = { observe: async () => o(), stopped: () => false, interrupted: () => false, note: () => {},
+		act: async (type, args) => { calls.push([type, args]); return { state: 'SUCCEEDED', reasonCode: 'ARRIVED' }; },
+		mine: async () => ({ state: 'SUCCEEDED', reasonCode: 'VEIN_MINED', message: 'mined: 2 minecraft:iron_ore in 4 s' }),
+		search: async () => ({ reasonCode: 'FIND_NOT_FOUND' }), missPlace: () => {} };
+	let t = 0;
+	await runObtain({ item: 'raw_iron', count: 2, timeoutMs: 600_000 }, body, { now: () => (t += 100) });
+	assert.ok(calls.some(([type, args]) => type === 'travel_to' && args.tolerance < 1), 'steps into the dry pocket');
+});
