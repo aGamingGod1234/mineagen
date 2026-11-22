@@ -643,8 +643,9 @@ public final class CoordinatorStartupSmokeVerification {
 	 * Deletes the staged tree once the processes that ran from it are gone. Windows can hold a sharing lock on an exited
 	 * node.exe for several seconds (CI saw the lock outlast a 2 s window with every observed process already exited), so
 	 * cleanup first waits for each observed process to exit, then retries each path for {@link #DELETE_WINDOW_SECONDS}.
-	 * A file still locked after that, with no observed process alive, is quarantined (see {@link #quarantine}) rather than
-	 * failing CI; a process still alive is a real leak and fails.
+	 * A file still locked after that, when processes were observed and all have exited, is quarantined (see
+	 * {@link #quarantine}) rather than failing CI; a process still alive is a real leak and fails, and a cleanup that
+	 * observed no process stays strict.
 	 */
 	private static void deleteTree(Path root, List<CoordinatorProcessOwnership.ProcessIdentity> identities) throws IOException {
 		if (!Files.exists(root)) return;
@@ -782,8 +783,10 @@ public final class CoordinatorStartupSmokeVerification {
 					nextLog = now + java.util.concurrent.TimeUnit.SECONDS.toNanos(1L);
 				}
 				if (now >= deadline) {
+					// Only a cleanup that observed the processes (and saw them all exit) may quarantine; one that observed none
+					// cannot tell a lingering lock from a live holder, so it stays strict.
 					var alive = identities.stream().filter(CoordinatorProcessOwnership.ProcessIdentity::isAlive).toList();
-					if (!alive.isEmpty() || Files.isDirectory(path)) throw exception;
+					if (identities.isEmpty() || !alive.isEmpty() || Files.isDirectory(path)) throw exception;
 					return quarantine(path, exception);
 				}
 				try {
