@@ -255,6 +255,35 @@ export function isDanger(result, observation) {
 	return code === 'HOSTILE_NEAR' && hostileIsDanger(observation);
 }
 
+const RANGED_KINDS = new Set(['skeleton', 'stray', 'bogged', 'parched', 'pillager', 'witch', 'blaze', 'ghast', 'breeze', 'drowned'].map(id));
+
+/**
+ * A mob to hunt seen (not heard or remembered) within the hunt's reach and about the body's height: under cover it is
+ * fought there. A cow heard through a cave ceiling still means climbing out to the surface first.
+ */
+function huntHere(need, o, budget) {
+	const at = bodyAt(o);
+	if (!at || o.continuity?.rememberedSections?.includes('entities')) return false;
+	const mobs = new Set(need.mobs.map(id));
+	return (o.entities ?? []).some((row) => mobs.has(row?.type) && row.alive !== false && row.visible !== false && row.perceivedBy !== 'sound' && row.remembered !== true
+		&& [row.x, row.y, row.z].every(Number.isFinite) && !unreachedHerd(budget, row) && Math.abs(row.y - at.y) <= 4 && Math.hypot(row.x - at.x, row.z - at.z) <= HUNT_RADIUS);
+}
+
+/**
+ * The sample with the hunted kind's own rows left out, so a walk-up stop for the quarry alone is not danger. Unchanged
+ * with no quarry, or with no threat rows to tell the kinds apart (unknown stays danger).
+ */
+function withoutQuarry(o, quarry) {
+	if (quarry === null || o === null || threatRows(o) === null) return o;
+	// The hunted mob itself is left out by its id. Others of its kind are left out too, except an archer drawing on the body
+	// (a second skeleton on a bone hunt), which stays danger. With no id known, the hunted kind's archers stay danger too.
+	const drawing = (row) => RANGED_KINDS.has(row.type) && (row.targeting === true || (Array.isArray(row.signals) && row.signals.includes('targeting')));
+	const other = (row) => !(quarry.id !== null && (row?.stableId ?? row?.uuid) === quarry.id) && (row?.type !== quarry.type || drawing(row));
+	return { ...o, player: { ...o.player, ...(Array.isArray(o.player?.threats) ? { threats: o.player.threats.filter(other) } : {}) },
+		...(Array.isArray(o.threats?.entries) ? { threats: { ...o.threats, entries: o.threats.entries.filter(other) } } : {}),
+		...(Array.isArray(o.entities) ? { entities: o.entities.filter(other) } : {}) };
+}
+
 /**
  * A hostile on the body now, by obtain's one rule (hostileIsDanger: one within 10 blocks, or a ranged mob after it),
  * named for the model. A sample with no threat rows is judged by its entity rows alone: no stop says a hostile is near.
@@ -439,7 +468,8 @@ function pricedOutOres(need, o) {
 }
 
 /** A mob near a herd a walk could not get within hunting reach of (budget.herds): not one to walk at again. */
-const unreachedHerd = (budget, row) => (budget?.herds ?? []).some((herd) => Math.hypot(herd.x - row.x, herd.z - row.z) <= HUNT_RADIUS);
+const unreachedHerd = (budget, row) => (budget?.herds ?? []).some((herd) => Math.hypot(herd.x - row.x, herd.z - row.z) <= HUNT_RADIUS
+	&& !(Number.isFinite(herd.y) && Number.isFinite(row.y) && Math.abs(herd.y - row.y) > 8));
 
 /**
  * Where a source of the need is: { x, y, z, blockId } for a block, { x, y, z, mob } for a mob, or null with the
@@ -468,7 +498,14 @@ export async function locate(need, body, { budget, timeoutMs }) {
 	budget.lastSearch = result;
 	const at = result?.find?.seen;
 	if (result?.reasonCode !== 'FIND_SEEN' || !at || ![at.x, at.y, at.z].every(Number.isFinite) || budget.failed.has(`${at.x},${at.y},${at.z}`)) return null;
-	if (need.kind === 'kill') return unreachedHerd(budget, at) ? null : { x: at.x + 0.5, y: at.y, z: at.z + 0.5, mob: at.id };
+	if (need.kind === 'kill') {
+		if (unreachedHerd(budget, at)) return null;
+		// The found mob's identity from a fresh look (its row nearest the sighting), so a hunt's walk-up can tell it apart
+		// from others of its kind.
+		const near = ((await body.observe()).entities ?? []).filter((row) => row?.type === at.id && typeof row.stableId === 'string' && [row.x, row.z].every(Number.isFinite))
+			.map((row) => ({ row, d: Math.hypot(row.x - at.x - 0.5, row.z - at.z - 0.5) })).filter(({ d }) => d <= 4).sort((a, b) => a.d - b.d)[0]?.row;
+		return { x: at.x + 0.5, y: at.y, z: at.z + 0.5, mob: at.id, ...(near ? { stableId: near.stableId } : {}) };
+	}
 	const fresh = await body.observe();
 	const source = { x: at.x, y: at.y, z: at.z, blockId: at.id };
 	return inView(need, fresh, budget) ?? (floodedApproach(budget, source) ? null : source);
@@ -500,10 +537,12 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 	// danger came from a leg's own LOW_HEALTH stop: it halts the run like danger but is handed back as LOW_HEALTH.
 	let lowLeg = false;
 	let materialsKeep = new Set();
+	// The hostile kind a hunt is walking up to (a spider for string): its own approach stop is the arrival, not danger.
+	let quarry = null;
 	const seen = async (promise) => {
 		const result = await promise;
 		if (result?.state === 'RUNNING' && typeof result.actionId === 'string') running = result;
-		if (danger === null && forkStop() === null && isDanger(result, result?.reasonCode === 'HOSTILE_NEAR' ? await rawBody.observe().catch(() => null) : null)) {
+		if (danger === null && forkStop() === null && isDanger(result, result?.reasonCode === 'HOSTILE_NEAR' ? withoutQuarry(await rawBody.observe().catch(() => null), quarry) : null)) {
 			danger = `${result.reasonCode}: ${String(result.message ?? '').slice(0, 160)}`;
 			lowLeg = result.reasonCode === 'LOW_HEALTH';
 		}
@@ -635,7 +674,14 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 	const smeltsPer = (itemId) => (index.fuels?.[bare(itemId)] ?? 0) / 200;
 	const fuelCover = (counts) => Math.max(0, ...FUEL_GROUPS.map((group) => Math.max(0, ...fuelMembers(group).map((member) => Math.floor(Math.min(64, counts.get(member) ?? 0) * smeltsPer(member))))));
 	const act = async (type, args) => {
-		const result = await body.act(type, args);
+		let result;
+		try { result = await body.act(type, args); }
+		catch (error) {
+			// A move the tool refuses comes back from the production body as a FAILED result (native-tool-runtime's obtain
+			// run); a body that throws the refusal instead is taken the same way, so the step's why names it.
+			if (error?.code !== 'INVALID_MINECRAFT_TOOL_ARGUMENTS') throw error;
+			result = { state: 'FAILED', reasonCode: error.code, message: String(error?.message ?? error).slice(0, 300) };
+		}
 		if (result?.state !== 'SUCCEEDED') lastFailure = `${type} ${result?.reasonCode ?? result?.state ?? 'failed'}${result?.message ? `: ${String(result.message).slice(0, 160)}` : ''}`;
 		return result;
 	};
@@ -1140,7 +1186,8 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		if (need.kind === 'loot') return lootNeed(need);
 		await offCanopy();
 		if (body.interrupted() || body.stopped()) return 'stopped';
-		const covered = await surfaceFirst(need);
+		// A mob to hunt already in view under cover (a cave spider in a mineshaft) is hunted where it is, not climbed away from.
+		const covered = need.kind === 'kill' && huntHere(need, await body.observe(), budget) ? null : await surfaceFirst(need);
 		if (body.interrupted() || body.stopped()) return 'stopped';
 		// Searching sideways underground finds neither trees nor animals: hand back, saying why.
 		if (covered !== null) { noSurface = `no way up to the surface for ${need.accept[0]}: ${covered}`; return noSurface; }
@@ -1158,7 +1205,12 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			if (at && Math.hypot(mob.x - at.x, mob.z - at.z) > 12) {
 				const where = `${Math.floor(mob.x)},${Math.floor(mob.y)},${Math.floor(mob.z)}`;
 				step(`walk to the ${bare(mob.mob)} at ${where}`);
-				const walked = await act('travel_to', { x: Math.floor(mob.x) + 0.5, z: Math.floor(mob.z) + 0.5, tolerance: 5, timeoutMs: 90_000 });
+				// A hostile quarry stops the walk itself once it is close (HOSTILE_NEAR): that is the hunt's arrival. A hostile
+				// of another kind near the body still stops it as danger.
+				quarry = { type: id(mob.mob), id: typeof mob.stableId === 'string' ? mob.stableId : null };
+				let walked;
+				try { walked = await act('travel_to', { x: Math.floor(mob.x) + 0.5, z: Math.floor(mob.z) + 0.5, tolerance: 5, timeoutMs: 90_000 }); }
+				finally { quarry = null; }
 				if (body.interrupted() || body.stopped()) return 'stopped';
 				// The walk stopped out of the hunt's reach (water, no route): a hunt from here sees no herd for 30 s. 4-seed
 				// check B-3: two walks to one far cow stopped 70+ blocks short, and each was followed by a 30 s empty hunt.
@@ -1174,7 +1226,12 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			const health = (await body.observe()).player?.health;
 			if (food && foodFlee === null && Number.isFinite(health) && health <= LOW_HEALTH) foodFlee = Math.max(0.5, health - 1);
 			const flee = foodFlee !== null ? { fleeAtHealth: foodFlee } : {};
+			const underCover = (await body.observe()).player?.skyOpen === false;
 			const fought = await act('fight_until', { mob: mob.mob, untilItem: id(need.accept[0]), untilCount: total, radius: 24, timeoutMs: 180_000, ...flee });
+			// A hunt under cover that ended without the item (no route to the mob, no sight of it, out of time), not for
+			// danger: the next round climbs out instead of trying the same mob again.
+			// The mark keeps its height: a mob on the surface above the spot is another hunt.
+			if (underCover && fought?.state !== 'SUCCEEDED' && fought?.state !== 'INTERRUPTED' && !body.interrupted()) budget.herds.push({ x: mob.x, z: mob.z, y: mob.y });
 			return fought?.state === 'SUCCEEDED' ? null : `fight_until ${bare(mob.mob)}: ${fought?.reasonCode ?? 'failed'}`;
 		}
 		budget.lastSearch = null;

@@ -15,7 +15,7 @@ const RECIPES = {
 	'minecraft:iron_boots': { iron: 4, planks: 0, slot: 8 },
 };
 
-async function obtainBucket({ kitHabit, iron = 4, health = 20, items = null, selectedSlot = 0, target = { item: 'bucket', timeoutMs: 60000 }, onEquip = null }) {
+async function obtainBucket({ kitHabit, iron = 4, health = 20, items = null, selectedSlot = 0, target = { item: 'bucket', timeoutMs: 60000 }, onEquip = null, craftRoom = 0 }) {
 	const record = { agentId: 'kit-agent', goalRevision: 1, provider: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'low', serviceTier: 'default' };
 	let sequence = 1;
 	const commands = [];
@@ -35,12 +35,18 @@ async function obtainBucket({ kitHabit, iron = 4, health = 20, items = null, sel
 		bridge: { send: async (type, _a, p) => {
 			commands.push({ type, ...p });
 			if (type !== 'action_command') return;
-			assert.ok(commands.length < 80, 'bounded replay');
 			const a = p.arguments;
+			// craftRoom: commands past the search's bound left for crafts and equips, so a kit kept after a search that
+			// gave out at the bound can still run.
+			const crafting = ['place_block', 'craft_table', 'craft_inventory', 'equip_item'].includes(p.actionType)
+				|| p.actionType === 'break_block' && observation.blocks.some(block => block.x === a.x && block.y === a.y && block.z === a.z && block.blockId === 'minecraft:crafting_table');
+			assert.ok(commands.length < 80 + (crafting ? craftRoom : 0), 'bounded replay');
 			if (p.actionType === 'place_block') { observation.blocks.push({ blockId: a.itemId, x: a.x, y: a.y, z: a.z }); take(a.itemId, 1); }
 			if (p.actionType === 'break_block') {
-				observation.blocks = observation.blocks.filter(block => !(block.x === a.x && block.y === a.y && block.z === a.z && block.blockId === 'minecraft:crafting_table'));
-				observation.inventory.items.push({ itemId: 'minecraft:crafting_table', slot: 1, count: 1 });
+				const table = block => block.x === a.x && block.y === a.y && block.z === a.z && block.blockId === 'minecraft:crafting_table';
+				// Only a placed table comes back: other blocks broken here drop nothing this replay counts.
+				if (observation.blocks.some(table)) observation.inventory.items.push({ itemId: 'minecraft:crafting_table', slot: 1, count: 1 });
+				observation.blocks = observation.blocks.filter(block => !table(block));
 			}
 			if (p.actionType === 'craft_table') {
 				const recipe = RECIPES[a.recipeId];
@@ -138,4 +144,50 @@ test('danger during a kit equip hands back obtain interrupted, with the equip st
 	assert.match(result.running.recoveryHint, /replaceAction/);
 	assert.deepEqual(result.kit, ['equip shield stopped (RUNNING)']);
 	assert.match(result.message, /^Obtained bucket.*; kit: equip shield stopped \(RUNNING\); stopped for danger after the item was obtained/);
+});
+
+// COMBAT-2: the kit is kept after a failed obtain that still changed what is held, not after one that changed nothing.
+test('a failed obtain that crafted a bucket before its search gave out still makes the shield from the iron left', async () => {
+	const items = [{ itemId: 'minecraft:iron_pickaxe', slot: 'mainhand', count: 1 }, { itemId: 'minecraft:iron_ingot', slot: 10, count: 4 },
+		{ itemId: 'minecraft:oak_planks', slot: 11, count: 8 }, { itemId: 'minecraft:crafting_table', slot: 1, count: 1 }];
+	const { result, items: after } = await obtainBucket({ kitHabit: true, items, target: { item: 'bucket', count: 2, timeoutMs: 60000 }, craftRoom: 40 });
+	assert.equal(result.state, 'FAILED');
+	assert.ok(after.some(item => item.itemId === 'minecraft:bucket'), 'one bucket made before the iron ran out');
+	assert.deepEqual(result.kit, ['crafted shield', 'wore shield (offhand)']);
+	assert.equal(after.find(item => item.itemId === 'minecraft:shield')?.slot, 'offhand');
+});
+
+test('a failed obtain that changed nothing hands back as before, with no kit step', async () => {
+	const items = [{ itemId: 'minecraft:iron_pickaxe', slot: 'mainhand', count: 1 }, { itemId: 'minecraft:iron_ingot', slot: 10, count: 1 },
+		{ itemId: 'minecraft:oak_planks', slot: 11, count: 8 }, { itemId: 'minecraft:crafting_table', slot: 1, count: 1 }];
+	const { result, items: after } = await obtainBucket({ kitHabit: true, items, target: { item: 'bucket', count: 2, timeoutMs: 60000 }, craftRoom: 40 });
+	assert.equal(result.state, 'FAILED');
+	assert.equal(result.kit, undefined);
+	assert.ok(!after.some(item => item.itemId === 'minecraft:shield'));
+});
+
+test('a spare shield is really crafted: the kit asks obtain for 2 shields with one held, not for 1', async () => {
+	const items = [{ itemId: 'minecraft:iron_pickaxe', slot: 'mainhand', count: 1 }, { itemId: 'minecraft:shield', slot: 'offhand', count: 1 },
+		{ itemId: 'minecraft:iron_chestplate', slot: 'chest', count: 1 }, { itemId: 'minecraft:iron_boots', slot: 'feet', count: 1 },
+		{ itemId: 'minecraft:flint_and_steel', slot: 14, count: 1 }, { itemId: 'minecraft:bucket', slot: 13, count: 1 },
+		{ itemId: 'minecraft:iron_ingot', slot: 10, count: 4 }, { itemId: 'minecraft:oak_planks', slot: 11, count: 16 }, { itemId: 'minecraft:crafting_table', slot: 1, count: 1 }];
+	const { result, commands, items: after } = await obtainBucket({ kitHabit: true, items, target: { item: 'bucket', count: 2, timeoutMs: 60000 } });
+	assert.equal(result.state, 'SUCCEEDED', result.message);
+	assert.deepEqual(commands.filter(c => c.actionType === 'craft_table').map(c => c.arguments.recipeId), ['minecraft:bucket', 'minecraft:shield']);
+	assert.equal(after.filter(item => item.itemId === 'minecraft:shield').reduce((n, item) => n + item.count, 0), 2);
+	assert.deepEqual(result.kit, ['crafted shield']);
+});
+
+test('danger during kit upkeep after a failed obtain keeps the failure as the result', async () => {
+	let actionId = null;
+	const items = [{ itemId: 'minecraft:iron_pickaxe', slot: 'mainhand', count: 1 }, { itemId: 'minecraft:iron_ingot', slot: 10, count: 4 },
+		{ itemId: 'minecraft:oak_planks', slot: 11, count: 8 }, { itemId: 'minecraft:crafting_table', slot: 1, count: 1 }, { itemId: 'minecraft:shield', slot: 20, count: 1 }];
+	const { result } = await obtainBucket({ kitHabit: true, items, target: { item: 'bucket', count: 2, timeoutMs: 60000 }, craftRoom: 40,
+		onEquip: (runtime, record, p) => { actionId = p.actionId; queueMicrotask(() => runtime.interruptBlockingTool(record.agentId)); return 'hold'; } });
+	assert.ok(actionId, 'the stored shield equip started');
+	assert.equal(result.state, 'FAILED', JSON.stringify(result));
+	assert.equal(result.reasonCode, 'NO_SOURCE');
+	assert.equal(result.running?.actionId, actionId);
+	assert.match(result.message, /kit upkeep stopped for danger after the obtain failed/);
+	assert.doesNotMatch(result.message, /after the item was obtained/);
 });

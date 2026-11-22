@@ -1,5 +1,5 @@
 {
-	"note": "Night-1 respawn room (test-obtain-live.mjs, OBTAIN_HANDBACK=answer): three bodies per seed each respawn at dusk into the pack that killed it, 9-14 blocks off as in the from-scratch games (alive 0.5-1 min after respawn there) (2 zombies and 2 skeletons in helmets), then re-kit; judged on being alive after 10 game minutes.",
+	"note": "Night-1 respawn room (test-obtain-live.mjs, OBTAIN_HANDBACK=answer): three bodies per seed each respawn after dusk (time 12650, play from about 12850) into the pack that killed it, 9-14 blocks off as in the from-scratch games (alive 0.5-1 min after respawn there) (2 zombies and 2 skeletons in helmets), then re-kit; judged on being alive after 10 game minutes.",
 	"seeds": [
 		20261122,
 		3315172112810107624
@@ -11,7 +11,7 @@
 			"count": 3,
 			"budgetMs": 600000,
 			"playMs": 600000,
-			"time": 11400,
+			"time": 12650,
 			"survive": true,
 			"respawnInto": [
 				[
@@ -41,7 +41,7 @@
 			"count": 3,
 			"budgetMs": 600000,
 			"playMs": 600000,
-			"time": 11400,
+			"time": 12650,
 			"survive": true,
 			"respawnInto": [
 				[
@@ -71,7 +71,7 @@
 			"count": 3,
 			"budgetMs": 600000,
 			"playMs": 600000,
-			"time": 11400,
+			"time": 12650,
 			"survive": true,
 			"respawnInto": [
 				[

@@ -12,9 +12,11 @@ Each agent is a real `ServerPlayer` with vanilla collision, gravity, health, hun
 
 The coordinator uses the selected provider's control path for every summonable NPC: Codex and Claude both drive the body through the same native Minecraft tools, workspace, AGENTS.md, and minecraft-control skill. The coordinator prepares the in-game instructions and minecraft-control skill in its Minecraft agent workspace. Codex uses app-server threads; Claude receives the same instructions with native Minecraft tools over a local MCP endpoint. The former fixed two-client planner is retired and is not a runtime fallback.
 
-[The architecture](docs/architecture.md) maps the agent system and body loop to their source files, then shows the Overworld, Nether and End run segments, progress at each step and the Nether blockers (results up to 15 Nov 2026).
+[The architecture](docs/architecture.md) maps the agent system and body loop to their source files, then shows the Overworld, Nether and End run segments and the Nether blockers as of an earlier snapshot. For the latest full-game results and how progress is measured, read [the goal page](docs/goal-progress.md).
 
 ## Build and automated verification
+
+In every new clone or worktree, run `node scripts/doctor.mjs` first. It prints one line per setup check (Node, Java 25, `libs/*.jar`, `coordinator/node_modules`, hooks, the server template, `ARENA_PRIVATE_INPUTS`) with the command that fixes each failure; `--fix` copies the JARs and `node_modules` from the main worktree and turns on the hooks. [AGENTS.md](AGENTS.md#set-up-a-checkout) has the details.
 
 Saved run records and decision-eval recordings live in a private archive. Set `ARENA_PRIVATE_INPUTS` to its root to run the complete coordinator suite; paths within it match the repository layout. Without it, `npm test` names and omits only tests with unavailable private inputs. See [private recording setup](scripts/decision-eval/README.md#private-recordings).
 
@@ -40,7 +42,7 @@ Turn on the commit hooks once per clone:
 git config core.hooksPath scripts/hooks
 ```
 
-They scan what you stage and your commit message for private details with `scripts/check-public-tree.mjs`, the same scan CI runs, and stop the commit on a finding. [AGENTS.md](AGENTS.md#private-details-stay-off-the-repository) lists what counts and what to do about a finding.
+They scan what you stage, your commit message and emails, and on push the branch names and new commits, for private details with `scripts/check-public-tree.mjs`, the same scan CI runs, and stop the commit or push on a finding. [AGENTS.md](AGENTS.md#private-details-stay-off-the-repository) lists what counts and what to do about a finding.
 
 ## Building for another Minecraft 26.x version
 
@@ -124,7 +126,7 @@ ArenaScript provides a validated interpreter for model-authored programs. Its ac
 
 ### Spectate and takeover
 
-`/mineagen spectate <agent>` switches your view to the agent's first-person camera, one-to-one with what a player in its body would see: its hands, skin, held tools and how it swings, eats, blocks or draws them, plus its hotbar, hearts, food, armor, air, XP, effects, game mode, open container screens and death screen. Nothing else is drawn over the view; a lost signal or a hit on your own body shows briefly on the action bar. `<agent>` is the tab-completed selector (the agent's username or short id, no spaces), not the display name shown in chat. `/mineagen spectate <agent>` starts the view; `/mineagen spectate <agent> stop` ends that agent's view and `/mineagen spectate exit` ends whichever view is active. Your own body stays where it is, so your surroundings stop rendering while you watch.
+`/mineagen spectate <agent>` switches your view to the agent's first-person camera, one-to-one with what a player in its body would see: its hands, skin, held tools and how it swings, eats, blocks or draws them, plus its hotbar, hearts, food, armor, air, XP, effects, game mode, open container screens and death screen. The only addition is a small label in the top-left corner that names the way out (`F9: leave agent view` by default) and, while spectating, the key held for free look; the pause menu also gets a Leave agent view button. A lost signal or a hit on your own body shows briefly on the action bar. `<agent>` is the tab-completed selector (the agent's username or short id, no spaces), not the display name shown in chat. `/mineagen spectate <agent>` starts the view; `/mineagen spectate <agent> stop` ends that agent's view and `/mineagen spectate exit` ends whichever view is active. Your own body stays where it is, so your surroundings stop rendering while you watch.
 
 `/mineagen takeover <agent>` uses the same grammar and routes your movement, mouse look, jump, sneak, sprint, attack, use, hotbar and inventory clicks to the agent's body while its model is paused; the model resumes from whatever state you leave the agent in and receives a short report of what you did. A takeover ends when you run `/mineagen takeover exit` or `/mineagen takeover <agent> stop`, when your own body loses two hearts, dies, changes dimension or disconnects, or when the agent is removed or enters another dimension (run the command again once you are in the same dimension). Both commands need operator permission and the client mod.
 
