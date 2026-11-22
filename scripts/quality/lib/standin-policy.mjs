@@ -147,7 +147,7 @@ export function standinFork({ result, observation, used = {}, skip = [], wantsWa
 	const attacked = mob && (DANGER_CODES.has(code) || mob.distance !== null && mob.distance <= 6 || (observation.entities ?? []).some(one => one?.stableId === mob.id && one.targetingAgent === true));
 	if (open('hostile') && mob && attacked) {
 		const items = observation.inventory?.items ?? [];
-		const answer = mobAnswer({ ...mob, health, outOfSight: !(mob.distance <= 8), unarmed: /nothing to fight/i.test(message) || !items.some(item => WEAPON.test(item.itemId)),
+		const answer = mobAnswer({ ...mob, health, outOfSight: !(mob.distance !== null && mob.distance <= 8), unarmed: /nothing to fight/i.test(message) || !items.some(item => WEAPON.test(item.itemId)),
 			shielded: items.some(item => (item.slot === 40 || item.slot === 'offhand') && item.itemId === 'minecraft:shield') });
 		// Cover: a fixture with its own heal (the build rooms wall in and eat) uses that; the calls here are the plain
 		// answer for one without: flee the mob, then eat when food is carried.

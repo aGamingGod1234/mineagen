@@ -16,6 +16,15 @@ const kit = [{ itemId: 'minecraft:iron_sword', count: 1, slot: 0 }, { itemId: 'm
 const zombie = (distance, extra = {}) => ({ stableId: ZOMBIE, type: 'minecraft:zombie', hostile: true, alive: true, x: 0.5 + distance, y: 64, z: 0.5, ...extra });
 const failed = (reasonCode, message = '') => ({ state: 'FAILED', reasonCode, message });
 
+test('an archer named by the stop but not in the latest sample is fled, never chased', () => {
+	// hostileInWay gives such an archer distance null; null <= 8 is true in JavaScript, so it was taken as in sight.
+	const SKELETON = '5f0f2a52-1c3e-4a8b-9d2e-0c6b7a1e9f30';
+	const decision = standinFork({ result: failed('FIND_DANGER', `Stopped for danger: minecraft:skeleton ${SKELETON} shooting`), observation: body({ items: kit }) });
+	assert.equal(decision.fork, 'hostile');
+	assert.equal(decision.mob.distance, null);
+	assert.equal(decision.choice, 'flee');
+});
+
 test('a zombie that stopped the build next to the body is fought, not waited out', () => {
 	// cast-gate-7: build nether_portal ended HOSTILE_NEAR with a zombie 1.4 blocks away; the old stand-in only re-asked.
 	const decision = standinFork({ result: failed('HOSTILE_NEAR', `build nether_portal; minecraft:zombie ${ZOMBIE} 1.4 blocks away`), observation: body({ items: kit, entities: [zombie(1.4)] }) });
