@@ -41305,7 +41305,7 @@
           "type": "live-behavior",
           "test": "dig.climb-out",
           "command": "DIG_ONLY=NAME slot.sh live node scripts/quality/test-dig-live.mjs scripts/quality/climb-out-spots.json OUT_DIR JAR",
-          "predicate": "PENDING"
+          "predicate": "Built scenes on seed 1001, 10 repeats per jar against main: stairs_up from a pocket 7 under open ground stops OPEN_SKY_REACHED on the grass with 0 blocks placed (main built 9 steps into the air to y+12); under a leaf canopy the same (main stopped CAVE_OPENING in the canopy, 5 placed); under a 1-block ledge it climbs through and stops on top (y+10, 3 placed; main went on to y+12, 6 placed); under a 3-thick overhang it digs on to its goal as before; a travel_to to a hilltop beside the climb arrives with 1 block placed (main 9); out of an open pit it arrives as before (1 placed, 10/10 both). 0 deaths."
         }
       ],
       "id": "control:427b6f9027b9d7c9:261ebd4e84afe49a",
@@ -54492,7 +54492,7 @@
           "type": "live-behavior",
           "test": "dig.climb-out",
           "command": "DIG_ONLY=NAME slot.sh live node scripts/quality/test-dig-live.mjs scripts/quality/climb-out-spots.json OUT_DIR JAR",
-          "predicate": "PENDING"
+          "predicate": "Built scenes on seed 1001, 10 repeats per jar against main: stairs_up from a pocket 7 under open ground stops OPEN_SKY_REACHED on the grass with 0 blocks placed (main built 9 steps into the air to y+12); under a leaf canopy the same (main stopped CAVE_OPENING in the canopy, 5 placed); under a 1-block ledge it climbs through and stops on top (y+10, 3 placed; main went on to y+12, 6 placed); under a 3-thick overhang it digs on to its goal as before; a travel_to to a hilltop beside the climb arrives with 1 block placed (main 9); out of an open pit it arrives as before (1 placed, 10/10 both). 0 deaths."
         }
       ],
       "id": "control:427b6f9027b9d7c9:261ebd4e84afe49a:result:OPEN_SKY_REACHED",
