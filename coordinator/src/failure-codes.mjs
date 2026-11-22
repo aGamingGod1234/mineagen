@@ -59,6 +59,7 @@ export const FAILURE_CODES = Object.freeze({
 	NO_STANCE: ['cell', null],
 	TREE_OUT_OF_REACH: ['cell', null],
 	NOTHING_MINED: ['cell', null],
+	VEIN_UNDER_BODY: ['body', null],
 	LAVA_OPENED: ['threat', null],
 	INVALID_SHELTER_BLOCK: ['item', null],
 	NO_ROUTE: ['cell', null],
