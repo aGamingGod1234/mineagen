@@ -6,7 +6,7 @@ import test from 'node:test';
 import { CodexService, SharedCodexAgent, goalSpecInstructions, nativeRecoveryInstructions, recoveryInstructions } from '../src/codex-service.mjs';
 import { CodexStdioTransport } from '../src/codex-app-server.mjs';
 import { profileFingerprint } from '../src/provider-session.mjs';
-import { MINECRAFT_DYNAMIC_TOOLS } from '../src/native-minecraft-tools.mjs';
+import { offeredMinecraftTools } from '../src/native-minecraft-tools.mjs';
 import { finishDecisionJson } from './provider-decision-fixtures.mjs';
 import { eventually } from './fixtures/dynamic-main-fixture.mjs';
 import { coordinatorWithProviderAgent, emitLavaObservation, returnLavaResult } from './fixtures/hazard-provider-fixture.mjs';
@@ -1021,7 +1021,7 @@ test('native Codex turn executes a Minecraft tool and returns its result before 
 	await agent.setGoalRevision(1);
 
 	const threadStart = transport.calls.find((call) => call.method === 'thread/start').params;
-	assert.deepEqual(threadStart.dynamicTools, MINECRAFT_DYNAMIC_TOOLS);
+	assert.deepEqual(threadStart.dynamicTools, offeredMinecraftTools());
 	assert.equal(threadStart.baseInstructions.length < 1_500, true);
 
 	const executed = [];

@@ -8,7 +8,7 @@ import { DEFAULT_AGENT_CAP, DEFAULT_SERVICE_TIER } from './constants.mjs';
 import { parseDecision } from './decision-parser.mjs';
 import { ModelCatalogCache } from './model-catalog-cache.mjs';
 import { parseCodexAccount, parseCodexRateLimits } from './provider-discovery.mjs';
-import { MAX_TOOL_RESULT_BYTES, MINECRAFT_DYNAMIC_TOOLS, NATIVE_AGENT_INSTRUCTIONS, annotateAdjustments, normalizeMinecraftToolCall, toolAdjustments, toolResultContent } from './native-minecraft-tools.mjs';
+import { MAX_TOOL_RESULT_BYTES, NATIVE_AGENT_INSTRUCTIONS, annotateAdjustments, normalizeMinecraftToolCall, offeredMinecraftTools, toolAdjustments, toolResultContent } from './native-minecraft-tools.mjs';
 import { encodeModelFacts, encodeNativeEventInput, ModelObservationViews, presentHeardSounds, roundModelNumbers } from './model-fact-encoding.mjs';
 import { presentToolWear } from './resource-facts.mjs';
 import { PLANNER_OUTPUT_SCHEMA, PLANNER_SYSTEM_PROMPT } from './prompts.mjs';
@@ -221,7 +221,7 @@ export class CodexService {
 			selectedCapabilityRoots,
 			approvalPolicy: 'never',
 			...(permissionProfile === null ? { sandbox: 'read-only' } : { permissions: permissionProfile }),
-			dynamicTools: controlProtocol === 'native_tools' ? MINECRAFT_DYNAMIC_TOOLS : [],
+			dynamicTools: controlProtocol === 'native_tools' ? offeredMinecraftTools() : [],
 			environments: [],
 			ephemeral: true,
 			baseInstructions: controlProtocol === 'native_tools'

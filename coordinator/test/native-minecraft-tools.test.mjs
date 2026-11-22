@@ -1015,3 +1015,16 @@ test('do_step maps each verb to the call it runs and rejects a step it cannot ru
 	rejects({ verb: 'dig_to', target: { y: 16, stopWhenSeen: 'minecraft:coal_ore' }, why: 'x', until: 'seen:iron_ore' });
 	assert.equal(MINECRAFT_DYNAMIC_TOOLS[0].name, 'do_step', 'the step tool is listed first; the step-by-step tools follow as the fallback');
 });
+
+test('the program tools are offered only with MINEAGEN_PROGRAM_TOOLS=on, and the rest are always offered', async () => {
+	const { MINECRAFT_DYNAMIC_TOOLS: all, PROGRAM_TOOL_NAMES, offeredMinecraftTools, programToolsOffered } = await import('../src/native-minecraft-tools.mjs');
+	assert.deepEqual(PROGRAM_TOOL_NAMES.filter((name) => !all.some((tool) => tool.name === name)), [], 'every program tool is a real tool');
+	const names = (environment) => offeredMinecraftTools(environment).map((tool) => tool.name);
+	assert.deepEqual(names({}), all.map((tool) => tool.name).filter((name) => !PROGRAM_TOOL_NAMES.includes(name)));
+	assert.deepEqual(names({ MINEAGEN_PROGRAM_TOOLS: 'off' }), names({}));
+	assert.deepEqual(names({ MINEAGEN_PROGRAM_TOOLS: ' ON ' }), all.map((tool) => tool.name));
+	assert.equal(programToolsOffered({}), false);
+	assert.equal(programToolsOffered({ MINEAGEN_PROGRAM_TOOLS: 'on' }), true);
+	// The hidden tools stay callable through the normaliser and runtime for the on arm and recorded replays.
+	assert.equal(normalizeMinecraftToolCall('programStatus', {}).kind, 'program_status');
+});

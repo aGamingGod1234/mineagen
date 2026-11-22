@@ -111,7 +111,8 @@ Threats: check visible/targetable; fight or use reported exits; creepers escape.
 Omitted facts are unknown; failure.changed absent=none. queryMemory pages; author source live with program.parameters(); never noteKey or standing.template. exploreFrontier lists moveTo legs. Reclaim workstations. Claim effects from evidence. No task: takeTask operator requests, end turn; else say. Text is invisible; speech is async.`;
 
 // Byte budget: this payload is 1 byte under the 39,476 bytes three tests pin (search coordinator/test for 39_476), and
-// token-budget.test.mjs pins toolSchemaBytes at 38,900. A new field needs those budgets raised, with the reason.
+// token-budget.test.mjs pins toolSchemaBytes (the default list, without the program tools) at 34,500 and
+// toolSchemaBytesWithPrograms at 38,900. A new field needs those budgets raised, with the reason.
 export const MINECRAFT_DYNAMIC_TOOLS = Object.freeze([
 	tool('do_step', { ...objectSchema({
 		verb: { type: 'string', enum: Object.keys(STEP_VERBS) },
@@ -266,6 +267,26 @@ export const MINECRAFT_DYNAMIC_TOOLS = Object.freeze([
 ]);
 
 const TOOL_SCHEMAS = new Map(MINECRAFT_DYNAMIC_TOOLS.map(tool => [tool.name, tool.inputSchema]));
+
+/**
+ * The ArenaScript program tools: programs, their queued successors, their decisions, and standing orders and guards
+ * (runProgram's standing field). Every call sends the whole tool list, and these six cost 4,680 of its 38,540 bytes,
+ * yet rounds 4-6 called runProgram 21 times in 7,653 calls and authored no guard, and the 22 Nov checkpoint round made
+ * 27 program-tool calls in 25,038. They are offered only with
+ * MINEAGEN_PROGRAM_TOOLS=on; the runtime and the capabilities program section are unchanged either way.
+ */
+export const PROGRAM_TOOL_NAMES = Object.freeze(['runProgram', 'queueProgram', 'respondProgram', 'programStatus', 'cancelProgram', 'cancelQueuedProgram']);
+const WITHOUT_PROGRAM_TOOLS = Object.freeze(MINECRAFT_DYNAMIC_TOOLS.filter(tool => !PROGRAM_TOOL_NAMES.includes(tool.name)));
+
+/** Whether this environment offers the program tools to the model (MINEAGEN_PROGRAM_TOOLS=on; off by default). */
+export function programToolsOffered(environment = process.env) {
+	return String(environment?.MINEAGEN_PROGRAM_TOOLS ?? '').trim().toLowerCase() === 'on';
+}
+
+/** The tools sent to the model on every call: all of them with the program tools on, else all but the program tools. */
+export function offeredMinecraftTools(environment = process.env) {
+	return programToolsOffered(environment) ? MINECRAFT_DYNAMIC_TOOLS : WITHOUT_PROGRAM_TOOLS;
+}
 
 /** Schema claims whose out-of-range values are bounded and reported instead of rejected (tool:path). */
 export const ADJUSTED_SCHEMA_FIELDS = Object.freeze(['survey.limit', 'inspect.limit', 'exploreFrontier.limit', 'exploreFrontier.radius', 'queryMemory.limit', 'taskMemory.query.limit',
