@@ -41,12 +41,14 @@ import org.slf4j.LoggerFactory;
 /** Client side of /mineagen spectate and /mineagen takeover: session state, camera binding, hand source and the exit key. */
 public final class PovClient {
 	private static final Logger LOGGER = LoggerFactory.getLogger(PovClient.class);
-	// Category is a record, so an equal id joins AgentControlClient's registered "Mineagen" group. F6 is free in vanilla;
-	// unbound, the only way out was the chat command, and a mirrored agent screen kept chat from opening (playtest).
+	// Category is a record, so an equal id joins AgentControlClient's registered "Mineagen" group. Unbound, the only way
+	// out was the chat command, and a mirrored agent screen kept chat from opening (playtest). F9 is free in vanilla (F4,
+	// F6 and F7-F8 are its debug keys or common mods'). The id is new: options.txt keeps every binding, so the old
+	// unbound "exit_agent_view" would have stayed unbound on every install that ever ran the mod.
 	private static final KeyMapping EXIT_VIEW = new KeyMapping(
-			"key.mineagen.exit_agent_view",
+			"key.mineagen.leave_agent_view",
 			McClientCompat.KEYBOARD,
-			InputConstants.KEY_F6,
+			InputConstants.KEY_F9,
 			new KeyMapping.Category(Identifier.fromNamespaceAndPath("mineagen", "controls"))
 	);
 	// Poses arrive every server tick; this long without any payload means the server stopped streaming.

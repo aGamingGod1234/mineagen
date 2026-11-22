@@ -131,7 +131,12 @@ public final class ServerActionExecutor {
 	 * timeout is frozen, so without this a reflex that never finishes held it for good with the model's wakes folded under
 	 * the step (playtest: an eat stance at a crafting table kept a bread craft paused for over 5 minutes).
 	 */
-	static final long REFLEX_HOLD_LIMIT_MS = 120_000L;
+	public static final long REFLEX_HOLD_LIMIT_MS = 120_000L;
+
+	/** The stuck-pause span after one more paused loop: a firing that holds on purpose (a fight, a hazard) restarts it. */
+	public static long stuckPauseSpan(long spanMs, long sinceLastLoopMs, boolean holdsOnPurpose) {
+		return holdsOnPurpose ? 0L : spanMs + Math.max(0L, sinceLastLoopMs);
+	}
 	private static final long MOVEMENT_STALL_TIMEOUT_MS = 4_000L;
 	private static final long PLACE_TIMEOUT_MS = 5_000L;
 	/** A 180 degree turn takes about 6 ticks; past this something is fighting the view and the frame starts anyway. */
@@ -416,6 +421,15 @@ public final class ServerActionExecutor {
 
 	/** As {@link #tick(Set, Set)}; {@code firingRule} names the reflex rule holding a paused agent (for the result text). */
 	public synchronized void tick(Set<AgentId> held, Set<AgentId> paused, java.util.function.Function<AgentId, String> firingRule) {
+		tick(held, paused, firingRule, ignored -> false);
+	}
+
+	/**
+	 * As {@link #tick(Set, Set, java.util.function.Function)}; {@code holdsOnPurpose} names agents whose current firing holds
+	 * the body for as long as its danger lasts (a fight, a shield, a hazard floor), which {@link #REFLEX_HOLD_LIMIT_MS} spares.
+	 */
+	public synchronized void tick(Set<AgentId> held, Set<AgentId> paused, java.util.function.Function<AgentId, String> firingRule,
+			java.util.function.Predicate<AgentId> holdsOnPurpose) {
 		long now = GameClock.nowMs();
 		retryPendingPublications();
 		tickShiftHolds();
@@ -441,9 +455,12 @@ public final class ServerActionExecutor {
 				if (paused.contains(action.request().agentId())) {
 					action.pausedMs += sinceLastLoop;
 					action.pauseUnder(firingRule.apply(action.request().agentId()));
-					action.pausedSpanMs += sinceLastLoop;
-					// Reflexes may hold the body, never forever: the action's result is what brings the model back.
-					if (action.pausedSpanMs >= REFLEX_HOLD_LIMIT_MS) {
+					// A fight or hazard floor holds as long as its danger lasts; any other firing that keeps the body this
+					// long is stuck, and the action's result is what brings the model back.
+					action.pausedSpanMs = stuckPauseSpan(action.pausedSpanMs, sinceLastLoop, holdsOnPurpose.test(action.request().agentId()));
+					if (action.pausedSpanMs >= REFLEX_HOLD_LIMIT_MS && !hasPendingPublication(action.request().agentId())
+							&& pendingCompletions.get(action.request().agentId()) == null) {
+						action.pausedSpanMs = 0L;
 						finish(action, action.result(ServerActionState.FAILED, "HELD_BY_REFLEX", String.format(java.util.Locale.ROOT,
 								"Reflexes held the body for %d s in a row and this action could not run", action.pausedSpanMs / 1000L), now));
 					}

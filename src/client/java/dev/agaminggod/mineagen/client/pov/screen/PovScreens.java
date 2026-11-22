@@ -97,15 +97,15 @@ public final class PovScreens {
 			PovClient.requestExit();
 			return true;
 		}
-		// Typing into a takeover anvil's name field keeps its letters.
-		if (screen.getFocused() instanceof net.minecraft.client.gui.components.EditBox) return false;
+		// Chat and the command key only for a spectator, whose mirror is read-only: in a takeover the operator types into the
+		// agent's screens (an anvil's name, the recipe book's search) and closes them with Esc or E as their own.
+		if (PovClient.isTakeover()) return false;
 		boolean command = client.options.keyCommand.matches(event);
 		if (!command && !client.options.keyChat.matches(event)) return false;
 		if (screen == mirrorScreen) {
 			int containerId = mirrorContainerId;
 			clearMirror();
 			dismiss(containerId);
-			if (PovClient.isTakeover()) OperatorInputSender.sendAction(OperatorAction.CLOSE_MENU, containerId, 0, 0);
 		}
 		dev.agaminggod.mineagen.client.compat.McClientCompat.openChat(client, command);
 		return true;
