@@ -97,9 +97,12 @@ export function scoreGame(report, targets, { inheritedMs = 30_000 } = {}) {
 	if (!timeline || !Array.isArray(timeline.milestones) || unplayed) return unknown(timeline ? 'no gameplay observed' : 'no report');
 	// A game that ended before its window for a reason other than a stall, the spend cap or the goal (a crash, a kill)
 	// did not get its chance: its misses and its few deaths would read as a played game, so it is unknown, as in
-	// gate-report.mjs, and counted apart.
-	const reason = timeline.stopReason;
-	if (typeof reason === 'string' && reason.startsWith('ENDED_EARLY:') && [null, 'other'].includes(stopKind(reason))) return { ...unknown('ended early'), endedEarly: true };
+	// gate-report.mjs, and counted apart. A reason an operator recorded (operator-stop.mjs, a stall stop) wins over the
+	// timeline's, which then only says the game was killed, in the order run-long.mjs stopOf and gate-report.mjs use.
+	// report.stop holds the operator's reason when there is one, else the timeline's.
+	const reason = report?.stop?.reason ?? report?.operatorStop?.reason ?? timeline.stopReason ?? report?.stopRequest?.reason ?? null;
+	const early = Boolean(report?.operatorStop?.reason) || (typeof timeline.stopReason === 'string' && timeline.stopReason.startsWith('ENDED_EARLY:'));
+	if (early && [null, 'other'].includes(stopKind(reason))) return { ...unknown('ended early'), endedEarly: true, stopReason: reason };
 	if ((report?.observerErrors ?? []).some(e => LOST_EVIDENCE.test(String(e)))) return unknown('journals lost or damaged');
 	const byId = new Map(timeline.milestones.map(m => [m.id, m]));
 	const result = {};
@@ -112,7 +115,7 @@ export function scoreGame(report, targets, { inheritedMs = 30_000 } = {}) {
 	}
 	const deaths = Array.isArray(timeline.deaths) ? timeline.deaths.length + (timeline.unexplainedDeaths ?? 0) : null;
 	return { known: true, targets: result, inherited, deaths, deathCauses: (timeline.deaths ?? []).map(d => d.cause), playedMinutes: Number.isFinite(timeline.playedMs) ? Math.round(timeline.playedMs / 600) / 100 : null,
-		stopReason: timeline.stopReason ?? null, furthest: timeline.furthestMilestone ?? null, calls: timeline.totals?.calls ?? null };
+		stopReason: reason, furthest: timeline.furthestMilestone ?? null, calls: timeline.totals?.calls ?? null };
 }
 
 /** Per save point and arm: games, games with a known report, and for each target how many reached it and their minutes. */

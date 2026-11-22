@@ -21,6 +21,9 @@ map() { case $1 in bx_*:*) echo "$F/\${1%%:*}/\${1#*:}";; *) echo "$1";; esac; }
 seed() { mkdir -p "$1/rooms/jdk/bin" "$1/.local/bin"; : > "$1/rooms/jdk/bin/java"; chmod +x "$1/rooms/jdk/bin/java"; printf '#!/bin/bash\\necho codex-cli 0.1.0\\n' > "$1/.local/bin/codex"; chmod +x "$1/.local/bin/codex"; }
 case $cmd in
   ssh) id=$1; shift; [ "$1" = -- ] && shift; [ -f "$F/$id.deleted" ] && { echo gone >&2; exit 255; }
+    # An OUTAGE_AT_SIGNOFF file starts a 3 s boat outage at the first sign-in removal (an outage as the batch ends).
+    if [ -f "$F/OUTAGE_AT_SIGNOFF" ] && printf '%s' "$*" | sed -n 's/.*echo \\([A-Za-z0-9+\/=]*\\) | base64 -d.*/\\1/p' | base64 -d 2>/dev/null | grep -q 'rm -f ~/.codex/auth.json'; then
+      rm -f "$F/OUTAGE_AT_SIGNOFF"; touch "$F/OUTAGE"; (sleep 3; rm -f "$F/OUTAGE") > /dev/null 2>&1 < /dev/null & echo "connection refused" >&2; exit 1; fi
     o=$(cd "$F/$id" && HOME="$F/$id" bash -c "$*"); rc=$?
     # A DROPSTART file loses the answer to the first game launch there (the game itself starts), as when ssh drops.
     if [ -f "$F/$id/DROPSTART" ] && printf '%s\n' "$o" | grep -qx started; then rm -f "$F/$id/DROPSTART"; exit 255; fi
@@ -28,11 +31,14 @@ case $cmd in
   scp) s=$(map "$1"); d=$(map "$2"); mkdir -p "$(dirname "$d")"
     # A NOAUTH file in a prepared machine's home makes every sign-in upload for a game fail while ssh still works.
     case $2 in *:.codex/auth.json) h=$F/\${2%%:*}; [ -f "$h/NOAUTH" ] && [ -f "$h/ck/game.sh" ] && { echo "scp failed" >&2; exit 1; };; esac
+    # A BLOCKSCP file makes every upload of an arm package hang for minutes, as a slow transfer does.
+    case $2 in *:ck/arms/*.tar.gz) [ -f "$F/BLOCKSCP" ] && { echo "blocked $2" >> "$F/blocked.log"; sleep 300; };; esac
     case $2 in *:ck/game.sh) cp "$F/fake-game.sh" "$d";; *) cp "$s" "$d";; esac;;
   info) [ -f "$F/$1.deleted" ] && echo '{"sandbox":{"state":"deleted"}}' || printf '{"sandbox":{"state":"running","name":"%s"}}\\n' "$(cat "$F/$1.name" 2>/dev/null)";;
   delete) touch "$F/$1.deleted"; echo "$1" >> "$F/deleted.log"; echo '{}';;
   new) echo "new $*" >> "$F/new.log"; [ -f "$F/NEWFAIL" ] && { rm -f "$F/NEWFAIL"; echo "no capacity" >&2; exit 1; }; n=$(ls "$F" | grep -c '^bx_new'); id=bx_new$n; seed "$F/$id"; printf '{"event":"ready","id":"%s"}\\n' "$id";;
   extend) echo "extend $*" >> "$F/extend.log"; echo '{}';;
+  list) echo '{"sandboxes":[]}';;
   *) echo "fake boat: $cmd not handled" >&2; exit 2;;
 esac
 `;
@@ -40,7 +46,8 @@ esac
 const FAKE_GAME = `#!/bin/bash
 id=$1; dir=$HOME/ck/games/$id; raw=$HOME/ck/arms/runs/$id; mkdir -p "$raw/.codex-home" "$raw/server" "$dir/report"; echo world > "$raw/server/level.dat"
 # A NODONE file makes each game's first launch end without a done file, as when the launch ssh dropped first.
-[ -f "$FAKE_BOAT_ROOT/NODONE" ] && [ ! -f "$FAKE_BOAT_ROOT/nodone-$id" ] && { touch "$FAKE_BOAT_ROOT/nodone-$id"; exit 0; }
+# A LEFTOVER file also leaves a detached process of that launch running (the launcher's server and coordinator).
+[ -f "$FAKE_BOAT_ROOT/NODONE" ] && [ ! -f "$FAKE_BOAT_ROOT/nodone-$id" ] && { touch "$FAKE_BOAT_ROOT/nodone-$id"; if [ -f "$FAKE_BOAT_ROOT/LEFTOVER" ]; then setsid bash -c "sleep 300; : $HOME/ck/arms/leftover-$id" > /dev/null 2>&1 < /dev/null & fi; exit 0; }
 # A BROKEN file in a machine's home makes every launch there end without a done file (a full disk, a wiped ~/ck).
 [ -f "$HOME/BROKEN" ] && exit 0
 # A SLOW file keeps each game on that machine running across a few passes; a HANG file keeps it running for minutes.
@@ -298,4 +305,73 @@ test('checkpoint batch drops no machine while boat itself is unreachable for a w
 		assert.ok(state.machines.every(m => !m.lost));
 		assert.equal(leftSignIns(root), '0');
 	} finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('checkpoint batch ends the leftover processes of a launch that died before reusing its machine', posixOnly, () => {
+	const root = setup();
+	writeFileSync(path.join(root, 'NODONE'), ''); writeFileSync(path.join(root, 'LEFTOVER'), '');
+	try {
+		run(root);
+		const state = JSON.parse(readFileSync(path.join(root, 'out/state.json'), 'utf8'));
+		assert.deepEqual(state.games.map(g => g.state), ['done', 'done', 'done', 'done']);
+		assert.equal(readdirSync(root).filter(f => f.startsWith('nodone-')).length, 4, 'every game\'s first launch died');
+		// pgrep exits 1 when nothing matches.
+		assert.throws(() => execFileSync('pgrep', ['-f', `${root}/bx_.*/ck/arms/leftover-`], { encoding: 'utf8' }), 'no leftover of a dead launch is still running');
+	} finally { try { execFileSync('pkill', ['-f', `${root}/bx_`]); } catch {} rmSync(root, { recursive: true, force: true }); }
+});
+
+test('checkpoint batch drops no machine during an outage longer than the drop wait, and plays every game once boat is back', posixOnly, async () => {
+	const root = setup();
+	for (const id of ['bx_aaaaaaaa', 'bx_bbbbbbbb']) writeFileSync(path.join(root, id, 'SLOW'), '');
+	try {
+		// LOST_AFTER_MS 200 makes the drop wait during an outage 1.2 s; boat stays away for 4 s.
+		const child = spawn('node', [script, '--plan', path.join(root, 'plan.json'), '--out', path.join(root, 'out')], {
+			env: { ...process.env, PATH: `${path.join(root, 'bin')}:${process.env.PATH}`, BOAT_BIN: path.join(root, 'bin/boat'), FAKE_BOAT_ROOT: root, CHECKPOINT_POLL_MS: '200', CHECKPOINT_LOST_AFTER_MS: '200' }, stdio: ['ignore', 'pipe', 'pipe'] });
+		const exited = new Promise(resolve => child.on('exit', resolve));
+		let out = '', outage = false;
+		child.stdout.on('data', chunk => {
+			out += chunk;
+			if (!outage && /finished nether/.test(out)) { outage = true; writeFileSync(path.join(root, 'OUTAGE'), ''); setTimeout(() => rmSync(path.join(root, 'OUTAGE'), { force: true }), 4_000); }
+		});
+		assert.equal(await exited, 0);
+		assert.ok(outage, 'the outage happened');
+		const state = JSON.parse(readFileSync(path.join(root, 'out/state.json'), 'utf8'));
+		assert.deepEqual(state.games.map(g => g.state), ['done', 'done', 'done', 'done']);
+		assert.ok(state.machines.every(m => !m.lost));
+		assert.equal(leftSignIns(root), '0');
+	} finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('checkpoint batch keeps trying to take the sign-ins off when boat is out as the batch ends', posixOnly, () => {
+	// Listed machines are kept, so only the cleanup can take their sign-ins off.
+	const root = setup({ plan: { drain: undefined } });
+	writeFileSync(path.join(root, 'OUTAGE_AT_SIGNOFF'), '');
+	try {
+		run(root);
+		assert.ok(!existsSync(path.join(root, 'OUTAGE_AT_SIGNOFF')), 'the outage happened');
+		assert.match(readFileSync(path.join(root, 'out/batch.log'), 'utf8'), /could not remove the sign-in from bx_/);
+		const state = JSON.parse(readFileSync(path.join(root, 'out/state.json'), 'utf8'));
+		assert.ok(state.machines.every(m => m.signInRemoved));
+		assert.equal(leftSignIns(root), '0');
+	} finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('checkpoint batch cancels a long upload on SIGTERM and cleans up at once', posixOnly, async () => {
+	const root = setup();
+	writeFileSync(path.join(root, 'BLOCKSCP'), '');
+	try {
+		const child = spawn('node', [script, '--plan', path.join(root, 'plan.json'), '--out', path.join(root, 'out')], {
+			env: { ...process.env, PATH: `${path.join(root, 'bin')}:${process.env.PATH}`, BOAT_BIN: path.join(root, 'bin/boat'), FAKE_BOAT_ROOT: root, CHECKPOINT_POLL_MS: '200' }, stdio: ['ignore', 'pipe', 'pipe'] });
+		const exited = new Promise(resolve => child.on('exit', resolve));
+		// Wait until both machines are stuck uploading their arm package.
+		for (let i = 0; i < 300 && (existsSync(path.join(root, 'blocked.log')) ? readFileSync(path.join(root, 'blocked.log'), 'utf8').trim().split('\n').length : 0) < 2; i++) await new Promise(r => setTimeout(r, 100));
+		assert.equal(readFileSync(path.join(root, 'blocked.log'), 'utf8').trim().split('\n').length, 2, 'both uploads hung');
+		const signalledAt = Date.now();
+		child.kill('SIGTERM');
+		await exited;
+		assert.ok(Date.now() - signalledAt < 30_000, `the cleanup did not wait for the hung uploads (${Date.now() - signalledAt} ms)`);
+		assert.deepEqual(readFileSync(path.join(root, 'deleted.log'), 'utf8').trim().split('\n').sort(), ['bx_aaaaaaaa', 'bx_bbbbbbbb']);
+		assert.equal(leftSignIns(root), '0');
+		assert.equal(readFileSync(path.join(root, 'blocked.log'), 'utf8').trim().split('\n').length, 2, 'no further upload started after the signal');
+	} finally { try { execFileSync('pkill', ['-f', `${root}/bin/boat`]); } catch {} rmSync(root, { recursive: true, force: true }); }
 });

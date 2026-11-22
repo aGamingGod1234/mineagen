@@ -24,12 +24,15 @@ export function boat(args, { timeoutMs = 10 * 60_000, input = null, binary = fal
 		child.stderr.on('data', chunk => { stderr += chunk; });
 		const kill = () => child.kill('SIGKILL');
 		const timer = setTimeout(kill, timeoutMs);
-		signal?.addEventListener('abort', kill, { once: true });
+		// On an abort the pipes are closed too: a grandchild (the ssh or scp under boat) that outlives the kill would
+		// otherwise hold them and delay the rejection, and this process's exit, until it ends.
+		const cancel = () => { kill(); child.stdout.destroy(); child.stderr.destroy(); };
+		signal?.addEventListener('abort', cancel, { once: true });
 		if (input !== null) { child.stdin.on('error', () => {}); child.stdin.end(input); }
-		child.on('error', error => { clearTimeout(timer); signal?.removeEventListener('abort', kill); reject(error); });
+		child.on('error', error => { clearTimeout(timer); signal?.removeEventListener('abort', cancel); reject(error); });
 		child.on('close', code => {
 			clearTimeout(timer);
-			signal?.removeEventListener('abort', kill);
+			signal?.removeEventListener('abort', cancel);
 			const stdout = binary ? Buffer.concat(chunks) : Buffer.concat(chunks).toString();
 			if (code === 0 || anyExit) resolve(stdout);
 			else reject(Object.assign(new Error(`boat ${args[0]} exited ${code}: ${(stderr || String(stdout)).trim().split('\n').slice(-2).join(' ').slice(0, 400)}`), { stdout }));
@@ -195,18 +198,18 @@ export const machineUsage = async id => JSON.parse(await boat(['usage', id, '--j
  * sign-in's sha256 on the machine; compare it after each game, because a changed hash means Codex refreshed the
  * sign-in there, which can sign out every other copy.
  */
-export async function installCodex(id, { authFile, version }) {
+export async function installCodex(id, { authFile, version, signal = null }) {
 	if (!/^[0-9][0-9A-Za-z.+-]*$/.test(version)) throw new Error(`bad codex version ${version}`);
 	await remote(id, `set -e; mkdir -p ~/.codex; chmod 700 ~/.codex
-[ "$(~/.local/bin/codex --version 2>/dev/null | awk '{print $NF}')" = ${quote(version)} ] || npm i -g --prefix ~/.local @openai/codex@${quote(version)} >/dev/null 2>&1; ~/.local/bin/codex --version >/dev/null`, { timeoutMs: 15 * 60_000 });
-	await upload(id, authFile, '.codex/auth.json');
-	return (await remote(id, 'chmod 600 ~/.codex/auth.json; sha256sum ~/.codex/auth.json | cut -c1-64')).trim();
+[ "$(~/.local/bin/codex --version 2>/dev/null | awk '{print $NF}')" = ${quote(version)} ] || npm i -g --prefix ~/.local @openai/codex@${quote(version)} >/dev/null 2>&1; ~/.local/bin/codex --version >/dev/null`, { timeoutMs: 15 * 60_000, signal });
+	await upload(id, authFile, '.codex/auth.json', { signal });
+	return (await remote(id, 'chmod 600 ~/.codex/auth.json; sha256sum ~/.codex/auth.json | cut -c1-64', { signal })).trim();
 }
 export const codexSignInHash = async id => (await remote(id, 'sha256sum ~/.codex/auth.json | cut -c1-64')).trim();
 export const removeCodexSignIn = (id, dirs = ['~/ck']) => remote(id, `rm -f ~/.codex/auth.json; for d in ${dirs.join(' ')}; do [ -d "$d" ] && find "$d" \\( -name auth.json -o -type d -name .codex-home -prune \\) -exec rm -rf {} +; done; true`);
 export const extendMachine = (id, ttlSeconds) => boat(['extend', id, '--ttl', String(ttlSeconds), '--json'], { timeoutMs: 60_000 });
-export const upload = (id, local, remotePath) => boat(['scp', local, `${id}:${remotePath}`], { timeoutMs: 15 * 60_000 });
-export const download = (id, remotePath, local) => boat(['scp', `${id}:${remotePath}`, local], { timeoutMs: 15 * 60_000 });
+export const upload = (id, local, remotePath, options = {}) => boat(['scp', local, `${id}:${remotePath}`], { timeoutMs: 15 * 60_000, ...options });
+export const download = (id, remotePath, local, options = {}) => boat(['scp', `${id}:${remotePath}`, local], { timeoutMs: 15 * 60_000, ...options });
 
 function untar(data, dir) {
 	return new Promise((resolve, reject) => {

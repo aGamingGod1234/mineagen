@@ -42,8 +42,8 @@ const sha = file => createHash('sha256').update(readFileSync(file)).digest('hex'
 // Local copy failures of one game (a full disk) are retried each pass; past this many the game scores unknown and the
 // machine is let go, so the batch can always end.
 const MAX_LOCAL_COPY_FAILURES = 30;
-// While boat itself does not answer (an outage on this side) a failing machine is dropped only after this much longer
-// wait, so an outage drops nothing, yet one machine boat never answers about cannot hold the batch open forever.
+// While boat answers a listing but not about one failing machine, that machine is dropped only after this much longer
+// wait, so a slow boat drops nothing, yet one machine boat never answers about cannot hold the batch open forever.
 const OUTAGE_GRACE_MS = 6 * LOST_AFTER_MS;
 // Every pass, at most this often, a created machine's boat deadline is set again to TTL from now.
 const EXTEND_EVERY_MS = 10 * 60_000;
@@ -130,8 +130,13 @@ async function meterOk() {
 
 const state = { plan: { ...plan, codexHome: '(private)', codexHomes: authFiles.map((_, i) => `(private sign-in ${i + 1})`) }, startedAt: new Date().toISOString(), codexVersion, arms: pkgs, games, machines: [] };
 const save = async () => { await writeFile(path.join(out, 'state.json.tmp'), JSON.stringify(state, null, 2)); await rename(path.join(out, 'state.json.tmp'), path.join(out, 'state.json')); };
-let created = 0, spares = plan.spares ?? 0, stopped = false, aborted = false, signInChanged = false, interrupts = 0, wake = () => {};
-const abort = () => { stopped = true; aborted = true; wake(); };
+let created = 0, spares = plan.spares ?? 0, stopped = false, aborted = false, abortedAt = 0, signInChanged = false, interrupts = 0, wake = () => {};
+// Every boat call of the loop (preparing, launching, checking, copying home) carries this signal, so an abort kills a
+// transfer in flight (up to 15 minutes) instead of waiting for it, and the cleanup starts at once. The cleanup's own
+// calls and machine creation do not carry it: a killed `boat new` could leave a machine whose id is never learned.
+const stopAll = new AbortController();
+const live = { signal: stopAll.signal };
+const abort = () => { stopped = true; if (!aborted) { aborted = true; abortedAt = Date.now(); stopAll.abort(); } wake(); };
 // The first Ctrl-C starts no new game and lets running ones finish; a second ends the running games and goes straight
 // to the cleanup (sign-ins off, created machines deleted).
 process.on('SIGINT', () => { stopped = true; if (++interrupts > 1) abort(); });
@@ -155,9 +160,10 @@ async function destroyWithRetry(id, tries = 3) {
 // game's session can leave them running (and holding the game's ports). Their command lines all hold ~/ck/arms/, and a
 // machine plays one game at a time, so whatever is left there is ended too.
 const leftovers = `pkill -TERM -f "$HOME/ck/arms/"; for i in $(seq 1 15); do pgrep -f "$HOME/ck/arms/" >/dev/null || break; sleep 1; done; pkill -KILL -f "$HOME/ck/arms/"; true`;
-// Ends every game session on a machine (game.sh and the run it started), first politely, then by force.
-const stopGamesScript = `sids=$(for p in $(pgrep -f 'ck/game.sh '); do ps -o sid= -p "$p"; done | tr -d ' ' | sort -u)
-for s in $sids; do pkill -TERM -s "$s"; done; for i in $(seq 1 30); do [ -z "$(pgrep -f 'ck/game.sh ')" ] && break; sleep 2; done
+// Ends every game session on a machine (game.sh and the run it started), first politely, then by force. The pattern's
+// [c] keeps it from matching another pgrep's own command line (another check on the same machine).
+const stopGamesScript = `sids=$(for p in $(pgrep -f '[c]k/game.sh '); do ps -o sid= -p "$p"; done | tr -d ' ' | sort -u)
+for s in $sids; do pkill -TERM -s "$s"; done; for i in $(seq 1 30); do [ -z "$(pgrep -f '[c]k/game.sh ')" ] && break; sleep 2; done
 for s in $sids; do pkill -KILL -s "$s"; done
 ${leftovers}`;
 
@@ -169,18 +175,18 @@ function underCap() {
 }
 
 async function prepare(vm) {
-	await remote(vm.id, 'set -e; mkdir -p ~/ck/arms ~/ck/sp ~/ck/games; command -v eatmydata >/dev/null; test -x ~/rooms/jdk/bin/java');
-	const hash = await installCodex(vm.id, { authFile, version: codexVersion });
+	await remote(vm.id, 'set -e; mkdir -p ~/ck/arms ~/ck/sp ~/ck/games; command -v eatmydata >/dev/null; test -x ~/rooms/jdk/bin/java', live);
+	const hash = await installCodex(vm.id, { authFile, version: codexVersion, ...live });
 	if (hash !== authSha) throw new Error(`sign-in copy on ${vm.id} does not match its source`);
 	for (const [name, pkg] of Object.entries(pkgs)) {
-		await upload(vm.id, pkg.tar, `ck/arms/${name}.tar.gz`);
-		await upload(vm.id, plan.arms[name].jar, `ck/arms/${name}.jar`);
+		await upload(vm.id, pkg.tar, `ck/arms/${name}.tar.gz`, live);
+		await upload(vm.id, plan.arms[name].jar, `ck/arms/${name}.jar`, live);
 		const env = Object.entries(plan.arms[name].env ?? {}).map(([k, v]) => `${k}=${v}`).join('\n');
-		await remote(vm.id, `set -e; cd ~/ck/arms; rm -rf ${name}; mkdir -p ${name}; tar -xzf ${name}.tar.gz -C ${name}; mv ${name}.jar ${name}/mod.jar; rm ${name}.tar.gz; printf '%s\\n' ${quote(env)} > ${name}/env`);
+		await remote(vm.id, `set -e; cd ~/ck/arms; rm -rf ${name}; mkdir -p ${name}; tar -xzf ${name}.tar.gz -C ${name}; mv ${name}.jar ${name}/mod.jar; rm ${name}.tar.gz; printf '%s\\n' ${quote(env)} > ${name}/env`, live);
 	}
-	for (const [name, point] of Object.entries(plan.savepoints)) await upload(vm.id, point.file, `ck/sp/${name}.json`);
-	await upload(vm.id, gameScript, 'ck/game.sh');
-	await remote(vm.id, 'chmod +x ~/ck/game.sh');
+	for (const [name, point] of Object.entries(plan.savepoints)) await upload(vm.id, point.file, `ck/sp/${name}.json`, live);
+	await upload(vm.id, gameScript, 'ck/game.sh', live);
+	await remote(vm.id, 'chmod +x ~/ck/game.sh', live);
 	vm.prepared = true;
 }
 
@@ -202,19 +208,26 @@ async function addMachine(kind) {
 async function start(vm, game) {
 	try { await launch(vm, game); }
 	catch (error) {
-		if (vm.game === game.id) throw error;
+		if (aborted || vm.game === game.id) throw error;
 		vm.launchFailingSince ??= Date.now();
 		if (!dropDue(vm, await boatSays(vm.id), 'launchFailingSince')) throw error;
 		await log(`dropping ${vm.id}: its launches keep failing (${error.message.split('\n')[0].slice(0, 200)})`);
 		await dropMachine(vm);
 	}
 }
-// What boat says about a machine that failed: true live, false gone (not live, or not found), null no answer at all.
-const boatSays = id => machineState(id).then(s => LIVE.has(s), e => /\b(?:sandbox|machine)\b[^\n]*\bnot found\b|\b404\b/i.test(e.message) ? false : null);
+// What boat says about a machine that failed: true live, false gone (not live, or not found), null no answer about this
+// machine while boat still answers a listing, undefined no answer at all (an outage on this side: the network, boat).
+const NOT_FOUND = /\b(?:sandbox|machine)\b[^\n]*\bnot found\b|\b404\b/i;
+const boatSays = id => machineState(id).then(s => LIVE.has(s), e => NOT_FOUND.test(e.message) ? false
+	: boat(['list', '--json'], { timeoutMs: 60_000 }).then(() => null, () => undefined));
 // A failing machine is dropped at once when boat says it is gone, after LOST_AFTER_MS of failures while boat says it is
-// live, and only after OUTAGE_GRACE_MS while boat does not answer. Time while boat did not answer does not count toward
-// LOST_AFTER_MS: once boat answers again, the failure clock (vm[since]) starts over.
+// live, and after OUTAGE_GRACE_MS while boat answers about others but not this one. During an outage nothing is dropped
+// (a drop then would also leave the sign-in on the machine) until the deadline has passed, when no game can start and
+// every game should have ended. Time in an outage or without an answer does not count toward LOST_AFTER_MS: once boat
+// answers again, the failure clock (vm[since]) starts over.
 function dropDue(vm, live, since) {
+	if (live === undefined) { vm.inOutage = true; return Date.now() > Date.parse(plan.deadline); }
+	if (vm.inOutage) { vm.inOutage = false; vm.unansweredSince = null; vm[since] = Date.now(); }
 	if (live === null) { vm.unansweredSince ??= Date.now(); return Date.now() - vm.unansweredSince > OUTAGE_GRACE_MS; }
 	if (vm.unansweredSince) { vm.unansweredSince = null; vm[since] = Date.now(); }
 	return live === false || Date.now() - vm[since] > LOST_AFTER_MS;
@@ -223,13 +236,13 @@ async function launch(vm, game) {
 	// A sign-in refreshed at its source (Codex on this computer) no longer matches its hash: like a refresh on a machine,
 	// it stops new starts instead of failing every launch until the deadline.
 	if (sha(authFiles[game.account]) !== authShas[game.account]) { signInChanged = true; await log(`SIGN-IN CHANGED at its source (sign-in ${game.account + 1}): Codex refreshed it on this computer; no new game starts`); return; }
-	await upload(vm.id, authFiles[game.account], '.codex/auth.json');
-	const copied = (await remote(vm.id, 'chmod 600 ~/.codex/auth.json; sha256sum ~/.codex/auth.json | cut -c1-64')).trim();
+	await upload(vm.id, authFiles[game.account], '.codex/auth.json', live);
+	const copied = (await remote(vm.id, 'chmod 600 ~/.codex/auth.json; sha256sum ~/.codex/auth.json | cut -c1-64', live)).trim();
 	if (copied !== authShas[game.account]) throw new Error(`sign-in ${game.account + 1} did not copy intact to ${vm.id}`);
 	vm.launchFailingSince = null;
 	game.state = 'running'; game.attempts++; game.machine = vm.id; game.startedAt = new Date().toISOString(); vm.game = game.id; vm.signInRemoved = false;
 	game.timingOut = false; game.localCopyFailures = 0;
-	await remote(vm.id, `rm -rf ~/ck/games/${game.id}; mkdir -p ~/ck/games/${game.id}\nsetsid nohup ~/ck/game.sh ${game.id} ${game.arm} "$HOME/ck/sp/${game.savepoint}.json" ${plan.minutes} ${game.salt} ${quote(plan.model ?? 'gpt-6.2-sol')} ${quote(plan.effort ?? 'low')} > /dev/null 2>&1 < /dev/null &\necho started`);
+	await remote(vm.id, `rm -rf ~/ck/games/${game.id}; mkdir -p ~/ck/games/${game.id}\nsetsid nohup ~/ck/game.sh ${game.id} ${game.arm} "$HOME/ck/sp/${game.savepoint}.json" ${plan.minutes} ${game.salt} ${quote(plan.model ?? 'gpt-6.2-sol')} ${quote(plan.effort ?? 'low')} > /dev/null 2>&1 < /dev/null &\necho started`, live);
 	await log(`started ${game.id} on ${vm.id} (salt ${game.salt}, sign-in ${game.account + 1}, attempt ${game.attempts})`);
 }
 
@@ -241,7 +254,7 @@ async function fetch(vm, game) {
 if [ -n "$raw" ] && [ -d "$raw" ]; then rm -rf raw; mkdir raw
   if (set -o pipefail; tar -C "$raw" --exclude=server --exclude=.codex-home --exclude=auth.json --exclude=rcon-password.txt --exclude=secret.txt -cf - . | tar -C raw -xf -); then rm -rf "$raw/server"; else staged=no; rm -rf raw; echo stage-failed; fi; fi
 [ -n "$raw" ] && find "$raw" -path '*.codex-home/auth.json' -exec sha256sum {} + 2>/dev/null | cut -c1-64 | sed 's/^/run=/'
-[ $staged = yes ] && tar --exclude=auth.json --exclude=.codex-home -czf ../${game.id}.tgz . && echo ok; echo tgz=$(sha256sum ../${game.id}.tgz | cut -c1-64); sha256sum ~/.codex/auth.json | cut -c1-64`, { timeoutMs: 15 * 60_000 });
+[ $staged = yes ] && tar --exclude=auth.json --exclude=.codex-home -czf ../${game.id}.tgz . && echo ok; echo tgz=$(sha256sum ../${game.id}.tgz | cut -c1-64); sha256sum ~/.codex/auth.json | cut -c1-64`, { timeoutMs: 15 * 60_000, ...live });
 	const lines = text.trim().split('\n'), remoteSha = lines.pop();
 	// The game's coordinator works on its own copy of the sign-in (.codex-home under the run folder), so a refresh during
 	// the game shows there, not in ~/.codex: both must still match the source.
@@ -259,7 +272,7 @@ if [ -n "$raw" ] && [ -d "$raw" ]; then rm -rf raw; mkdir raw
 	const local = error => Object.assign(error, { local: true });
 	try {
 	await rm(dest, { recursive: true, force: true }); await mkdir(dest, { recursive: true });
-	await download(vm.id, `ck/games/${game.id}.tgz`, path.join(dest, 'game.tgz')).catch(error => { throw local(error); });
+	await download(vm.id, `ck/games/${game.id}.tgz`, path.join(dest, 'game.tgz'), live).catch(error => { throw local(error); });
 	if (tgzSha && sha(path.join(dest, 'game.tgz')) !== tgzSha) throw local(new Error(`copy of ${game.id} does not match the machine's (sha), copied again next pass`));
 	// A member the archive lacks (a game that died before its report) scores unknown; failing to list or unpack the
 	// archive here (a full disk) is a local error, so the game is copied again next pass instead of counting as unplayed.
@@ -306,8 +319,10 @@ async function retire(vm) {
 // is left for it. Errors count against the machine only when it stops answering: a machine is dropped after it failed
 // for LOST_AFTER_MS in a row (or boat no longer lists it), never because of a local copy failure.
 async function tend(vm, step) {
-	try { await step(); vm.failingSince = null; vm.unansweredSince = null; }
+	try { await step(); vm.failingSince = null; vm.unansweredSince = null; vm.inOutage = false; }
 	catch (error) {
+		// A call the abort killed says nothing about the machine; the cleanup comes next.
+		if (aborted) return;
 		await log(`machine ${vm.id}: ${error.message.split('\n')[0].slice(0, 300)}`);
 		if (error.local) {
 			const game = vm.game && games.find(g => g.id === vm.game);
@@ -357,7 +372,7 @@ async function check(vm) {
 	if (!vm.game) { if (vm.failingSince) await remote(vm.id, 'true', { timeoutMs: 60_000 }); return; }
 	const game = games.find(g => g.id === vm.game);
 	// pgrep first, the done file second: game.sh writes done as it exits, so the other order can miss both.
-	const status = await remote(vm.id, `if pgrep -f 'ck/game.sh ${game.id} ' >/dev/null; then echo RUNNING; elif test -f ~/ck/games/${game.id}/done; then echo DONE; else echo GONE; fi`, { timeoutMs: 120_000 });
+	const status = await remote(vm.id, `if pgrep -f 'ck/game.sh ${game.id} ' >/dev/null; then echo RUNNING; elif test -f ~/ck/games/${game.id}/done; then echo DONE; else echo GONE; fi`, { timeoutMs: 120_000, ...live });
 	if (/GONE/.test(status) && game.timingOut) {
 		// The hang timeout's kill ended game.sh but its own call dropped before it wrote done. run-long may still be
 		// writing its report in the same session (game.sh's pid, which setsid made the session id): wait for that session
@@ -366,14 +381,17 @@ async function check(vm) {
 		await remote(vm.id, `d=~/ck/games/${game.id}; sid=$(cat "$d/sid" 2>/dev/null)
 if [ -n "$sid" ]; then for i in $(seq 1 60); do pgrep -s "$sid" >/dev/null || break; sleep 5; done; pkill -KILL -s "$sid"; sleep 2; fi
 ${leftovers}
-mkdir -p "$d"; echo "exit timeout $(date -Is)" > "$d/done"`, { timeoutMs: 10 * 60_000 });
+mkdir -p "$d"; echo "exit timeout $(date -Is)" > "$d/done"`, { timeoutMs: 10 * 60_000, ...live });
 		await fetch(vm, game); vm.game = null; vm.goneInRow = 0;
 		return;
 	}
 	if (/GONE/.test(status)) {
 		// No done file and no game process: the launch never ran (its ssh dropped first) or the session was killed. The
 		// game goes back to the queue once (loseGame), instead of idling until the hang timeout. Two in a row on one
-		// machine (a full disk, a wiped ~/ck) drop the machine, so it cannot lose game after game.
+		// machine (a full disk, a wiped ~/ck) drop the machine, so it cannot lose game after game. The launcher's server and
+		// coordinator run in sessions of their own and can outlive game.sh, holding the game's ports: they are ended first,
+		// and if that fails the machine keeps the game and the next pass tries again.
+		await remote(vm.id, `sid=$(cat ~/ck/games/${game.id}/sid 2>/dev/null); [ -n "$sid" ] && pkill -KILL -s "$sid"\n${leftovers}`, { timeoutMs: 120_000, ...live });
 		const g = loseGame(games, game.id, `game process on ${vm.id} ended without a done file`);
 		await log(`${g.id} is not running on ${vm.id} and wrote no done file; it is ${g.state}`);
 		// The game does not go back to this machine while another can take it (see the start loop).
@@ -390,7 +408,7 @@ mkdir -p "$d"; echo "exit timeout $(date -Is)" > "$d/done"`, { timeoutMs: 10 * 6
 		await remote(vm.id, `sid=$(ps -o sid= -p "$(pgrep -f 'ck/game.sh ${game.id} ' | head -1)" 2>/dev/null | tr -d ' ')
 if [ -n "$sid" ]; then pkill -TERM -s "$sid"; for i in $(seq 1 60); do pgrep -s "$sid" >/dev/null || break; sleep 5; done; pkill -KILL -s "$sid"; sleep 2; fi
 ${leftovers}
-mkdir -p ~/ck/games/${game.id}; echo "exit timeout $(date -Is)" > ~/ck/games/${game.id}/done`, { timeoutMs: 10 * 60_000 });
+mkdir -p ~/ck/games/${game.id}; echo "exit timeout $(date -Is)" > ~/ck/games/${game.id}/done`, { timeoutMs: 10 * 60_000, ...live });
 		await log(`timed out ${game.id} on ${vm.id}`);
 		await fetch(vm, game); vm.game = null; vm.goneInRow = 0;
 		return;
@@ -449,18 +467,34 @@ try {
 if (aborted) await log('second signal: ending running games and cleaning up');
 for (const g of games.filter(g => g.state === 'queued')) g.state = 'not started';
 // Every machine of the batch, lost and half-prepared ones included (one that comes back must not keep it), all at once so
-// a stop by SIGTERM finishes before its sender kills the runner; a failure is logged.
+// a stop by SIGTERM finishes before its sender kills the runner. A step that fails (boat out as the batch ends) is tried
+// again until the machine is clean or boat says it is gone: for up to TTL_SECONDS (a created machine is stopped and
+// erased by then), or for 60 s after a signal, whose sender kills the runner soon after.
+const cleanupFrom = Date.now();
+const pause = ms => new Promise(resolve => { const timer = setTimeout(resolve, ms); stopAll.signal.addEventListener('abort', () => { clearTimeout(timer); resolve(); }, { once: true }); });
 await Promise.all(machines.filter(m => m.id !== 'none' && !m.deleted).map(async vm => {
-	// A game still running here (an error or a second signal ended the loop; a lost machine that came back) is ended
-	// first, so no session keeps playing on a machine whose sign-in is about to go, or one that is kept for reuse.
-	if (vm.game || vm.lost) await remote(vm.id, stopGamesScript, { timeoutMs: 180_000 }).then(() => log(`ended the game sessions on ${vm.id}`)).catch(e => log(`could not end the game sessions on ${vm.id}: ${e.message.split('\n')[0]}`));
-	await removeCodexSignIn(vm.id).then(() => log(`removed the sign-in from ${vm.id}`)).catch(e => log(`could not remove the sign-in from ${vm.id}: ${e.message}`));
-	// Batch-created extras (and every machine under drain "delete") are deleted, never left idle; a failure is retried, then logged.
-	if (deletes(vm)) await destroyWithRetry(vm.id).then(() => { vm.deleted = true; return log(`deleted ${vm.id}`); }).catch(e => log(`could not delete ${vm.id}: ${e.message}`));
+	for (;;) {
+		// A game still running here (an error or a second signal ended the loop; a lost machine that came back) is ended
+		// first, so no session keeps playing on a machine whose sign-in is about to go, or one that is kept for reuse.
+		const endSessions = (vm.game || vm.lost) && !vm.sessionsEnded;
+		if (endSessions) await remote(vm.id, stopGamesScript, { timeoutMs: 180_000 }).then(() => { vm.sessionsEnded = true; return log(`ended the game sessions on ${vm.id}`); }, e => log(`could not end the game sessions on ${vm.id}: ${e.message.split('\n')[0]}`));
+		if (!vm.signInRemoved) await removeCodexSignIn(vm.id).then(() => { vm.signInRemoved = true; return log(`removed the sign-in from ${vm.id}`); }, e => log(`could not remove the sign-in from ${vm.id}: ${e.message}`));
+		// Batch-created extras (and every machine under drain "delete") are deleted, never left idle.
+		if (deletes(vm)) await destroyMachine(vm.id).then(() => { vm.deleted = true; return log(`deleted ${vm.id}`); }, e => log(`could not delete ${vm.id}: ${e.message}`));
+		if (vm.deleted || (vm.signInRemoved && !deletes(vm) && (vm.sessionsEnded || !(vm.game || vm.lost)))) return;
+		// A machine boat no longer knows took its sign-in with it; a stopped one keeps its disk, so it is named at the end.
+		const gone = await machineState(vm.id).then(s => LIVE.has(s) ? null : s ?? 'unknown', e => NOT_FOUND.test(e.message) ? 'not found' : null);
+		if (gone) { vm.gone = gone; await log(`${vm.id} is ${gone} on boat: nothing more to clean there`); return; }
+		if (Date.now() >= (aborted ? Math.max(abortedAt, cleanupFrom) + 60_000 : cleanupFrom + TTL_SECONDS * 1000)) return;
+		await pause(aborted ? 5_000 : Math.min(POLL_MS, 30_000));
+	}
 }));
 for (const g of games.filter(g => g.state === 'running')) g.state = 'not finished';
 state.endedAt = new Date().toISOString();
 await save().then(() => writeSummary(out, state)).catch(error => log(`could not write the final state: ${error.message}`));
 await log(`batch ended; machines not deleted: ${machines.filter(m => m.id !== 'none' && !m.deleted).map(m => `${m.id}${m.lost ? ' (lost)' : ''}${m.created ? '' : ' (listed, kept)'}`).join(' ') || 'none'}`);
+// state.json keeps signInRemoved for every machine; one still holding a sign-in is named here and fails the run.
+const signedIn = machines.filter(m => m.id !== 'none' && !m.deleted && !m.signInRemoved && !['not found', 'deleted'].includes(m.gone));
+if (signedIn.length) { await log(`SIGN-IN MAY STILL BE ON: ${signedIn.map(m => `${m.id}${m.gone ? ` (${m.gone} on boat)` : ''}`).join(' ')}; take it off by hand (rm ~/.codex/auth.json and ~/ck)`); process.exitCode = 1; }
 console.log(await readFile(path.join(out, 'summary.txt'), 'utf8').catch(() => ''));
 if (crash) process.exitCode = 1;

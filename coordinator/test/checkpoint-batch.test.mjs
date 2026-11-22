@@ -81,6 +81,18 @@ test('checkpoint batch scores a game that ended early, or whose journals were da
 	assert.match(summaryText(rows.filter(r => r.savepoint === 'nether' && r.arm === 'main')), /0\/1 games scored, 1 ended early/);
 });
 
+test('checkpoint batch scores a game an operator stopped for a stall, and keeps one stopped for another reason unknown', () => {
+	// operator-stop.mjs records its reason in report.operatorStop and run-long.mjs in report.stop, while the timeline says
+	// the game was killed: the recorded reason wins, as in run-long.mjs stopOf and gate-report.mjs.
+	const stopped = (reason, at = 'operatorStop') => ({ measurementStatus: 'INCOMPLETE', operatorStop: { reason }, ...(at === 'stop' ? { stop: { kind: null, reason } } : {}), timeline: { startedAt: 1, playedMs: 240_000, stopReason: 'ENDED_EARLY:INTERRUPTED_SIGTERM', milestones: [{ id: 'fortress', reached: false, elapsedMs: null }], deaths: [{ cause: 'lava' }] } });
+	for (const at of ['operatorStop', 'stop']) {
+		const stall = scoreGame(stopped('Stalled 40 min at the fortress bridge', at), ['fortress']);
+		assert.deepEqual([stall.known, stall.targets.fortress, stall.deaths, stall.stopReason], [true, false, 1, 'Stalled 40 min at the fortress bridge'], at);
+		const other = scoreGame(stopped('operator needed the machine back', at), ['fortress']);
+		assert.deepEqual([other.known, other.endedEarly], [false, true], at);
+	}
+});
+
 test('checkpoint batch plays a save point only with the arms it lists', () => {
 	const p = plan(); p.savepoints.eyes.arms = ['main'];
 	const games = expandPlan(p, { salt: () => 1 });
