@@ -14,7 +14,7 @@ import { armorMaterialNeed, chainText, howtoChain, howtoHeldRecipe, howtoHolding
 import { fortressSearchOption } from './nether-regions.mjs';
 import { NETHER_OPTIONS_BYTES, SOURCE_BLOCKS, bedSpawnOption, descentRespawnFact, knownLine, needOptions, netherReadiness, netherRouteOption, pearlHuntLine, pearlOptions, pearlSourceInView, pearlsWanted, pickaxeTier, portalAtHand, progressionGoal, textResources } from './need-sources.mjs';
 import { VILLAGE_POI, headingOf, sightingKind } from './search-coverage.mjs';
-import { foodStockHandback, routeLine, skillFitsLine, woodStockHandback } from './skill-fits.mjs';
+import { foodStockHandback, portalDeathMark, routeLine, skillFitsLine, woodStockHandback } from './skill-fits.mjs';
 import { KIT_ITEMS } from './end-readiness.mjs';
 import { beatsTheGame } from './goal-spec-translator.mjs';
 import { dropLoss, recoveryRoute } from './respawn-recovery.mjs';
@@ -110,7 +110,7 @@ export class LiveTaskViews {
  }
  #newState(record, fresh = false) {
   // Steering changes the planner prompt, not the immutable task or its saved scope.
-  return { taskIdentity: taskIdentity(record), goal: record.currentGoalSpec?.originalRequest ?? record.currentGoal ?? '', goalRevision: record.goalRevision, plan: null, revision: 0, events: [], sequence: 0, usage: null, usageSample: null, allowance: null, worldId: null, observation: null, scope: null, loading: null, lastObserved: {}, worldProof: {}, presenceProof: {}, deathLosses: {}, known: emptyKnown(), verified: false, fresh, intent: null, planFocus: null, workHeading: null, stall: null, broken: 0, counted: [], breaks: [], gains: [], ownPoi: [], dimensionSince: null, deaths: 0, wasDead: false, results: [], foodHandback: null, woodHandback: null, effect: null, liveInventory: null, liveDimension: null, samples: [], lifecycle: new FactLifecycle(), progress: null, alarms: {}, repeats: [], repeatAlarmed: {}, intentLog: [] };
+  return { taskIdentity: taskIdentity(record), goal: record.currentGoalSpec?.originalRequest ?? record.currentGoal ?? '', goalRevision: record.goalRevision, plan: null, revision: 0, events: [], sequence: 0, usage: null, usageSample: null, allowance: null, worldId: null, observation: null, scope: null, loading: null, lastObserved: {}, worldProof: {}, presenceProof: {}, deathLosses: {}, known: emptyKnown(), verified: false, fresh, intent: null, planFocus: null, workHeading: null, stall: null, broken: 0, counted: [], breaks: [], gains: [], ownPoi: [], dimensionSince: null, deaths: 0, portalDeaths: null, wasDead: false, results: [], foodHandback: null, woodHandback: null, effect: null, liveInventory: null, liveDimension: null, samples: [], lifecycle: new FactLifecycle(), progress: null, alarms: {}, repeats: [], repeatAlarmed: {}, intentLog: [] };
  }
  async #load(record, state) {
   if (!state.worldId) return;
@@ -174,7 +174,7 @@ export class LiveTaskViews {
   // evidence). An unready or bodiless sample, even one naming another world, only makes current facts unknown.
   if (!currentSample(observation)) { this.#state(record).observation = { ready: false }; return; }
   const state = this.#state(record), world = observation.world?.worldId ?? null;
-  if (world && state.worldId && world !== state.worldId) { state.plan = null; state.revision = 0; state.scope = null; state.lastObserved={}; state.worldProof = {}; state.presenceProof = {}; state.deathLosses = {}; state.known=emptyKnown(); state.verified=false; state.usage=null; state.usageSample=null; state.intent = null; state.planFocus = null; state.workHeading = null; state.deaths = 0; state.results = []; state.foodHandback = null; state.woodHandback = null; state.effect = null; state.liveInventory = null; state.liveDimension = null; state.samples = []; state.openSky = null; state.ownPoi = []; state.breaks = []; state.gains = []; state.intentLog = []; resetProgress(state); }
+  if (world && state.worldId && world !== state.worldId) { state.plan = null; state.revision = 0; state.scope = null; state.lastObserved={}; state.worldProof = {}; state.presenceProof = {}; state.deathLosses = {}; state.known=emptyKnown(); state.verified=false; state.usage=null; state.usageSample=null; state.intent = null; state.planFocus = null; state.workHeading = null; state.deaths = 0; state.portalDeaths = null; state.results = []; state.foodHandback = null; state.woodHandback = null; state.effect = null; state.liveInventory = null; state.liveDimension = null; state.samples = []; state.openSky = null; state.ownPoi = []; state.breaks = []; state.gains = []; state.intentLog = []; resetProgress(state); }
   if (world) state.worldId = world;
   state.observation = observation;
   // The wire carries position; the adapted observation carries it as player.x/y/z (as #memory reads it).
@@ -207,6 +207,8 @@ export class LiveTaskViews {
   const lifeEnded = invalidated('life', life) && Object.keys(state.presenceProof).length > 0;
   if (lifeEnded) state.presenceProof = {};
   const knownChanged = rememberPlanFacts(state.known, observation);
+  // The death count at the portal stage (skill-fits portalDeathMark): a later death brings the route's kit rows back.
+  if (!dead && observation.ready === true) state.portalDeaths = portalDeathMark(state.portalDeaths, state.deaths, observation, state.known);
   const placementChanged = this.#invalidatePlacements(state, observation);
   const changed = this.#reconcile(state);
   if (changed) state.revision++;
@@ -723,7 +725,8 @@ export class LiveTaskViews {
    && handback.at <= state.observation?.observedAtEpochMs;
   const foodHandedBack = released(current.foodHandback), woodHandedBack = released(current.woodHandback);
   const kitHandedBack = new Set((current.kitHandbacks ?? []).filter(row => row.worldId === current.worldId && row.deaths === state.deaths).map(row => row.item));
-  const route = beatsTheGame(record.currentGoalSpec) ? routeLine({ observation: state.observation, known: state.known, memory: this.#memory(record, state, ROUTE_SOURCE_BLOCKS), foodHandedBack, woodHandedBack, kitHandedBack, evaluate: evaluatePlanCheck, instincts: this.#instincts }) : null;
+  const diedSincePortal = Number.isSafeInteger(current.portalDeaths) && state.deaths > current.portalDeaths;
+  const route = beatsTheGame(record.currentGoalSpec) ? routeLine({ observation: state.observation, known: state.known, memory: this.#memory(record, state, ROUTE_SOURCE_BLOCKS), foodHandedBack, woodHandedBack, kitHandedBack, diedSincePortal, evaluate: evaluatePlanCheck, instincts: this.#instincts }) : null;
   return composeContinuityHeader({ goal: record.currentGoal, intent: state.intent, evidence: intentEvidence(state), since, progress: this.#progressLine(state), route, stepProgress: stepProgress.progress ?? null, repeats: stepProgress.repeats ?? null, search: stepProgress.search ?? null, ...this.#memoryFacts(record, state, shown, observation?.recovery ?? null), results: state.results, running, effect: state.effect, orders, guardInstalled, guardCoverage, guardThreatsNear, guardThreatsTargeting, annotate });
  }
  /** The trigger for a no-progress or repeated-result fact not yet woken for ('no_progress' | 'repeated_result'), once. */
