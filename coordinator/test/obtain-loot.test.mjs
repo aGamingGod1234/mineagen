@@ -55,14 +55,6 @@ test('opened chests and searched structures stop being sources; a chest outside 
 	assert.equal(lootSources(remembered, { structures: [{ structure: 'village', x: 311, y: 78, z: -239, dimension: 'minecraft:overworld' }] })[0]?.kind, 'structure');
 });
 
-test('a seen iron golem is a way only with iron armour and an iron weapon', () => {
-	const seen = new Set(['iron_golem']);
-	assert.equal(kinds(planObtain({ ids: ['iron_ingot'], count: 3 }, { held, seen })).some((row) => row.startsWith('kill')), false);
-	assert.equal(kinds(planObtain({ ids: ['iron_ingot'], count: 3 }, { held, seen, gear: { armor: 6, weapon: 4 } })).some((row) => row.startsWith('kill')), false);
-	assert.deepEqual(kinds(planObtain({ ids: ['iron_ingot'], count: 3 }, { held, seen, gear: { armor: 15, weapon: 4 } })), ['kill:iron_ingot']);
-	assert.equal(kinds(planObtain({ ids: ['iron_ingot'], count: 3 }, { held, gear: { armor: 15, weapon: 4 } })).some((row) => row.startsWith('kill')), false, 'only a golem in view');
-});
-
 function chestBody(contents) {
 	const slots = contents.map(([itemId, count], slot) => ({ slot, itemId: `minecraft:${itemId}`, count, fingerprint: `fp-${slot}` }));
 	const inv = new Map();

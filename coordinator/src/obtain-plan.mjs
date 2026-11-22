@@ -53,13 +53,6 @@ const STATION_COST = { crafting_table: 1.5, furnace: 9 };
 const WALK_BLOCKS = 20;
 const OPEN_COST = 0.6;
 const FIND_CHEST_COST = 2;
-// Mobs a world builds rather than spawns (iron golems): a way only once seen here, and only with the gear to win the
-// fight, priced by the fight. A golem has 100 health (five zombies) and hits for 7-21, so melee without iron armour and
-// an iron weapon is a death, never a way; it drops 3-5 iron ingots.
-const BUILT_MOBS = {
-	iron_golem: { kill: HOSTILE_KILL * 5, drops: { iron_ingot: 4 }, ready: (gear) => gear.armor >= 15 && gear.weapon >= TOOL_TIERS.indexOf('iron') },
-};
-const TOOL_TIERS = ['wooden', 'golden', 'stone', 'copper', 'iron', 'diamond', 'netherite'];
 
 export const OBTAIN_STATIONS = Object.freeze(['crafting_table', 'furnace']);
 const EQUIPMENT = /_(pickaxe|shovel|axe|hoe|sword|spear|helmet|chestplate|leggings|boots|horse_armor|nautilus_armor)$/;
@@ -193,12 +186,6 @@ class Costs {
 		for (const [mob, flags] of this.index.mobDrops[id] ?? []) {
 			// A mob is a way where it spawns (cows only in the Overworld). Outside the Overworld only the eye hunts count: a
 			// coal or gold plan must not send the body after wither skeletons, ghasts or piglins.
-			const built = BUILT_MOBS[mob];
-			if (built) {
-				if (!this.seen.has(mob) || !built.ready(this.gear) || !(built.drops[id] > 0)) continue;
-				consider({ kind: 'kill', mobs: [mob] }, this.seenCost(mob, built.kill) / built.drops[id]);
-				continue;
-			}
 			if (!(this.index.mobSpawns?.[mob] ?? []).some((place) => place.split(' ')[0] === this.dimension)) continue;
 			if (this.dimension !== 'overworld' && !AWAY_KILLS.has(mob)) continue;
 			let cost = HOSTILE.test(mob) ? HOSTILE_KILL : PASSIVE_KILL;
