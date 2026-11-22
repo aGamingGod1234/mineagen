@@ -4,7 +4,7 @@ import { createHmac } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-import { createActionResultReplayProof, createBridgeAuthenticationProof, createProtocolV2Envelope, MultiplexedServerBridge, ProtocolV2Error, SURVIVAL_SIGNAL_VALUES, THREAT_SIGNAL_VALUES, validateProtocolV2Envelope, validateProtocolV2Payload } from '../src/protocol-v2.mjs';
+import { createActionResultReplayProof, createBridgeAuthenticationProof, createProtocolV2Envelope, expandInventoryMarker, MultiplexedServerBridge, ProtocolV2Error, SURVIVAL_SIGNAL_VALUES, THREAT_SIGNAL_VALUES, validateProtocolV2Envelope, validateProtocolV2Payload } from '../src/protocol-v2.mjs';
 import { goalSpecFingerprint } from '../src/goal-spec.mjs';
 import { adaptObservation } from '../src/observation-adapter.mjs';
 import { AgentRegistry } from '../src/agent-registry.mjs';
@@ -3638,4 +3638,87 @@ test('an over-long reflex detail is trimmed instead of refusing the observation'
 	const bad = structuredClone(observation);
 	bad.reflexes.events[0].detail = 42;
 	assert.throws(() => validateProtocolV2Payload('observation', bad), 'a detail that is not text is still refused');
+});
+
+test('an unchanged inventory marker expands from the last full inventory, and nothing else does (PERF-ARCH-8)', () => {
+	const baselines = new Map();
+	const full = readyServerObservation(4);
+	assert.equal(expandInventoryMarker(baselines, 'agent-a', full), full, 'a payload without a marker or hash is untouched');
+	const hashed = expandInventoryMarker(baselines, 'agent-a', { ...full, inventoryHash: 'h1' });
+	assert.equal(Object.hasOwn(hashed, 'inventoryHash'), false, 'the hash is stripped before the strict schema sees it');
+	assert.deepEqual(hashed.inventory, full.inventory);
+	const marker = { ...full, inventory: { unchanged: 'h1' } };
+	const expanded = expandInventoryMarker(baselines, 'agent-a', marker);
+	assert.deepEqual(expanded.inventory, full.inventory);
+	assert.notEqual(expanded.inventory, baselines.get('agent-a').inventory, 'each expansion is a private copy');
+	assert.equal(validateProtocolV2Payload('observation', expanded).inventory.items.length, full.inventory.items.length);
+	assert.equal(expandInventoryMarker(baselines, 'agent-a', { ...full, inventory: { unchanged: 'other' } }), null, 'an unknown hash is a miss');
+	assert.equal(expandInventoryMarker(baselines, 'agent-b', marker), null, 'baselines are per agent');
+	const badHash = { ...full, inventoryHash: 7 };
+	assert.equal(expandInventoryMarker(baselines, 'agent-a', badHash), badHash, 'a malformed hash is left for the schema to reject');
+	assert.throws(() => validateProtocolV2Payload('observation', badHash), ProtocolV2Error);
+	assert.throws(() => validateProtocolV2Payload('observation', marker), ProtocolV2Error, 'an unexpanded marker never validates');
+});
+
+test('the bridge delivers a full inventory in place of each unchanged marker it can resolve (PERF-ARCH-8)', async (t) => {
+	const fixture = await readyBridgeFixture(t);
+	const hello = fixture.socket.writes.map((line) => JSON.parse(line)).find((envelope) => envelope.type === 'hello');
+	assert.equal(hello.payload.inventoryMarker, true, 'the coordinator announces it can expand markers');
+	assert.equal(validateProtocolV2Payload('hello', hello.payload).inventoryMarker, true);
+	const full = readyServerObservation(4);
+	fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('observation', 'agent-a', 'server-full', { ...full, inventoryHash: 'h1' }))}\n`);
+	fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('observation', 'agent-a', 'server-marker', { ...full, observedAtEpochMs: 21, inventory: { unchanged: 'h1' } }))}\n`);
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.deepEqual(fixture.rejections, []);
+	assert.deepEqual(fixture.observations.map((envelope) => envelope.messageId), ['server-full', 'server-marker']);
+	for (const envelope of fixture.observations) {
+		assert.deepEqual(envelope.payload.inventory, validateProtocolV2Payload('observation', full).inventory);
+		assert.equal(Object.hasOwn(envelope.payload, 'inventoryHash'), false);
+	}
+});
+
+test('a marker with no full inventory on this connection is dropped, reported and the full one is requested (PERF-ARCH-8)', async (t) => {
+	const fixture = await readyBridgeFixture(t);
+	const full = readyServerObservation(4);
+	const requests = () => fixture.socket.writes.map((line) => JSON.parse(line)).filter((envelope) => envelope.type === 'request_observation');
+	for (let index = 0; index < 3; index++) {
+		fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('observation', 'agent-a', `server-miss-${index}`, { ...full, inventory: { unchanged: 'never-sent' } }))}\n`);
+	}
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.deepEqual(fixture.observations, [], 'never a stale or empty inventory');
+	assert.equal(fixture.socket.destroyed, false);
+	assert.deepEqual(fixture.protocolErrors, []);
+	assert.deepEqual(fixture.rejections.map((rejection) => rejection.count), [1, 2], 'reported on the 1st, 2nd, 4th... miss');
+	assert.match(fixture.rejections[0].error.message, /INVENTORY_BASELINE_UNKNOWN/);
+	assert.equal(requests().length, 1, 'one request per agent until a full inventory arrives');
+	assert.deepEqual(requests()[0].payload, { goalRevision: 4 });
+	assert.equal(requests()[0].agentId, 'agent-a');
+	fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('observation', 'agent-a', 'server-resent', { ...full, inventoryHash: 'h2' }))}\n`);
+	fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('observation', 'agent-a', 'server-after', { ...full, inventory: { unchanged: 'h2' } }))}\n`);
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.deepEqual(fixture.observations.map((envelope) => envelope.messageId), ['server-resent', 'server-after']);
+});
+
+test('a full inventory in an observation dropped for other drift still resolves later markers (PERF-ARCH-8)', async (t) => {
+	const fixture = await readyBridgeFixture(t);
+	fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('observation', 'agent-a', 'server-drift', { ...observationWithUnknownSignal(), goalRevision: 4, inventoryHash: 'h1' }))}\n`);
+	fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('observation', 'agent-a', 'server-marker', { ...readyServerObservation(4), inventory: { unchanged: 'h1' } }))}\n`);
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(fixture.rejections.length, 1, 'only the drifted observation is rejected');
+	assert.doesNotMatch(fixture.rejections[0].error.message, /INVENTORY_BASELINE_UNKNOWN/);
+	assert.deepEqual(fixture.observations.map((envelope) => envelope.messageId), ['server-marker']);
+	assert.deepEqual(fixture.observations[0].payload.inventory, validateProtocolV2Payload('observation', readyServerObservation(4)).inventory);
+});
+
+test('an agent removed and registered again needs a new full inventory (PERF-ARCH-8)', async (t) => {
+	const fixture = await readyBridgeFixture(t);
+	const full = readyServerObservation(4);
+	fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('observation', 'agent-a', 'server-full', { ...full, inventoryHash: 'h1' }))}\n`);
+	fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('agent_removed', 'agent-a', 'server-removed', { goalRevision: 4 }))}\n`);
+	await new Promise((resolve) => setImmediate(resolve));
+	fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('agent_registered', 'agent-a', 'server-registered', registeredRecord()))}\n`);
+	fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('observation', 'agent-a', 'server-marker', { ...full, inventory: { unchanged: 'h1' } }))}\n`);
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.deepEqual(fixture.observations.map((envelope) => envelope.messageId), ['server-full']);
+	assert.match(fixture.rejections.at(-1)?.error.message ?? '', /INVENTORY_BASELINE_UNKNOWN/);
 });

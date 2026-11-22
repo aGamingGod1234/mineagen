@@ -173,6 +173,7 @@ public final class MultiplexedServerBridgeVerification {
 		verifyIdleDirectReplyRevisionPolicy(registered.getFirst());
 		verifyConcurrentChatRoute(registered.getFirst());
 		verifyExactTargetObservationLedger(registered.getFirst().agentId());
+		verifyInventoryMarker(registered.getFirst().agentId());
 		verifyConversationAttention(registered.getFirst().agentId());
 		verifyObservationCadence(candidates);
 		verifyObservationPublicationLifecycle(registered.getFirst().agentId());
@@ -5010,6 +5011,44 @@ public final class MultiplexedServerBridgeVerification {
 		entities.add(entity(targetId));
 		observation.add("entities", entities);
 		return observation;
+	}
+
+	private static void verifyInventoryMarker(AgentId agent) {
+		java.util.Map<AgentId, ObservationInventoryMarker.Baseline> delivered = new java.util.HashMap<>();
+		JsonObject observation = com.google.gson.JsonParser.parseString("{\"ready\":true,\"inventory\":{\"items\":[{\"itemId\":\"minecraft:oak_log\",\"count\":3,\"damage\":0,\"maxDamage\":0,\"slot\":0}],\"selectedItem\":\"minecraft:oak_log\"},\"player\":{\"health\":20}}").getAsJsonObject();
+		String original = observation.toString();
+		ObservationInventoryMarker.Outgoing first = ObservationInventoryMarker.prepare(delivered.get(agent), observation);
+		assertEquals(original, observation.toString(), "preparing never mutates the delivered baseline");
+		assertTrue(first.payload().getAsJsonObject("inventory").has("items"), "the first observation of a connection carries the full inventory");
+		String hash = first.payload().get("inventoryHash").getAsString();
+		assertEquals(16, hash.length(), "a 64-bit hex hash names the full inventory");
+		ObservationInventoryMarker.remember(delivered, agent, first);
+		ObservationInventoryMarker.Outgoing repeat = ObservationInventoryMarker.prepare(delivered.get(agent), observation.deepCopy());
+		assertEquals("{\"unchanged\":\"" + hash + "\"}", repeat.payload().get("inventory").toString(), "an unchanged inventory becomes a marker");
+		assertTrue(!repeat.payload().has("inventoryHash"), "a marker carries no second hash");
+		assertEquals(observation.get("player"), repeat.payload().get("player"), "every other field is unchanged");
+		ObservationInventoryMarker.remember(delivered, agent, repeat);
+		JsonObject changed = observation.deepCopy();
+		changed.getAsJsonObject("inventory").getAsJsonArray("items").get(0).getAsJsonObject().addProperty("count", 4);
+		ObservationInventoryMarker.Outgoing afterChange = ObservationInventoryMarker.prepare(delivered.get(agent), changed);
+		assertTrue(afterChange.payload().getAsJsonObject("inventory").has("items"), "a changed inventory is sent in full");
+		assertTrue(!hash.equals(afterChange.payload().get("inventoryHash").getAsString()), "a changed inventory gets a new hash");
+		ObservationInventoryMarker.remember(delivered, agent, afterChange);
+		int markers = 0;
+		for (int index = 0; index < ObservationInventoryMarker.FULL_EVERY; index++) {
+			ObservationInventoryMarker.Outgoing next = ObservationInventoryMarker.prepare(delivered.get(agent), changed.deepCopy());
+			if (!next.payload().getAsJsonObject("inventory").has("items")) markers++;
+			ObservationInventoryMarker.remember(delivered, agent, next);
+		}
+		assertEquals(ObservationInventoryMarker.FULL_EVERY - 1, markers, "an unchanged inventory is still sent in full every FULL_EVERY observations");
+		JsonObject unavailable = com.google.gson.JsonParser.parseString("{\"ready\":false}").getAsJsonObject();
+		ObservationInventoryMarker.Outgoing dead = ObservationInventoryMarker.prepare(delivered.get(agent), unavailable);
+		assertTrue(dead.payload() == unavailable, "an observation without an inventory is sent as is");
+		ObservationInventoryMarker.remember(delivered, agent, dead);
+		assertTrue(delivered.containsKey(agent), "and keeps the inventory baseline");
+		delivered.remove(agent);
+		assertTrue(ObservationInventoryMarker.prepare(delivered.get(agent), observation).payload().getAsJsonObject("inventory").has("items"),
+				"a forgotten baseline (new connection, removal, coordinator request) sends the full inventory");
 	}
 
 	private static void verifyExactTargetObservationLedger(AgentId agent) {

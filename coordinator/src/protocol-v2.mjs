@@ -266,7 +266,7 @@ function normalizeProtocolV2Payload(type, value) {
 				proof: authenticationToken(value.proof, 'proof'),
 			};
 		case 'hello':
-			exactKeys(value, ['replyTo', 'clientNonce', 'serverNonce', 'proof', 'launchId', 'registryFragments', 'actionTiming', 'blockTags', 'planFacts', 'bodyFacts', 'breakExposureFacts', 'breakOutcomeFacts', 'placementFacts', 'dropAheadFacts', 'pausedByFacts', 'actionIssuer', 'killFacts', 'tickClock'], ['replyTo', 'clientNonce', 'serverNonce', 'proof'], type);
+			exactKeys(value, ['replyTo', 'clientNonce', 'serverNonce', 'proof', 'launchId', 'registryFragments', 'actionTiming', 'blockTags', 'planFacts', 'bodyFacts', 'breakExposureFacts', 'breakOutcomeFacts', 'placementFacts', 'dropAheadFacts', 'pausedByFacts', 'actionIssuer', 'killFacts', 'tickClock', 'inventoryMarker'], ['replyTo', 'clientNonce', 'serverNonce', 'proof'], type);
 			return {
 				replyTo: boundedText(value.replyTo, 'replyTo', MAX_COMMAND_ID_LENGTH),
 				clientNonce: authenticationToken(value.clientNonce, 'clientNonce'),
@@ -285,6 +285,7 @@ function normalizeProtocolV2Payload(type, value) {
 				...(value.actionIssuer === undefined ? {} : { actionIssuer: boolean(value.actionIssuer, 'actionIssuer') }),
 				...(value.killFacts === undefined ? {} : { killFacts: boolean(value.killFacts, 'killFacts') }),
 				...(value.tickClock === undefined ? {} : { tickClock: boolean(value.tickClock, 'tickClock') }),
+				...(value.inventoryMarker === undefined ? {} : { inventoryMarker: boolean(value.inventoryMarker, 'inventoryMarker') }),
 				...(value.launchId === undefined ? {} : { launchId: launchIdentity(value.launchId) }),
 			};
 		case 'hello_ack':
@@ -611,6 +612,10 @@ export class MultiplexedServerBridge extends EventEmitter {
 	#retiredAgentIds = new Set();
 	#observedRevisions = new Map();
 	#payloadRejections = new Map();
+	// Per connection: the last full inventory each agent's observations carried, by hash, and agents owed a full one.
+	#inventoryBaselines = new Map();
+	#inventoryResendRequested = new Set();
+	#inventoryMisses = 0;
 
 	constructor(config, { audit = null, ...dependencies } = {}) {
 		super();
@@ -720,6 +725,8 @@ export class MultiplexedServerBridge extends EventEmitter {
 		if (!this.#isCurrentConnection(socket, connectionEpoch)) return;
 		this.#inboundMessageIds.clear();
 		this.#observedRevisions.clear();
+		this.#inventoryBaselines.clear();
+		this.#inventoryResendRequested.clear();
 		this.#clearInboundQueue();
 		this.#clientNonce = authenticationToken(this.#randomNonce(), 'clientNonce');
 		this.#serverNonce = null;
@@ -770,7 +777,7 @@ export class MultiplexedServerBridge extends EventEmitter {
 							if (!this.#isCurrentConnection(socket, connectionEpoch)) return;
 						}
 					}
-					this.#accept(value, socket, connectionEpoch);
+					if (this.#expandInventoryMarker(value, connectionEpoch)) this.#accept(value, socket, connectionEpoch);
 				} catch (error) {
 					this.#fail(withInboundEnvelopeContext(error, value), socket, connectionEpoch);
 					return;
@@ -909,7 +916,43 @@ export class MultiplexedServerBridge extends EventEmitter {
 		if (messages.length !== 1) throw new ProtocolV2Error('INVALID_FRAGMENT', 'Fragmented payload must contain exactly one object');
 		const [payload] = messages;
 		decoder.finish();
-		this.#accept({ protocolVersion: 2, serverInstanceId: envelope.serverInstanceId, agentId: pending.agentId, type: pending.type, messageId: pending.messageId, payload }, socket, connectionEpoch);
+		const reassembled = { protocolVersion: 2, serverInstanceId: envelope.serverInstanceId, agentId: pending.agentId, type: pending.type, messageId: pending.messageId, payload };
+		if (this.#expandInventoryMarker(reassembled, connectionEpoch)) this.#accept(reassembled, socket, connectionEpoch);
+	}
+
+	/**
+	 * Runs on the raw message before #accept, so validation, audit and delivery all see the full inventory the server
+	 * would have sent. The full one is kept before validation: an observation dropped for another reason still leaves
+	 * later markers resolvable. False drops the message: a marker whose inventory this connection never received is
+	 * never delivered stale or empty. The server is asked for a fresh observation, which carries the inventory in full.
+	 */
+	#expandInventoryMarker(value, connectionEpoch) {
+		if (!this.#ready || !isPlainObject(value) || typeof value.agentId !== 'string') return true;
+		if (value.type === 'agent_registered' || value.type === 'agent_removed') {
+			this.#inventoryBaselines.delete(value.agentId);
+			this.#inventoryResendRequested.delete(value.agentId);
+			return true;
+		}
+		if (value.type !== 'observation' || !isPlainObject(value.payload) || !this.#knownAgentIds.has(value.agentId)) return true;
+		const expanded = expandInventoryMarker(this.#inventoryBaselines, value.agentId, value.payload);
+		if (expanded !== null) {
+			if (Object.hasOwn(value.payload, 'inventoryHash')) this.#inventoryResendRequested.delete(value.agentId);
+			value.payload = expanded;
+			return true;
+		}
+		this.#inventoryMisses += 1;
+		const count = this.#inventoryMisses;
+		if ((count & (count - 1)) === 0) {
+			const error = new ProtocolV2Error('INBOUND_MESSAGE_REJECTED',
+				`Dropped one observation, connection kept (${count} so far with this error): INVENTORY_BASELINE_UNKNOWN agent '${value.agentId}' inventory marker has no full inventory on this connection`);
+			this.#emitSafely('messageRejected', { error, type: 'observation', agentId: value.agentId, messageId: value.messageId, count, connectionEpoch });
+		}
+		if (!this.#inventoryResendRequested.has(value.agentId)) {
+			this.#inventoryResendRequested.add(value.agentId);
+			Promise.resolve().then(() => this.send('request_observation', value.agentId, { goalRevision: value.payload.goalRevision }, { connectionEpoch }))
+				.catch(() => this.#inventoryResendRequested.delete(value.agentId));
+		}
+		return false;
 	}
 
 	#acceptRegistryEntry(envelope, socket, connectionEpoch) {
@@ -986,6 +1029,8 @@ export class MultiplexedServerBridge extends EventEmitter {
 				killFacts: true,
 				// Asks the server for heartbeat tickAgeMs and paused, answered off its game thread (an older coordinator rejects them).
 				tickClock: true,
+				// Lets the server send an unchanged inventory as {unchanged: hash}; expandInventoryMarker restores it on arrival.
+				inventoryMarker: true,
 				...(this.#launchId === null ? {} : { launchId: this.#launchId }),
 			},
 		});
@@ -2869,6 +2914,31 @@ function hotbarSlot(value, field) {
 	const slot = nonnegativeInteger(value, field);
 	if (slot > 8) throw new ProtocolV2Error('INVALID_PAYLOAD', `${field} must be in [0, 8]`);
 	return slot;
+}
+
+function isInventoryMarker(value) {
+	return isPlainObject(value) && Object.keys(value).length === 1 && typeof value.unchanged === 'string';
+}
+
+/**
+ * Expands an observation's {unchanged: hash} inventory from the last full one kept for the agent, and keeps a full
+ * inventory sent with inventoryHash. Returns the payload to validate (a copy when anything changed), or null when the
+ * marker names an inventory not kept. A payload without either is returned as is. Malformed values pass through so the
+ * strict observation schema rejects them.
+ */
+export function expandInventoryMarker(baselines, agentId, payload) {
+	if (Object.hasOwn(payload, 'inventoryHash')) {
+		const { inventoryHash, ...rest } = payload;
+		if (typeof inventoryHash !== 'string' || !isPlainObject(rest.inventory) || isInventoryMarker(rest.inventory)) return payload;
+		baselines.delete(agentId);
+		if (baselines.size >= MAX_REGISTRY_SNAPSHOT_AGENTS) baselines.delete(baselines.keys().next().value);
+		baselines.set(agentId, { hash: inventoryHash, inventory: structuredClone(rest.inventory) });
+		return rest;
+	}
+	if (!isInventoryMarker(payload.inventory)) return payload;
+	const baseline = baselines.get(agentId);
+	if (baseline?.hash !== payload.inventory.unchanged) return null;
+	return { ...payload, inventory: structuredClone(baseline.inventory) };
 }
 
 function inventoryObservation(value) {
