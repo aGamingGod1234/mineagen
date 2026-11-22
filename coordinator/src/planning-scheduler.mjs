@@ -570,8 +570,8 @@ export class PlanningScheduler {
 		if (!['provider', 'tool'].includes(phase)) throw new TypeError('planning lease phase must be provider or tool');
 		if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) throw new TypeError('planning renewal timeoutMs must be a positive safe integer');
 		if (entry.leaseDeadline === null || this.#active.get(entry.agentId) !== entry || entry.controller.signal.aborted) return false;
-		// Paused, the budget stands still at the moment the pause began.
-		const remainingMs = entry.leaseDeadline - (this.#pausedAt ?? this.#now());
+		// Paused, the budget stands still at the moment the pause began, or at admission for a turn admitted while paused.
+		const remainingMs = entry.leaseDeadline - (this.#pausedAt === null ? this.#now() : Math.max(this.#pausedAt, entry.admittedAt ?? this.#pausedAt));
 		if (remainingMs <= 0) {
 			this.#expire(entry.agentId, entry.controller);
 			return false;

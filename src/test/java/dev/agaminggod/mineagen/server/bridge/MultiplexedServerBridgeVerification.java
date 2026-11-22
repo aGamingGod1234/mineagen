@@ -1789,6 +1789,22 @@ public final class MultiplexedServerBridgeVerification {
 					} else {
 						assertTrue(reply.payload().size() == 0, "an older coordinator gets the empty heartbeat its schema accepts");
 					}
+					// Status updates every second through a long pause: only the newest waits for the server thread, so the
+					// bounded queue cannot fill and close the link (about 77 minutes of them once did).
+					java.lang.reflect.Field tasksField = MultiplexedServerBridge.class.getDeclaredField("serverTasks");
+					tasksField.setAccessible(true);
+					Object tasks = tasksField.get(bridge);
+					java.lang.reflect.Method pendingCount = tasks.getClass().getDeclaredMethod("pendingCount");
+					pendingCount.setAccessible(true);
+					int queuedBefore = (int) pendingCount.invoke(tasks);
+					for (int status = 0; status < 200; status++) {
+						writeEnvelope(socket, codec, new BridgeEnvelope(2, hello.serverInstanceId(), "server", "coordinator_status", "status-" + tickClock + "-" + status, new JsonObject()));
+					}
+					writeEnvelope(socket, codec, new BridgeEnvelope(2, hello.serverInstanceId(), "server", "heartbeat", "after-status-" + tickClock, new JsonObject()));
+					BridgeEnvelope afterStatus = codec.decode(reader.readLine());
+					for (int skipped = 0; !"heartbeat".equals(afterStatus.type()) && skipped < 8; skipped++) afterStatus = codec.decode(reader.readLine());
+					assertEquals("heartbeat", afterStatus.type(), "the link is still open after 200 status updates with no tick");
+					assertTrue((int) pendingCount.invoke(tasks) <= queuedBefore + 1, "200 status updates queue at most one server task");
 					// A pause is told the moment it starts and ends, unprompted, not at the next heartbeat probe up to 5 s later.
 					bridge.announcePause(true);
 					bridge.announcePause(true);

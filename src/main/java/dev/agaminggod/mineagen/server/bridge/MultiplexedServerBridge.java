@@ -1019,6 +1019,22 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 			}
 			return;
 		}
+		// coordinator_status is replaceable (the latest state wins), so only the newest waits for the server thread. One
+		// queued per second, a single-player pause long enough (about 77 min) filled the queue and closed the link.
+		if ("coordinator_status".equals(envelope.type())) {
+			if (source.pendingStatus.getAndSet(envelope) != null) return;
+			if (!serverTasks.offer(inboundLane(envelope.type()), () -> {
+				BridgeEnvelope latest = source.pendingStatus.getAndSet(null);
+				if (latest == null) return;
+				synchronized (publicationLock) {
+					if (session != source || !source.open.get() || !source.authenticated.get()) return;
+					routeAuthenticated(latest);
+				}
+			})) {
+				throw new BridgeProtocolException("SERVER_TASK_QUEUE_FULL", "Coordinator exceeded the bounded server task queue");
+			}
+			return;
+		}
 		if (!serverTasks.offer(inboundLane(envelope.type()), () -> {
 			synchronized (publicationLock) {
 				if (session != source || !source.open.get() || !source.authenticated.get()) return;
@@ -4593,6 +4609,8 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		private volatile boolean placementFacts;
 		private volatile boolean dropAheadFacts;
 		private volatile boolean pausedByFacts;
+		/** The newest coordinator_status not yet applied on the server thread (see {@link #accept}). */
+		final java.util.concurrent.atomic.AtomicReference<BridgeEnvelope> pendingStatus = new java.util.concurrent.atomic.AtomicReference<>();
 		/** The coordinator reads heartbeat tickAgeMs and paused (see {@link #heartbeatPayload}); an older one rejects them. */
 		private volatile boolean tickClock;
 		private volatile boolean killFacts;

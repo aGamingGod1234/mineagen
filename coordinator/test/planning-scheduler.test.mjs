@@ -681,3 +681,26 @@ test('a turn admitted while paused gets only the part of the pause it lived thro
 	gate.resolve('done');
 	await run;
 });
+
+test('a renewal while paused, by a turn admitted during the pause, is bounded by that turn\'s own budget', async () => {
+	let now = 0;
+	const timers = [];
+	const scheduler = new PlanningScheduler({
+		maxConcurrent: 1, maxPending: 0, now: () => now,
+		scheduleTimeout(callback, delay) { const timer = { callback, delay }; timers.push(timer); return timer; },
+		cancelTimeout(timer) { if (timer) timer.cancelled = true; },
+	});
+	scheduler.serverPaused(true);
+	now = 60_000;
+	const gate = deferred();
+	let task;
+	const run = scheduler.schedule('late-renew', (context) => { task = context; return gate.promise; }, { leaseTimeoutMs: 25, maxLeaseDurationMs: 1_000 });
+	await Promise.resolve();
+	assert.equal(task.renewLease({ phase: 'tool', timeoutMs: 130_000 }), true);
+	now = 70_000;
+	scheduler.serverPaused(false);
+	const live = timers.filter((timer) => !timer.cancelled).at(-1);
+	assert.equal(live.delay, 1_000, 'the tool lease is capped by the 1 s budget left at admission, not 61 s from the pause start');
+	gate.resolve('done');
+	await run;
+});
