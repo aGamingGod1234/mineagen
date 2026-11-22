@@ -117,6 +117,8 @@ public final class ServerSpawnerHoldController implements ServerController {
 	 */
 	private LedgeFetch ledge;
 	private final Set<UUID> ledgeTried = new java.util.HashSet<>();
+	/** Floor rods a trip already went for: one the pickup could not reach (a gap, full bags) is not offered again each tick. */
+	private final Set<UUID> floorTried = new java.util.HashSet<>();
 	private int ledgeTrips, ledgeRods, heldBeforeLedge;
 	private boolean returning;
 	private int eatTicks = -1, eatSlot = -1, eatCount;
@@ -146,7 +148,9 @@ public final class ServerSpawnerHoldController implements ServerController {
 	private ServerController sealWork, reopenWork;
 	private boolean sealed, sealTried, reopening, skipLintel;
 	private long sealRetryTick;
-	private int seals, reopens;
+	private int seals, reopens, reopenFails;
+	private long reopenRetryTick;
+	private static final int REOPEN_TRIES = 3;
 	private static final long SEAL_MS = 8_000L, REOPEN_MS = 20_000L;
 	private String cancelFacts;
 
@@ -594,6 +598,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 			List<UUID> rods = collectibleRods(player);
 			if (!rods.isEmpty()) {
 				stopEngine(player);
+				floorTried.addAll(rods);
 				collector = new KillDropCollector(rods, protection::mayTakeEntity, now, COLLECT_MS).makingRoom(protection::mayDropItem);
 				trips++;
 				return collect(player, now);
@@ -648,6 +653,10 @@ public final class ServerSpawnerHoldController implements ServerController {
 			args.addProperty("pursue", false);
 			args.addProperty("collect", false);
 		}
+		// The hold answers low health itself (the walled-in heal below TURTLE_HEALTH): the engine's own bailout stays under
+		// it, or with fleeAtHealth 12+ the engine would retreat out of the cell first, then restart and repeat.
+		float flee = model.has("fleeAtHealth") ? model.get("fleeAtHealth").getAsFloat() : ServerFightUntilController.DEFAULT_FLEE_AT_HEALTH;
+		args.addProperty("fleeAtHealth", Math.min(flee, SpawnerHold.TURTLE_HEALTH - 1.0F));
 		if (!args.has("continueWithAttackers")) args.addProperty("continueWithAttackers", true);
 		if (!args.has("radius") || args.get("radius").getAsDouble() < SpawnerHold.SITE_MAX + 8.0D) args.addProperty("radius", SpawnerHold.SITE_MAX + 8.0D);
 		args.addProperty("timeoutMs", Math.max(1_000L, timeoutMs - elapsed));
@@ -753,23 +762,36 @@ public final class ServerSpawnerHoldController implements ServerController {
 				note("doorway open again");
 				return null;
 			}
-			reopenWork = roofing.clear(player, next, REOPEN_MS);
-			if (reopenWork == null) {
-				reopening = false;
-				note("no way to mine the doorway open: staying walled in");
-				return null;
+			if (player.level().getGameTime() < reopenRetryTick) return TickResult.running(progress(player));
+			try {
+				reopenWork = roofing.clear(player, next, REOPEN_MS);
+			} catch (dev.agaminggod.mineagen.agent.AgentDomainException refused) {
+				// The break gate refuses (lava behind the doorway, protection): the same as a failed mine.
+				return reopenFailed(player, refused.code(), refused.getMessage());
 			}
+			if (reopenWork == null) return reopenFailed(player, "SHELTER_BLOCKED", "no way to mine the doorway open");
 		}
 		TickResult result = reopenWork.tick(player, now);
 		if (result.state() == State.RUNNING) return TickResult.running(progress(player));
 		reopenWork.cancel(player);
 		reopenWork = null;
-		if (result.state() != State.SUCCEEDED) {
-			reopening = false;
-			note("mining the doorway open failed: " + result.reasonCode());
-			return null;
-		}
+		if (result.state() != State.SUCCEEDED) return reopenFailed(player, result.reasonCode(), result.message());
 		return TickResult.running(progress(player));
+	}
+
+	/**
+	 * A doorway that could not be mined open is tried again 2 s later, three times; then the hold hands back walled in
+	 * with the refusal's code and its summary, rather than sitting sealed with no heal and no fight.
+	 */
+	private TickResult reopenFailed(ServerPlayer player, String code, String why) {
+		reopenFails++;
+		note("mining the doorway open failed (" + reopenFails + "): " + code);
+		if (reopenFails < REOPEN_TRIES) {
+			reopenRetryTick = player.level().getGameTime() + 40L;
+			return TickResult.running(progress(player));
+		}
+		return stop(player, TickResult.failed(code, "walled in at " + cell.toShortString() + ", the doorway " + cell.relative(opening).toShortString()
+				+ " could not be mined open: " + why + "; mine it, or another wall, open; " + summary(player, lastElapsed), progress(player)));
 	}
 
 	private void startEat(ServerPlayer player, int slot) {
@@ -825,7 +847,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 		double witherToBody = nearest(withers, player.position());
 		for (ItemEntity item : player.level().getEntitiesOfClass(ItemEntity.class, new AABB(middle, middle).inflate(SpawnerHold.COLLECT_RANGE),
 				e -> e.isAlive() && e.getItem().is(untilItem))) {
-			if (!ObservationVisibility.canSeeEntity(player, item) || !ServerFightUntilController.dropReachable(player, item.position())) continue;
+			if (floorTried.contains(item.getUUID()) || !ObservationVisibility.canSeeEntity(player, item) || !ServerFightUntilController.dropReachable(player, item.position())) continue;
 			// On a ledge above the feet the pickup leaves it (KillDropCollector): that is a ledge trip's (ledgeRods).
 			if (aboveFeet(player, item)) continue;
 			double blazeNear = Math.min(nearest(blazes, item.position()), nearest(blazes, player.position()));
@@ -932,6 +954,9 @@ public final class ServerSpawnerHoldController implements ServerController {
 		cancelParts(player);
 		phase = Phase.SITE;
 		cell = null;
+		sealed = false;
+		reopening = false;
+		sealTried = false;
 		return TickResult.running(progress(player));
 	}
 
