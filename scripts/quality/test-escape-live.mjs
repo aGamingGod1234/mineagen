@@ -13,6 +13,8 @@
 //            under the shaft): afloat with the feet in the lake's top cell and the head in the shaft; 16 cobblestone and
 //            an iron pickaxe. The only air is the shaft. Pass: dry footing out of the water.
 //   skeleton the body on open ground with an offhand shield, a skeleton 10 blocks east, a 3x3 stone wall 3 blocks west.
+//   skeleton-ledge  the skeleton room with the ground behind the wall a 5-deep drop onto lava. Pass: alive and never
+//            more than 1 block below the pad (a cover walk over ground taken as level must not step off it).
 //   pitskel  the playtest's cave death: a hole 2 deep and 2 wide at 7 health, cobblestone and a stone sword, a bow skeleton
 //            in the hole beside the body. Pass: alive, and out of the hole or the skeleton dead, within 40 s.
 //   pitcreeper the hole 4 deep with a stone pickaxe only (stairs up) and a creeper on the surface 7 blocks away: out
@@ -51,7 +53,7 @@ const rooms = (roomsArg ?? 'deep;stair;pit;pitdig;shaft;lake;skeleton').split(';
 const THINK_MS = Number(process.env.ESCAPE_THINK_MS ?? 6_000);
 const PAD_Y = 150;
 const LEGACY = process.env.ESCAPE_LEGACY === 'wake' ? 'wake' : 'strong';
-const WINDOW_MS = { deep: 60_000, stair: 60_000, pit: 60_000, pitdig: 60_000, shaft: 90_000, lake: 90_000, skeleton: 30_000, pitskel: 40_000, pitcreeper: 60_000, 'pitcreeper-rim': 40_000,
+const WINDOW_MS = { deep: 60_000, stair: 60_000, pit: 60_000, pitdig: 60_000, shaft: 90_000, lake: 90_000, skeleton: 30_000, 'skeleton-ledge': 30_000, pitskel: 40_000, pitcreeper: 60_000, 'pitcreeper-rim': 40_000,
 	'archer-direction': 15_000, 'archer-resume': 15_000 };
 const out = path.resolve(outArg);
 await mkdir(out, { recursive: true });
@@ -97,6 +99,9 @@ try {
 	for (const room of rooms) for (let run = 0; run < runs; run++) {
 		const startedAt = Date.now();
 		const archer = room === 'archer-direction' || room === 'archer-resume';
+		// skeleton-ledge: the skeleton room with the ground behind the wall a 5-deep drop onto lava (a guard for cover walks
+		// planned over ground taken as level). It passes when the body stays alive and never drops off the pad.
+		const skel = room === 'skeleton' || room === 'skeleton-ledge', ledge = room === 'skeleton-ledge';
 		const X = 200 + 80 * n++, Z = 200;
 		const west = archer ? 32 : 16;
 		await s.command('difficulty peaceful');
@@ -150,9 +155,13 @@ try {
 			start = [X + 0.5, F - 2, Z + 0.5];
 			await s.command(`item replace entity ${NAME} hotbar.0 with minecraft:cobblestone 16`);
 			await s.command(`item replace entity ${NAME} hotbar.1 with minecraft:stone_sword 1`);
-		} else if (room === 'skeleton') {
+		} else if (skel) {
 			await s.command(`fill ${X - 3} ${F} ${Z - 1} ${X - 3} ${F + 2} ${Z + 1} minecraft:stone`);
 			wall = { x0: X - 3, x1: X - 2, y0: F, y1: F + 3, z0: Z - 1, z1: Z + 2 };
+			if (ledge) {
+				await s.command(`fill ${X - 9} ${F - 5} ${Z - 6} ${X - 4} ${F - 1} ${Z + 6} minecraft:air`);
+				await s.command(`fill ${X - 9} ${F - 5} ${Z - 6} ${X - 4} ${F - 5} ${Z + 6} minecraft:lava`);
+			}
 			await s.command(`item replace entity ${NAME} weapon.offhand with minecraft:shield 1`);
 			start = [X + 0.5, F, Z + 0.5];
 		} else if (archer) {
@@ -227,7 +236,7 @@ try {
 			await s.command(`summon minecraft:skeleton ${X + 1.5} ${F - 2} ${Z + 0.5} {PersistenceRequired:1b,equipment:{mainhand:{id:"minecraft:bow",count:1},head:{id:"minecraft:leather_helmet",count:1}}}`);
 			await sleep(500);
 		}
-		if (room === 'skeleton') {
+		if (skel) {
 			// A leather helmet keeps the skeleton from burning in daylight.
 			await s.command('difficulty normal');
 			await s.command(`summon minecraft:skeleton ${X + 10.5} ${F} ${Z + 0.5} {PersistenceRequired:1b,equipment:{mainhand:{id:"minecraft:bow",count:1},head:{id:"minecraft:leather_helmet",count:1}}}`);
@@ -257,7 +266,7 @@ try {
 		const deathsBefore = await readDeaths();
 		if (!Number.isFinite(before)) throw new Error(`${room} ${run}: health unreadable before the room`);
 		const coverLog = [];
-		let minHealth = before, minAir = airBefore, sampling = true, hiddenSamples = 0, samples = 0, healthSamples = 0;
+		let minY = Infinity, minHealth = before, minAir = airBefore, sampling = true, hiddenSamples = 0, samples = 0, healthSamples = 0;
 		const skeletonEye = async () => {
 			const text = String(await s.command('data get entity @e[type=minecraft:skeleton,limit=1,sort=nearest] Pos').catch(() => ''));
 			const p = text.match(/\[\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?\]/)?.slice(1).map(Number);
@@ -278,7 +287,8 @@ try {
 			const h = await health().catch(() => NaN), a = await airLeft().catch(() => NaN);
 			if (Number.isFinite(h)) { minHealth = Math.min(minHealth, h); healthSamples++; }
 			if (Number.isFinite(a)) minAir = Math.min(minAir, a);
-			if (room === 'skeleton') { samples++; const covered = await hidden().catch(() => false); if (covered) hiddenSamples++; coverLog.push({ at: Date.now(), covered }); }
+			if (ledge) { const here = await pos().catch(() => null); if (here) minY = Math.min(minY, here[1]); }
+			if (skel) { samples++; const covered = await hidden().catch(() => false); if (covered) hiddenSamples++; coverLog.push({ at: Date.now(), covered }); }
 			await sleep(250);
 		} })();
 		const safe = async () => {
@@ -297,7 +307,7 @@ try {
 		};
 		const live = await pos();
 		const exposed = live === null ? false : room === 'deep' || room === 'stair' ? await blockAt(Math.floor(live[0]), Math.floor(live[1] + 1.62), Math.floor(live[2]), 'minecraft:water')
-			: room === 'skeleton' ? exposedAtStart
+			: skel ? exposedAtStart
 			: room === 'shaft' || room === 'lake' ? await blockAt(Math.floor(live[0]), Math.floor(live[1]), Math.floor(live[2]), 'minecraft:water')
 			: room === 'pitskel' ? live[1] < F - 1 : live[1] < F - 2;
 		// pitcreeper judges the climb on survival and damage too: climbing on must not trade a stop for a blast.
@@ -305,8 +315,8 @@ try {
 		let calls = 0, executed = 0, last = null, safeAt = null;
 		const results = [];
 		while (Date.now() - t0 < window) {
-			if (await safe()) { safeAt ??= Date.now() - t0; if (room !== 'skeleton') break; await sleep(500); continue; }
-			safeAt = room === 'skeleton' ? null : safeAt;
+			if (await safe()) { safeAt ??= Date.now() - t0; if (!skel) break; await sleep(500); continue; }
+			safeAt = skel ? null : safeAt;
 			await sleep(THINK_MS);
 			if (Date.now() - t0 >= window) break;
 			if (await safe()) continue;
@@ -335,13 +345,13 @@ try {
 			if (last.state === 'ERROR') break;
 			if ((await health().catch(() => NaN)) <= 0) break;
 		}
-		if (room === 'skeleton') await sleep(Math.max(0, window - (Date.now() - t0)));
+		if (skel) await sleep(Math.max(0, window - (Date.now() - t0)));
 		// Safe has to hold: two seconds on, the body is still out (not slid back into the water or the hole).
 		let endSafe = null;
-		if (room !== 'skeleton' && safeAt !== null) { endSafe = true; for (let i = 0; i < 4 && endSafe; i++) { await sleep(500); endSafe = await safe(); } }
+		if (!skel && safeAt !== null) { endSafe = true; for (let i = 0; i < 4 && endSafe; i++) { await sleep(500); endSafe = await safe(); } }
 		// The skeleton room ends in cover: behind the wall for every sample of the window's last 2 s, not only blocking in
 		// the open behind a shield.
-		if (room === 'skeleton') {
+		if (skel) {
 			const tail = coverLog.filter(row => row.at >= t0 + window - 2000 && row.at <= t0 + window);
 			endSafe = tail.length >= 4 && tail.every(row => row.covered);
 		}
@@ -351,17 +361,17 @@ try {
 		const row = { room, arm: arm === 'legacy' ? `legacy-${LEGACY}` : arm, run, calls, executed, endSafe, safeSeconds: safeAt === null ? null : Math.round(safeAt / 100) / 10, seconds: Math.round((Date.now() - t0) / 100) / 10,
 			healthLost: Math.round(Math.max(0, before - minHealth) * 10) / 10, damageTaken: damage.damageTaken,
 			...(damage.integrity ? { integrity: damage.integrity } : {}), airBefore, minAir,
-			hiddenShare: room === 'skeleton' && samples > 0 ? Math.round(hiddenSamples / samples * 100) / 100 : undefined,
+			hiddenShare: skel && samples > 0 ? Math.round(hiddenSamples / samples * 100) / 100 : undefined,
 			endDy: end ? Math.round((end[1] - F) * 10) / 10 : null, results, state: last?.state ?? null, reasonCode: last?.reasonCode ?? null,
 			message: String(last?.message ?? '').slice(0, 300), startedAt, finishedAt: Date.now() };
 		row.deathEvidence = recordDeathEvidence(row, deathsBefore, await readDeaths());
 		const sawDeath = minHealth <= 0 || row.deaths > 0 || /Lifecycle changed to DEAD/.test(String(last?.message ?? ''));
 		const died = row.died = sawDeath ? true : row.deathEvidence.valid ? false : null;
-		if (room === 'skeleton') row.start = { ...(startSnapshot ?? {}), skeletonSeen: skeleton !== null, wall };
-		if (!exposed) row.notExercised = room === 'skeleton' ? 'no skeleton in sight at the start' : 'the live body did not start in danger';
+		if (skel) row.start = { ...(startSnapshot ?? {}), skeletonSeen: skeleton !== null, wall };
+		if (!exposed) row.notExercised = skel ? 'no skeleton in sight at the start' : 'the live body did not start in danger';
 		// The skeleton room's verdict is cover at the end, however the body got there: reflexes taking cover before the
 		// first decision is the bot doing right, not missing evidence.
-		else if (executed === 0 && safeAt !== null && room !== 'skeleton') row.notExercised = calls === 0 ? 'safe before the first decision (reflexes alone)' : 'safe with no call the body ran';
+		else if (executed === 0 && safeAt !== null && !skel) row.notExercised = calls === 0 ? 'safe before the first decision (reflexes alone)' : 'safe with no call the body ran';
 		if (healthSamples === 0) row.error = 'no health sample in the window';
 		if (last?.state === 'ERROR') row.error = `call never returned: ${last.reasonCode}`;
 		// pitcreeper-rim: no escape call may sit out its whole timeout guarding a creeper it cannot reach.
@@ -371,8 +381,13 @@ try {
 			// No escape call the body ran: the room tested nothing (a long ESCAPE_THINK_MS can eat the window).
 			if (!results.some(r => r.startsWith('escape:')) || executed === 0) row.notExercised = 'no escape call ran in the window';
 		}
-		else row.pass = died === false && (room === 'skeleton' ? (row.damageTaken ?? Infinity) <= 6 && endSafe === true : safeAt !== null && endSafe === true);
-		if (!row.pass && room !== 'pitcreeper-rim') row.failReason = died ? 'died' : room === 'skeleton' ? (endSafe !== true ? 'not in cover at the end' : `took ${row.damageTaken} damage`) : safeAt === null ? 'not safe within the window' : 'safe, then back in danger';
+		else row.pass = died === false && (skel ? (row.damageTaken ?? Infinity) <= 6 && endSafe === true : safeAt !== null && endSafe === true);
+		if (ledge && exposed) {
+			row.minDy = Number.isFinite(minY) ? Math.round((minY - F) * 10) / 10 : null;
+			row.pass = died === false && row.minDy !== null && row.minDy >= -1;
+			row.failReason = row.pass ? undefined : died ? 'died' : row.minDy === null ? 'no position sample' : 'dropped off the pad behind the wall';
+		}
+		if (!row.pass && room !== 'pitcreeper-rim' && !ledge) row.failReason = died ? 'died' : skel ? (endSafe !== true ? 'not in cover at the end' : `took ${row.damageTaken} damage`) : safeAt === null ? 'not safe within the window' : 'safe, then back in danger';
 		rows.push(row);
 		console.log(`[${room} ${row.arm} ${run}] ${roomVerdict(row).verdict} calls=${calls} safe=${row.safeSeconds}s hpLost=${row.healthLost}${died ? ' DIED' : ''} air ${airBefore}->${minAir}${row.hiddenShare !== undefined ? ` hidden=${row.hiddenShare}` : ''} | ${results.join(' ')} | ${row.message.slice(0, 160)}`);
 		await s.command(`kill @e[type=minecraft:skeleton]`).catch(() => {});

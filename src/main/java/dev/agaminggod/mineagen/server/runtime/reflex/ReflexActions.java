@@ -2758,6 +2758,13 @@ final class ReflexActions {
 		private final int within;
 		private PathWalk walk;
 		private GridPosition cover;
+		/** The walk was planned over ground taken as level: each step is checked as the eye sees it. */
+		private boolean guessedWalk;
+		/** Cells a guessed walk refused once seen; the next guess routes round them. */
+		private final java.util.Set<GridPosition> refusedGuesses = new java.util.HashSet<>();
+		/** Guessed walks a firing tries at most before it keeps to seen ground. */
+		static final int MAX_GUESSED_WALKS = 3;
+		private int guessedWalks;
 		private int glanced;
 		private float glanceStart = Float.NaN;
 		private PlaceBlock wall;
@@ -2852,18 +2859,23 @@ final class ReflexActions {
 					cover = cell;
 					shooter = from.getFirst();
 					walk = new PathWalk(SafeStep.pathTo(reach, cell));
+					guessedWalk = false;
 					break;
 				}
-				if (walk == null) {
+				if (walk == null && guessedWalks < MAX_GUESSED_WALKS) {
 					// No seen cell hides: the floor behind the cover is ground the body cannot see from here either. A player
 					// takes the floor as going on behind a wall and walks round to check; the walk meets the real ground.
 					Map<GridPosition, GridPosition> guess = SafeStep.reachableAssumingLevel(player, within, MAX_PATH_CELLS);
 					for (GridPosition cell : guess.keySet()) {
 						if (reach.containsKey(cell) || guess.get(cell) == null) continue;
 						if (!from.stream().allMatch(mob -> hidden(player, mob, mob.getEyePosition(), cell))) continue;
+						List<GridPosition> path = SafeStep.pathTo(guess, cell);
+						if (path.stream().anyMatch(refusedGuesses::contains)) continue;
 						cover = cell;
 						shooter = from.getFirst();
-						walk = new PathWalk(SafeStep.pathTo(guess, cell));
+						walk = new PathWalk(path);
+						guessedWalk = true;
+						guessedWalks++;
 						break;
 					}
 				}
@@ -2887,6 +2899,18 @@ final class ReflexActions {
 					}
 					wall = new PlaceBlock(null, 2);
 					return buildCover(context, input);
+				}
+			}
+			if (guessedWalk) {
+				// Ground taken as level is a guess: a player looks at each step as it comes into view and does not walk off a
+				// drop, into lava or water, or into a mob for it; it takes the next cover instead.
+				GridPosition next = walk.next(player);
+				String refusal = next == null ? null : SafeStep.guessedStepRefusal(player, next, true);
+				if (refusal == null && next != null && mobOnCell(player, next)) refusal = "a mob on " + next.x() + "," + next.y() + "," + next.z();
+				if (refusal != null) {
+					refusedGuesses.add(next);
+					walk = null;
+					return Step.running(refusal + " on the way round to cover; choosing the next cover");
 				}
 			}
 			GridPosition flow = walk.lavaAhead(player);
@@ -2935,6 +2959,13 @@ final class ReflexActions {
 			if (shieldTicks == 0) return "";
 			return String.format(Locale.ROOT, "; shield up %.1f s", shieldTicks / 20.0D)
 					+ (shieldTicks >= MAX_SHIELD_TICKS ? ", the most one firing blocks" : "");
+		}
+
+		/** A living hostile stands on or beside {@code cell}. */
+		private static boolean mobOnCell(ServerPlayer player, GridPosition cell) {
+			double x = cell.x() + 0.5D, z = cell.z() + 0.5D;
+			return !player.level().getEntitiesOfClass(Mob.class, new AABB(x - 1.5D, cell.y() - 1.0D, z - 1.5D, x + 1.5D, cell.y() + 2.0D, z + 1.5D),
+					mob -> mob.isAlive() && ThreatPerception.isHostileTo(mob, player)).isEmpty();
 		}
 
 		/** The hand holding a shield, the offhand first, or null. */

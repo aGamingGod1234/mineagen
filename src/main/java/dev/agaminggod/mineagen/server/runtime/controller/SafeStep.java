@@ -252,6 +252,43 @@ public final class SafeStep {
 		return MAX_COUNTED_DROP;
 	}
 
+	/** Deepest fall a walk over ground taken as level steps into once the eye sees it; deeper ends the walk. */
+	public static final int GUESSED_MAX_FALL = 3;
+
+	/**
+	 * Why stepping onto {@code cell} of a walk planned over ground taken as level is refused now the eye may see it, or
+	 * null: lava or water at the feet or head, or under the cell before footing, or a fall of more than
+	 * {@link #GUESSED_MAX_FALL} blocks. Unseen support is refused only for the next cell ({@code next}): a player does not
+	 * step where it cannot see the floor, but a cell further on may still come into view.
+	 */
+	public static String guessedStepRefusal(ServerPlayer player, GridPosition cell, boolean next) {
+		return guessedStepRefusal(ObservedTerrain.of(player), cell, next);
+	}
+
+	static String guessedStepRefusal(WalkabilityView known, GridPosition cell, boolean next) {
+		for (int dy = 0; dy <= 1; dy++) {
+			WalkabilityView.Cell body = known.cellAt(new GridPosition(cell.x(), cell.y() + dy, cell.z()));
+			if (body == WalkabilityView.Cell.HAZARD) return "lava or fire at " + where(cell);
+			if (body == WalkabilityView.Cell.WATER) return "water at " + where(cell);
+		}
+		for (int depth = 1; depth <= GUESSED_MAX_FALL + 1; depth++) {
+			GridPosition below = new GridPosition(cell.x(), cell.y() - depth, cell.z());
+			WalkabilityView.Cell under = known.cellAt(below);
+			switch (under) {
+				case SAFE_SUPPORT, BLOCKED, CLIMBABLE -> { return null; }
+				case HAZARD -> { return "lava under " + where(cell); }
+				case WATER -> { return "water under " + where(cell); }
+				case UNLOADED -> { return next ? "floor at " + where(cell) + " not seen yet" : null; }
+				case CLEAR -> { }
+			}
+		}
+		return "a fall of more than " + GUESSED_MAX_FALL + " blocks at " + where(cell);
+	}
+
+	private static String where(GridPosition cell) {
+		return cell.x() + "," + cell.y() + "," + cell.z();
+	}
+
 	/**
 	 * Cells the body can walk to from its feet in at most {@code maxSteps} cardinal steps over seen terrain, using the
 	 * flee probe's footing rules (walk, swim or climb; a one-block step up; a damage-free drop). Breadth first, so the
