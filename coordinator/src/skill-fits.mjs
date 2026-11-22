@@ -210,8 +210,9 @@ const EYES = 12;
 // The armour step: a carried kit piece put on, else the next piece crafted from iron the rest of the kit does not need.
 function armourStep(f) {
 	const missing = KIT_ARMOUR.filter(piece => !f.worn.has(piece.slot));
-	const carried = missing.find(piece => f.count(piece.part));
-	if (carried) return [`equip_item ${carried.id} to ${carried.slot}`, `${carried.id} carried, not worn`];
+	// The carried piece's own id: a golden chestplate in the pack is put on as it is, not named as the iron one.
+	const carried = missing.map(piece => ({ piece, id: f.carriedId(piece.part) })).find(c => c.id);
+	if (carried) return [`equip_item ${carried.id} to ${carried.piece.slot}`, `${carried.id} carried, not worn`];
 	const next = missing.find(piece => !f.count(piece.part));
 	if (!next) return null;
 	// Before the kit is done, only from iron it leaves (the kit habit's rule); after it, the step mines its own.
@@ -350,7 +351,8 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 		buckets: count(/^minecraft:(bucket|water_bucket|lava_bucket)$/), pools: (known.lavaPools ?? []).filter(p => p?.dimension === dimension).length,
 		below: belowGround(o), woodHandedBack: woodHandedBack === true, logs: count(/^minecraft:[a-z_]+_log$/), ingots: count(/^minecraft:iron_ingot$/) };
 	const worn = new Set(items.filter(i => ['head', 'chest', 'legs', 'feet'].includes(i.slot)).map(i => i.slot));
-	Object.assign(facts, { worn });
+	const carriedId = re => items.find(i => !['head', 'chest', 'legs', 'feet'].includes(i.slot) && re.test(i.itemId ?? ''))?.itemId?.replace(/^minecraft:/, '') ?? null;
+	Object.assign(facts, { worn, carriedId });
 	const kit = kitLeft(count);
 	Object.assign(facts, { kitIron: kit.iron, kitParts: kit.parts, kitOther: kit.other });
 	// Planned only when the route reaches the step: a whole-kit obtain plan per wake is not free.

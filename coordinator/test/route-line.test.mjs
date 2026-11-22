@@ -64,6 +64,8 @@ test('the route walks the usual Overworld order from nothing to a lit portal', (
 	const bare = [['iron_pickaxe', 1], ['water_bucket', 1], ['bucket', 1], ['flint_and_steel', 1], SHIELD];
 	assert.equal(route([...bare, ...COOKED]), 'usual next step: obtain iron_chestplate, then equip_item it to chest (iron 0 held, kit made; iron_chestplate takes 8, no chest armour worn)');
 	assert.equal(route([...bare, ['iron_chestplate', 1], ...COOKED]), 'usual next step: equip_item iron_chestplate to chest (iron_chestplate carried, not worn)');
+	// A carried piece of another material is put on as it is, not named as the iron one (which is not held).
+	assert.equal(route([...bare, ['golden_chestplate', 1], ...COOKED]), 'usual next step: equip_item golden_chestplate to chest (golden_chestplate carried, not worn)');
 	assert.match(route([...bare, ARMOUR[0], ...COOKED]), /^usual next step: obtain iron_boots, then equip_item it to feet/);
 	// The buckets and the lighter come first even with spare iron held (the kit habit makes armour from that spare itself).
 	assert.match(route([['iron_pickaxe', 1], ['iron_ingot', 15], SHIELD, ...TRIP, ...COOKED]), /^usual next step: obtain bucket count 2, then flint_and_steel/);

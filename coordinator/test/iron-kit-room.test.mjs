@@ -65,6 +65,8 @@ test('portal-ready is the kit held with the route on its portal row', () => {
 	] } };
 	const portal = 'usual next step: obtain water_bucket, then find block minecraft:lava and build nether_portal beside it (plain blocks 30/13, lava pools seen 0)';
 	assert.equal(portalReady(kit, portal), true);
+	// With a bed in view the portal row names the bed step instead of the build.
+	assert.equal(portalReady(kit, 'usual next step: before lighting the portal, break_block the white_bed at 3,64,1, then carry it to the portal (bed in view)'), true);
 	assert.equal(portalReady(kit, 'usual next step: obtain iron_chestplate, then equip_item it to chest (iron 0 held, kit made)'), false);
 	assert.equal(portalReady({ inventory: { items: kit.inventory.items.slice(1) } }, portal), false);
 });

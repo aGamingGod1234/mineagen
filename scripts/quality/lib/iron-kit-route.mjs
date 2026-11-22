@@ -55,7 +55,10 @@ function thenEquip(text) {
 	return slot ? { equip: slot } : null;
 }
 
-/** The portal row of the route: the kit and anything the route puts before the portal are done (the room's until: 'portal'). */
+/**
+ * The portal row of the route: the kit and anything the route puts before the portal are done (the room's until: 'portal').
+ * The row names the portal build, or, with a bed in view, the bed step it takes "before lighting the portal" instead.
+ */
 export function portalReady(o, line) {
-	return kitHeld(o) && /build nether_portal/.test(String(line ?? ''));
+	return kitHeld(o) && /build nether_portal|before lighting the portal/.test(String(line ?? ''));
 }
