@@ -1181,7 +1181,8 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 				const after = bodyAt(await body.observe());
 				if (stood !== null && after !== null && after.y < stood.y - 0.5 && !body.interrupted() && !body.stopped()) {
 					step(`climb back out of the pocket to ${Math.floor(stood.x)},${Math.floor(stood.y)},${Math.floor(stood.z)}`);
-					await act('travel_to', { x: stood.x, y: stood.y, z: stood.z, tolerance: 1, timeoutMs: 30_000 });
+					// Tolerance 0.5: with 1 the walk counted a step still inside the pocket (1 below) as arrived.
+					await act('travel_to', { x: stood.x, y: stood.y, z: stood.z, tolerance: 0.5, timeoutMs: 30_000 });
 				}
 				return mined?.state === 'SUCCEEDED' ? null : `mine ${bare(where.blockId)}: ${mined?.reasonCode ?? 'failed'}`;
 			}

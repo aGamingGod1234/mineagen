@@ -23,9 +23,10 @@
   "setup": [
    "forceload add 290 -270 306 -250",
    "kill @e[type=minecraft:item,distance=..40]",
-   "fill 297 14 -267 299 17 -255 minecraft:stone",
+   "fill 297 10 -267 299 17 -255 minecraft:stone",
    "fill 298 15 -266 298 16 -256 minecraft:air",
    "setblock 298 14 -261 minecraft:iron_ore",
+   "setblock 298 13 -261 minecraft:iron_ore",
    "tp Probe 298.5 15 -260.5 180 30"
   ],
   "after": {
