@@ -97,13 +97,13 @@ The biggest measured gains, each against main before the change. These are rooms
 - **Iron armour (#122):** makes and wears an iron chestplate and boots after the iron kit, 0/26 -> 19/25.
 - **Holding a blaze spawner (#89):** alive with a blaze killed and a rod picked up 10/40 -> 24/40; deaths 26 -> 16.
 - **Fighting blazes (#93):** walls in on the spot to heal; alive with a kill and a rod 7/40 -> 18/40; deaths 33 -> 14.
-- **The first night (#117):** stays off the surface and open ground at night without full iron; alive after mining at dusk 10/16 -> 18/18; deaths on the iron-kit route over the first night 24 -> 5.
+- **The first night (#117):** stays off the surface and open ground at night without full iron; alive after mining at dusk 10/16 -> 18/18; deaths on the iron-kit route over the first night 24 -> 5, though the iron kit now comes later because the bot waits out the night.
 - **A mob blocking the climb out of a cave (#111):** stands its ground, then climbs; deaths 14/30 -> 4/30.
 - **Fight or flee (#77):** pillars up from a creeper 1/10 -> 10/10, backs off a spawner 0/10 -> 10/10, walks to cover behind its shield 0/15 -> 15/15.
 - **A mob round a blind corner (#124):** zombie killed 0/18 -> 12/12; damage taken 90 -> 36 HP.
 - **The first tools (#108):** takes cobblestone from a village in sight instead of digging down; stone pickaxe from an oak-tree start near a village 0/10 -> 10/10.
 - **Ore (#105, #119):** mines ore under its own feet 0/10 -> 10/10; goes back to iron it has already seen; in a recorded cave case it got the iron 0/5 -> 5/5, in about 43 s.
-- **Water (#83, #125):** ducks out from under a ceiling into open water and rises instead of drowning 0/10 -> 10/10; wades up a 15-step flooded stair 0/10 -> 10/10.
+- **Water (#83, #125):** ducks out from under a ceiling into open water and rises instead of taking drowning damage 0/10 -> 10/10; wades up a 15-step flooded stair 0/10 -> 10/10.
 
 ### Not yet measured
 
@@ -120,7 +120,7 @@ Changes are tested in four tiers, from fastest to slowest:
 3. **Checkpoint runs**: games with the model from a save point partway along the route, run overnight. They test what rooms cannot, such as what the model decides.
 4. **Full games from scratch**: the status table above, the scoreboard for the goal.
 
-A room or a game can come out differently with no code change, so each result is a count over repeats, and one noise rule says when a gap is real: a difference counts only when Fisher's exact test, two-sided, gives p < 0.05 over valid runs (INVALID, lost and unknown runs never count), with 10 runs per side for practice rooms. At 10 a side, 0 of 10 against 5 of 10 clears it and 5 of 10 against 8 of 10 does not. A games round plays 8 seeds a side, so it takes a gap of about 5 seeds (0 of 8 against 5 of 8 is p = 0.03; 0 of 8 against 4 of 8 is p = 0.08). A room that did not play properly is invalid and is played again, and a game with a missing record is unknown; neither counts as a pass. The commands for each tier are in [Which test to run](../scripts/quality/README.md#which-test-to-run).
+A room or a game can come out differently with no code change, so each result is a count over repeats, and one noise rule says when a gap is real: a difference counts only when Fisher's exact test, two-sided, gives p < 0.05 over valid runs (INVALID, lost and unknown runs never count), with at least 10 runs per side for new practice-room measurements. The rule covers pass counts; paired benchmark and reflex verdicts keep their own rules in the testing README. At 10 a side, 0 of 10 against 5 of 10 clears it and 5 of 10 against 8 of 10 does not. A games round plays 8 seeds a side, so it takes a gap of about 5 seeds (0 of 8 against 5 of 8 is p = 0.03; 0 of 8 against 4 of 8 is p = 0.08). A room that did not play properly is invalid and is played again, and a game with a missing record is unknown; neither counts as a pass. The commands for each tier are in [Which test to run](../scripts/quality/README.md#which-test-to-run).
 
 ## Practice rooms on 2026-11-21
 
