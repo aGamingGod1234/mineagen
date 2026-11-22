@@ -224,6 +224,8 @@ async function session(seed, index) {
 			const p = await pos();
 			if (!p || block === null) return;
 			const [x, y, z] = p.map(Math.floor);
+			// A stone floor under the pad, so sand over a cave or a cliff edge does not fall away under the body.
+			await s.command(`fill ${x - 4} ${y - 5} ${z - 4} ${x + 4} ${y - 5} ${z + 4} minecraft:stone`);
 			await s.command(`fill ${x - 4} ${y - 4} ${z - 4} ${x + 4} ${y - 1} ${z + 4} minecraft:${block}`);
 			await s.command(`fill ${x - 4} ${y} ${z - 4} ${x + 4} ${y + 3} ${z + 4} minecraft:air`);
 			await s.command(`tp ${AGENT} ${x + 0.5} ${y} ${z + 0.5}`);
