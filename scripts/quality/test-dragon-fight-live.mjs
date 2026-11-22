@@ -21,7 +21,7 @@ import { adaptObservation } from '../../coordinator/src/observation-adapter.mjs'
 import { ReflexBook } from '../../coordinator/src/reflexes.mjs';
 import { perchedDragon } from '../../coordinator/src/dragon-fight-facts.mjs';
 import { warmBoots } from './fixture-servers.mjs';
-import { fixtureTickRate } from './watch-replay.mjs';
+import { unshownTickRate } from './watch-replay.mjs';
 import { gameClockFromObservations } from '../../coordinator/src/game-clock.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 import { damageCounter, damageEvidence, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
@@ -54,7 +54,7 @@ const results = { arm: `${SURVIVE ? 'survive' : 'fight'}-${BOW ? 'bow' : 'no-bow
 const repeats = Math.max(1, Number(process.env.REPEATS ?? 1));
 
 for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-fight' }], () => ({ dir: path.join(out, 'server-0'),
-	options: { jar: results.jar, template, port, world: null, seed: '20261123', spawnMonsters: true, worldCache: false, tickRate: fixtureTickRate(),
+	options: { jar: results.jar, template, port, world: null, seed: '20261123', spawnMonsters: true, worldCache: false, tickRate: unshownTickRate('the dragon fight and End survival have no 20 vs 60 TPS A/B yet (the smokes at 60 are bring-up only)'),
 		// A flat Overworld (the body is summoned there before the End; seed 20261123 puts ocean at 0,0). The End is vanilla.
 		extraProperties: 'level-type=minecraft:flat\ngenerator-settings={"layers":[{"block":"minecraft:bedrock","height":1},{"block":"minecraft:stone","height":3}],"biome":"minecraft:plains"}\n' } }))) {
 	try {
