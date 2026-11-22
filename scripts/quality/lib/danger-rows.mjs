@@ -101,7 +101,7 @@ export function foldHits(rows, { from = -Infinity, to = Infinity, agentId = null
  * danger rows under root that fall in its time window (from row.hitsFrom instead of startedAt when the fixture marks
  * where play began). With no danger file under root the rows are left alone: no watch, no claim. A row that names its
  * body (agentId) counts only that body's hits; a row that does not, where several bodies were watched (parallel lanes on
- * one server), gets no hits, never another body's.
+ * one server), gets no hits, never another body's, unless it sets hitsAllBodies (one row covering every lane).
  */
 export async function attachHits(rows, root) {
 	const danger = await readDangerRows(root);
@@ -117,7 +117,8 @@ export async function attachHits(rows, root) {
 		// A row that names no body can only be read where one body was watched: with several, the hits in its window may
 		// be a sibling lane's, even when only one of them was hit.
 		if (unknown) { delete row.hits; row.hitsUnknown = unknown; continue; }
-		if (!agentId && danger.bodies > 1) { delete row.hits; row.hitsUnknown = `${danger.bodies} bodies were watched on one server and the row names none`; continue; }
+		// hitsAllBodies: a row that stands for every body on its server (one row per seed with all lanes) takes them all.
+		if (!agentId && danger.bodies > 1 && row.hitsAllBodies !== true) { delete row.hits; row.hitsUnknown = `${danger.bodies} bodies were watched on one server and the row names none`; continue; }
 		delete row.hitsUnknown;
 		row.hits = { source: 'watch', ...hits };
 		if (danger.dropped) row.hits.droppedLines = danger.dropped;

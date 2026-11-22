@@ -92,6 +92,9 @@ test('a row counts only its own body, never parallel lanes\' hits, and room setu
 		assert.deepEqual(Object.keys(rows[1].hits.byAttacker), ['minecraft:lava']);
 		assert.equal(rows[2].hits, undefined, 'two bodies hit and the row names none: unknown');
 		assert.match(rows[2].hitsUnknown, /2 bodies were watched/);
+		const whole = [{ name: 'seed', hitsAllBodies: true, pass: true, startedAt: T0, finishedAt: T0 + 10_000 }];
+		await finishRun(whole, { file: path.join(out, 'result.json'), setExitCode: false });
+		assert.deepEqual([whole[0].hits.hits, whole[0].hits.agents], [2, 2], 'a row for every lane takes every lane\'s hits');
 		// One lane never hit: its file is there, empty, and a nameless row still cannot claim the other lane's hits.
 		const quiet = await mkdtemp(path.join(os.tmpdir(), 'danger-quiet-'));
 		try {
