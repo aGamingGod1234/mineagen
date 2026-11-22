@@ -1885,7 +1885,10 @@ public final class ServerActionExecutor {
 		// No spawner in view: the hold looks round for one first, then hands over to the ordinary fight (spawner null).
 		boolean nether = blaze && dev.agaminggod.mineagen.server.runtime.controller.SpawnerHold.ENABLED
 				&& player.level().dimension() == net.minecraft.world.level.Level.NETHER;
-		if (dev.agaminggod.mineagen.server.runtime.controller.SpawnerHold.applies(nether, blaze, roof, true))
+		// pursue:false (stay put) and sneak:true (crouch on an edge) keep the ordinary fight: the hold walks to its cell
+		// site and on rod trips, and does not crouch.
+		boolean constrained = arguments.has("pursue") && !bool(arguments, "pursue") || arguments.has("sneak") && bool(arguments, "sneak");
+		if (!constrained && dev.agaminggod.mineagen.server.runtime.controller.SpawnerHold.applies(nether, blaze, roof, true))
 			return new dev.agaminggod.mineagen.server.runtime.controller.ServerSpawnerHoldController(player, arguments, protection, spawner,
 					roofing(request), GameClock.nowMs());
 		return new dev.agaminggod.mineagen.server.runtime.controller.ServerFightUntilController(
