@@ -2663,7 +2663,21 @@ export class NativeToolRuntime {
 				return rows;
 			},
 			// The open menu (a chest obtain opened to loot): its identity and slots, one page.
-			menu: async () => this.#inspect({ kind: 'inspect', section: 'menu', offset: 0, limit: 64 }, record, { withSearch: false }),
+			// The open menu's identity and the container's own slots (all before the player's 36), in pages of at most 32
+			// (the protocol's page bound; a double chest holds 54).
+			menu: async () => {
+				const rows = (page) => Array.isArray(page?.entries) ? page.entries : page?.entries?.$rows ? page.entries.$rows.rows.map((row) => Object.fromEntries(page.entries.$rows.columns.map((column, index) => [column, row[index]]))) : [];
+				const first = await this.#inspect({ kind: 'inspect', section: 'menu', offset: 0, limit: 32 }, record, { withSearch: false });
+				const size = first?.menu?.slotCount;
+				const container = Number.isSafeInteger(size) ? Math.max(0, size - 36) : 0;
+				const entries = rows(first);
+				for (let offset = 32; offset < container; offset += 32) {
+					const page = await this.#inspect({ kind: 'inspect', section: 'menu', offset, limit: Math.min(32, container - offset) }, record, { withSearch: false });
+					if (page?.menu?.stateId !== first?.menu?.stateId) break;
+					entries.push(...rows(page));
+				}
+				return { ...first, entries };
+			},
 			stopped: () => !current(),
 			interrupted,
 			// The fork that stopped this run ({reasonCode, message}), or null for danger: obtain ends with its code.
