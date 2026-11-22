@@ -7,9 +7,9 @@ import { heldCounts, keepPickaxeMakings, planObtain } from './obtain-plan.mjs';
 // call's fields and the facts that make it fit. It names a call the model may make; nothing runs from it.
 
 export const SKILL_FITS_BYTES = 240;
-// fight_until's default area radius; barter_until and cast_obsidian look for piglins and lava within 16 blocks.
+// fight_until's default area radius; barter_until looks for piglins within 32 blocks (it walks that far to one), cast_obsidian for lava within 16.
 const FIGHT_RANGE = 24;
-const BARTER_RANGE = 16;
+const BARTER_RANGE = 32;
 const LAVA_RANGE = 16;
 const MELEE = /^minecraft:(wooden|golden|stone|copper|iron|diamond|netherite)_(sword|axe)$/;
 const GOLD_ARMOUR = /^minecraft:golden_(helmet|chestplate|leggings|boots)$/;
@@ -53,10 +53,15 @@ export function skillFitsLine({ observation: o = null, needs = [], sightings = [
 		return mob && `fight_until mob:minecraft:enderman untilItem:minecraft:ender_pearl untilCount:${need.need} (enderman ${m(mob.distance)}, ${melee}, pearls ${need.have}/${need.need})`;
 	};
 	const barter = need => {
-		const gold = count(/^minecraft:gold_ingot$/);
-		if (running === 'barter_until' || gold === 0 || !items.some(i => WORN.has(i.slot) && GOLD_ARMOUR.test(i.itemId))) return null;
+		// barter_until crafts carried gold blocks and nuggets into ingots and puts on carried gold armour itself; nuggets
+		// need a crafting table carried or one seen within reach (4.5 blocks), as the job crafts them there.
+		const table = count(/^minecraft:crafting_table$/) > 0 || (remembered(o, 'blocks') ? [] : o.blocks ?? [])
+			.some(b => b?.blockId === 'minecraft:crafting_table' && [b.x, b.y, b.z].every(Number.isFinite) && away({ x: b.x + .5, y: b.y + .5, z: b.z + .5 }) <= 4.5);
+		const gold = count(/^minecraft:gold_ingot$/) + 9 * count(/^minecraft:gold_block$/) + (table ? Math.floor(count(/^minecraft:gold_nugget$/) / 9) : 0);
+		const worn = items.some(i => WORN.has(i.slot) && GOLD_ARMOUR.test(i.itemId));
+		if (running === 'barter_until' || gold === 0 || !worn && !items.some(i => GOLD_ARMOUR.test(i.itemId))) return null;
 		const piglin = nearest('minecraft:piglin', BARTER_RANGE, e => e.baby !== true && e.targetingAgent !== true);
-		return piglin && `barter_until itemId:minecraft:ender_pearl count:${Math.min(64, need.need - need.have)} (piglin ${m(piglin.distance)}, gold ${gold}, gold armour worn, pearls ${need.have}/${need.need})`;
+		return piglin && `barter_until itemId:minecraft:ender_pearl count:${Math.min(64, need.need - need.have)} (piglin ${m(piglin.distance)}, gold ${gold}, gold armour ${worn ? 'worn' : 'carried, put on first'}, pearls ${need.have}/${need.need})`;
 	};
 	const cast = need => {
 		// Water poured in the Nether evaporates, so casting is an Overworld (or End) fact.

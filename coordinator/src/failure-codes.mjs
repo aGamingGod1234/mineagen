@@ -127,6 +127,8 @@ export const FAILURE_CODES = Object.freeze({
 	FRAME_CELL_UNSEEN: ['cell', null],
 	NO_PIGLIN: ['reach', null],
 	PIGLIN_ANGRY: ['threat', null],
+	// mine_vein refused to break gold a seen calm piglin within 16 blocks would guard (ServerVeinController).
+	PIGLINS_NEAR_GOLD: ['threat', null],
 	CAST_TIMED_OUT: ['reach', null],
 	BARTER_TIMED_OUT: ['reach', null],
 	OUT_OF_BLOCKS: ['item', null],
@@ -343,6 +345,9 @@ export const FAILURE_CODES = Object.freeze({
 	FIGHT_UNTIL_TIMED_OUT: ['rule', null],
 	NO_TARGET_SEEN: ['entity', null],
 	AREA_CLEARED: ['entity', null],
+	// fight_until forest mode (WarpedForestHunt): relocation walks kept failing, or no seen forest floor left to walk to.
+	FOREST_UNREACHABLE: ['cell', null],
+	FOREST_SEARCHED_OUT: ['cell', null],
 	BURNING: ['threat', null],
 	SPOT_UNREACHABLE: ['cell', null],
 	// roof:true against endermen: not enough carried blocks, the shelter build failed, the sill could not be aimed at.

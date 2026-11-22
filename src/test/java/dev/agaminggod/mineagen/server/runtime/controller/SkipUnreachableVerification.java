@@ -57,6 +57,15 @@ import org.objectweb.asm.Opcodes;
  * controller case runs with the switch off (today's behaviour, pinned) and on.
  */
 public final class SkipUnreachableVerification {
+	private static final java.util.List<Vec3> drawGoals = new java.util.ArrayList<>();
+
+	/** A walk that ends the tick it starts (no terrain in the fixture level). */
+	private static ServerController endedWalk() {
+		return new ServerController() {
+			@Override public TickResult tick(net.minecraft.server.level.ServerPlayer body, long nowEpochMs) { return TickResult.failed("NO_ROUTE", "fixture: no terrain", 0.0D); }
+			@Override public void cancel(net.minecraft.server.level.ServerPlayer body) { }
+		};
+	}
 	private static int assertions;
 	private static final String UNREACHABLE = "NO_SEEN_ROUTE";
 
@@ -78,6 +87,13 @@ public final class SkipUnreachableVerification {
 		Map<ServerPlayer, Object> savedPlayers = new java.util.IdentityHashMap<>(seenPlayers);
 		long savedSweptAt = sweptAtField.getLong(null);
 		String savedSwitch = System.getProperty(UnreachableTargets.PROPERTY);
+		// The fixture level has no biomes: these hunts stand outside a warped forest (ForestHuntTickVerification covers it).
+		WarpedForestHunt.Probe savedProbe = WarpedForestHunt.probe;
+		// The back-off from an angry enderman out of reach ends at once here (the fixture has no terrain to walk);
+		// verifyQuietWithOnlyUnreachableInView checks where it heads.
+		ServerFightUntilController.DrawWalks savedDraw = ServerFightUntilController.drawWalks;
+		ServerFightUntilController.drawWalks = (goal, now) -> { drawGoals.add(goal); return endedWalk(); };
+		WarpedForestHunt.probe = (player, at) -> "minecraft:plains";
 		seenPlayers.clear();
 		try {
 			for (boolean on : new boolean[] {false, true}) {
@@ -89,6 +105,8 @@ public final class SkipUnreachableVerification {
 			verifyEligibleAfterMoving();
 			verifyRememberedSightingAfterBodyMoves();
 		} finally {
+			WarpedForestHunt.probe = savedProbe;
+			ServerFightUntilController.drawWalks = savedDraw;
 			ServerFightUntilController.scriptedMelee = null;
 			if (savedSwitch == null) System.clearProperty(UnreachableTargets.PROPERTY);
 			else System.setProperty(UnreachableTargets.PROPERTY, savedSwitch);
@@ -171,20 +189,27 @@ public final class SkipUnreachableVerification {
 	 * NO_SEEN_ROUTE: out-of-reach attackers are not failures in a row).
 	 */
 	private static void verifyQuietWithOnlyUnreachableInView(boolean on) throws Exception {
+		drawGoals.clear();
 		try (Fixture fixture = Fixture.create(on)) {
 			FixtureEnderman left = fixture.enderman(new Vec3(-1.5D, 68.0D, 4.5D), fixture.player);
 			FixtureEnderman right = fixture.enderman(new Vec3(2.5D, 68.0D, 4.5D), fixture.player);
 			fixture.script(left, 3, UNREACHABLE);
 			fixture.script(right, 3, UNREACHABLE);
-			ServerFightUntilController hunt = fixture.hunt(hunt(60_000L));
-			ServerController.TickResult end = fixture.run(hunt, 1_400);
+			// On, the body first backs off from them (at most MAX_DRAW_OVERS times, holding DRAW_HOLD_MS after each) for
+			// one to teleport across; the fixture's endermen never move, so the quiet spell follows.
+			ServerFightUntilController hunt = fixture.hunt(hunt(on ? 120_000L : 60_000L));
+			ServerController.TickResult end = fixture.run(hunt, on ? 2_400 : 1_400);
 			if (on) {
 				check(end.state() != ServerController.State.RUNNING && "NO_TARGET_SEEN".equals(end.reasonCode()),
 						"on: the quiet spell runs out with only unreachable endermen in view: " + end.reasonCode());
 				long quietTicks = fixture.ticks - fixture.lastEngagedTick;
-				check(quietTicks >= ServerFightUntilController.NO_TARGET_MS / 50L - 2L && quietTicks <= ServerFightUntilController.NO_TARGET_MS / 50L + 40L,
-						"on: it hands back about 30 s after the last failed approach: " + quietTicks + " ticks");
+				check(quietTicks >= ServerFightUntilController.NO_TARGET_MS / 50L - 2L,
+						"on: it hands back no sooner than 30 s after the last failed approach: " + quietTicks + " ticks");
+				check(drawGoals.size() == ServerFightUntilController.MAX_DRAW_OVERS, "on: it backs off at most " + ServerFightUntilController.MAX_DRAW_OVERS + " times: " + drawGoals.size());
 				check(fixture.engaged.size() == 2, "on: each was tried once: " + fixture.engaged.size());
+				check(!drawGoals.isEmpty() && drawGoals.stream().allMatch(goal -> Math.abs(Math.hypot(goal.x - left.getX(), goal.z - left.getZ()) - ServerFightUntilController.DRAW_DISTANCE) < 0.5D
+						|| Math.abs(Math.hypot(goal.x - right.getX(), goal.z - right.getZ()) - ServerFightUntilController.DRAW_DISTANCE) < 0.5D),
+						"on: the body backs off to 19 blocks from an angry enderman out of reach, for it to teleport across: " + drawGoals);
 				check(end.message().contains("out of reach: passed over 2 times"), "on: the receipt names it: " + end.message());
 			} else {
 				check("FIGHT_UNTIL_TIMED_OUT".equals(end.reasonCode()), "off (today): pinned to the time cap: " + end.reasonCode());

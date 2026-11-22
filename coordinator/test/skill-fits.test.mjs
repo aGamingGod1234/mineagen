@@ -42,13 +42,22 @@ test('fight_until enderman: pearls open, an enderman within 24 m, a melee weapon
 	assert.equal(skillFitsLine({ observation: sample({ items: [item('iron_sword')], entities: [mob('enderman', 10)] }), needs: [] }), null, 'no open need');
 });
 
-test('barter_until: pearls open, gold held, gold armour worn, a calm adult piglin within 16 m', () => {
+test('barter_until: pearls open, gold held, gold armour worn or carried, a calm adult piglin within 32 m', () => {
 	const piglin = mob('piglin', 6.2);
 	assert.equal(skillFitsLine({ observation: sample({ items: goldKit, entities: [piglin] }), needs: [{ ...pearls, have: 4 }] }),
 		'barter_until itemId:minecraft:ender_pearl count:8 (piglin 6 m, gold 32, gold armour worn, pearls 4/12)');
-	assert.equal(skillFitsLine({ observation: sample({ items: [item('gold_ingot', 32), item('golden_boots')], entities: [piglin] }), needs: [pearls] }), null, 'boots carried, not worn');
+	// The job puts carried gold armour on and crafts carried gold blocks and nuggets into ingots itself.
+	assert.equal(skillFitsLine({ observation: sample({ items: [item('gold_ingot', 32), item('golden_boots')], entities: [piglin] }), needs: [pearls] }),
+		'barter_until itemId:minecraft:ender_pearl count:12 (piglin 6 m, gold 32, gold armour carried, put on first, pearls 0/12)');
+	assert.equal(skillFitsLine({ observation: sample({ items: [item('gold_block', 3), item('gold_nugget', 20), item('golden_helmet', 1, 'head')], entities: [mob('piglin', 25)] }), needs: [pearls] }),
+		'barter_until itemId:minecraft:ender_pearl count:12 (piglin 25 m, gold 27, gold armour worn, pearls 0/12)');
+	assert.equal(skillFitsLine({ observation: sample({ items: [item('gold_ingot', 32)], entities: [piglin] }), needs: [pearls] }), null, 'no gold armour worn or carried');
+	// Nuggets count only with a crafting table to craft them at.
+	assert.equal(skillFitsLine({ observation: sample({ items: [item('gold_nugget', 54), item('golden_helmet', 1, 'head')], entities: [piglin] }), needs: [pearls] }), null, 'nuggets without a table');
+	assert.equal(skillFitsLine({ observation: sample({ items: [item('gold_nugget', 54), item('crafting_table'), item('golden_helmet', 1, 'head')], entities: [piglin] }), needs: [pearls] }),
+		'barter_until itemId:minecraft:ender_pearl count:12 (piglin 6 m, gold 6, gold armour worn, pearls 0/12)');
 	assert.equal(skillFitsLine({ observation: sample({ items: [item('golden_boots', 1, 'feet')], entities: [piglin] }), needs: [pearls] }), null, 'no gold');
-	assert.equal(skillFitsLine({ observation: sample({ items: goldKit, entities: [mob('piglin', 6, { baby: true }), mob('piglin', 7, { targetingAgent: true }), mob('piglin', 20)] }), needs: [pearls] }), null, 'baby, angry, too far');
+	assert.equal(skillFitsLine({ observation: sample({ items: goldKit, entities: [mob('piglin', 6, { baby: true }), mob('piglin', 7, { targetingAgent: true }), mob('piglin', 40)] }), needs: [pearls] }), null, 'baby, angry, too far');
 	// An enderman in reach comes first for the same pearls when a melee weapon is held.
 	assert.match(skillFitsLine({ observation: sample({ items: [...goldKit, item('iron_sword')], entities: [piglin, mob('enderman', 9)] }), needs: [pearls] }), /^fight_until mob:minecraft:enderman/);
 });

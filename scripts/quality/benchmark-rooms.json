@@ -1168,6 +1168,17 @@
    "reads": "OUT/result-summary.json"
   },
   {
+   "room": "water-detour-escape",
+   "fixture": "test-water-live.mjs",
+   "stage": "early",
+   "skill": "movement",
+   "skill2": "survival",
+   "line": "node scripts/quality/test-water-live.mjs $OUT $JAR 1 detour-escape --descriptive",
+   "estMinutes": 1.5,
+   "tickRate": 20,
+   "reads": "OUT/result-summary.json: the escape job (do_step escape) from under a solid block with about 4 s of air and the way up one block east got the body out (SUCCEEDED), no death, no health lost"
+  },
+  {
    "room": "water-waterfall",
    "fixture": "test-water-live.mjs",
    "stage": "early",

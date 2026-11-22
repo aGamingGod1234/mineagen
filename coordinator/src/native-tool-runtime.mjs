@@ -10,7 +10,7 @@ import { failureChange, failureFacts, isFailureResult, triedText } from './failu
 import { classifyBodyFailure, composeTwoCallView } from './two-call-llm-wrap.mjs';
 import { DugStairs, PlacedWorkstations } from './resource-facts.mjs';
 import { howto, howtoHoldings } from './howto.mjs';
-import { minecraftCapabilities, normalizeMinecraftToolCall, toolAdjustments, toolResultContent, withAdjustments } from './native-minecraft-tools.mjs';
+import { minecraftCapabilities, normalizeMinecraftToolCall, toolAdjustments, toolResultContent, UNSEARCHABLE_BLOCKS, withAdjustments } from './native-minecraft-tools.mjs';
 import { runObtain } from './obtain-runner.mjs';
 import { resolveObtainItem } from './obtain-plan.mjs';
 import { KIT_CRAFT_TIMEOUT_MS, keepKit } from './kit-habit.mjs';
@@ -2797,8 +2797,18 @@ export class NativeToolRuntime {
 				await step({ name: 'act', arguments: { actionType: 'look_at', arguments: { x: last.x + 0.5, y: last.y + 1.5, z: last.z + 0.5 } } }, 'look up the trunk');
 				continue;
 			}
+			// Seen before and out of the 6-block observation now (a village's cobblestone obtain chose): walk to the nearest
+			// remembered cell of what is wanted, from the agent's one seen-resource memory.
 			if (target === null) {
-				const search = { include: [...wanted].slice(0, 4).map((id) => `blocks:${id}`), limit: 8 };
+				const known = this.resourcesFor(record.agentId, { ids: [...wanted], kinds: ['block'] }, o)
+					.find((row) => row.placed === true && !failed.has(`${row.x},${row.y},${row.z}`) && Math.hypot(row.x + 0.5 - body.x, row.z + 0.5 - body.z) <= radius);
+				if (known !== undefined) target = { x: known.x, y: known.y, z: known.z, blockId: known.id, far: true };
+			}
+			// Bulk terrain (stone, dirt) is not searchable, and one such id makes the server refuse the whole search: only
+			// searchable ids go in, and with none there is no search.
+			const searchable = [...wanted].filter((id) => !UNSEARCHABLE_BLOCKS.has(id));
+			if (target === null && searchable.length > 0) {
+				const search = { include: searchable.slice(0, 4).map((id) => `blocks:${id}`), limit: 8 };
 				const rowsOf = (result) => (result?.survey?.blocks ?? []).filter((row) => wanted.has(row?.blockId) && [row.x, row.y, row.z].every(Number.isSafeInteger)
 					&& !failed.has(`${row.x},${row.y},${row.z}`) && Math.hypot(row.x + 0.5 - body.x, row.z + 0.5 - body.z) <= radius);
 				let rows = [];
