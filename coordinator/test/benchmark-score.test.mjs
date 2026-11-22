@@ -80,7 +80,7 @@ test('a change counts as better or worse only past a two-sided Fisher test', () 
 const tally = (pass, fail) => ({ pass, fail, invalid: 0, lost: 0, passRate: pass + fail ? pass / (pass + fail) : null, deaths: 0, damage: 0, medianSeconds: 1 });
 
 test('per-room p values are Holm-adjusted over the rooms compared, so many rooms do not make chance changes', () => {
-	// One room at 0/10 -> 7/10 is p .0031 alone. Among 20 rooms Holm multiplies the smallest p by 20: still better.
+	// One room at 0/10 -> 7/10 is p .0031 alone. Among 20 rooms Holm multiplies the smallest p by 20: .0619, no longer better.
 	// A room at 2/10 -> 7/10 (p .0698 alone) was never better; 4/10 -> 9/10 (p .0573) neither.
 	const before = { rooms: { big: tally(0, 10), mid: tally(2, 8), near: tally(4, 6) } }, after = { rooms: { big: tally(7, 3), mid: tally(7, 3), near: tally(9, 1) } };
 	for (let i = 0; i < 17; i++) { before.rooms[`flat${i}`] = tally(5, 5); after.rooms[`flat${i}`] = tally(5, 5); }
@@ -129,10 +129,24 @@ test('targets and guards: the target rooms are tested for a gain, every other ro
 	assert.deepEqual(groups.guard.rooms, ['lava1', 'lava2'], 'a room not run on one side is no guard');
 	assert.ok(groups.guard.pWorse > 0.05 && groups.guard.pWorse < 0.2, `guards 15/20 -> 11/20 is not yet worse: ${groups.guard.pWorse}`);
 	assert.deepEqual(groups.missingTargets, ['cast9']);
+	// A target not run on a side, or without valid runs, is named too, and an empty pool is no test.
+	const lost = compareGroups(compareScores({ rooms: { a: tally(0, 10), b: tally(5, 5), c: tally(3, 7) } }, { rooms: { b: tally(5, 5), c: tally(0, 0) } }), { targets: ['a', 'c'] });
+	assert.deepEqual(lost.missingTargets, ['a', 'c']);
+	assert.deepEqual(lost.target.rooms, []);
+	assert.match(formatComparison(compareScores({ rooms: { a: tally(0, 10), b: tally(5, 5) } }, { rooms: { b: tally(5, 5) } }), { targets: ['a'] }),
+		/^target rooms: 0\/0 -> 0\/0 over 0 rooms; no test .*\n.*\ntargets left out of the pool \(unknown, not run on a side, or no valid runs\): a$/m);
 	const text = formatComparison(rows, { targets: ['cast1', 'cast2', 'cast9'] });
 	assert.match(text, /^target rooms: 2\/20 -> 11\/20 over 2 rooms; pooled exact test p\(better\) 0\.\d+/m);
 	assert.match(text, /^guard rooms: 15\/20 -> 11\/20 over 2 rooms/m);
-	assert.match(text, /^targets with no comparison: cast9$/m);
+	assert.match(text, /^targets left out of the pool \(unknown, not run on a side, or no valid runs\): cast9$/m);
+	// A p under the exact test's 1e-12 tolerance prints as a bound, never as a precise-looking number.
+	const huge = { rooms: {} }, none = { rooms: {} };
+	for (let i = 0; i < 10; i++) { none.rooms[`x${i}`] = tally(0, 10); huge.rooms[`x${i}`] = tally(10, 0); }
+	assert.match(formatComparison(compareScores(none, huge)), /p\(better\) < 1e-11/);
+	// The verdict reads the unrounded adjusted p: 2/4 against 2/33 is p .04998, worse, though it rounds to .05.
+	const edge = compareScores({ rooms: { e: tally(2, 2) } }, { rooms: { e: tally(2, 31) } });
+	assert.equal(edge[0].p, 0.05);
+	assert.equal(edge[0].change, 'worse');
 	// Without targets the one pooled line covers every room.
 	assert.match(formatComparison(rows), /^all rooms: 17\/40 -> 22\/40 over 4 rooms/m);
 });

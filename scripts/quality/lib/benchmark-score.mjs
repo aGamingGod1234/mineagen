@@ -260,8 +260,9 @@ export function fisher(a, b, c, d) {
 
 /**
  * Per room, current against baseline: pass counts, the two-sided Fisher p, and pAdjusted, its Holm step-down value over
- * every room compared, so 100 rooms at 5% do not give about five false "better" or "worse" rooms between them. change is
- * better or worse only when pAdjusted is under 5%.
+ * every room compared, so the chance changes of many rooms do not add up (at 10 runs a side an unchanged room reads
+ * changed about 1.3% of the time, so a 100-room benchmark shows about one). change is better or worse only when the
+ * adjusted p is under 5%.
  */
 export function compareScores(baseline, current) {
 	const rows = [];
@@ -271,15 +272,16 @@ export function compareScores(baseline, current) {
 		const p = fisher(before.pass, before.fail, after.pass, after.fail);
 		const delta = before.passRate === null || after.passRate === null ? null : +(after.passRate - before.passRate).toFixed(3);
 		const deathsDelta = before.deaths === null || after.deaths === null ? null : after.deaths - before.deaths;
-		rows.push({ room, p: +p.toFixed(4), rawP: p, delta, deathsDelta, before: pick(before), after: pick(after) });
+		rows.push({ room, p: pValue(p), rawP: p, delta, deathsDelta, before: pick(before), after: pick(after) });
 	}
 	// Only rooms with valid runs on both sides are tests; the others take no share of the 5%.
 	const tested = rows.filter(row => row.delta !== null && row.delta !== undefined);
-	holmAdjust(tested.map(row => row.rawP)).forEach((adjusted, i) => { tested[i].pAdjusted = +adjusted.toFixed(4); });
+	// The verdict reads the unrounded adjusted p; only the stored value is rounded.
+	holmAdjust(tested.map(row => row.rawP)).forEach((adjusted, i) => { tested[i].rawAdjusted = adjusted; tested[i].pAdjusted = pValue(adjusted); });
 	for (const row of rows) {
 		if (!row.before || !row.after) continue;
-		row.change = row.delta === null ? 'no valid runs' : row.pAdjusted < 0.05 ? (row.delta > 0 ? 'better' : 'worse') : row.delta === 0 ? 'same' : 'within noise';
-		delete row.rawP;
+		row.change = row.delta === null ? 'no valid runs' : row.rawAdjusted < 0.05 ? (row.delta > 0 ? 'better' : 'worse') : row.delta === 0 ? 'same' : 'within noise';
+		delete row.rawP; delete row.rawAdjusted;
 	}
 	return rows;
 }
@@ -298,30 +300,34 @@ export function pooledTest(rows, rooms = null) {
 }
 // Four decimals, or two significant digits below 0.0001, so a very small p never reads as 0.
 const pValue = p => p >= 0.0001 ? +p.toFixed(4) : +p.toPrecision(2);
+// For print: stratifiedExactTest adds a 1e-12 tolerance to its tails, so anything that small is only "under 1e-11".
+const showP = p => p < 1e-11 ? '< 1e-11' : String(p);
 
 /**
  * The A/B question as two pooled tests: are the declared target rooms better (target.pBetter), and are the other rooms,
  * the guards, worse (guard.pWorse)? Without targets every room is a guard, and the one pooled test answers both ways.
- * A target name that matches no compared room is listed in missingTargets, never dropped silently.
+ * A declared target that did not enter its pool (unknown, not run on a side, or no valid runs) is listed in
+ * missingTargets, never dropped silently.
  */
 export function compareGroups(rows, { targets = [] } = {}) {
 	const names = new Set(rows.map(row => row.room));
 	const declared = [...new Set(targets)];
 	const target = declared.length ? pooledTest(rows, declared) : null;
 	const guard = pooledTest(rows, [...names].filter(room => !declared.includes(room)));
-	return { target, guard, missingTargets: declared.filter(room => !names.has(room)) };
+	return { target, guard, missingTargets: declared.filter(room => !target.rooms.includes(room)) };
 }
 const pick = score => ({ pass: score.pass, fail: score.fail, invalid: score.invalid, lost: score.lost, passRate: score.passRate, deaths: score.deaths, damage: score.damage, medianSeconds: score.medianSeconds });
 
 const pct = rate => rate === null || rate === undefined ? '-' : `${Math.round(rate * 100)}%`;
 const secs = value => value === null || value === undefined ? '-' : value >= 120 ? `${(value / 60).toFixed(1)}m` : `${Math.round(value)}s`;
-const pooledLine = (label, test) => `${label}: ${test.before.pass}/${test.before.valid} -> ${test.after.pass}/${test.after.valid} over ${test.rooms.length} rooms; pooled exact test p(better) ${test.pBetter}, p(worse) ${test.pWorse}`;
+const pooledLine = (label, test) => `${label}: ${test.before.pass}/${test.before.valid} -> ${test.after.pass}/${test.after.valid} over ${test.rooms.length} rooms; `
+	+ (test.rooms.length ? `pooled exact test p(better) ${showP(test.pBetter)}, p(worse) ${showP(test.pWorse)}` : 'no test (no room with valid runs on both sides)');
 export function formatComparison(rows, { targets = [] } = {}) {
 	const lines = ['room | before | after | change | deaths before -> after'];
 	const order = { worse: 0, better: 1, 'within noise': 2, 'no valid runs': 3, 'new room': 4, 'not run': 5, same: 6 };
 	for (const row of [...rows].sort((a, b) => (order[a.change] ?? 9) - (order[b.change] ?? 9) || a.room.localeCompare(b.room))) {
 		if (!row.before || !row.after) { lines.push(`${row.room} | ${row.before ? `${row.before.pass}/${row.before.pass + row.before.fail}` : '-'} | ${row.after ? `${row.after.pass}/${row.after.pass + row.after.fail}` : '-'} | ${row.change} |`); continue; }
-		const p = row.pAdjusted === undefined ? '' : row.change === 'better' || row.change === 'worse' || row.p < 0.05 ? ` (p=${row.p}, Holm ${row.pAdjusted})` : '';
+		const p = row.pAdjusted === undefined ? '' : row.change === 'better' || row.change === 'worse' || row.p < 0.05 ? ` (p=${showP(row.p)}, Holm ${showP(row.pAdjusted)})` : '';
 		lines.push(`${row.room} | ${row.before.pass}/${row.before.pass + row.before.fail} (${pct(row.before.passRate)}) | ${row.after.pass}/${row.after.pass + row.after.fail} (${pct(row.after.passRate)}) | ${row.change}${p} | ${row.before.deaths ?? '?'} -> ${row.after.deaths ?? '?'}`);
 	}
 	const count = change => rows.filter(row => row.change === change).length;
@@ -329,7 +335,7 @@ export function formatComparison(rows, { targets = [] } = {}) {
 	const groups = compareGroups(rows, { targets });
 	if (groups.target) lines.push(pooledLine('target rooms', groups.target));
 	lines.push(pooledLine(groups.target ? 'guard rooms' : 'all rooms', groups.guard));
-	if (groups.missingTargets.length) lines.push(`targets with no comparison: ${groups.missingTargets.join(', ')}`);
+	if (groups.missingTargets.length) lines.push(`targets left out of the pool (unknown, not run on a side, or no valid runs): ${groups.missingTargets.join(', ')}`);
 	return lines.join('\n');
 }
 

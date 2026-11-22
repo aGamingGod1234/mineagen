@@ -1,7 +1,7 @@
 // Plays every provider-free practice room REPEATS times on boat machines and scores it per room, stage and skill,
 // then compares the result with a saved baseline.
 //   node scripts/quality/benchmark.mjs --jar JAR --out FRESH_DIR [--rooms FILE ...] [--repeats 10] [--slots 5]
-//     [--only ROOM,ROOM] [--baseline FILE] [--save-baseline FILE] [room-batch flags: --code REF --machines ID,...
+//     [--only ROOM,ROOM] [--baseline FILE] [--save-baseline FILE] [--targets ROOM,...] [room-batch flags: --code REF --machines ID,...
 //     --vms N --snapshot NAME --type TYPE --room-timeout MIN --name PREFIX]
 //   node scripts/quality/benchmark.mjs --score OUT [--rooms FILE ...] [--baseline FILE] [--save-baseline FILE] [--targets ROOM,...]
 // --rooms (repeatable, default scripts/quality/benchmark-rooms.json) lists rooms as
@@ -22,7 +22,7 @@ import { fileURLToPath } from 'node:url';
 import { collectRuns, compareScores, formatComparison, formatScoreboard, groupScores, planBenchmark, scoreRooms } from './lib/benchmark-score.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
-const USAGE = 'Usage: benchmark.mjs --jar JAR --out FRESH_DIR [--rooms FILE ...] [--repeats 10] [--slots 5] [--only ROOM,...] [--baseline FILE] [--save-baseline FILE] [--code REF] [--machines ID,...] [--vms N] [--snapshot NAME] [--type TYPE] [--room-timeout MIN] [--name PREFIX] [--dry-run]\n       benchmark.mjs --score OUT [--rooms FILE ...] [--baseline FILE] [--save-baseline FILE] [--targets ROOM,...]';
+const USAGE = 'Usage: benchmark.mjs --jar JAR --out FRESH_DIR [--rooms FILE ...] [--repeats 10] [--slots 5] [--only ROOM,...] [--baseline FILE] [--save-baseline FILE] [--targets ROOM,...] [--code REF] [--machines ID,...] [--vms N] [--snapshot NAME] [--type TYPE] [--room-timeout MIN] [--name PREFIX] [--dry-run]\n       benchmark.mjs --score OUT [--rooms FILE ...] [--baseline FILE] [--save-baseline FILE] [--targets ROOM,...]';
 const PASS_THROUGH = ['code', 'machines', 'vms', 'snapshot', 'type', 'roomTimeout', 'name', 'idleTtl'];
 
 const flags = { rooms: [] };
