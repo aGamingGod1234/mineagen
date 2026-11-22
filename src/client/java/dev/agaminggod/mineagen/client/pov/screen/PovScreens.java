@@ -15,6 +15,7 @@ import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
+import net.fabricmc.fabric.api.client.screen.v1.ScreenKeyboardEvents;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenMouseEvents;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
@@ -63,6 +64,12 @@ public final class PovScreens {
 	private static AgentPovMenuPayload lastMenu;
 	private static ClientboundMerchantOffersPacket lastOffers;
 	private static int agentBookSlot = NONE;
+	/**
+	 * The spectator closed a mirror (Esc, E, or the chat key): no mirror opens again until the agent has no screen open.
+	 * Without it an agent reopening a menu every few ticks put a new mirror up within 0.2 s of each close, so chat
+	 * (which opens only with no screen) never could, and the view could not be left (playtest: an eat loop at a table).
+	 */
+	private static boolean spectatorDismissed;
 	private static boolean registered;
 
 	private PovScreens() {
@@ -73,11 +80,41 @@ public final class PovScreens {
 		registered = true;
 		ScreenEvents.AFTER_INIT.register((client, screen, width, height) -> {
 			adoptCreativeInventory(client, screen);
+			if (screen instanceof AgentPovDeathScreen) ScreenKeyboardEvents.allowKeyPress(screen).register((target, event) -> !operatorKey(client, target, event));
 			if (screen != mirrorScreen) return;
 			// Spectators look but never click or scroll; in a takeover bundle scrolling is relayed to the agent.
 			ScreenMouseEvents.allowMouseClick(screen).register((target, event) -> PovClient.isTakeover());
 			ScreenMouseEvents.allowMouseScroll(screen).register((target, x, y, horizontal, vertical) -> PovClient.isTakeover());
+			// A screen the agent opened never takes the operator's way out: the exit key, chat and the command key work in it.
+			ScreenKeyboardEvents.allowKeyPress(screen).register((target, event) -> !operatorKey(client, target, event));
 		});
+	}
+
+	/** Handles the exit, chat and command keys pressed in a mirrored screen; true when the key was one of them. */
+	static boolean operatorKey(Minecraft client, Screen screen, net.minecraft.client.input.KeyEvent event) {
+		if (screen != mirrorScreen && !(screen instanceof AgentPovDeathScreen)) return false;
+		if (PovClient.isExitKey(event)) {
+			PovClient.requestExit();
+			return true;
+		}
+		// Chat and the command key only for a spectator, whose mirror is read-only: in a takeover the operator types into the
+		// agent's screens (an anvil's name, the recipe book's search) and closes them with Esc or E as their own.
+		if (PovClient.isTakeover()) return false;
+		boolean command = client.options.keyCommand.matches(event);
+		if (!command && !client.options.keyChat.matches(event)) return false;
+		if (screen == mirrorScreen) {
+			int containerId = mirrorContainerId;
+			clearMirror();
+			dismiss(containerId);
+		}
+		dev.agaminggod.mineagen.client.compat.McClientCompat.openChat(client, command);
+		return true;
+	}
+
+	/** The operator closed this mirror; a spectator then sees no new one until the agent's screen closes. */
+	private static void dismiss(int containerId) {
+		dismissedContainerId = containerId;
+		if (!PovClient.isTakeover()) spectatorDismissed = true;
 	}
 
 	/** Lets integration share the HUD stand-in's inventory; the default is a private unregistered RemotePlayer. */
@@ -101,10 +138,15 @@ public final class PovScreens {
 		if (menu == null) {
 			// The agent has no screen open: close whichever mirror is showing, including its inventory.
 			dismissedContainerId = NONE;
+			spectatorDismissed = false;
 			if (mirrorScreen != null) closeMirrorLocally(client);
 			return;
 		}
 		if (menu.containerId() != dismissedContainerId) dismissedContainerId = NONE;
+		if (spectatorDismissed && !session.takeover()) {
+			if (mirrorScreen != null) closeMirrorLocally(client);
+			return;
+		}
 		MenuType<?> type = menu.menuType().orElse(null);
 		if (type == null) {
 			// The agent's own inventory screen: opened by the takeover operator (E) or by the agent to craft in
@@ -139,6 +181,7 @@ public final class PovScreens {
 		boolean povScreen = isPovScreen(dev.agaminggod.mineagen.client.compat.McClientCompat.screen(client));
 		clearMirror();
 		dismissedContainerId = NONE;
+		spectatorDismissed = false;
 		inventoryRequested = false;
 		lastMenu = null;
 		lastOffers = null;
@@ -164,7 +207,7 @@ public final class PovScreens {
 		if (screen == null || screen != mirrorScreen) return false;
 		int containerId = mirrorContainerId;
 		clearMirror();
-		dismissedContainerId = containerId;
+		dismiss(containerId);
 		if (PovClient.isTakeover()) OperatorInputSender.sendAction(OperatorAction.CLOSE_MENU, containerId, 0, 0);
 		dev.agaminggod.mineagen.client.compat.McClientCompat.setScreen(client, null);
 		return true;

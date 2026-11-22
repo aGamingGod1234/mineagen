@@ -64,6 +64,16 @@ export function findSpotVerdict(spot = {}, row = {}) {
 		if (Number.isFinite(row.damageTaken) && row.damageTaken > 0) misses.push(`took ${row.damageTaken} HP damage`);
 	}
 	if (row.deaths !== 0) misses.push(Number.isFinite(row.deaths) ? `${row.deaths} deaths` : 'deaths unknown');
+	// forbid: [{ actionType, pattern? }] body actions the spot must not take (a village start never digs down for stone).
+	for (const rule of Array.isArray(spot.forbid) ? spot.forbid : []) {
+		const hits = (row.actions ?? []).filter((action) => action?.type === rule.actionType && (rule.pattern === undefined || action?.args?.pattern === rule.pattern)).length;
+		if (hits > 0) misses.push(`${hits}x ${rule.actionType}${rule.pattern ? ` ${rule.pattern}` : ''}, which this spot forbids`);
+	}
+	// expectFinalProbe: [{ index, match }] a finalProbe reply (ground truth after the calls) must match (an ore left in the floor).
+	for (const rule of Array.isArray(spot.expectFinalProbe) ? spot.expectFinalProbe : []) {
+		const reply = row.finalProbe?.[rule.index];
+		if (reply === undefined || !new RegExp(rule.match).test(reply)) misses.push(`final probe ${rule.index} replied ${JSON.stringify(reply ?? null)}, expected /${rule.match}/`);
+	}
 	const pass = misses.length === 0;
 	const stood = notPlayed({ searched, found, lastFind, pass, calls, spot, row });
 	// When the target was seen: the end of the find that saw it, not of whatever call came after it.

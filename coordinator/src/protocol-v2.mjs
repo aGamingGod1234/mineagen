@@ -2155,6 +2155,9 @@ const SIGHTED_ROWS = Object.freeze({
 	poi: { maximum: 4, required: { blockId: requireIdentifier }, optional: { new: boolean } },
 	// flowing: a fluid row with no source in sight (a fall or spill); small: a lava pool too small for a portal cast.
 	blocks: { maximum: 4, required: { blockId: requireIdentifier }, optional: { count: positiveInteger, new: boolean, flowing: boolean, small: boolean } },
+	// Placed blocks, doors and containers as sources (FarSight resources rows, seen-resources.mjs): count is the id's placed
+	// candidates near the eye; opened on a chest or barrel once its loot was rolled.
+	resources: { maximum: 24, required: { blockId: requireIdentifier, count: positiveInteger }, optional: { opened: boolean, new: boolean } },
 	// The visible frame nearest completion; x/y/z is its interior's low corner.
 	portalFrames: { maximum: 1, required: { axis: portalAxis, interior: portalInterior, obsidian: nonnegativeInteger, needed: positiveInteger, missing: portalCells, blocked: portalCells, lit: boolean }, optional: { unseenInterior: positiveInteger } },
 });

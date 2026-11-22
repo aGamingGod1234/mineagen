@@ -262,6 +262,15 @@ public final class ServerDigController implements ServerController {
 	private int aimTicks;
 	private int phaseTicks;
 	private int refills;
+	/** Times this call stepped back from falling gravel or sand and dug on once it landed (retreat). */
+	private int looseRetreats;
+	private int landingTicks;
+	/** Ticks spent knocking a snow layer or plant out of this step's cell (floor). */
+	private int clearTicks;
+	static final int CLEAR_TICKS = 40;
+	static final int MAX_LOOSE_RETREATS = 6;
+	/** How long the body waits, stepped back, for a falling block to land before it digs on (2 s). */
+	static final int LANDING_TICKS = 40;
 	private final Set<BlockPos> cut = new HashSet<>();
 	private final Set<BlockPos> openBefore = new HashSet<>();
 	private BlockPos placeAt;
@@ -436,7 +445,7 @@ public final class ServerDigController implements ServerController {
 		if (player.tickCount % 5 == 0 && (plannedFall <= 0.0F || player.onGround()) && phase != Phase.SHAFT_FALL) {
 			List<Mob> threats = player.level().getEntitiesOfClass(Mob.class, player.getBoundingBox().inflate(HOSTILE_RANGE),
 					mob -> player.distanceTo(mob) <= HOSTILE_RANGE && ThreatPerception.isSensedThreat(player, mob)
-							&& stopsDig(player, mob, hostileDistances, false));
+							&& stopsDig(player, mob, hostileDistances, false, active == Pattern.STAIRS_UP));
 			if (!threats.isEmpty()) {
 				Mob nearest = threats.stream().min((a, b) -> Double.compare(player.distanceTo(a), player.distanceTo(b))).orElseThrow();
 				return stop(player, "HOSTILE_NEAR", BuiltInRegistries.ENTITY_TYPE.getKey(nearest.getType()) + " " + nearest.getUUID()
@@ -465,7 +474,21 @@ public final class ServerDigController implements ServerController {
 		return previous != null && previous - distance >= TravelStops.CLOSING_STEP || first != null && first - distance >= CLOSED_TOTAL;
 	}
 
+	/**
+	 * Climbing a stair out, a mob that hunts the body and closes from farther than {@link #DIG_CLOSE} does not stop the
+	 * dig: standing still hands it the stair while the model thinks, where a player climbs on and fights if it catches up
+	 * (defend and the creeper reflex answer contact). Climb-out rooms: cave-y20-a 3-4 of 10, deep-y-40 0 of 10, stopped
+	 * for a creeper 7 blocks away in a cave the stair passed.
+	 */
+	static boolean stopsClimb(double distance, Double previous, Double first, boolean hunting, boolean sight, boolean ranged) {
+		return distance <= DIG_CLOSE;
+	}
+
 	static boolean stopsDig(ServerPlayer player, Mob mob, java.util.Map<java.util.UUID, double[]> seen, boolean vein) {
+		return stopsDig(player, mob, seen, vein, false);
+	}
+
+	static boolean stopsDig(ServerPlayer player, Mob mob, java.util.Map<java.util.UUID, double[]> seen, boolean vein, boolean climbing) {
 		double distance = player.distanceTo(mob);
 		double[] row = seen.get(mob.getUUID());
 		Double first = row == null ? null : row[0], previous = row == null ? null : row[1];
@@ -474,7 +497,8 @@ public final class ServerDigController implements ServerController {
 		boolean sight = mob.getSensing().hasLineOfSight(player);
 		String type = BuiltInRegistries.ENTITY_TYPE.getKey(mob.getType()).toString();
 		boolean ranged = TravelStops.RANGED.contains(type) || type.endsWith("guardian") || ThreatPerception.isRanged(mob);
-		return vein ? stopsVein(distance, previous, first, hunting, sight, ranged) : stopsDig(distance, previous, first, hunting, sight, ranged);
+		if (vein) return stopsVein(distance, previous, first, hunting, sight, ranged);
+		return climbing ? stopsClimb(distance, previous, first, hunting, sight, ranged) : stopsDig(distance, previous, first, hunting, sight, ranged);
 	}
 
 
@@ -516,6 +540,22 @@ public final class ServerDigController implements ServerController {
 		BlockState atFeet = player.level().getBlockState(feet);
 		if (shape == Pattern.SHAFT && !open(player.level(), feet, atFeet) && atFeet.getFluidState().isEmpty()) cells = List.of(feet, feet.below());
 		next = stepTarget(shape, feet, heading);
+		// Out of the ground, judged before this step cuts anything (a cut through a ledge would open its own sky): nothing
+		// left to dig in the step, its floor would be a block placed in dry air, and open sky over the head here and over the
+		// step. The rest of the way up would be a staircase built into the air; a player stops digging and walks on. Under
+		// a ledge or overhang the step is roofed or has rock to cut, so the climb goes on (playtest 22 Nov: a climb to y79
+		// came out on the grass at y68 and built cobblestone steps up into the open beside a village hill).
+		if (shape == Pattern.STAIRS_UP && !climbsInTheOpen) {
+			ServerLevel level = player.level();
+			BlockPos step = next.below();
+			BlockState floorState = level.getBlockState(step);
+			boolean cellsOpen = cells.stream().allMatch(cell -> { BlockState in = level.getBlockState(cell); return passable(level, cell, in) && in.getFluidState().isEmpty(); });
+			if (outInTheOpen(standable(level, step, floorState), floorState.getFluidState().isEmpty(), cellsOpen,
+					() -> dev.agaminggod.mineagen.server.perception.ServerObservationCollector.skyOpenAt(level, feet.above())
+							&& dev.agaminggod.mineagen.server.perception.ServerObservationCollector.skyOpenAt(level, next.above())
+							&& !groundRisesAhead(next, heading, column -> level.getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, column.getX(), column.getZ()))))
+				return outInTheOpen(player);
+		}
 		openBefore.clear();
 		SeenTerrain.Reader<BlockState> seen = SeenTerrain.of(player);
 		for (BlockPos cell : cells) for (Direction side : Direction.values()) {
@@ -524,6 +564,7 @@ public final class ServerDigController implements ServerController {
 			if (known != null && passable(player.level(), neighbour, known)) openBefore.add(neighbour);
 		}
 		refills = 0;
+		clearTicks = 0;
 		cellIndex = 0;
 		mining = null;
 		phaseTicks = 0;
@@ -860,6 +901,22 @@ public final class ServerDigController implements ServerController {
 		if (active == Pattern.STAIRS_UP) {
 			BlockPos step = next.below();
 			BlockState state = player.level().getBlockState(step);
+			// A snow layer or grass in the step's cell hides the faces a step block would go against: knock it away
+			// first, as a player does, then place the step on what is under it.
+			if (!standable(player.level(), step, state) && !state.isAir() && state.canBeReplaced() && state.getFluidState().isEmpty()
+					&& clearTicks < CLEAR_TICKS) {
+				Vec3 aim = dev.agaminggod.mineagen.server.runtime.TargetSightline.block(player.level(), net.minecraft.world.phys.shapes.CollisionContext.of(player),
+						player.getEyePosition(), step, player.blockInteractionRange(), null);
+				if (aim != null) {
+					clearTicks++;
+					AgentInputState look = AgentInputStates.lookingAt(player, aim, 0.0F, 0.0F, false, false, false, false, false, InteractionHand.MAIN_HAND);
+					boolean onTarget = Tracer.rayTrace(player, 1.0F, player.blockInteractionRange(), false) instanceof BlockHitResult hit
+							&& hit.getType() == HitResult.Type.BLOCK && hit.getBlockPos().equals(step);
+					applyInput(player, 0.0F, false, false, onTarget, AgentInputStates.turnYaw(player.getYRot(), look.yaw()),
+							AgentInputStates.turnPitch(player.getXRot(), look.pitch()), player.getInventory().getSelectedSlot());
+					return TickResult.running(progress(player));
+				}
+			}
 			if (!standable(player.level(), step, state)) {
 				String filler = filler(player);
 				Direction face = filler == null || !state.canBeReplaced() || !state.getFluidState().isEmpty() ? null : supportFace(player, step);
@@ -1279,11 +1336,30 @@ public final class ServerDigController implements ServerController {
 		return false;
 	}
 
-	/** A loose block is falling at the head after the jump headroom opened: step back down the stairs out of its way. */
+	/**
+	 * A loose block is falling at the head after the jump headroom opened: step back down the stairs out of its way, let
+	 * it land, then plan the step again and dig through what fell, as a player does with a gravel pocket. Only after
+	 * MAX_LOOSE_RETREATS such falls in one call does it hand back.
+	 */
 	private TickResult retreat(ServerPlayer player) {
 		BlockPos back = feet.relative(heading.getOpposite()).below();
-		if (player.blockPosition().equals(back) && player.onGround() || ++phaseTicks > 30)
-			return stop(player, "FALLING_BLOCKS", "A loose block fell from above " + cell(feet.above(2)) + "; stepped back to " + cell(player.blockPosition()));
+		if (player.blockPosition().equals(back) && player.onGround() || ++phaseTicks > 30) {
+			if (looseRetreats < MAX_LOOSE_RETREATS && player.onGround()) {
+				boolean falling = !player.level().getEntitiesOfClass(FallingBlockEntity.class, player.getBoundingBox().inflate(1.0D, 6.0D, 1.0D)).isEmpty();
+				if (falling && ++landingTicks <= LANDING_TICKS) {
+					hold(player, 0.0F, false, false, heading.toYRot(), 0.0F);
+					return TickResult.running(progress(player));
+				}
+				looseRetreats++;
+				landingTicks = 0;
+				phaseTicks = 0;
+				phase = Phase.START;
+				releaseInput();
+				return TickResult.running(progress(player));
+			}
+			return stop(player, "FALLING_BLOCKS", "A loose block fell from above " + cell(feet.above(2)) + "; stepped back to " + cell(player.blockPosition())
+					+ (looseRetreats > 0 ? " after digging on through " + looseRetreats + " earlier falls" : ""));
+		}
 		hold(player, -1.0F, false, false, heading.toYRot(), 0.0F);
 		return TickResult.running(progress(player));
 	}
@@ -1894,6 +1970,46 @@ public final class ServerDigController implements ServerController {
 		releaseInput();
 		String goal = pattern == Pattern.TUNNEL ? "Reached the tunnel goal" : "Reached y" + player.blockPosition().getY();
 		return TickResult.succeeded("DIG_GOAL_REACHED", summary(player, goal));
+	}
+
+	/** stairs_up out of the ground short of its y: a success, as the climb's point (getting out) is met. */
+	private TickResult outInTheOpen(ServerPlayer player) {
+		releaseInput();
+		int y = player.blockPosition().getY();
+		return TickResult.succeeded(OPEN_SKY_REACHED, summary(player, "Under open sky at y" + y + ", " + (targetY - y) + " below y" + targetY
+				+ ": nothing left to dig, and the next step would be a block built in the air; walk on from here (travel_to), or to a wall or slope to dig up from"));
+	}
+
+	public static final String OPEN_SKY_REACHED = "OPEN_SKY_REACHED";
+
+	/** A stairs_up step with nothing to dig that would be built into dry air, under open sky over the head here and over the step. */
+	static boolean outInTheOpen(boolean stepStandable, boolean stepDry, boolean cellsOpen, java.util.function.BooleanSupplier skyOverBoth) {
+		return !stepStandable && stepDry && cellsOpen && skyOverBoth.getAsBoolean();
+	}
+
+	/** Steps ahead within which rising ground (a pit or ravine wall, a slope) keeps an open-air step worth placing. */
+	static final int GROUND_AHEAD_STEPS = 4;
+
+	/**
+	 * Whether ground ahead along the heading rises into the staircase's path within {@link #GROUND_AHEAD_STEPS} steps: a
+	 * column whose top (leaves ignored) reaches the floor the stairs would have there. On a pit floor the wall a few cells
+	 * away does (one step in the air, then the stairs dig into it, as before); out on the grass nothing does.
+	 */
+	static boolean groundRisesAhead(BlockPos next, Direction heading, java.util.function.ToIntFunction<BlockPos> top) {
+		for (int i = 1; i <= GROUND_AHEAD_STEPS; i++) {
+			BlockPos column = next.relative(heading, i);
+			// Stairs from next rise one a step: their floor at step i is next.y - 1 + i; top is the first free y above.
+			if (top.applyAsInt(column) > next.getY() - 1 + i) return true;
+		}
+		return false;
+	}
+
+	/** escape's pit and flooded-bank climbs: steps built in open air are the way out there, toward a rim it has seen. */
+	private boolean climbsInTheOpen;
+
+	public ServerDigController climbsInTheOpen(boolean enabled) {
+		this.climbsInTheOpen = enabled;
+		return this;
 	}
 
 	private TickResult stop(ServerPlayer player, String code, String why) {
