@@ -555,8 +555,12 @@ public final class ServerSpawnerHoldController implements ServerController {
 				if (built.state() == State.RUNNING) return TickResult.running(progress(player));
 				sealWork.cancel(player);
 				sealWork = null;
-				sealed = built.state() == State.SUCCEEDED;
-				note(sealed ? "walled the doorway up to heal" : "walling the doorway up failed: " + built.reasonCode());
+				// A wall-in that failed after placing part of the doorway (the sill) still counts: the doorway is mined open after.
+				BlockPos doorway = cell.relative(opening);
+				boolean partly = !player.level().getBlockState(doorway).getCollisionShape(player.level(), doorway).isEmpty()
+						|| !player.level().getBlockState(doorway.above()).getCollisionShape(player.level(), doorway.above()).isEmpty();
+				sealed = built.state() == State.SUCCEEDED || partly;
+				note(built.state() == State.SUCCEEDED ? "walled the doorway up to heal" : "walling the doorway up failed: " + built.reasonCode() + (partly ? " (part placed)" : ""));
 				// A blaze in the doorway blocks the wall: try again in a second (the shield heal holds meanwhile).
 				if (!sealed) { sealTried = false; sealRetryTick = player.level().getGameTime() + 20L; }
 			}
