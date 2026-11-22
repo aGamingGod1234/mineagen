@@ -346,10 +346,14 @@ export class NativeToolRuntime {
 	}
 
 	/** Per-agent memory obtain keeps across calls: stations placed, furnace loads, flooded approaches, loot. */
-	#obtainMemory(agentId) {
+	#obtainMemory(agentId, observation = null) {
 		if (!this.#obtainPlaced.has(agentId)) this.#obtainPlaced.set(agentId, { placed: [], loads: [], approaches: [] });
 		const kept = this.#obtainPlaced.get(agentId);
-		kept.looted ??= { opened: [], searched: [], structures: [], misses: {}, doors: [] };
+		// The loot ledger is one world's: a replacement world's chests and villages are new (as #108's resource memory).
+		const worldId = observation ? observationWorldId(observation) ?? null : null;
+		// A sample with no world id changes nothing; only a known, different world starts a new ledger.
+		if (!kept.looted || (worldId !== null && kept.looted.worldId != null && kept.looted.worldId !== worldId)) kept.looted = { opened: [], searched: [], structures: [], misses: {}, doors: [], worldId };
+		else if (worldId !== null) kept.looted.worldId ??= worldId;
 		return kept;
 	}
 
@@ -418,7 +422,7 @@ export class NativeToolRuntime {
 		const raw = mergeDeathObservation(observation ?? {}, this.#lastLive.get(record.agentId));
 		// A structure row shows only for 30 s after it is first seen: keep every one from every sample, so a later obtain
 		// still knows the village it started in (loot-sources.mjs).
-		if (raw?.sighted?.structures?.length > 0) { try { rememberStructures(this.#obtainMemory(record.agentId).looted, raw); } catch { /* memory cannot stop a sample */ } }
+		if (raw?.sighted?.structures?.length > 0) { try { rememberStructures(this.#obtainMemory(record.agentId, raw).looted, raw); } catch { /* memory cannot stop a sample */ } }
 		// Keep one owned raw snapshot for both internal consumers. Public snapshot
 		// methods still clone at their boundaries, so sharing here does not expose
 		// mutable coordinator state while avoiding a duplicate deep copy per update.
@@ -2743,7 +2747,7 @@ export class NativeToolRuntime {
 		// Stations an earlier obtain placed and did not pick up (danger ended it) are this call's to pick up, and the
 		// furnace loads it left smelting are this call's to take out. Flooded approaches share this per-agent ledger.
 		// Chests opened and structures searched for loot (loot-sources.mjs) are kept the same way, so no call loots twice.
-		const kept = this.#obtainMemory(record.agentId);
+		const kept = this.#obtainMemory(record.agentId, this.#observations.get(record.agentId)?.observation ?? null);
 		const stations = { now: this.#clock.now, placed: kept.placed, loads: kept.loads, approaches: kept.approaches, looted: kept.looted };
 		const result = await runObtain(tool.arguments, body, stations);
 		if (!this.#kitHabit || result?.state !== 'SUCCEEDED' || interrupted() || !current()) return result;

@@ -397,3 +397,8 @@ test('review 8: an ore in view whose dig costs more than a fresh search is not w
 	const remembered = { ...base, blocks: [], seenResources: [{ id: 'minecraft:iron_ore', kind: 'block', x: 5, y: 20, z: 5, placed: false }] };
 	assert.equal(seenIds(remembered).has('iron_ore'), seenPlaces(remembered).has('iron_ore'), 'seen and priced from the same rows');
 });
+
+test('review 4: the runtime keeps one loot ledger per world', async () => {
+	const src = (await import('node:fs')).readFileSync(new URL('../src/native-tool-runtime.mjs', import.meta.url), 'utf8');
+	assert.match(src, /kept\.looted\.worldId !== worldId\)\) kept\.looted = \{ opened: \[\]/);
+});
