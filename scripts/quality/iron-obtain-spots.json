@@ -1,0 +1,802 @@
+[
+ {
+  "name": "obtain-1001",
+  "seed": 1001,
+  "time": 1000,
+  "monsters": true,
+  "repeat": true,
+  "budgetMs": 600000,
+  "inventory": [
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:torch",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   },
+   {
+    "item": "minecraft:oak_log",
+    "count": 4
+   }
+  ],
+  "setup": [
+   "kill @e[type=minecraft:item,distance=..40]"
+  ],
+  "probe": [
+   "data get entity Probe Pos"
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "raw_iron",
+      "count": 3,
+      "timeoutMs": 600000
+     },
+     "why": "iron for a pickaxe"
+    }
+   }
+  ],
+  "expectCode": "OBTAINED",
+  "repeatOn": [
+   "DANGER"
+  ]
+ },
+ {
+  "name": "obtain-2002",
+  "seed": 2002,
+  "time": 1000,
+  "monsters": true,
+  "repeat": true,
+  "budgetMs": 600000,
+  "inventory": [
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:torch",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   },
+   {
+    "item": "minecraft:oak_log",
+    "count": 4
+   }
+  ],
+  "setup": [
+   "kill @e[type=minecraft:item,distance=..40]"
+  ],
+  "probe": [
+   "data get entity Probe Pos"
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "raw_iron",
+      "count": 3,
+      "timeoutMs": 600000
+     },
+     "why": "iron for a pickaxe"
+    }
+   }
+  ],
+  "expectCode": "OBTAINED",
+  "repeatOn": [
+   "DANGER"
+  ]
+ },
+ {
+  "name": "obtain-3003",
+  "seed": 3003,
+  "time": 1000,
+  "monsters": true,
+  "repeat": true,
+  "budgetMs": 600000,
+  "inventory": [
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:torch",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   },
+   {
+    "item": "minecraft:oak_log",
+    "count": 4
+   }
+  ],
+  "setup": [
+   "kill @e[type=minecraft:item,distance=..40]"
+  ],
+  "probe": [
+   "data get entity Probe Pos"
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "raw_iron",
+      "count": 3,
+      "timeoutMs": 600000
+     },
+     "why": "iron for a pickaxe"
+    }
+   }
+  ],
+  "expectCode": "OBTAINED",
+  "repeatOn": [
+   "DANGER"
+  ]
+ },
+ {
+  "name": "obtain-4004",
+  "seed": 4004,
+  "time": 1000,
+  "monsters": true,
+  "repeat": true,
+  "budgetMs": 600000,
+  "inventory": [
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:torch",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   },
+   {
+    "item": "minecraft:oak_log",
+    "count": 4
+   }
+  ],
+  "setup": [
+   "kill @e[type=minecraft:item,distance=..40]"
+  ],
+  "probe": [
+   "data get entity Probe Pos"
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "raw_iron",
+      "count": 3,
+      "timeoutMs": 600000
+     },
+     "why": "iron for a pickaxe"
+    }
+   }
+  ],
+  "expectCode": "OBTAINED",
+  "repeatOn": [
+   "DANGER"
+  ]
+ },
+ {
+  "name": "obtain-5005",
+  "seed": 5005,
+  "time": 1000,
+  "monsters": true,
+  "repeat": true,
+  "budgetMs": 600000,
+  "inventory": [
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:torch",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   },
+   {
+    "item": "minecraft:oak_log",
+    "count": 4
+   }
+  ],
+  "setup": [
+   "kill @e[type=minecraft:item,distance=..40]"
+  ],
+  "probe": [
+   "data get entity Probe Pos"
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "raw_iron",
+      "count": 3,
+      "timeoutMs": 600000
+     },
+     "why": "iron for a pickaxe"
+    }
+   }
+  ],
+  "expectCode": "OBTAINED",
+  "repeatOn": [
+   "DANGER"
+  ]
+ },
+ {
+  "name": "obtain-6006",
+  "seed": 6006,
+  "time": 1000,
+  "monsters": true,
+  "repeat": true,
+  "budgetMs": 600000,
+  "inventory": [
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:torch",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   },
+   {
+    "item": "minecraft:oak_log",
+    "count": 4
+   }
+  ],
+  "setup": [
+   "kill @e[type=minecraft:item,distance=..40]"
+  ],
+  "probe": [
+   "data get entity Probe Pos"
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "raw_iron",
+      "count": 3,
+      "timeoutMs": 600000
+     },
+     "why": "iron for a pickaxe"
+    }
+   }
+  ],
+  "expectCode": "OBTAINED",
+  "repeatOn": [
+   "DANGER"
+  ]
+ },
+ {
+  "name": "obtain-7007",
+  "seed": 7007,
+  "time": 1000,
+  "monsters": true,
+  "repeat": true,
+  "budgetMs": 600000,
+  "inventory": [
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:torch",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   },
+   {
+    "item": "minecraft:oak_log",
+    "count": 4
+   }
+  ],
+  "setup": [
+   "kill @e[type=minecraft:item,distance=..40]"
+  ],
+  "probe": [
+   "data get entity Probe Pos"
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "raw_iron",
+      "count": 3,
+      "timeoutMs": 600000
+     },
+     "why": "iron for a pickaxe"
+    }
+   }
+  ],
+  "expectCode": "OBTAINED",
+  "repeatOn": [
+   "DANGER"
+  ]
+ },
+ {
+  "name": "obtain-8008",
+  "seed": 8008,
+  "time": 1000,
+  "monsters": true,
+  "repeat": true,
+  "budgetMs": 600000,
+  "inventory": [
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:torch",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   },
+   {
+    "item": "minecraft:oak_log",
+    "count": 4
+   }
+  ],
+  "setup": [
+   "kill @e[type=minecraft:item,distance=..40]"
+  ],
+  "probe": [
+   "data get entity Probe Pos"
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "raw_iron",
+      "count": 3,
+      "timeoutMs": 600000
+     },
+     "why": "iron for a pickaxe"
+    }
+   }
+  ],
+  "expectCode": "OBTAINED",
+  "repeatOn": [
+   "DANGER"
+  ]
+ },
+ {
+  "name": "obtain-20261009",
+  "seed": 20261009,
+  "time": 1000,
+  "monsters": true,
+  "repeat": true,
+  "budgetMs": 600000,
+  "inventory": [
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:torch",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   },
+   {
+    "item": "minecraft:oak_log",
+    "count": 4
+   }
+  ],
+  "setup": [
+   "kill @e[type=minecraft:item,distance=..40]"
+  ],
+  "probe": [
+   "data get entity Probe Pos"
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "raw_iron",
+      "count": 3,
+      "timeoutMs": 600000
+     },
+     "why": "iron for a pickaxe"
+    }
+   }
+  ],
+  "expectCode": "OBTAINED",
+  "repeatOn": [
+   "DANGER"
+  ]
+ },
+ {
+  "name": "obtain-20261029",
+  "seed": 20261029,
+  "time": 1000,
+  "monsters": true,
+  "repeat": true,
+  "budgetMs": 600000,
+  "inventory": [
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:torch",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   },
+   {
+    "item": "minecraft:oak_log",
+    "count": 4
+   }
+  ],
+  "setup": [
+   "kill @e[type=minecraft:item,distance=..40]"
+  ],
+  "probe": [
+   "data get entity Probe Pos"
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "raw_iron",
+      "count": 3,
+      "timeoutMs": 600000
+     },
+     "why": "iron for a pickaxe"
+    }
+   }
+  ],
+  "expectCode": "OBTAINED",
+  "repeatOn": [
+   "DANGER"
+  ]
+ },
+ {
+  "name": "obtain-20261107",
+  "seed": 20261107,
+  "time": 1000,
+  "monsters": true,
+  "repeat": true,
+  "budgetMs": 600000,
+  "inventory": [
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:torch",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   },
+   {
+    "item": "minecraft:oak_log",
+    "count": 4
+   }
+  ],
+  "setup": [
+   "kill @e[type=minecraft:item,distance=..40]"
+  ],
+  "probe": [
+   "data get entity Probe Pos"
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "raw_iron",
+      "count": 3,
+      "timeoutMs": 600000
+     },
+     "why": "iron for a pickaxe"
+    }
+   }
+  ],
+  "expectCode": "OBTAINED",
+  "repeatOn": [
+   "DANGER"
+  ]
+ },
+ {
+  "name": "obtain-31001",
+  "seed": 31001,
+  "time": 1000,
+  "monsters": true,
+  "repeat": true,
+  "budgetMs": 600000,
+  "inventory": [
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:torch",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   },
+   {
+    "item": "minecraft:oak_log",
+    "count": 4
+   }
+  ],
+  "setup": [
+   "kill @e[type=minecraft:item,distance=..40]"
+  ],
+  "probe": [
+   "data get entity Probe Pos"
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "raw_iron",
+      "count": 3,
+      "timeoutMs": 600000
+     },
+     "why": "iron for a pickaxe"
+    }
+   }
+  ],
+  "expectCode": "OBTAINED",
+  "repeatOn": [
+   "DANGER"
+  ]
+ },
+ {
+  "name": "obtain-31002",
+  "seed": 31002,
+  "time": 1000,
+  "monsters": true,
+  "repeat": true,
+  "budgetMs": 600000,
+  "inventory": [
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:torch",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   },
+   {
+    "item": "minecraft:oak_log",
+    "count": 4
+   }
+  ],
+  "setup": [
+   "kill @e[type=minecraft:item,distance=..40]"
+  ],
+  "probe": [
+   "data get entity Probe Pos"
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "raw_iron",
+      "count": 3,
+      "timeoutMs": 600000
+     },
+     "why": "iron for a pickaxe"
+    }
+   }
+  ],
+  "expectCode": "OBTAINED",
+  "repeatOn": [
+   "DANGER"
+  ]
+ },
+ {
+  "name": "obtain-31003",
+  "seed": 31003,
+  "time": 1000,
+  "monsters": true,
+  "repeat": true,
+  "budgetMs": 600000,
+  "inventory": [
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:torch",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   },
+   {
+    "item": "minecraft:oak_log",
+    "count": 4
+   }
+  ],
+  "setup": [
+   "kill @e[type=minecraft:item,distance=..40]"
+  ],
+  "probe": [
+   "data get entity Probe Pos"
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "raw_iron",
+      "count": 3,
+      "timeoutMs": 600000
+     },
+     "why": "iron for a pickaxe"
+    }
+   }
+  ],
+  "expectCode": "OBTAINED",
+  "repeatOn": [
+   "DANGER"
+  ]
+ },
+ {
+  "name": "obtain-31004",
+  "seed": 31004,
+  "time": 1000,
+  "monsters": true,
+  "repeat": true,
+  "budgetMs": 600000,
+  "inventory": [
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:torch",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   },
+   {
+    "item": "minecraft:oak_log",
+    "count": 4
+   }
+  ],
+  "setup": [
+   "kill @e[type=minecraft:item,distance=..40]"
+  ],
+  "probe": [
+   "data get entity Probe Pos"
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "raw_iron",
+      "count": 3,
+      "timeoutMs": 600000
+     },
+     "why": "iron for a pickaxe"
+    }
+   }
+  ],
+  "expectCode": "OBTAINED",
+  "repeatOn": [
+   "DANGER"
+  ]
+ },
+ {
+  "name": "obtain-31005",
+  "seed": 31005,
+  "time": 1000,
+  "monsters": true,
+  "repeat": true,
+  "budgetMs": 600000,
+  "inventory": [
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:torch",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   },
+   {
+    "item": "minecraft:oak_log",
+    "count": 4
+   }
+  ],
+  "setup": [
+   "kill @e[type=minecraft:item,distance=..40]"
+  ],
+  "probe": [
+   "data get entity Probe Pos"
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "raw_iron",
+      "count": 3,
+      "timeoutMs": 600000
+     },
+     "why": "iron for a pickaxe"
+    }
+   }
+  ],
+  "expectCode": "OBTAINED",
+  "repeatOn": [
+   "DANGER"
+  ]
+ }
+]
