@@ -50,11 +50,16 @@
   ],
   "expectCode": "OBTAINED",
   "finalProbe": [
-   "execute if block 298 14 -261 minecraft:air"
+   "execute if block 298 14 -261 minecraft:air",
+   "execute if entity @e[name=Probe,x=290,y=14.9,z=-270,dx=20,dy=10,dz=20]"
   ],
   "expectFinalProbe": [
    {
     "index": 0,
+    "match": "Test passed"
+   },
+   {
+    "index": 1,
     "match": "Test passed"
    }
   ]
@@ -113,11 +118,16 @@
   ],
   "expectCode": "OBTAINED",
   "finalProbe": [
-   "execute if block 298 14 -261 minecraft:air"
+   "execute if block 298 14 -261 minecraft:air",
+   "execute if entity @e[name=Probe,x=290,y=14.9,z=-270,dx=20,dy=10,dz=20]"
   ],
   "expectFinalProbe": [
    {
     "index": 0,
+    "match": "Test passed"
+   },
+   {
+    "index": 1,
     "match": "Test passed"
    }
   ]

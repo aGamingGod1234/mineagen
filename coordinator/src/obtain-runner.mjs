@@ -674,9 +674,22 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		// Into the pocket itself, not its rim: drops at the bottom of a narrow pocket lie behind its wall from the rim and
 		// never show in sight (22 Nov rooms: 2 raw iron 2 blocks down, unlisted, 3 of 10 runs searched anew). Stepping into
 		// the cell drops the body onto them; it picks up what it touches. Tolerance 1 counted the rim as arrived.
-		await act('travel_to', { x: where.x + 0.5, y: where.y, z: where.z + 0.5, tolerance: 0.4, timeoutMs: 20_000 });
+		// Never into a pocket with lava or water known in it or under it; travel itself steps down only onto a floor it has
+		// seen, so an unseen bottom is no step either.
+		const before = await body.observe();
+		const rim = bodyAt(before);
+		const wet = knownBlocks(before).some((row) => row.x === where.x && row.z === where.z && row.y <= where.y && row.y >= where.y - 4
+			&& /(^|:)(lava|water)$/.test(row.blockId));
+		if (wet || rim === null) { await pickUpNear(where, need.accept, 6); return; }
+		const went = await act('travel_to', { x: where.x + 0.5, y: where.y, z: where.z + 0.5, tolerance: 0.4, timeoutMs: 20_000 });
 		if (body.interrupted() || body.stopped()) return;
 		await pickUpNear(where, need.accept, 6);
+		// Back out to the rim it stepped from: a pocket two deep is no place to stay (travel climbs or builds the step).
+		const now = bodyAt(await body.observe());
+		if (went?.state === 'SUCCEEDED' && now !== null && now.y < rim.y - 0.5 && !body.interrupted() && !body.stopped()) {
+			step(`climb back out of the pocket to ${Math.floor(rim.x)},${Math.floor(rim.y)},${Math.floor(rim.z)}`);
+			await act('travel_to', { x: rim.x, y: rim.y, z: rim.z, tolerance: 1, timeoutMs: 30_000 });
+		}
 	};
 	// A table or furnace to use: one in reach, else one within walking reach (walk to it), else place the held one.
 	const ensureStation = async (kind) => {

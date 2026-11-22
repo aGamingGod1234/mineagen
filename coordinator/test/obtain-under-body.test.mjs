@@ -52,3 +52,27 @@ test('drops not picked up after a vein: the body steps into the pocket itself, n
 	assert.ok(into, 'walks into the mined pocket');
 	assert.ok(into[1].tolerance <= 0.5, `into the cell, not within a block of it: tolerance ${into[1].tolerance}`);
 });
+
+test('the pocket step: never into lava or water, and climbs back out to the rim after the pickup', async () => {
+	const run = async (extra) => {
+		const calls = [];
+		let player = { x: 299.4, y: 15, z: -261.5, yaw: 90, health: 20, food: 20, onGround: true };
+		const o = () => ({ world: { dimension: 'minecraft:overworld' }, player,
+			inventory: { selectedSlot: 0, items: [{ itemId: 'minecraft:stone_pickaxe', slot: 0, count: 1, remainingDurability: 100 }] },
+			blocks: [{ blockId: 'minecraft:iron_ore', x: 298, y: 14, z: -262 }, ...extra] });
+		const body = { observe: async () => o(), stopped: () => false, interrupted: () => false, note: () => {},
+			act: async (type, args) => { calls.push([type, args]); if (type === 'travel_to' && args.tolerance < 1) player = { ...player, x: 298.5, y: 13, z: -261.5 }; else if (type === 'travel_to') player = { ...player, x: args.x, y: args.y, z: args.z }; return { state: 'SUCCEEDED', reasonCode: 'ARRIVED' }; },
+			mine: async () => ({ state: 'SUCCEEDED', reasonCode: 'VEIN_MINED', message: 'mined: 2 minecraft:iron_ore in 4 s' }),
+			search: async () => ({ reasonCode: 'FIND_NOT_FOUND' }), missPlace: () => {} };
+		let t = 0;
+		await runObtain({ item: 'raw_iron', count: 2, timeoutMs: 600_000 }, body, { now: () => (t += 100) });
+		return calls;
+	};
+	const dry = await run([]);
+	const into = dry.findIndex(([type, args]) => type === 'travel_to' && args.tolerance < 1);
+	assert.ok(into >= 0);
+	const out = dry.slice(into + 1).find(([type]) => type === 'travel_to');
+	assert.deepEqual([out?.[1].x, out?.[1].y, out?.[1].z], [299.4, 15, -261.5], 'back out to the rim');
+	const lava = await run([{ blockId: 'minecraft:lava', x: 298, y: 12, z: -262 }]);
+	assert.equal(lava.filter(([type, args]) => type === 'travel_to' && args.tolerance < 1).length, 0, 'no step into a pocket over lava');
+});
