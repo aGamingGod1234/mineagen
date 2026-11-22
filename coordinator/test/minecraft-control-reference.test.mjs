@@ -61,8 +61,6 @@ test('compact instructions keep decision, danger, recovery and verification rule
 		/Missing or coverage-omitted facts are unknown/,
 		/Batch independent reads while the body works/,
 		/Damage takes priority over gathering/,
-		/after:"reconsider"/,
-		/Default unhandled damage\/fire\/lava\/suffocation\/hazardous-fall policy pauses unrelated work/,
 		/Death interrupts the same project/,
 		/Compare recovering earlier equipment with rebuilding/,
 		/finish asks the server to verify goalSpec/,
@@ -70,6 +68,13 @@ test('compact instructions keep decision, danger, recovery and verification rule
 		/Default minecraft:inventory\/containerId0 exists during ordinary gameplay and does not block it/,
 		/action:<actionType> or tool:<name> for semantics and examples/,
 	]) assert.match(skill, rule);
+	// The program, guard and watcher rules moved whole into control topic programs, which the skill points to.
+	assert.match(skill, /ArenaScript programs, queued successors, standing guards and watchers are in control topic programs/);
+	const programs = minecraftCapabilities({ section: 'control', topic: 'programs' }).reference;
+	for (const rule of [/after:"reconsider"/, /Default unhandled damage\/fire\/lava\/suffocation\/hazardous-fall policy pauses unrelated work/, /Plan as a program/, /tryResult\(player\.action\(args\)/]) {
+		assert.match(programs, rule);
+		assert.doesNotMatch(skill, rule);
+	}
 	// How to reach the reference is stated once, in the always-sent capabilities description.
 	const capabilitiesDescription = MINECRAFT_DYNAMIC_TOOLS.find(({ name }) => name === 'capabilities').description;
 	for (const rule of [/read tool:<name> or action:<actionType> before unfamiliar calls/, /follow nextOffset/, /topic all is complete/]) {
@@ -161,9 +166,10 @@ test('survival guidance: always-loaded first-call rule and default reflexes, det
 	assert.match(survival, /standing guard for a larger escape program authored from current facts/);
 	assert.match(survival, /When danger is visible, close or acting on you, your first call is the immediate survival or setup action/);
 	assert.match(survival, /that same call carries reflexes for what follows/);
-	assert.match(skill, /thinking gaps and respawn/);
+	const programs = minecraftCapabilities({ section: 'control', topic: 'programs' }).reference;
+	assert.match(programs, /thinking gaps and respawn/);
 	assert.match(skill, /Fight in-reach melee mobs when healthy, flee creepers, escape fire\/lava, swim to the reported breathable target at low air, and retreat\/eat at low health/);
-	assert.match(skill, /Author a standing guard with standing:\{id,when,guard:true\} and your own source/);
+	assert.match(programs, /Author a standing guard with standing:\{id,when,guard:true\} and your own source/);
 	assert.match(skill, /LOW_HEALTH_BAILOUT reports a bounded retreat attempt; pursue:false holds ground/);
 	for (const action of ['use_item', 'use_ranged']) {
 		const { reference } = minecraftCapabilities({ section: 'control', topic: `action:${action}` });
@@ -206,15 +212,17 @@ test('reflex guidance does not limit authoring to rules the defaults miss', asyn
 	assert.match(survival, /A new program keeps the rules already armed/);
 	assert.match(reflexes, /Keep working rules across programs/);
 	// The real limits stay.
-	assert.match(skill, /standing\.template guards are outside/);
+	assert.match(minecraftCapabilities({ section: 'control', topic: 'programs' }).reference, /standing\.template guards are outside/);
 	assert.match(reflexes, /Author every rule live; no saved or named sets/);
 });
 
 test('the always-loaded player instructions stay a few KB: the role, steps, the route, seven rules and reflexes on', async () => {
 	const agent = await readFile(new URL('../config/minecraft-agent/AGENTS.md', import.meta.url), 'utf8');
 	// 20,888 B before rw-loop (rules added one past death at a time); the facts moved to the on-demand references.
-	// Deliberately raised ceiling; never meet it by trimming text a measured round saw.
-	assert.ok(Buffer.byteLength(agent) <= 5_020, `AGENTS.md grew to ${Buffer.byteLength(agent)} bytes`);
+	// Deliberately raised ceiling; never meet it by trimming text a measured round saw. Raised from 5,020 for the
+	// player's route (surface first, one trip down, caves, stairs, shield, archers) when SKILL.md lost 4,280 B of program text.
+	assert.ok(Buffer.byteLength(agent) <= 5_800, `AGENTS.md grew to ${Buffer.byteLength(agent)} bytes`);
+	for (const rule of [/Surface first: /, /one trip down/, /Caves before digging/, /Go down by stairs \(dig_to's default\), not a straight shaft/, /makes a shield/, /block with the shield facing them/]) assert.match(agent, rule);
 	assert.match(agent, /you decide what to do and why, and the body decides how/);
 	assert.match(agent, /nothing starts unless you name it/);
 	assert.match(agent, /do_step \{verb, target, why, until\?\}/);
@@ -237,7 +245,7 @@ test('the in-game instructions are model-neutral and name the forks the body sto
 	for (const text of [agent, skill, NATIVE_AGENT_INSTRUCTIONS]) assert.doesNotMatch(text, /\b(claude|codex|gpt|openai|anthropic|opus|sonnet|haiku|gemini)\b/i);
 	const lines = agent.split('\n');
 	assert.match(lines[2], /^You control one persistent Minecraft player .* You pick every step yourself; nothing starts unless you name it\. /);
-	assert.equal(lines[36], 'do_step covers most play. Use the low-level tools (act, sequence, startAction, moveTo, mine, control, runProgram) only for what no verb does: one precise placement or click, a menu, eating or equipping, a short repair, or a conditional routine. Read the control topic before an unfamiliar call.');
+	assert.equal(lines[40], 'do_step covers most play. Use the low-level tools (act, sequence, startAction, moveTo, mine, control) only for what no verb does: one precise placement or click, a menu, eating or equipping, or a short repair. Read the control topic before an unfamiliar call.');
 	assert.match(agent, /the body stops it \(stuck, or a fork such as low health\)/);
 	assert.match(agent, /When the body stopped it, answer its reason: recover, go around, change the way or the step/);
 	assert.doesNotMatch(skill, /Runtime and other models choose no gameplay/);
