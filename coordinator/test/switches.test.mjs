@@ -170,6 +170,10 @@ test('sources: default, env, property, and unseen when the property cannot be re
 	assert.deepEqual({ ...getSwitch('instincts', { MINEAGEN_INSTINCTS: 'x' }, { properties: { 'mineagen.instincts': 'true' } }) }, { value: true, source: 'property' });
 	assert.deepEqual({ ...getSwitch('instincts', { MINEAGEN_INSTINCTS: 'x' }, { properties: { 'mineagen.instincts': 'false' } }) }, { value: false, source: 'env' });
 	assert.deepEqual({ ...getSwitch('instincts', {}, { properties: { 'mineagen.instincts': 'false' } }) }, { value: false, source: 'property' });
+	// A null value is unset, as the readers' `?? ''` treats it.
+	assert.deepEqual({ ...getSwitch('experience', { MINEAGEN_EXPERIENCE: null }) }, { value: 'off', source: 'default' });
+	assert.equal(experienceSettings({ MINEAGEN_EXPERIENCE: null }), null);
+	assert.equal(getSwitch('kit.habit', { MINEAGEN_KIT_HABIT: null }).value, kitHabitEnabled({ MINEAGEN_KIT_HABIT: null }));
 	assert.throws(() => getSwitch('no.such'), TypeError);
 	assert.throws(() => resolveSwitches({ MINEAGEN_EXPERIENCE: 'maybe' }), SwitchValueError);
 });

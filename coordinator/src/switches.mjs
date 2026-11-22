@@ -192,7 +192,7 @@ function parseOrRefuse(item, parser, raw, label) {
  */
 function resolveOne(item, env, properties) {
 	const raw = item.env ? env?.[item.env] : undefined;
-	const fromEnv = raw === undefined ? null : parseOrRefuse(item, item.parser, raw, item.env);
+	const fromEnv = raw == null ? null : parseOrRefuse(item, item.parser, raw, item.env);
 	if (!item.property) return fromEnv === null ? { value: item.default, source: 'default' } : { value: fromEnv, source: 'env' };
 	// Two sources are on when either is (the readers OR them): a true env value settles it without the property.
 	if (fromEnv === true) return { value: true, source: 'env' };
