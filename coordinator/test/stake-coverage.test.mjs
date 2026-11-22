@@ -26,6 +26,9 @@ test('a coordinator diff is covered, a mixed diff partly covered, docs alone no 
 	assert.deepEqual([mixed.state, mixed.short], ['partly covered', 'partly covered (1 of 3 code files)']);
 	assert.match(mixed.line, /the other 2 \(1 Java\) are not exercised/);
 	assert.equal(stakeCoverage(['docs/a.md', 'AGENTS.md']).state, 'no code change');
+	// The in-game agent's instructions are gameplay, not docs: not covered alone, partly covered beside coordinator code.
+	assert.equal(stakeCoverage(['coordinator/config/minecraft-agent/AGENTS.md']).short, 'not covered (no coordinator/src change)');
+	assert.equal(stakeCoverage(['coordinator/config/minecraft-agent/.codex/skills/minecraft-control/SKILL.md', 'coordinator/src/reflexes.mjs']).state, 'partly covered');
 	assert.equal(stakeCoverage(null).short, 'coverage unknown');
 	assert.equal(stakeHeadline(report(null)).description, 'head passes · 4/4 same · 0 diffs · 168 ms', 'unknown coverage makes no claim in the status');
 	assert.match(formatStake(report(null)), /Coverage unknown: the changed files could not be listed\./);

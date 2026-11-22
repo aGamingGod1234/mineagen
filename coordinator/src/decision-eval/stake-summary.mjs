@@ -70,8 +70,9 @@ export function stakeCoverage(changed) {
 	if (!Array.isArray(changed)) return { state: 'unknown', short: 'coverage unknown', line: 'Coverage unknown: the changed files could not be listed.' };
 	const covered = changed.filter(file => /^coordinator\/src\//.test(file));
 	const java = changed.filter(file => /\.java$/.test(file));
-	// Docs and notes change no behaviour; everything else is code or data the stake does not run.
-	const code = changed.filter(file => !/\.md$/i.test(file) && !/^docs\//.test(file));
+	// Docs and notes change no behaviour; everything else is code or data the stake does not run. The in-game agent's
+	// instructions (coordinator/config: AGENTS.md, SKILL.md, references) are Markdown that changes how the bot plays.
+	const code = changed.filter(file => /^coordinator\/config\//.test(file) || (!/\.md$/i.test(file) && !/^docs\//.test(file)));
 	const count = (n, what) => `${n} ${what}${n === 1 ? '' : 's'}`;
 	if (!code.length) return { state: 'no code change', covered: 0, code: 0, java: 0, short: 'no code change', line: `Coverage: no code change (${count(changed.length, 'file')}, docs only).` };
 	if (!covered.length) {
