@@ -2163,11 +2163,12 @@ public final class ServerBuildController implements ServerController {
 				waterTick = tick;
 				waterPours++;
 				// Against lava poured first: the lava cast as the water landed; scoop the water the very next tick.
-				if (pouredLava != null && !waterFirst) { quickScoop = true; lavaWatered = true; pause = 0; }
+				if (pouredLava != null && !waterFirst) { quickScoop = true; lavaWatered = true; pause = 0; OPEN_CELLS.add(player.getUUID()); }
 			}
 			case LAVA -> {
 				lavaPours++;
-				if (paired) { pouredLava = target.immutable(); lavaTick = tick; lavaWatered = false; }
+				// Open from this tick: the reflexes run before the build's next tick and must not pause it with lava standing.
+				if (paired) { pouredLava = target.immutable(); lavaTick = tick; lavaWatered = false; OPEN_CELLS.add(player.getUUID()); }
 			}
 			case TAKE -> {
 				// Taken back before it flowed: pour the pair again from a spot whose water click lands.
