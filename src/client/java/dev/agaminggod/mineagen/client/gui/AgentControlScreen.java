@@ -1215,8 +1215,8 @@ public final class AgentControlScreen extends Screen {
 			ConsoleDraw.label(graphics, font, "Selected", inner, detailTop + 10, ConsoleTheme.SUBTLE);
 			graphics.text(font, ConsoleText.strong(fit(selected.displayName(), width - 24)), inner, detailTop + 23, TEXT, false);
 			ConsoleDraw.label(graphics, font, AgentControlPresentation.profileLabel(selected), inner, detailTop + 36, MUTED);
-			ConsoleDraw.surface(graphics, inner, detailTop + 52, 5, 5, ConsoleDraw.RADIUS_SMALL, stateColor(selected.state()));
-			graphics.text(font, ConsoleText.component(AgentControlPresentation.stateLabel(selected.state())), inner + 10, detailTop + 50,
+			ConsoleDraw.stateMark(graphics, selected.state(), inner, detailTop + 48);
+			graphics.text(font, ConsoleText.component(AgentControlPresentation.stateLabel(selected.state())), inner + 16, detailTop + 50,
 					stateColor(selected.state()), false);
 			String goal = selected.currentGoal().isBlank() ? "No task right now" : selected.currentGoal();
 			ConsoleDraw.label(graphics, font, "Task", inner, detailTop + 68, ConsoleTheme.SUBTLE);
@@ -1543,7 +1543,8 @@ public final class AgentControlScreen extends Screen {
 		setRosterFilterWithoutRebuild(new AgentRosterFilter(rosterFilter.query(), provider, state));
 	}
 
-	private static List<AgentRosterEntry> rosterEntries(AgentControlSnapshot snapshot) {
+	/** The roster's entries: each carries its agent's raw lifecycle state beside the label (verified by the roster tests). */
+	static List<AgentRosterEntry> rosterEntries(AgentControlSnapshot snapshot) {
 		List<AgentRosterEntry> entries = new ArrayList<>();
 		for (AgentControlAgent agent : snapshot.agents()) {
 			entries.add(new AgentRosterEntry(
@@ -1553,7 +1554,8 @@ public final class AgentControlScreen extends Screen {
 					AgentModelNames.shortLabel(agent.provider(), agent.model()),
 					AgentControlPresentation.stateLabel(agent.state()),
 					true,
-					""
+					"",
+					agent.state()
 			));
 		}
 		return List.copyOf(entries);
@@ -1684,11 +1686,7 @@ public final class AgentControlScreen extends Screen {
 	}
 
 	private static int stateColor(String state) {
-		return switch (state.toUpperCase(Locale.ROOT)) {
-			case "ERROR", "DEAD", "DISCONNECTED" -> ERROR;
-			case "IDLE", "COMPLETED" -> SUCCESS;
-			default -> ACCENT;
-		};
+		return ConsoleTheme.stateColor(AgentControlPresentation.stateCue(state).tone());
 	}
 
 	private static String capitalize(String value) {
