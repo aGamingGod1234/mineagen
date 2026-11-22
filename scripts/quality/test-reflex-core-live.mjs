@@ -350,7 +350,7 @@ try {
 		await command('setblock 0 80 2 minecraft:crafting_table');
 		await command(`tp ${agent} 0.5 80 0.5 0 35`);
 		await command(`item replace entity ${agent} inventory.5 with minecraft:wheat 24`);
-		o = await setReflexes([{ id: 'table-eat', kind: 'stance', priority: 3, when: [{ type: 'hunger_below', value: 18 }, { type: 'hostile_near', within: 8, not: true }], do: { type: 'eat' }, cooldownMs: 20000 }]);
+		o = await setReflexes([{ id: 'table-eat', kind: 'stance', priority: 3, when: [{ type: 'hunger_below', value: 18 }, { type: 'hostile_near', within: 8, not: true }], do: { type: 'eat' }, cooldownS: 20 }]);
 		// Hungry before the craft, with no food in reach (the rule waits): as in the playtest, the meal starts only once bread
 		// reaches the hotbar mid-craft, with the body facing the table.
 		let foodStart = o.player?.foodLevel ?? 20;
