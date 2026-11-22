@@ -926,7 +926,7 @@ public final class ServerTravelController implements ServerController {
 		else {
 			if (checkpointSearch != null && !checkpointSearch.origin.equals(feet(player))) checkpointSearch = null;
 			if (checkpointSearch == null) checkpointSearch = TravelCheckpoints.beginWalkingPick(legs, player.getX(), player.getY(), player.getZ(),
-					targetX, targetY, targetZ, LEG_REACH, this::isRefused, sightedSpots(player));
+					targetX, targetY, targetZ, LEG_REACH, this::isRefused, sightedSpots(player), tolerance);
 			if (checkpointSearch != null) {
 				next = checkpointSearch.advance(legs);
 				if (!checkpointSearch.finished()) return TickResult.running(progress(player));
@@ -1292,7 +1292,9 @@ public final class ServerTravelController implements ServerController {
 		buildRun += marchedCells(moveFeet, feet(player));
 		lastKind = move == null ? null : move.kind();
 		move = null;
-		if (!routeLeg && buildRun < BUILD_RUN) {
+		// A run goes on only while its next cell is nearer the target: past the target's line it replans (playtest 22 Nov:
+		// a run west toward iron 3 blocks away stepped and tunnelled on to 8 blocks past it before turning back).
+		if (!routeLeg && buildRun < BUILD_RUN && buildDirection != null && left(player.position().add(buildDirection.getStepX(), 0.0D, buildDirection.getStepZ())) < left(player.position())) {
 			MinecraftNavigationWorld world = new MinecraftNavigationWorld(player.level(), player);
 			TravelBuilder.Plan next = TravelBuilder.decide(world, states(world), feet(player), buildDirection, TravelBuilder.blockSlot(player) >= 0,
 					Double.isFinite(targetY) ? (int) Math.floor(targetY) - feet(player).y() : 0);

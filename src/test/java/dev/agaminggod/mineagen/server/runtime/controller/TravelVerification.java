@@ -86,6 +86,9 @@ public final class TravelVerification {
 				cell -> false, java.util.List.of());
 		check(shortFinal != null && shortFinal.finalApproach() && shortFinal.feet().equals(new GridPosition(0, 64, 0)),
 				"a connected 1.6-block final retrace leg is allowed below the intermediate minimum gain: " + shortFinal);
+		check(!TravelCheckpoints.closer(4.8D, 3.0D, 0.0D) && TravelCheckpoints.closer(4.8D, 3.0D, 3.0D) && !TravelCheckpoints.closer(4.8D, 3.5D, 3.0D)
+				&& TravelCheckpoints.closer(9.0D, 7.0D, 3.0D) && !TravelCheckpoints.closer(2.5D, 2.8D, 3.0D),
+				"a spot 1.8 closer counts only when it is within the arrival distance (a ledge beside the iron, not a tunnel to it)");
 		TravelCheckpoints.Checkpoint refused = TravelCheckpoints.pick(flat, 0.5, 64, 0.5, 200.5, Double.NaN, 0.5, 26,
 				cell -> cell.x() >= 20 && Math.abs(cell.z()) <= 8);
 		check(refused != null && !(refused.feet().x() >= 20 && Math.abs(refused.feet().z()) <= 8), "a refused leg is not picked again: " + refused);
