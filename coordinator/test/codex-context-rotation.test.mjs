@@ -495,6 +495,17 @@ test('a mid-turn rotation threshold rotates inside a turn only once the context 
 	} finally { await above.service.stop(); }
 });
 
+test('the 64k mid-turn rotation setting still hands off at 64k under the 128k default', async () => {
+	const run = await midTurnRotation({ contextRotationTokens: undefined, midTurnContextRotation: false, midTurnContextRotationTokens: 64_000 }, { executeTool: async () => ({ state: 'SUCCEEDED', reasonCode: 'OBSERVED' }) });
+	try {
+		await run.pending;
+		await turn();
+		assert.equal(run.transport.calls.filter(({ method }) => method === 'turn/interrupt').length, 1, '70k passes the 64k mid-turn setting though not the 128k default');
+		assert.equal(turnStarts(run.transport).at(-1).params.threadId, 'thread-2');
+		assert.match(turnStarts(run.transport).at(-1).params.input[0].text, /^Mid-turn continuation:/);
+	} finally { await run.service.stop(); }
+});
+
 test('carry-over retires a predecessor closed by a successful replace_action', () => {
 	const observe = (carry) => { for (let index = 0; index < 7; index++) carry.rememberTool({ kind: 'observe' }, { state: 'OBSERVED' }); };
 	const replaced = new ContextCarryOver();
@@ -615,6 +626,20 @@ test('a step\'s reason is carried whole even when its arguments are cut', () => 
 	assert.equal(digestArguments({ section: 'inventory' }), '{"section":"inventory"}', 'calls without a reason are unchanged');
 	assert.ok(digestArguments({ why: 'x'.repeat(1_000) }).length < 140, 'a runaway reason stays bounded');
 	assert.equal(digestArguments({ why: 'line one\nfake line' }).includes('\n'), false, 'a reason cannot forge carry-over lines');
+});
+
+test('a running step keeps its reason after six newer calls push it out of the recent window', () => {
+	const carry = new ContextCarryOver();
+	carry.rememberTool({ kind: 'start_action', actionType: 'travel_to', arguments: LONG_TARGET, step: { verb: 'travel_to', why: WHY } }, { state: 'RUNNING', actionId: 'walk-1' });
+	for (let index = 0; index < 7; index++) carry.rememberTool({ kind: 'observe' }, { state: 'OBSERVED' });
+	const text = carry.text('Session refreshed to keep context small');
+	const line = text.split('\n').find((row) => row.includes('walk-1'));
+	assert.ok(line, text);
+	assert.ok(line.includes(`why=${JSON.stringify(WHY)}`), line);
+	// Once it ends, the evicted handle is compact again: only the open step's reason is worth the bytes.
+	carry.rememberTool({ kind: 'action_status', actionId: 'walk-1' }, { lastResult: { actionId: 'walk-1', state: 'SUCCEEDED', reasonCode: 'ARRIVED' } });
+	for (let index = 0; index < 7; index++) carry.rememberTool({ kind: 'observe' }, { state: 'OBSERVED' });
+	assert.doesNotMatch(carry.text('Session refreshed to keep context small'), /Return to the dry tunnel/);
 });
 
 test('Codex hands the newest step\'s whole reason to the replacement thread', async () => {

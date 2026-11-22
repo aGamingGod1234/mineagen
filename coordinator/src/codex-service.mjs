@@ -527,16 +527,16 @@ export class SharedCodexAgent {
 				if (this.#active === null && this.#interruptedTurnsCarried === 0 && method === 'thread/tokenUsage/updated' && params?.threadId === this.#threadId) {
 					this.#nativeUsageTotal = codexTokenUsage(params?.tokenUsage?.total);
 				}
-				if (method === 'thread/tokenUsage/updated' && params?.threadId === this.#threadId && this.#rotationTokens > 0) {
+				if (method === 'thread/tokenUsage/updated' && params?.threadId === this.#threadId && (this.#rotationTokens > 0 || this.#midTurnRotationTokens > 0)) {
 					const contextTokens = codexTokenUsage(params?.tokenUsage?.last)?.input ?? 0;
 					if (contextTokens > 0) {
 						this.#contextTokens = contextTokens;
 						this.#sessionFloorTokens ??= contextTokens;
 					}
-					if (contextTokens >= this.#rotationTokens && contextTokens - this.#sessionFloorTokens >= this.#rotationTokens * MIN_ROTATION_GROWTH_SHARE) {
+					if (this.#rotationTokens > 0 && contextTokens >= this.#rotationTokens && contextTokens - this.#sessionFloorTokens >= this.#rotationTokens * MIN_ROTATION_GROWTH_SHARE) {
 						this.#rotationDue = true;
 						if (this.#active !== null && this.#turnsSinceRotation + 1 >= MIN_TURNS_BETWEEN_ROTATIONS) void this.#prepareRotationThread();
-					}
+					} else if (this.#active !== null && this.#midTurnRotationDue() && this.#turnsSinceRotation + 1 >= MIN_TURNS_BETWEEN_ROTATIONS) void this.#prepareRotationThread();
 				}
 			};
 			this.#transport.on('notification', this.#onNativeNotification);
@@ -1074,7 +1074,11 @@ export class SharedCodexAgent {
 	}
 
 	#midTurnRotationDue() {
-		return this.#midTurnRotation && this.#rotationDue && this.#contextTokens >= (this.#midTurnRotationTokens || this.#rotationTokens);
+		const threshold = this.#midTurnRotationTokens || this.#rotationTokens;
+		if (!this.#midTurnRotation || threshold <= 0 || this.#contextTokens < threshold) return false;
+		// A mid-turn threshold below the completed-turn one is its own trigger: the 64k mid-turn setting must still hand off
+		// at 64k under the 128k default, with the same growth guard against a fresh session that starts large.
+		return this.#rotationDue || (this.#sessionFloorTokens !== null && this.#contextTokens - this.#sessionFloorTokens >= threshold * MIN_ROTATION_GROWTH_SHARE);
 	}
 
 	/** Moves to a fresh thread once the context passed the threshold; the next event starts with a short carry-over. */

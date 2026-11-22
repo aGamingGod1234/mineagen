@@ -51,6 +51,14 @@ export function digestArguments(args, stepWhy = null) {
 	return withWhy(truncate(safeJson(rest), CARRY_OVER_ARGUMENTS), why);
 }
 
+/** The model's own reason for a call, as digestArguments finds it, or null. */
+function callReason(args, stepWhy = null) {
+	if (args === null || typeof args !== 'object' || Array.isArray(args)) return stepWhy;
+	if (typeof args.why === 'string') return args.why;
+	if (args.step !== null && typeof args.step === 'object' && !Array.isArray(args.step) && typeof args.step.why === 'string') return args.step.why;
+	return stepWhy;
+}
+
 function withWhy(text, why) {
 	const reason = typeof why === 'string' ? why.replace(/\s+/g, ' ').trim() : '';
 	return reason.length === 0 ? text : `${text} why=${JSON.stringify(truncate(reason, CARRY_OVER_WHY))}`;
@@ -68,13 +76,14 @@ export class ToolDigests {
 	constructor(limit = CARRY_OVER_TOOL_CALLS) { this.#limit = limit; }
 	get length() { return this.#entries.length; }
 
-	push(name, argsText, result) {
+	/** `why`: the call's own reason, kept on a running handle that outlives the window (an open step keeps its reason). */
+	push(name, argsText, result, why = null) {
 		this.noteDelivered(result);
 		const decision = result?.decision ?? result?.status?.decision;
 		const ids = [['programId', result?.programId], ['decisionId', result?.decisionId ?? decision?.decisionId], ['queueId', result?.queueId]]
 			.filter(([, value]) => typeof value === 'string').map(([key, value]) => `${key}=${JSON.stringify(truncate(value, 96))}`);
 		const outcome = typeof result?.outcome === 'string' ? result.outcome : [result?.state, result?.reasonCode].filter((value) => typeof value === 'string').join(' ');
-		const entry = { head: `${name} ${argsText} -> ${outcome || 'returned'}`, short: `${name} -> ${outcome || 'returned'}`, ids,
+		const entry = { head: `${name} ${argsText} -> ${outcome || 'returned'}`, short: withWhy(`${name} -> ${outcome || 'returned'}`, why), ids,
 			actionId: typeof result?.actionId === 'string' && result?.state !== 'UNKNOWN_ACTION' ? `actionId=${JSON.stringify(result.actionId)}` : null, terminal: TERMINAL_RESULT_STATES.has(result?.state) };
 		this.#entries.push(entry);
 		if (entry.actionId !== null) {
@@ -114,9 +123,10 @@ export class ToolDigests {
 	/** `everyAction` keeps every action ID (a turn resuming within the same context). */
 	lines({ everyAction = false } = {}) {
 		const newestTerminal = this.#entries.findLastIndex((entry) => entry.terminal && entry.actionId !== null);
-		// Handles pushed out of the window come first (they are older), compact: no arguments.
+		// Handles pushed out of the window come first (they are older), compact: no arguments. A running one keeps its
+		// reason: the step is still open, and its why is what the fresh context continues from.
 		const evicted = [...this.#handles.running.values(), this.#handles.terminal].filter((entry) => entry !== null && !this.#entries.includes(entry))
-			.map((entry) => `${entry.short} (${entry.actionId})`);
+			.map((entry) => `${entry.terminal ? entry.short.replace(/ why=.*$/, '') : entry.short} (${entry.actionId})`);
 		return [...evicted, ...this.#entries.map((entry, index) => this.#render(entry, everyAction || !entry.terminal || index === newestTerminal))];
 	}
 
@@ -145,7 +155,8 @@ export class ContextCarryOver {
 		if (error !== null) this.#tools.noteDelivered(error?.replacedAction);
 		const digestResult = error !== null ? { outcome: `error ${typeof error?.code === 'string' ? error.code : 'TOOL_FAILED'}` } : result;
 		// A step that starts or runs an action keeps its reason beside the action's arguments, in tool.step.
-		this.#tools.push(name, digestArguments(args, isAction ? tool.step?.why ?? null : null), digestResult);
+		const stepWhy = isAction ? tool.step?.why ?? null : null;
+		this.#tools.push(name, digestArguments(args, stepWhy), digestResult, callReason(args, stepWhy));
 		if (typeof result?.programId === 'string') this.#noteProgram(result);
 		if (kind === 'capabilities' && error === null) this.#noteManual(result);
 	}
