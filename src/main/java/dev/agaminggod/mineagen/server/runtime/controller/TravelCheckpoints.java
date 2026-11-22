@@ -130,6 +130,11 @@ final class TravelCheckpoints {
 	}
 
 	static WalkingSearch beginWalkingPick(WalkabilityView world, double x, double y, double z, double targetX, double targetY,
+			double targetZ, double reach, Predicate<GridPosition> refused, java.util.List<GridPosition> sighted) {
+		return beginWalkingPick(world, x, y, z, targetX, targetY, targetZ, reach, refused, sighted, 0.0D);
+	}
+
+	static WalkingSearch beginWalkingPick(WalkabilityView world, double x, double y, double z, double targetX, double targetY,
 			double targetZ, double reach, Predicate<GridPosition> refused, java.util.List<GridPosition> sighted, double arriveWithin) {
 		var candidates = new java.util.ArrayList<Checkpoint>();
 		for (int i = 0; i < 8; i++) {
