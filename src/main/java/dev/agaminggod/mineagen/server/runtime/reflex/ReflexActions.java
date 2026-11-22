@@ -791,12 +791,15 @@ final class ReflexActions {
 			}
 			LivingEntity shooter = shooterBeyondReach(player, context.focus(), player.getInventory().getItem(slot));
 			boolean canWall = PlaceBlock.blockSlot(player, null) >= 0 && nearestChaser(player, PACK_RANGE) >= PACK_RANGE;
-			if (shooter == null || !canWall || walls != null) inland = null;
+			// A ranged mob beyond reach that is the focus but has not hit yet: on a lip its first hit is the fall (four
+			// traced lava-sea deaths: the first fireball knocked the body off), so the step inland does not wait for it.
+			LivingEntity ranged = shooter != null ? shooter : rangedBeyondReach(player, context.focus(), player.getInventory().getItem(slot));
+			if (ranged == null || walls != null) inland = null;
 			else if ((player.tickCount >= coverRetryTick || inland != null) && cover == null) {
-				Step stepping = offBrink(player, shooter, input, done);
+				Step stepping = offBrink(player, ranged, input, done);
 				if (stepping != null) return stepping;
 			}
-			boolean ledged = shooter != null && canWall && walls == null && player.tickCount < braceUntil;
+			boolean ledged = ranged != null && walls == null && player.tickCount < braceUntil;
 			if (shooter != null && walls == null && player.tickCount >= coverRetryTick && canWall && !ledged && cover == null) walls = new WallIn(shooter);
 			if (walls != null) {
 				Step built = walls.tick(context, input);
@@ -820,7 +823,7 @@ final class ReflexActions {
 				cover = null;
 				coverRetryTick = player.tickCount + (hidden.status() == ReflexScheduler.ActionStatus.DONE ? 20 : 40);
 			}
-			if (ledged) return bracing(player, shooter, input, done);
+			if (ledged) return bracing(player, ranged, input, done);
 			Entity focus = context.focus();
 			Vec3 at = focus != null && focus.isAlive() ? ReflexSensors.aimPoint(focus instanceof Projectile p && p.getOwner() != null ? p.getOwner() : focus) : null;
 			input.accept(look(player, at, 0.0F, 0.0F, false, false, slot, InteractionHand.MAIN_HAND));
@@ -838,6 +841,13 @@ final class ReflexActions {
 			if (player.tickCount - player.getLastHurtByMobTimestamp() > UNDER_FIRE_TICKS) return null;
 			if (!(focus instanceof Projectile) && !(living instanceof Mob mob && ThreatPerception.isRanged(mob))) return null;
 			return player.getAttackRangeWith(weapon).isInRange(player, living.getBoundingBox(), 0.0D) ? null : living;
+		}
+
+		/** The focus (or a shot's shooter) when it is a ranged mob standing beyond the weapon's reach, hit or not; else null. */
+		static LivingEntity rangedBeyondReach(ServerPlayer player, Entity focus, ItemStack weapon) {
+			Entity source = focus instanceof Projectile shot ? shot.getOwner() : focus;
+			if (!(source instanceof Mob mob) || !mob.isAlive() || !ThreatPerception.isRanged(mob)) return null;
+			return player.getAttackRangeWith(weapon).isInRange(player, mob.getBoundingBox(), 0.0D) ? null : mob;
 		}
 
 		/** A mob defend can hit now and the point of its hitbox the swing aims at. */
