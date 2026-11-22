@@ -405,12 +405,11 @@ function inView(need, o, budget) {
 		.filter((row) => row.d <= radius).sort((a, b) => a.d - b.d)[0] ?? null;
 }
 
-// An ore seen earlier this far away (straight line, depth weighted as in inView) is walked back to before any new search.
-const REMEMBERED_ORE_RADIUS = 64;
-
 /**
  * An ore of the need the body saw earlier (the seen-resource memory: digs, looks, earlier trips) and has not failed at,
- * nearest first. A player goes back to the vein it walked past before strip mining for a new one. Never one a search
+ * cheapest first, while going back to it costs less than finding one fresh (obtain-plan's seenRowCost against
+ * searchCost, the planner's own prices). A player goes back to the vein it walked past before strip mining for a new
+ * one, but not to a lone ore 60 blocks up its stairs. Never one a search
  * already found unreachable (missedPlaces), one this run failed at, or one whose approach flooded from here.
  */
 function rememberedOre(need, o, budget, missed = []) {
@@ -420,12 +419,12 @@ function rememberedOre(need, o, budget, missed = []) {
 	const blocks = new Set(need.blocks.map(id));
 	const unreachable = new Set(missed.filter((place) => place.why === UNREACHED).map((place) => `${place.x},${place.y},${place.z}`));
 	const rows = (o.seenResources ?? []).filter((row) => row?.kind === 'block' && blocks.has(row.id) && [row.x, row.y, row.z].every(Number.isSafeInteger))
-		.map((row) => ({ x: row.x, y: row.y, z: row.z, blockId: row.id }))
-		.filter((row) => !budget?.failed?.has(`${row.x},${row.y},${row.z}`) && !unreachable.has(`${row.x},${row.y},${row.z}`) && !floodedApproach(budget, row));
+		.map((row) => ({ x: row.x, y: row.y, z: row.z, blockId: row.id, cost: seenRowCost(row, o) }))
+		.filter((row) => row.cost < searchCost(row.blockId) && !budget?.failed?.has(`${row.x},${row.y},${row.z}`) && !unreachable.has(`${row.x},${row.y},${row.z}`) && !floodedApproach(budget, row));
 	const vein = budget?.unreached?.length > 0 ? sameVein(budget.unreached, rows) : new Set();
 	return rows.filter((row) => !vein.has(row))
-		.map((row) => ({ ...row, remembered: true, d: Math.hypot(row.x + 0.5 - at.x, (row.y - at.y) * 1.5, row.z + 0.5 - at.z) }))
-		.filter((row) => row.d <= REMEMBERED_ORE_RADIUS).sort((a, b) => a.d - b.d)[0] ?? null;
+		.map((row) => ({ ...row, remembered: true, d: Math.hypot(row.x + 0.5 - at.x, row.y - at.y, row.z + 0.5 - at.z) }))
+		.sort((a, b) => a.cost - b.cost)[0] ?? null;
 }
 
 /** A mob near a herd a walk could not get within hunting reach of (budget.herds): not one to walk at again. */

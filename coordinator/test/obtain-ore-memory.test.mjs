@@ -28,8 +28,8 @@ test('a remembered ore a search found unreachable, or one this run failed at, is
 	}
 });
 
-test('a remembered ore past walking range, a placed block row, or another ore is not picked', async () => {
-	for (const row of [{ ...ore, z: -340 }, { ...ore, id: 'minecraft:gold_ore' }, { ...ore, kind: 'mob' }]) {
+test('a remembered ore that costs more to reach than a fresh search (far, or 60 blocks down), another ore, or a mob row is not picked', async () => {
+	for (const row of [{ ...ore, z: -400 }, { ...ore, y: -45, z: -245 }, { ...ore, id: 'minecraft:gold_ore' }, { ...ore, kind: 'mob' }]) {
 		const body = { observe: async () => at({ seenResources: [row] }), search: async () => ({ reasonCode: 'FIND_NOT_FOUND' }) };
 		assert.equal(await locate(need, body, { budget: { failed: new Set() }, timeoutMs: 60_000 }), null, JSON.stringify(row));
 	}
