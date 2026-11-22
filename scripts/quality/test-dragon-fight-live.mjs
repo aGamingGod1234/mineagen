@@ -98,14 +98,16 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 			runtime.onActionResult(record, ev.payload);
 			s.bridge.send('action_result_ack', record.agentId, { goalRevision: record.goalRevision, actionId: ev.payload.actionId }).catch(() => {});
 		});
-		let calls = 0, harnessErrors = 0;
+		let calls = 0, harnessErrors = 0, staleRefusals = 0;
 		// Every scripted command takes the path a model's command takes (runtime.execute), reflexes and vetting included.
 		const act = async (actionType, args) => {
 			const n = ++calls;
 			const r = await runtime.execute({ agentId: record.agentId, goalRevision: record.goalRevision, turnId: `fight-${n}`, callId: `fight-${n}`,
 				tool: normalizeMinecraftToolCall('act', { actionType, arguments: args }) }, record).catch(error => ({ state: 'FAILED', reasonCode: 'FIXTURE_ERROR', message: String(error?.message ?? error) }));
-			// A thrown command or a stale-command refusal is the harness's failure, not the bot's.
-			if (r?.reasonCode === 'FIXTURE_ERROR' || /^STALE_/.test(String(r?.reasonCode ?? ''))) harnessErrors += 1;
+			// A thrown command is the harness's failure, not the bot's; so is a stale-command refusal while the body lives (a
+			// command sent just as it died is refused stale too, and that death is a FAIL, not invalid evidence).
+			if (r?.reasonCode === 'FIXTURE_ERROR') harnessErrors += 1;
+			else if (/^STALE_/.test(String(r?.reasonCode ?? ''))) staleRefusals += 1;
 			// Anything but a success is not retried in a tight loop.
 			if (r?.state !== 'SUCCEEDED') await s.clock.sleep(500);
 			return { state: r?.state, reasonCode: r?.reasonCode, message: String(r?.message ?? '').slice(0, 300) };
@@ -127,7 +129,7 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 		const readDeaths = () => deathCounter(text => s.command(text), AGENT);
 		for (let run = 1; run <= repeats; run++) {
 			const row = { run, room: results.arm, startedAt: Date.now() };
-			harnessErrors = 0;
+			harnessErrors = 0; staleRefusals = 0;
 			results.runs.push(row);
 			try {
 				await s.normalRate();
@@ -238,12 +240,13 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 				row.killed = killed;
 				Object.assign(row, { shots, crystalBreaks, meleeTries: meleeHits, flyingShots, crystalsLeft: await crystalsLeft(), dragonHealthEnd: await dragonHealth(), log: log.slice(-60) });
 				row.deaths = row.deathEvidence.deaths;
-				row.harnessErrors = harnessErrors;
+				row.harnessErrors = harnessErrors + (row.died ? 0 : staleRefusals);
+				row.staleRefusals = staleRefusals;
 				// A fresh fight starts with a full dragon and all ten crystals; a repeat after a lost fight does not.
 				const fresh = Number.isFinite(dragon) && dragon >= 200 && row.start.crystals === 10;
 				const missing = [!row.deathEvidence.valid && 'death counter unreadable', !row.placed && `body not placed on the ${SURVIVE ? 'island' : 'arrival platform'}`,
 					!Number.isFinite(dragon) && 'no dragon at the start', !fresh && Number.isFinite(dragon) && `not a fresh fight (dragon ${dragon}, crystals ${row.start.crystals})`,
-					!row.armed.includes('default-breath') && 'the End reflexes never armed', harnessErrors > 0 && `${harnessErrors} harness error(s) sending commands`].filter(Boolean);
+					!row.armed.includes('default-breath') && 'the End reflexes never armed', row.harnessErrors > 0 && `${row.harnessErrors} harness error(s) sending commands`].filter(Boolean);
 				if (missing.length) row.error = `not exercised: ${missing.join('; ')}`;
 				row.pass = SURVIVE ? !row.died && !row.voidFall : row.killed && !row.died;
 				row.failReason = row.pass ? null : row.died ? 'died' : row.voidFall ? 'void fall' : SURVIVE ? null : 'dragon alive at the window end';
