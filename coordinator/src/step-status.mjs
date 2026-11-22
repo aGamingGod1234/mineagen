@@ -25,8 +25,9 @@ export function stepStatusLine(doingLine) {
 /**
  * Sends the step line to Minecraft as planning_state.stepStatus. It sends nothing for a connection epoch and goal
  * revision until the coordinator's own planning_state for them went out (arm), because any planning_state moves a
- * STARTING agent to PLANNING. Repeats of the same (epoch, revision, text) are dropped; a changed line inside the
- * rate window waits for the next update. Delivery is display-only, so every send failure is swallowed.
+ * STARTING agent to PLANNING. A record back in STARTING (a respawn keeps its revision) disarms it until the next own
+ * planning_state. Repeats of the same (epoch, revision, text) are dropped; a changed line inside the rate window waits
+ * for the next update. Delivery is display only: a failed send is swallowed and retried on a later update.
  */
 export class StepStatusPublisher {
 	#send;
@@ -44,13 +45,17 @@ export class StepStatusPublisher {
 		this.#minIntervalMs = minIntervalMs;
 	}
 
-	/** The coordinator's own planning_state for this epoch and revision was sent; status updates may follow it. */
+	/**
+	 * The coordinator's own planning_state for this epoch and revision was sent; status updates may follow it. The record
+	 * may still read STARTING here, because it was captured before the coordinator moved it to PLANNING.
+	 */
 	arm(record, connectionEpoch) {
 		this.#armed.set(record.agentId, { connectionEpoch, goalRevision: record.goalRevision });
 		this.update(record, connectionEpoch, { force: true });
 	}
 
 	update(record, connectionEpoch, { force = false } = {}) {
+		if (!force && record.state === 'STARTING') { this.#armed.delete(record.agentId); return false; }
 		const armed = this.#armed.get(record.agentId);
 		if (!armed || armed.connectionEpoch !== connectionEpoch || armed.goalRevision !== record.goalRevision) return false;
 		let text;
@@ -61,11 +66,14 @@ export class StepStatusPublisher {
 		if (!same && text === '') return false;
 		const now = this.#now();
 		if (!force && same && now - last.at < this.#minIntervalMs) return false;
-		this.#sent.set(record.agentId, { connectionEpoch, goalRevision: record.goalRevision, text, at: now });
-		const state = typeof record.state === 'string' && /^[A-Z_]{1,32}$/.test(record.state) ? record.state : 'PLANNING';
+		const entry = { connectionEpoch, goalRevision: record.goalRevision, text, at: now };
+		this.#sent.set(record.agentId, entry);
+		// A lost send keeps its time (the rate limit still holds) but not its text, so the next update tries again.
+		const lost = () => { if (this.#sent.get(record.agentId) === entry) entry.text = null; };
 		try {
-			Promise.resolve(this.#send(connectionEpoch, record.agentId, { goalRevision: record.goalRevision, state, stepStatus: text })).catch(() => {});
-		} catch { /* display only */ }
+			// Minecraft reads only goalRevision and stepStatus; PLANNING matches the coordinator's own sends.
+			Promise.resolve(this.#send(connectionEpoch, record.agentId, { goalRevision: record.goalRevision, state: 'PLANNING', stepStatus: text })).catch(lost);
+		} catch { lost(); }
 		return true;
 	}
 

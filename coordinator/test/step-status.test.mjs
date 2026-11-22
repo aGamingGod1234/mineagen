@@ -46,7 +46,7 @@ test('the publisher sends once on arm, drops repeats, rate-limits changes and re
 	const lines = ['Doing: mine iron', 'Doing: mine iron', 'Doing: smelt iron', 'Doing: smelt iron', 'Doing: smelt iron'];
 	const { sent, record, status, advance } = publisher(lines);
 	status.arm(record, 1);
-	assert.deepEqual(sent, [{ epoch: 1, agentId: 'a1', goalRevision: 3, state: 'ACTING', stepStatus: 'mine iron' }]);
+	assert.deepEqual(sent, [{ epoch: 1, agentId: 'a1', goalRevision: 3, state: 'PLANNING', stepStatus: 'mine iron' }]);
 	assert.equal(status.update(record, 1), false, 'same text is not resent');
 	advance(STEP_STATUS_MIN_INTERVAL_MS - 1);
 	assert.equal(status.update(record, 1), false, 'a change inside the rate window waits');
@@ -70,4 +70,31 @@ test('a cleared line is sent as empty text, and a send failure never throws', ()
 	assert.equal(sent.at(-1).stepStatus, '');
 	const throwing = new StepStatusPublisher({ send: () => { throw new Error('closed'); }, line: () => 'Doing: x' });
 	assert.doesNotThrow(() => throwing.arm(record, 1));
+});
+
+test('a record back in STARTING disarms the publisher until the next own planning_state', () => {
+	const { sent, record, status, advance } = publisher(['Doing: mine iron', 'Doing: respawned', 'Doing: respawned']);
+	status.arm(record, 1);
+	advance(5_000);
+	const respawned = { ...record, state: 'STARTING' };
+	assert.equal(status.update(respawned, 1), false);
+	assert.equal(status.update({ ...record, state: 'PLANNING' }, 1), false, 'leaving STARTING does not re-arm by itself');
+	status.arm(respawned, 1);
+	assert.deepEqual(sent.map(entry => entry.stepStatus), ['mine iron', 'respawned']);
+});
+
+test('a lost send is retried on a later update once the rate window passes', async () => {
+	const sent = [];
+	let now = 0, fail = true;
+	const record = { agentId: 'a1', goalRevision: 1, state: 'ACTING' };
+	const status = new StepStatusPublisher({ send: (epoch, agentId, payload) => { sent.push(payload.stepStatus); return fail ? Promise.reject(Object.assign(new Error('full'), { code: 'AGENT_BACKPRESSURE' })) : Promise.resolve(); }, line: () => 'Doing: mine iron', now: () => now });
+	status.arm(record, 1);
+	await new Promise(resolve => setImmediate(resolve));
+	fail = false;
+	assert.equal(status.update(record, 1), false, 'the retry still waits for the rate window');
+	now = STEP_STATUS_MIN_INTERVAL_MS;
+	assert.equal(status.update(record, 1), true);
+	await new Promise(resolve => setImmediate(resolve));
+	assert.equal(status.update(record, 1), false, 'a delivered line is not resent');
+	assert.deepEqual(sent, ['mine iron', 'mine iron']);
 });

@@ -94,8 +94,10 @@ public final class AgentChatReporter {
 						report(manager, record, "Entered " + place + ".", ChatFormatting.LIGHT_PURPLE);
 					}
 				}
-				boolean planning = record.state() == dev.agaminggod.mineagen.agent.AgentLifecycleState.PLANNING;
-				String status = feed.line(id, AgentServerRuntime.stepStatus(server, record.agentId()), planning, now);
+				// Between actions the server holds the agent in STARTING until the next command: the model is deciding then too.
+				boolean planning = record.state() == dev.agaminggod.mineagen.agent.AgentLifecycleState.PLANNING
+						|| record.state() == dev.agaminggod.mineagen.agent.AgentLifecycleState.STARTING;
+				String status = feed.line(id, stepLine(server, record), planning, now);
 				if (manager.automaticProgress(record.agentId()) && record.state().isActive() && player.isAlive() && !status.isBlank()) {
 					statuses.add(noticeLine(manager.displayName(record), record.profile().provider(), "info", status));
 				}
@@ -124,6 +126,18 @@ public final class AgentChatReporter {
 	}
 
 	private AgentChatReporter() {
+	}
+
+	/**
+	 * The coordinator's step line for the action bar, or null. It carries model-written text, so it passes the same
+	 * credential and technical-detail filter as chat; a line the filter would replace is not shown at all. The
+	 * goal-prompt check is left out: the bar reaches only operators and the owner, who set the goal.
+	 */
+	static String stepLine(MinecraftServer server, AgentRecord record) {
+		String step = AgentServerRuntime.stepStatus(server, record.agentId());
+		if (step == null || step.isBlank()) return null;
+		String safe = AgentChatSanitizer.sanitizeMessage(step);
+		return safe.endsWith("redacted.") || safe.equals("Technical details hidden.") || safe.equals("No details.") ? null : safe;
 	}
 
 	/**
