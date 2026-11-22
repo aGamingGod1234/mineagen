@@ -500,7 +500,8 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		// Verification fixtures may allocate the bridge without its constructor; they have no reflexes.
 		Set<AgentId> paused = reflexes == null ? Set.of() : reflexes.tick(reflexBody);
 		Set<AgentId> held = durable ? Set.of() : agentsWithStagedAcceptances();
-		actionExecutor.tick(held, paused, agentId -> reflexes == null ? null : reflexes.firingRule(agentId));
+		actionExecutor.tick(held, paused, agentId -> reflexes == null ? null : reflexes.firingRule(agentId),
+				agentId -> reflexes != null && reflexes.firingHoldsOnPurpose(agentId));
 		if (durable) flushActionJournalGroup();
 		for (AgentId agentId : reflexes == null ? Set.<AgentId>of() : reflexes.takeChanged()) {
 			observations.invalidatePlayerState(agentId);

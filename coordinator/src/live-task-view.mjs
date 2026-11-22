@@ -18,7 +18,7 @@ import { foodStockHandback, routeLine, skillFitsLine, woodStockHandback } from '
 import { KIT_ITEMS } from './end-readiness.mjs';
 import { beatsTheGame } from './goal-spec-translator.mjs';
 import { dropLoss, recoveryRoute } from './respawn-recovery.mjs';
-import { lightLine, toolsLine, picksLine, sleepLine, spawnLine, castingLine, frameLine } from './wake-body-facts.mjs';
+import { lightLine, upLine, toolsLine, picksLine, sleepLine, spawnLine, castingLine, frameLine } from './wake-body-facts.mjs';
 import { noteIntent, noteRepeat, noteSearch, progressFacts, resetProgress, takeProgressWake, trackProgress } from './step-progress.mjs';
 
 const ROUTE_SOURCE_BLOCKS = new RegExp(`${SOURCE_BLOCKS.source}|^minecraft:nether_portal$`, SOURCE_BLOCKS.flags);
@@ -174,9 +174,13 @@ export class LiveTaskViews {
   // evidence). An unready or bodiless sample, even one naming another world, only makes current facts unknown.
   if (!currentSample(observation)) { this.#state(record).observation = { ready: false }; return; }
   const state = this.#state(record), world = observation.world?.worldId ?? null;
-  if (world && state.worldId && world !== state.worldId) { state.plan = null; state.revision = 0; state.scope = null; state.lastObserved={}; state.worldProof = {}; state.presenceProof = {}; state.deathLosses = {}; state.known=emptyKnown(); state.verified=false; state.usage=null; state.usageSample=null; state.intent = null; state.planFocus = null; state.workHeading = null; state.deaths = 0; state.results = []; state.foodHandback = null; state.woodHandback = null; state.effect = null; state.liveInventory = null; state.liveDimension = null; state.samples = []; state.ownPoi = []; state.breaks = []; state.gains = []; state.intentLog = []; resetProgress(state); }
+  if (world && state.worldId && world !== state.worldId) { state.plan = null; state.revision = 0; state.scope = null; state.lastObserved={}; state.worldProof = {}; state.presenceProof = {}; state.deathLosses = {}; state.known=emptyKnown(); state.verified=false; state.usage=null; state.usageSample=null; state.intent = null; state.planFocus = null; state.workHeading = null; state.deaths = 0; state.results = []; state.foodHandback = null; state.woodHandback = null; state.effect = null; state.liveInventory = null; state.liveDimension = null; state.samples = []; state.openSky = null; state.ownPoi = []; state.breaks = []; state.gains = []; state.intentLog = []; resetProgress(state); }
   if (world) state.worldId = world;
   state.observation = observation;
+  // The wire carries position; the adapted observation carries it as player.x/y/z (as #memory reads it).
+  const player = observation.player, at = observation.position ?? player?.position ?? player;
+  if (player?.skyOpen === true && player.onGround !== false && player.dead !== true && at && [at.x, at.y, at.z].every(Number.isFinite))
+   state.openSky = { x: at.x, y: at.y, z: at.z, dimension: observation.world?.dimension ?? null };
   await this.#load(record, state);
   if (this.#states.get(record.agentId) !== state) return;
   const dead = observation.player?.dead === true || observation.continuity?.phase === 'dead';
@@ -868,8 +872,8 @@ export class LiveTaskViews {
   const activity = intent ? `${intent.step} ${intent.why}` : step ? `${step.label} ${step.detail}` : record.currentGoal;
   const sleep = sleepLine(observation) ?? spawnLine(observation, state.known?.spawn ?? null);
   const casting = castingLine(observation, { goal: `${record.currentGoal} ${activity}` });
-  const light = lightLine(observation), tools = toolsLine(observation, { activity }), frame = frameLine(observation);
-  return { ...(hunt === null ? {} : { hunt }), ...(craft === null ? {} : { craft }), ...(casting === null ? {} : { casting }), ...(frame === null ? {} : { frame }), ...(known === null ? {} : { known }), ...(options === null ? {} : { options }), ...(mining === null ? {} : { mining }), ...(light === null ? {} : { light }), ...(sleep === null ? {} : { sleep }), ...(tools === null ? {} : { tools }) };
+  const light = lightLine(observation), up = upLine(observation, state.openSky ?? null), tools = toolsLine(observation, { activity }), frame = frameLine(observation);
+  return { ...(hunt === null ? {} : { hunt }), ...(craft === null ? {} : { craft }), ...(casting === null ? {} : { casting }), ...(frame === null ? {} : { frame }), ...(known === null ? {} : { known }), ...(options === null ? {} : { options }), ...(mining === null ? {} : { mining }), ...(light === null ? {} : { light }), ...(up === null ? {} : { up }), ...(sleep === null ? {} : { sleep }), ...(tools === null ? {} : { tools }) };
  }
  /**
   * Pearl sources while pearls (or eyes) are an open plan need but not the first unfinished step's: in the Nether, or in
@@ -1381,12 +1385,12 @@ const SAMPLE_HISTORY = 8;
 function rememberSample(state, observation) {
  if (!Number.isFinite(observation?.observedAtEpochMs)) return;
  state.samples.push({ at: observation.observedAtEpochMs, observation, statuses: new Map((state.plan?.steps ?? []).map(s => [s.id, s.status])),
-  early: [...(state.early ?? [])], results: [...state.results], effect: state.effect, deaths: state.deaths });
+  early: [...(state.early ?? [])], results: [...state.results], effect: state.effect, deaths: state.deaths, openSky: state.openSky ?? null });
  if (state.samples.length > SAMPLE_HISTORY) state.samples.splice(0, state.samples.length - SAMPLE_HISTORY);
 }
 function sampleView(state, sample) {
  const plan = state.plan ? { steps: state.plan.steps.map(s => sample.statuses.has(s.id) ? { ...s, status: sample.statuses.get(s.id) } : s) } : null;
- return { ...state, plan, observation: sample.observation, early: sample.early, results: sample.results, effect: sample.effect, deaths: sample.deaths };
+ return { ...state, plan, observation: sample.observation, early: sample.early, results: sample.results, effect: sample.effect, deaths: sample.deaths, openSky: sample.openSky };
 }
 function intentFacts(f) {
  return { ...(typeof f.inPlan === 'boolean' ? { inPlan: f.inPlan } : {}), ...(Number.isSafeInteger(f.deaths) && f.deaths >= 0 ? { deaths: f.deaths } : {}), ...(identifier(f.dimension) ? { dimension: f.dimension } : {}), ...(Number.isSafeInteger(f.at) ? { at: f.at } : {}) };
