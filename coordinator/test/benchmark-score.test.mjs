@@ -126,6 +126,24 @@ test('a single result object counts its own deaths and a room passes only on its
 	assert.deepEqual([by('rest', 'r1').deaths, by('rest', 'r1').damage], [1, 20]);
 });
 
+test('a blaze-spawner room passes only alive with a blaze killed and a rod kept, not walled in all window', async t => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'bench-blaze-'));
+	t.after(() => rm(dir, { recursive: true, force: true }));
+	const rooms = JSON.parse(await readFile(path.join(root, 'scripts/quality/benchmark-rooms.json'), 'utf8'));
+	const meta = Object.fromEntries((Array.isArray(rooms) ? rooms : rooms.rooms).map(room => [room.room, room]));
+	for (const room of ['blaze-spawner-gap0', 'blaze-spawner-gap5', 'blaze-spawner-cover'])
+		assert.deepEqual(meta[room].passWhen, { field: 'allRunsKilledAndKeptRod', min: 1 }, room);
+	const put = async (file, value) => { await mkdir(path.dirname(path.join(dir, file)), { recursive: true }); await writeFile(path.join(dir, file), JSON.stringify(value)); };
+	await put('rooms/blaze-spawner-cover.c1/done.json', { room: 'blaze-spawner-cover.c1', arms: { kept: { exit: 0, seconds: 300 }, boxed: { exit: 0, seconds: 300 } } });
+	const run = (kills, rodsAtEnd) => ({ deaths: 0, kills, rodsAtEnd });
+	await put('rooms/blaze-spawner-cover.c1/kept/blaze-spawner.json', { variants: { cover: { runs: [run(3, 2)] } }, runsKilledAndKeptRod: 1, allRunsKilledAndKeptRod: 1 });
+	await put('rooms/blaze-spawner-cover.c1/boxed/blaze-spawner.json', { variants: { cover: { runs: [run(0, 0)] } }, runsKilledAndKeptRod: 0, allRunsKilledAndKeptRod: 0 });
+	const runs = await collectRuns(dir, null, meta);
+	const by = arm => runs.find(r => r.room === 'blaze-spawner-cover' && r.arm === arm);
+	assert.equal(by('kept').verdict, 'PASS');
+	assert.deepEqual([by('boxed').verdict, by('boxed').reason], ['FAIL', 'allRunsKilledAndKeptRod below 1'], 'alive but no kill or rod');
+});
+
 test('a fire room with missing or decreasing damage evidence is invalid even when its reflex passed', async t => {
 	const dir = await mkdtemp(path.join(os.tmpdir(), 'bench-damage-'));
 	t.after(() => rm(dir, { recursive: true, force: true }));

@@ -78,6 +78,9 @@ public final class ServerSpawnerHoldController implements ServerController {
 	private ServerController fallback;
 	/** The fight_target form's ordinary fight, run when no hold applies here (no spawner or no cell site). */
 	private java.util.function.Supplier<ServerController> openFight;
+	/** fight_target form: the model's open fight_target, its fleeAtHealth capped (or null for the model's own). */
+	private java.util.function.Function<Float, ServerController> openTarget;
+	private boolean resumeChecked;
 	/** Ticks spent looking round for a cell site before the ordinary fight takes over. */
 	private int siteLooks;
 	private String fallbackWhy = "";
@@ -264,9 +267,10 @@ public final class ServerSpawnerHoldController implements ServerController {
 	}
 
 	/** The fight_target form: held from the cell until {@code target} dies; {@code openFight} runs when no hold applies. */
-	public ServerSpawnerHoldController untilDead(LivingEntity target, java.util.function.Supplier<ServerController> openFight) {
+	public ServerSpawnerHoldController untilDead(LivingEntity target, java.util.function.Function<Float, ServerController> openFight) {
 		this.target = target;
-		this.openFight = openFight;
+		this.openTarget = openFight;
+		this.openFight = () -> openFight.apply(null);
 		return this;
 	}
 
@@ -313,11 +317,17 @@ public final class ServerSpawnerHoldController implements ServerController {
 		var seenSpawner = spawner == null ? null : SeenTerrain.of(player).known(spawner.getX(), spawner.getY(), spawner.getZ());
 		boolean spawnerGone = seenSpawner != null && !seenSpawner.is(Blocks.SPAWNER);
 		// The fight_target form ends at its own timeout with fight_target's code (the hold's own is FIGHT_UNTIL_TIMED_OUT).
-		if (target != null && elapsed >= timeoutMs)
+		// A kill's drop look and pickup under way (the open fight's, or the hold's own) finish first, up to 10 s past it.
+		boolean pickingUp = target != null && target.isDeadOrDying() && (openPart != null || collector != null || ledge != null || returning);
+		if (target != null && elapsed >= timeoutMs && !(pickingUp && elapsed < timeoutMs + KILL_COLLECT_MAX_TICKS * 50L))
 			return endTarget(player, now, TickResult.timedOut("FIGHT_TIMED_OUT", String.format(Locale.ROOT, "%.0f s timeout reached; %s", timeoutMs / 1000.0D,
 					summary(player, elapsed)), progress(player)));
+		// fight_target form: below TURTLE_HEALTH the wall-in is the answer to low health while one is left (a hand-back at
+		// fleeAtHealth 12 would leave the hurt body in the open with no step taken); with none left the open fight's own
+		// floor and retreat apply. Its timeout is the check above.
+		float floor = target != null && wallInLeft(player) ? -1.0F : fleeAtHealth;
 		String code = SpawnerHold.handBack(new SpawnerHold.Sense(ServerFightUntilController.count(player, untilItem), untilCount, player.getHealth(),
-				fleeAtHealth, player.getFoodData().getFoodLevel(), foodSlot(player) >= 0, elapsed, timeoutMs, spawnerGone,
+				floor, player.getFoodData().getFoodLevel(), foodSlot(player) >= 0, elapsed, target != null ? Long.MAX_VALUE : timeoutMs, spawnerGone,
 				phase == Phase.HOLD ? elapsed - lastBlazeMs : 0L, phase == Phase.HOLD || emergency != null, sitesFailed, noSiteLeft,
 				phase == Phase.HOLD && SpawnerHold.breached(witherHits, player.level().getGameTime())));
 		// The open fight_target reports its own kill (and collects the drop first).
@@ -337,11 +347,18 @@ public final class ServerSpawnerHoldController implements ServerController {
 		// fight_target form, open fight on: the model's own fight_target runs; hurt below TURTLE_HEALTH, the body walls in
 		// where it stands and heals (emergency), then fights on. No site walk: in the blaze spawner rooms the deaths came on
 		// the walk to a cell site and while building it under fire.
+		// A call that starts walled up in the last hold's cell heals on there and opens the doorway once healed (a blaze the
+		// wall hides could not be fought from inside it).
+		if (target != null && SpawnerHold.OPEN_FIGHT && !resumeChecked && phase != Phase.HOLD && openPart == null && emergency == null) {
+			resumeChecked = true;
+			if (resumeCell(player)) return TickResult.running(progress(player));
+		}
 		if (target != null && SpawnerHold.OPEN_FIGHT && phase != Phase.HOLD && emergency == null
 				&& (player.getHealth() >= SpawnerHold.TURTLE_HEALTH || !canWallIn(player) || openPart != null && target.isDeadOrDying())) {
 			if (openPart == null) {
 				try {
-					openPart = openFight.get();
+					// While a wall-in is left the open fight's floor stays under TURTLE_HEALTH: the wall-in answers low health.
+					openPart = openTarget.apply(wallInLeft(player) ? SpawnerHold.TURTLE_HEALTH - 1.0F : null);
 				} catch (dev.agaminggod.mineagen.agent.AgentDomainException lost) {
 					// The named blaze went out of sight while the body healed walled in: the call ends as fight_target does for
 					// a target it cannot see (the model picks the next blaze), not with an exception.
@@ -459,19 +476,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 		Held held = LAST_HOLD.get(player.getUUID());
 		if (held != null && held.spawner().equals(spawner) && player.blockPosition().equals(held.cell()) && triedSites.isEmpty()) {
 			// Resumed where the last hold stood: the same cell, opened again first if it was walled up.
-			cell = held.cell();
-			opening = held.opening();
-			triedSites.add(cell);
-			blockItem = roofing.blockItem(player);
-			BlockPos doorway = cell.relative(opening);
-			if (!player.level().getBlockState(doorway).getCollisionShape(player.level(), doorway).isEmpty()
-					|| !player.level().getBlockState(doorway.above()).getCollisionShape(player.level(), doorway.above()).isEmpty()) {
-				sealed = true;
-				// Walled in and still hurt: heal on before opening (the last call ended mid-heal).
-				if (player.getHealth() < SpawnerHold.TURTLE_DONE) turtleSinceMs = Math.max(0L, lastElapsed);
-				else reopening = true;
-			}
-			note("resumed the hold in its cell " + cell.toShortString() + (reopening ? ", doorway walled up" : ""));
+			resume(player, held);
 			return enterHold(player);
 		}
 		var seen = SeenTerrain.of(player);
@@ -597,6 +602,38 @@ public final class ServerSpawnerHoldController implements ServerController {
 		return TickResult.running(progress(player));
 	}
 
+	private void resume(ServerPlayer player, Held held) {
+		cell = held.cell();
+		opening = held.opening();
+		triedSites.add(cell);
+		blockItem = roofing.blockItem(player);
+		if (doorwayClosed(player, cell, opening, false)) {
+			sealed = true;
+			// Walled in and still hurt: heal on before opening (the last call ended mid-heal).
+			if (player.getHealth() < SpawnerHold.TURTLE_DONE) turtleSinceMs = Math.max(0L, lastElapsed);
+			else reopening = true;
+		}
+		note("resumed the hold in its cell " + cell.toShortString() + (sealed ? ", doorway walled up" : ""));
+	}
+
+	/** fight_target form: the body stands walled up in the last hold's cell; it heals on there (true) or fights (false). */
+	private boolean resumeCell(ServerPlayer player) {
+		Held held = LAST_HOLD.get(player.getUUID());
+		if (held == null || spawner == null || !held.spawner().equals(spawner) || !player.blockPosition().equals(held.cell())
+				|| !doorwayClosed(player, held.cell(), held.opening(), false)) return false;
+		resume(player, held);
+		enterHold(player);
+		return true;
+	}
+
+	/** The doorway of {@code at} facing {@code door}: any block in it ({@code both} false), or both its blocks. */
+	private static boolean doorwayClosed(ServerPlayer player, BlockPos at, Direction door, boolean both) {
+		BlockPos low = at.relative(door), high = low.above();
+		boolean sill = !player.level().getBlockState(low).getCollisionShape(player.level(), low).isEmpty();
+		boolean window = !player.level().getBlockState(high).getCollisionShape(player.level(), high).isEmpty();
+		return both ? sill && window : sill || window;
+	}
+
 	private TickResult enterHold(ServerPlayer player) {
 		phase = Phase.HOLD;
 		LAST_HOLD.put(player.getUUID(), new Held(spawner, cell, opening));
@@ -647,6 +684,8 @@ public final class ServerSpawnerHoldController implements ServerController {
 		if (reopening) {
 			TickResult opening = reopen(player, now);
 			if (opening != null) return opening;
+			// fight_target form: the doorway is open and the open fight takes over next tick (it would drop a rod trip).
+			if (target != null && phase != Phase.HOLD) return TickResult.running(progress(player));
 		}
 		boolean shot = ReflexSensors.blockableShot(player, 1.5D) != null;
 		boolean turtling = sealed ? SpawnerHold.sealedHeal(player.getHealth(), turtleSinceMs, elapsed)
@@ -722,6 +761,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 				reopening = true;
 				TickResult opening = reopen(player, now);
 				if (opening != null) return opening;
+				if (target != null && phase != Phase.HOLD) return TickResult.running(progress(player));
 			}
 		}
 		boolean blazeInReach = !player.level().getEntitiesOfClass(LivingEntity.class, player.getBoundingBox().inflate(SpawnerHold.EAT_BLAZE_CLEAR),
@@ -924,6 +964,19 @@ public final class ServerSpawnerHoldController implements ServerController {
 			emergencyFails++;
 			note("walling in where it stood failed (" + emergencyFails + "): " + built.reasonCode());
 			emergencyRetryTick = player.level().getGameTime() + 20L;
+			if (emergencyFails >= EMERGENCY_TRIES && doorwayClosed(player, emergencyCell, emergencyOpening, false)) {
+				// No tries left and part of the doorway placed (a blaze hovering in the window): the body would fight on boxed
+				// behind its own sill. It becomes the cell and is mined open first.
+				cell = emergencyCell;
+				opening = emergencyOpening;
+				triedSites.add(cell);
+				sealed = true;
+				reopening = true;
+				LAST_HOLD.put(player.getUUID(), new Held(spawner, cell, opening));
+				phase = Phase.HOLD;
+				note("walling in gave up with part of the doorway placed: mining it open");
+				return TickResult.running(progress(player));
+			}
 			return null;
 		}
 		cell = emergencyCell;
@@ -941,14 +994,24 @@ public final class ServerSpawnerHoldController implements ServerController {
 	/** fight_target form: end now, or first open a walled-up doorway so the next call can see out (death and lava end at once). */
 	private TickResult endTarget(ServerPlayer player, long now, TickResult end) {
 		if (!(sealed || sealWork != null || emergency != null) || cell == null && emergencyCell == null) return stop(player, end);
-		// Still hurt and walled in: the call ends there and the body heals on behind the wall. Opening first exposed a hurt
-		// body at every 15 s call's end (blaze spawner rooms, review-fix jar: alive in 3 of 15 against 19 of 30 before).
-		BlockPos at = cell != null ? cell : emergencyCell;
-		Direction door = cell != null ? opening : emergencyOpening;
-		if (sealed && player.getHealth() < SpawnerHold.TURTLE_DONE && sealWork == null && emergency == null && at != null && door != null)
-			return stop(player, new TickResult(end.state(), end.reasonCode(), end.message() + String.format(Locale.ROOT,
-					"; still walled in at %s to heal (health %.1f), doorway %s: mine it open once healed to fight on",
-					at.toShortString(), player.getHealth(), at.relative(door).toShortString()), end.progress()));
+		// Still hurt: the call ends walled in and the body heals on behind the wall, also when the wall-in's last block
+		// landed this tick (its result comes a tick later). Opening first exposed a hurt body at every 15 s call's end (blaze
+		// spawner rooms, review-fix jar: alive in 3 of 15 against 19 of 30 before). The next blaze fight_target or
+		// fight_until from this cell heals on there and opens the doorway once healed.
+		if (player.getHealth() < SpawnerHold.TURTLE_DONE) {
+			BlockPos at = emergency != null || cell == null ? emergencyCell : cell;
+			Direction door = emergency != null || cell == null ? emergencyOpening : opening;
+			if (sealWork != null) { sealWork.cancel(player); sealWork = null; }
+			if (emergency != null) { emergency.cancel(player); emergency = null; }
+			if (at != null && door != null && doorwayClosed(player, at, door, false)) {
+				LAST_HOLD.put(player.getUUID(), new Held(spawner, at, door));
+				return stop(player, new TickResult(end.state(), end.reasonCode(), end.message() + String.format(Locale.ROOT,
+						"; still walled in at %s to heal (health %.1f), doorway %s: the next blaze fight from here heals on and opens it",
+						at.toShortString(), player.getHealth(), at.relative(door).toShortString()), end.progress()));
+			}
+			// Nothing of the doorway placed: the body can walk out, so the call ends as it stands.
+			if (cell == null || !doorwayClosed(player, cell, opening, false)) return stop(player, end);
+		}
 		if (sealWork != null) { sealWork.cancel(player); sealWork = null; }
 		if (emergency != null) {
 			emergency.cancel(player);

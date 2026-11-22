@@ -1861,6 +1861,14 @@ public final class ServerActionExecutor {
 	}
 
 	/** fight_target's ordinary fight (the open fight, or a named dragon part). */
+	/** The model's arguments with fleeAtHealth at most {@code cap} (null keeps them as given). */
+	private static JsonObject fleeCapped(JsonObject arguments, Float cap) {
+		if (cap == null || !arguments.has("fleeAtHealth") || arguments.get("fleeAtHealth").getAsFloat() <= cap) return arguments;
+		JsonObject capped = arguments.deepCopy();
+		capped.addProperty("fleeAtHealth", cap);
+		return capped;
+	}
+
 	private ServerFightController openFightTarget(ServerPlayer player, JsonObject arguments) {
 		return strikePart(player, string(arguments, "targetId"), new ServerFightController(
 				combatTarget(player, string(arguments, "targetId")),
@@ -1910,7 +1918,7 @@ public final class ServerActionExecutor {
 		// drop only with no hostile near, as the ordinary fight_target does.
 		until.addProperty("collect", arguments.has("collect") && bool(arguments, "collect"));
 		return new dev.agaminggod.mineagen.server.runtime.controller.ServerSpawnerHoldController(player, until, protection, spawner,
-				roofing(request), GameClock.nowMs()).untilDead(target, () -> openFightTarget(player, arguments));
+				roofing(request), GameClock.nowMs()).untilDead(target, cap -> openFightTarget(player, fleeCapped(arguments, cap)));
 	}
 
 	/** fight_until; blazes at a seen fortress spawner get the body-owned spawner hold (roof:false keeps the open fight). */

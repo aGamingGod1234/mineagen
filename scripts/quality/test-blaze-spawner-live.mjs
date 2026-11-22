@@ -582,6 +582,11 @@ try {
 	}
 } finally {
 	results.goalEvents = goalEvents;
+	// The room's pass bar (benchmark-rooms.json passWhen): every run alive at the end with a blaze killed and a rod kept.
+	// Alive alone passed a body that stayed walled in or was refused all window (0 fights, kills or rods).
+	const allRuns = Object.values(results.variants ?? {}).flatMap(v => v.runs ?? []);
+	results.runsKilledAndKeptRod = allRuns.filter(r => r.deaths === 0 && r.kills >= 1 && r.rodsAtEnd >= 1).length;
+	results.allRunsKilledAndKeptRod = allRuns.length > 0 && results.runsKilledAndKeptRod === allRuns.length ? 1 : 0;
 	await writeFile(join(out, 'blaze-spawner.json'), JSON.stringify(results, null, 2)).catch(() => {});
 	if (rcon) await command('stop').catch(() => {});
 	bridge?.stop(); await rcon?.close();
