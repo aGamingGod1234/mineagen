@@ -2705,14 +2705,16 @@ export class DynamicCoordinator extends EventEmitter {
 
 	/** Cancels the walk a stalled obtain left running; the model gets obtain's result without the hand-back of that leg. */
 	async #cancelStalledLeg(work, toolRequest, record, result) {
-		const { running, recoveryHint, ...rest } = result;
+		const { running, ...rest } = result;
 		let cancelled;
 		try {
 			cancelled = await this.#nativeRuntime.execute({ ...toolRequest, callId: `${String(toolRequest.callId).slice(0, 100)}:stalled-leg`,
 				tool: normalizeMinecraftToolCall('cancelAction', { actionId: running.actionId, goalRevision: record.goalRevision }) }, record, { lifecycleGeneration: work.lifecycleGeneration });
 		} catch (error) { cancelled = { state: 'FAILED', reasonCode: error?.code ?? 'ACTION_ERROR' }; }
 		this.#writeTrace('native_stalled_leg_cancelled', { agentId: record.agentId, goalRevision: record.goalRevision, actionId: running.actionId, state: cancelled?.state ?? null, reasonCode: cancelled?.reasonCode ?? null });
-		return { ...rest, stoppedLeg: { actionId: running.actionId, ...(typeof running.actionType === 'string' ? { actionType: running.actionType } : {}), cancel: cancelled?.state ?? null } };
+		// A cancel that did not land (no acknowledgement in time) leaves the walk running: the model still gets it to handle.
+		return cancelled?.state === 'CANCELLED' ? { ...rest, stoppedLeg: { actionId: running.actionId, cancel: 'CANCELLED' } }
+			: { ...result, stoppedLeg: { actionId: running.actionId, cancel: cancelled?.state ?? null } };
 	}
 
 	async #executeNativeToolCall(work, toolRequest) {
