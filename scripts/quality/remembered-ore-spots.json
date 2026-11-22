@@ -70,7 +70,8 @@
    },
    {
     "actionType": "dig_to",
-    "pattern": "stairs_up"
+    "pattern": "stairs_up",
+    "max": 1
    },
    {
     "actionType": "dig_to",

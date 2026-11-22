@@ -835,7 +835,11 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		const wet = below !== undefined && /(^|:)(lava|water)$/.test(below.blockId);
 		if (wet || rim === null) { await pickUpNear(where, need.accept, 6); return; }
 		// navigate_to: travel_to takes no tolerance under 1 block, which is the rim again.
-		await act('navigate_to', { x: where.x + 0.5, y: where.y, z: where.z + 0.5, tolerance: 0.4, timeoutMs: 20_000 });
+		// The pocket's floor is where the last of the vein was, one or two below its top cell: the first standable one.
+		for (let down = 0; down <= 2; down++) {
+			const went = await act('navigate_to', { x: where.x + 0.5, y: where.y - down, z: where.z + 0.5, tolerance: 0.4, timeoutMs: 20_000 });
+			if (went?.state === 'SUCCEEDED' || went?.reasonCode !== 'NO_STANDABLE_PATH' || body.interrupted() || body.stopped()) break;
+		}
 		if (body.interrupted() || body.stopped()) return;
 		await pickUpNear(where, need.accept, 6);
 	};
