@@ -197,3 +197,26 @@ test('seenRowCost against searchCost: a near cave ore is worth going back to, on
 	assert.ok(seenRowCost({ id: 'minecraft:iron_ore', x: 298, y: 14, z: -261 }, o) > 8);
 	assert.ok(seenRowCost({ id: 'minecraft:iron_ore', x: 298, y: 14, z: -261, enclosed: true }, o) > seenRowCost({ id: 'minecraft:iron_ore', x: 298, y: 14, z: -261 }, o));
 });
+
+test('a village chest out of sight is found by looking into the houses through their doors, nearest first', async () => {
+	const body = chestBody([['iron_ingot', 4], ['bread', 2]]);
+	const pos = { ...at };
+	let inside = false;
+	const act = body.act;
+	body.act = async (type, args) => {
+		if (type === 'travel_to') { Object.assign(pos, { x: args.x, y: args.y ?? pos.y, z: args.z }); if (args.x === 300.5 && args.z === -229.5 && args.tolerance === 0.5) inside = true; }
+		if (type === 'set_door') { body.calls.push([type, args]); return { state: 'SUCCEEDED' }; }
+		return act(type, args);
+	};
+	const observe = async () => ({ ...village(), player: { ...pos, health: 20, onGround: true, skyOpen: true },
+		inventory: { selectedSlot: 0, items: [{ itemId: 'minecraft:stone_pickaxe', count: 1, slot: 0 }, ...[...body.inv].map(([id, count], i) => ({ itemId: `minecraft:${id}`, count, slot: i + 1 }))] },
+		seenResources: [{ id: 'minecraft:oak_door', kind: 'block', x: 330, y: 77, z: -250, count: 1 }, { id: 'minecraft:oak_door', kind: 'block', x: 300, y: 77, z: -230, count: 1 }],
+		blocks: inside ? [{ blockId: 'minecraft:chest', x: 302, y: 77, z: -228 }] : [], entities: [] });
+	const looted = { opened: [], searched: [], structures: [], doors: [] };
+	const result = await runObtain({ item: 'iron_ingot', count: 3 }, { ...body, observe, stopped: () => false, interrupted: () => false, note: () => {},
+		search: async () => ({ state: 'FAILED', reasonCode: 'FIND_NOT_FOUND' }) }, { now: (() => { let t = 0; return () => (t += 100); })(), looted });
+	assert.equal(result.state, 'SUCCEEDED', JSON.stringify(result));
+	assert.deepEqual(looted.doors.map((d) => d.x), [300], 'the nearer house first, and no further once a chest is found');
+	assert.ok(body.calls.some(([type, args]) => type === 'set_door' && args.open === true));
+	assert.deepEqual(looted.opened, ['302,77,-228']);
+});

@@ -117,6 +117,10 @@ export function gearOf(o) {
 
 // Structures seen this life, kept so a village's chests stay a source after the body walks out of its sight.
 const KEPT_STRUCTURES = 16;
+// Houses looked into per loot step before the search, and the door blocks that lead into them.
+const DOOR_VISITS = 6;
+const DOOR = /^(minecraft:)?[a-z_]+_door$/;
+const DOOR_KINDS = ['oak', 'spruce', 'birch', 'acacia', 'dark_oak', 'jungle', 'mangrove', 'cherry', 'pale_oak'].map((kind) => `minecraft:${kind}_door`);
 export function rememberStructures(looted, o) {
 	for (const row of o?.sighted?.structures ?? []) {
 		if (![row?.x, row?.y, row?.z].every(Number.isFinite) || typeof row.structure !== 'string') continue;
@@ -371,6 +375,7 @@ export async function locate(need, body, { budget, timeoutMs }) {
  */
 export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TIMEOUT_MS }, rawBody, { index = howtoIndex(), now = Date.now, locate: find = locate, placed = [], loads = [], approaches = [], looted = { opened: [], searched: [], structures: [], misses: {} } } = {}) {
 	looted.misses ??= {};
+	looted.doors ??= [];
 	// The deadline holds everywhere: every body call's own timeout and a wait's duration end by it, and past it nothing
 	// more is dispatched (cleanup alone gets a short grace to pick up what was placed).
 	const deadline = now() + timeoutMs;
@@ -1234,6 +1239,15 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		if (why !== null && why !== 'stopped') fail('loot');
 		return why;
 	};
+	// A door no row lists yet: find's sight search for any door kind, kept to the structure and to doors not yet tried.
+	const doorInSight = async (source, reach) => {
+		if (typeof body.search !== 'function') return null;
+		const result = await body.search({ block: 'minecraft:oak_door', also: DOOR_KINDS.slice(1) }, { timeoutMs: Math.min(30_000, left()), within: Math.min(48, reach) });
+		const at = result?.find?.seen;
+		if (result?.reasonCode !== 'FIND_SEEN' || !at || ![at.x, at.y, at.z].every(Number.isFinite) || Math.hypot(at.x - source.x, at.z - source.z) > reach
+			|| looted.doors.some((d) => Math.hypot(d.x - at.x, d.z - at.z) < 2 && Math.abs(d.y - at.y) < 2)) return null;
+		return { x: at.x, y: at.y, z: at.z, blockId: at.id };
+	};
 	const lootOnce = async (need) => {
 		const source = need.sources?.[0];
 		if (!source) return `no chest left for ${need.accept[0]}`;
@@ -1252,8 +1266,30 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			const inSight = lootSources(await body.observe(), { opened: new Set([...looted.opened, ...budget.failed]), searched: new Set(looted.searched), structures: looted.structures })
 				.find((row) => row.kind === 'chest');
 			chest = inSight ?? null;
+			// A village's chests stand inside its houses, out of sight from the street: look in through the doors, nearest
+			// first, as a player walks into each house.
+			const reach = structureReach(source.name);
+			const known = () => body.observe().then((o) => [...(Array.isArray(o.seenResources) ? o.seenResources.map((row) => ({ ...row, blockId: row.id })) : []), ...knownBlocks(o)]);
+			for (let tries = 0; chest === null && tries < DOOR_VISITS && left() > 20_000; tries++) {
+				const rows = await known();
+				const at = bodyAt(await body.observe());
+				const door = rows.filter((row) => DOOR.test(row.blockId ?? '') && [row.x, row.y, row.z].every(Number.isFinite)
+					&& Math.hypot(row.x - source.x, row.z - source.z) <= reach && !looted.doors.some((d) => Math.hypot(d.x - row.x, d.z - row.z) < 2 && Math.abs(d.y - row.y) < 2))
+					.sort((a, b) => (at ? Math.hypot(a.x - at.x, a.z - at.z) - Math.hypot(b.x - at.x, b.z - at.z) : 0))[0]
+					?? await doorInSight(source, reach);
+				if (!door) break;
+				looted.doors.push({ x: door.x, y: door.y, z: door.z });
+				step(`look into the house through the door at ${cellKey(door)}`);
+				if (!(await walk(door, 2))) { if (body.interrupted() || body.stopped()) return 'stopped'; continue; }
+				await act('set_door', { x: door.x, y: door.y, z: door.z, open: true });
+				await act('travel_to', { x: Math.floor(door.x) + 0.5, y: Math.floor(door.y), z: Math.floor(door.z) + 0.5, tolerance: 0.5, timeoutMs: 15_000 });
+				if (body.interrupted() || body.stopped()) return 'stopped';
+				chest = lootSources(await body.observe(), { opened: new Set([...looted.opened, ...budget.failed]), searched: new Set(looted.searched), structures: looted.structures })
+					.find((row) => row.kind === 'chest') ?? null;
+			}
 			if (chest === null && typeof body.search === 'function') {
-				const result = await body.search({ block: 'minecraft:chest' }, { timeoutMs: Math.min(60_000, left()) });
+				// Kept to the structure: legs of half the radius, a hand-back at its edge.
+				const result = await body.search({ block: 'minecraft:chest' }, { timeoutMs: Math.min(60_000, left()), within: Math.min(48, reach) });
 				const at = result?.find?.seen;
 				// Only a chest inside this structure, not yet opened or given up on: a chest elsewhere is someone's storage.
 				if (result?.reasonCode === 'FIND_SEEN' && at && [at.x, at.y, at.z].every(Number.isFinite) && !looted.opened.includes(cellKey(at))

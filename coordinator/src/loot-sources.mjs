@@ -75,9 +75,11 @@ export function lootSources(o, { opened = new Set(), searched = new Set(), struc
 	const owner = (row) => all.filter((s) => Math.hypot(s.x - row.x, s.z - row.z) <= (STRUCTURE_REACH[s.name.split(' ')[0]] ?? DEFAULT_REACH))
 		.sort((a, b) => Math.hypot(a.x - row.x, a.z - row.z) - Math.hypot(b.x - row.x, b.z - row.z))[0] ?? null;
 	// Containers: the shared seen-resource rows when present (they carry opened), else the blocks in view.
-	const rows = Array.isArray(o.seenResources)
-		? o.seenResources.filter((row) => row?.kind === 'container' && row.opened !== true && (!row.dimension || row.dimension === dimension))
-		: [...(o.blocks ?? []), ...(o.nearbyContainers ?? [])].map((row) => ({ ...row, id: row.blockId }));
+	// Containers: the shared seen-resource rows (they carry opened) and the blocks in view now, which a row may not hold yet.
+	const shared = Array.isArray(o.seenResources) ? o.seenResources.filter((row) => row?.kind === 'container' && (!row.dimension || row.dimension === dimension)) : [];
+	const openedShared = new Set(shared.filter((row) => row.opened === true).map(key));
+	const rows = [...shared.filter((row) => row.opened !== true), ...[...(o.blocks ?? []), ...(o.nearbyContainers ?? [])].map((row) => ({ ...row, id: row.blockId }))]
+		.filter((row) => finite(row) && !openedShared.has(key(row)));
 	const chests = new Map();
 	for (const row of rows) {
 		if (!finite(row) || !CONTAINERS.test(row.id ?? row.blockId ?? '') || opened.has(key(row))) continue;
