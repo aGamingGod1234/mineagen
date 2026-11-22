@@ -402,6 +402,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 			serverSocket = socket;
 			manager.setRuntimeHooks(this);
 			Thread.ofPlatform().daemon().name("mineagen-v2-accept").start(this::acceptLoop);
+			Thread.ofPlatform().daemon().name("mineagen-v2-pause-watch").start(this::pauseWatchLoop);
 		} catch (IOException exception) {
 			running.set(false);
 			if (socket != null) {
@@ -1028,6 +1029,39 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		}
 	}
 
+	/** How often the pause watcher reads the server's pause state. */
+	static final long PAUSE_WATCH_INTERVAL_MS = 250L;
+	/** The pause state last told to the coordinator on the current session; false for a new one. */
+	private volatile boolean pauseAnnounced;
+
+	/**
+	 * Tells the coordinator the moment a single-player pause starts or ends, as an unprompted heartbeat with tickClock's
+	 * fields. Learned only from the next heartbeat reply (up to its 5 s probe), a program with a second or two left would
+	 * time out before the coordinator held its deadline.
+	 */
+	private void pauseWatchLoop() {
+		while (running.get()) {
+			try {
+				Thread.sleep(PAUSE_WATCH_INTERVAL_MS);
+			} catch (InterruptedException exception) {
+				Thread.currentThread().interrupt();
+				return;
+			}
+			net.minecraft.server.MinecraftServer server = manager == null ? null : manager.server();
+			announcePause(server != null && server.isPaused());
+		}
+	}
+
+	/** Sends the heartbeat fields when {@code paused} differs from what the current tickClock session was last told. */
+	void announcePause(boolean paused) {
+		synchronized (publicationLock) {
+			Session active = session;
+			if (paused == pauseAnnounced || active == null || !active.open.get() || !active.authenticated.get() || !active.tickClock) return;
+			pauseAnnounced = paused;
+			send("heartbeat", "server", heartbeatPayload(paused));
+		}
+	}
+
 	/** Without a tick this long, a heartbeat is answered off the server thread (see {@link #accept}). */
 	static final long HEARTBEAT_DIRECT_AFTER_MS = 5_000L;
 
@@ -1040,12 +1074,16 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 
 	/** How long ago the server thread last began a tick, and whether the server is paused (a single-player pause). */
 	JsonObject heartbeatPayload() {
+		net.minecraft.server.MinecraftServer server = manager == null ? null : manager.server();
+		return heartbeatPayload(server != null && server.isPaused());
+	}
+
+	JsonObject heartbeatPayload(boolean paused) {
 		long last = lastTickNanos;
 		long ageMs = last == 0L ? 0L : Math.max(0L, (System.nanoTime() - last) / 1_000_000L);
-		net.minecraft.server.MinecraftServer server = manager == null ? null : manager.server();
 		JsonObject payload = new JsonObject();
 		payload.addProperty("tickAgeMs", ageMs);
-		payload.addProperty("paused", server != null && server.isPaused());
+		payload.addProperty("paused", paused);
 		return payload;
 	}
 
@@ -1139,6 +1177,8 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		source.pausedByFacts = announcedCapability(envelope.payload(), "pausedByFacts");
 		source.killFacts = announcedCapability(envelope.payload(), "killFacts");
 		source.tickClock = announcedCapability(envelope.payload(), "tickClock");
+		// A new coordinator assumes a running server; the watcher tells it of a pause from here on.
+		pauseAnnounced = false;
 		source.actionIssuer = announcedCapability(envelope.payload(), "actionIssuer");
 
 		while (true) {

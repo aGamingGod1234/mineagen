@@ -1789,6 +1789,17 @@ public final class MultiplexedServerBridgeVerification {
 					} else {
 						assertTrue(reply.payload().size() == 0, "an older coordinator gets the empty heartbeat its schema accepts");
 					}
+					// A pause is told the moment it starts and ends, unprompted, not at the next heartbeat probe up to 5 s later.
+					bridge.announcePause(true);
+					bridge.announcePause(true);
+					bridge.announcePause(false);
+					if (tickClock) {
+						BridgeEnvelope paused = codec.decode(reader.readLine());
+						for (int skipped = 0; !"heartbeat".equals(paused.type()) && skipped < 8; skipped++) paused = codec.decode(reader.readLine());
+						assertTrue("heartbeat".equals(paused.type()) && paused.payload().get("paused").getAsBoolean(), "the pause is announced at once");
+						BridgeEnvelope resumed = codec.decode(reader.readLine());
+						assertTrue("heartbeat".equals(resumed.type()) && !resumed.payload().get("paused").getAsBoolean(), "one announcement per change, then the resume");
+					}
 				}
 			} catch (Exception exception) {
 				throw new AssertionError("heartbeat without ticks verification failed", exception);

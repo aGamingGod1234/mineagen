@@ -1548,6 +1548,19 @@ test('a paused single-player server keeps the link: its heartbeats renew the dea
 	assert.equal(errors.length, 0);
 });
 
+test('the server announces a pause unprompted, so deadlines stop before the next heartbeat probe', async (t) => {
+	// The mod's pause watcher sends the heartbeat fields the moment a pause starts; waiting for the 5 s probe, a program
+	// with a second or two left would time out first.
+	const { socket, errors, pauses, beat } = await tickClockBridge(t);
+	const probesBefore = socket.writes.filter((line) => JSON.parse(line).type === 'heartbeat').length;
+	beat('server-pause-start', { tickAgeMs: 120, paused: true });
+	assert.deepEqual(pauses, [true], 'the pause is known the moment it is announced');
+	assert.equal(socket.writes.filter((line) => JSON.parse(line).type === 'heartbeat').length, probesBefore, 'no probe was needed');
+	beat('server-pause-end', { tickAgeMs: 3, paused: false });
+	assert.deepEqual(pauses, [true, false]);
+	assert.equal(errors.length, 0);
+});
+
 test('a server that stopped ticking without a pause is dead, though its network thread still answers', async (t) => {
 	const { socket, errors, beat } = await tickClockBridge(t);
 	beat('server-slow', { tickAgeMs: 20, paused: false });
