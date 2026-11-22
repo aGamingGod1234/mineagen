@@ -15,6 +15,8 @@
 //   skeleton the body on open ground with an offhand shield, a skeleton 10 blocks east, a 3x3 stone wall 3 blocks west.
 //   pitskel  the playtest's cave death: a hole 2 deep at 7 health, cobblestone and a stone sword, a bow skeleton at the rim
 //            beside it. Pass: alive, and out of the hole or the skeleton dead, within 40 s.
+//   pitcreeper the hole 4 deep with a stone pickaxe only (stairs up) and a creeper on the surface 7 blocks away: out
+//            alive within 60 s; damage and deaths are read too (climbing on must not trade a stop for a blast).
 // Optional regressions (escape jar): archer-direction puts a nearer zombie west of the body and a skeleton east.
 // archer-resume pauses the run with a reflex while the skeleton is still in range.
 // The arm is read from the jar: a jar with the escape body job plays "escape" (every decision is do_step escape); any
@@ -47,7 +49,7 @@ const rooms = (roomsArg ?? 'deep;stair;pit;pitdig;shaft;lake;skeleton').split(';
 const THINK_MS = Number(process.env.ESCAPE_THINK_MS ?? 6_000);
 const PAD_Y = 150;
 const LEGACY = process.env.ESCAPE_LEGACY === 'wake' ? 'wake' : 'strong';
-const WINDOW_MS = { deep: 60_000, stair: 60_000, pit: 60_000, pitdig: 60_000, shaft: 90_000, lake: 90_000, skeleton: 30_000, pitskel: 40_000,
+const WINDOW_MS = { deep: 60_000, stair: 60_000, pit: 60_000, pitdig: 60_000, shaft: 90_000, lake: 90_000, skeleton: 30_000, pitskel: 40_000, pitcreeper: 60_000,
 	'archer-direction': 15_000, 'archer-resume': 15_000 };
 const out = path.resolve(outArg);
 await mkdir(out, { recursive: true });
@@ -117,6 +119,12 @@ try {
 		} else if (room === 'stair') {
 			for (let i = 0; i < 8; i++) await s.command(`fill ${X + i} ${F - 1 - i} ${Z} ${X + i} ${Math.min(F - 1, F + 1 - i)} ${Z} minecraft:water`);
 			start = [X + 7.5, F - 8, Z + 0.5]; drain = 3_000; facing = 90; bank = { x: X - 1.5, z: Z + 0.5 };
+		} else if (room === 'pitcreeper') {
+			// Climbing a stair out toward a creeper: the hole 4 deep with a stone pickaxe only (stairs up), a creeper on the
+			// surface 7 blocks from the hole that hunts the body once it is out.
+			await s.command(`fill ${X} ${F - 4} ${Z} ${X} ${F - 1} ${Z} minecraft:air`);
+			start = [X + 0.5, F - 4, Z + 0.5];
+			await s.command(`item replace entity ${NAME} hotbar.0 with minecraft:stone_pickaxe 1`);
 		} else if (room === 'pit' || room === 'pitdig') {
 			const depth = room === 'pit' ? 5 : 4;
 			await s.command(`fill ${X} ${F - depth} ${Z} ${X} ${F - 1} ${Z} minecraft:air`);
@@ -190,6 +198,11 @@ try {
 			continue;
 		}
 		let skeleton = null;
+		if (room === 'pitcreeper') {
+			await s.command('difficulty normal');
+			await s.command(`summon minecraft:creeper ${X + 7.5} ${F} ${Z + 0.5} {PersistenceRequired:1b}`);
+			await sleep(500);
+		}
 		if (room === 'pitskel') {
 			await s.command('difficulty normal');
 			await s.command(`damage ${NAME} 13 minecraft:generic`);
@@ -240,7 +253,7 @@ try {
 				const feet = [Math.floor(p[0]), Math.floor(p[1]), Math.floor(p[2])];
 				return await onGround() && !(await blockAt(...feet, 'minecraft:water')) && p[1] >= F - 0.01;
 			}
-			if (room === 'pit' || room === 'pitdig' || room === 'shaft') return p[1] >= F - 0.01 && await onGround();
+			if (room === 'pit' || room === 'pitdig' || room === 'shaft' || room === 'pitcreeper') return p[1] >= F - 0.01 && await onGround();
 			// Out of the hole, or the skeleton beside it dead.
 			if (room === 'pitskel') return p[1] >= F - 0.01 && await onGround()
 				|| !String(await s.command('execute if entity @e[type=minecraft:skeleton]').catch(() => 'passed')).includes('passed');
@@ -252,6 +265,7 @@ try {
 			: room === 'skeleton' ? skeleton !== null && !(await hidden())
 			: room === 'shaft' || room === 'lake' ? await blockAt(Math.floor(live[0]), Math.floor(live[1]), Math.floor(live[2]), 'minecraft:water')
 			: room === 'pitskel' ? live[1] < F - 1 : live[1] < F - 2;
+		// pitcreeper judges the climb on survival and damage too: climbing on must not trade a stop for a blast.
 		const t0 = Date.now(), window = WINDOW_MS[room];
 		let calls = 0, executed = 0, last = null, safeAt = null;
 		const results = [];
@@ -315,6 +329,7 @@ try {
 		rows.push(row);
 		console.log(`[${room} ${row.arm} ${run}] ${roomVerdict(row).verdict} calls=${calls} safe=${row.safeSeconds}s hpLost=${row.healthLost}${died ? ' DIED' : ''} air ${airBefore}->${minAir}${row.hiddenShare !== undefined ? ` hidden=${row.hiddenShare}` : ''} | ${results.join(' ')} | ${row.message.slice(0, 160)}`);
 		await s.command(`kill @e[type=minecraft:skeleton]`).catch(() => {});
+		await s.command(`kill @e[type=minecraft:creeper]`).catch(() => {});
 		if (died) {
 			// Back on its feet before the next room: the next room's first read failed when it came too soon after a respawn.
 			await s.command(`mineagen respawn ${NAME}`).catch(() => {});
