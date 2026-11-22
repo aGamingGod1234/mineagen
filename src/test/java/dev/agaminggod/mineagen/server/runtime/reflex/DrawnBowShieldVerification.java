@@ -64,6 +64,7 @@ public final class DrawnBowShieldVerification {
 		check(!ReflexSensors.aims(false, 0, false, true), "a crossbow still loading does not: the loaded hold that follows is the warning");
 		check(ReflexSensors.aims(true, ReflexSensors.DRAW_RAISE_TICKS, false, false) && !ReflexSensors.aims(true, ReflexSensors.DRAW_RAISE_TICKS - 1, false, true),
 				"a bow is read as before: drawn 8+ ticks, whatever its target");
+		check(ReflexSensors.CROSSBOW_RANGE == 8.0D, "a loaded crossbow is read only inside vanilla's crossbow range, where a piglin fires");
 		// The shortest loaded hold (20 ticks) still leaves the 5-tick raise and about 5 ticks to turn.
 		check(20 >= 5 + 5, "the shield is up and turned before the crossbow fires");
 	}

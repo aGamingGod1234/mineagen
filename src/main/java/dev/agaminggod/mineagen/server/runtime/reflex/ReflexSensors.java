@@ -23,6 +23,7 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
+import net.minecraft.world.entity.monster.CrossbowAttackMob;
 import net.minecraft.world.entity.item.ItemEntity;
 import dev.agaminggod.mineagen.server.runtime.InventoryRoom;
 import net.minecraft.world.entity.monster.Creeper;
@@ -393,12 +394,18 @@ public final class ReflexSensors {
 	static final int DRAW_RAISE_TICKS = 8;
 	/** How far a drawn bow is noticed: about a skeleton's 15-block shooting range, with room for one closing in. */
 	static final double DRAW_RANGE = 24.0D;
+	/**
+	 * How near a loaded crossbow is read: a piglin fires only inside its crossbow's range (vanilla CrossbowAttack, 8 blocks),
+	 * and one that cannot close in still points its loaded crossbow at the body; read from further, the shield would hold up
+	 * to its maxMs, again and again, until the arrow rule switched off. A pillager past 8 still fires: its arrow is met in flight.
+	 */
+	static final double CROSSBOW_RANGE = 8.0D;
 	/** How far off its head points from the body and still reads as aimed at it (horizontal: a long shot aims high). */
 	static final double DRAW_AIM_DEGREES = 30.0D;
 
 	/**
 	 * The nearest visible mob about to shoot the body, its head turned to it: a bow drawn {@link #DRAW_RAISE_TICKS}+ ticks,
-	 * or a loaded crossbow held by a mob whose target is this body ({@link #aims}).
+	 * or a loaded crossbow held, within {@link #CROSSBOW_RANGE}, by a crossbow mob whose target is this body ({@link #aims}).
 	 */
 	static Mob drawnAt(ServerPlayer player, ObservationVisibility.Frame frame) {
 		Vec3 body = player.getBoundingBox().getCenter();
@@ -406,8 +413,9 @@ public final class ReflexSensors {
 		double best = Double.POSITIVE_INFINITY;
 		for (Mob mob : player.level().getEntitiesOfClass(Mob.class, player.getBoundingBox().inflate(DRAW_RANGE), Mob::isAlive)) {
 			boolean drawing = mob.isUsingItem() && mob.getUseItem().getItem() instanceof BowItem;
-			if (!aims(drawing, mob.getTicksUsingItem(), loaded(mob.getMainHandItem()) || loaded(mob.getOffhandItem()), mob.getTarget() == player)) continue;
 			double distance = player.distanceTo(mob);
+			boolean loaded = mob instanceof CrossbowAttackMob && distance < CROSSBOW_RANGE && (loaded(mob.getMainHandItem()) || loaded(mob.getOffhandItem()));
+			if (!aims(drawing, mob.getTicksUsingItem(), loaded, mob.getTarget() == player)) continue;
 			if (distance > DRAW_RANGE || distance >= best) continue;
 			if (!headTurnedTo(mob.getYHeadRot(), mob.position(), body, DRAW_AIM_DEGREES)) continue;
 			if (!frame.canSeeEntity(mob)) continue;
