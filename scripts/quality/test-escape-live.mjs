@@ -274,6 +274,8 @@ try {
 		await sleep(1000 + drain);
 		const before = await health(), airBefore = await airLeft();
 		// The vanilla damage counter: regeneration between hits cannot hide damage the way lowest health does.
+		// Play starts here, after the settle: row.hits counts danger rows from this moment, like damageTaken does.
+		const hitsFrom = Date.now();
 		const damageBefore = await readDamage().catch(() => null);
 		const deathsBefore = await readDeaths();
 		if (!Number.isFinite(before)) throw new Error(`${room} ${run}: health unreadable before the room`);
@@ -374,7 +376,7 @@ try {
 			...(damage.integrity ? { integrity: damage.integrity } : {}), airBefore, minAir,
 			hiddenShare: room === 'skeleton' && samples > 0 ? Math.round(hiddenSamples / samples * 100) / 100 : undefined,
 			endDy: end ? Math.round((end[1] - F) * 10) / 10 : null, results, state: last?.state ?? null, reasonCode: last?.reasonCode ?? null,
-			message: String(last?.message ?? '').slice(0, 300), startedAt, finishedAt: Date.now() };
+			message: String(last?.message ?? '').slice(0, 300), startedAt, hitsFrom, finishedAt: Date.now() };
 		row.deathEvidence = recordDeathEvidence(row, deathsBefore, await readDeaths());
 		const sawDeath = minHealth <= 0 || row.deaths > 0 || /Lifecycle changed to DEAD/.test(String(last?.message ?? ''));
 		const died = row.died = sawDeath ? true : row.deathEvidence.valid ? false : null;
