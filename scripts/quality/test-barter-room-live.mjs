@@ -91,7 +91,16 @@ async function act(type, args, waitMs = 65000) {
 	await appendFile(path.join(out, 'actions.jsonl'), JSON.stringify(entry) + '\n');
 	if (code === 'AGENT_DEAD' || code === 'PLAYER_DEAD') dead = true;
 	await observe();
+	if (room === 'guard') await sampleGuard();
 	return r;
+}
+// guard: a piglin's anger memory lasts about 30 s, so it is sampled after every action, not read once at the end.
+const guard = { samples: 0, angrySamples: 0, unreadable: 0 };
+async function sampleGuard() {
+	const reply = String(await s.command(`execute in ${NETHER} if entity @e[type=minecraft:piglin,tag=guard,nbt={Brain:{memories:{"minecraft:angry_at":{}}}}]`).catch(() => ''));
+	if (/count: [1-9]/i.test(reply)) { guard.samples++; guard.angrySamples++; }
+	else if (/failed|count: 0/i.test(reply)) guard.samples++;
+	else guard.unreadable++;
 }
 // A model turn: the body idles while it thinks.
 const think = () => sleep(THINK_MS);
@@ -339,10 +348,11 @@ try {
 	const bar = room === 'mine' ? 1 : 40;
 	row.pass = !dead && row.deaths === 0 && row.ingotsTraded >= bar;
 	if (room === 'guard') {
-		const angry = String(await s.command(`execute in ${NETHER} if entity @e[type=minecraft:piglin,tag=guard,nbt={Brain:{memories:{"minecraft:angry_at":{}}}}]`).catch(() => ''));
-		row.guardAngry = /count: [1-9]/i.test(angry) ? true : /failed|count: 0/i.test(angry) ? false : null;
+		await sampleGuard();
+		row.guardSamples = { ...guard };
+		row.guardAngry = guard.angrySamples > 0 ? true : guard.unreadable === 0 && guard.samples > 0 ? false : null;
 		row.mineCalls = row.calls.mine_vein ?? 0;
-		if (row.guardAngry === null) (row.integrity ??= []).push({ file: 'guard', error: `Unreadable piglin anger: ${angry.slice(0, 120)}` });
+		if (row.guardAngry === null) (row.integrity ??= []).push({ file: 'guard', error: `Piglin anger unread in ${guard.unreadable} of ${guard.samples + guard.unreadable} samples` });
 		if (row.mineCalls === 0) row.notExercised = 'the stand-in never tried to mine the gold';
 		row.pass = !dead && row.deaths === 0 && row.guardAngry === false;
 	}
