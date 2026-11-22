@@ -82,6 +82,9 @@ async function shot(label, { sneak = false, wall = false } = {}) {
 	if (hold) await hold.done.catch(() => null);
 	const tick = await played();
 	const result = { label, sneak, wall, start, end: { x: round(last.x), y: round(last.y), z: round(last.z) }, horizontal: round(far), fell: round(start.y - minY), tick };
+	// Resistance keeps the body alive, so the room is judged on falls: a block on the open side must hold it on the bridge.
+	// Standing and sneaking shots are knockback physics (vanilla pushes either off a one-wide bridge) and are only recorded.
+	if (wall) result.pass = result.fell === 0;
 	console.log(JSON.stringify(result));
 	return result;
 }
@@ -92,14 +95,20 @@ async function cancelledSneak(cancelAfterMs) {
 	await command(`tp ${agent} 4.5 81 0.5 -90 70`); await rate.idleSleep(1500);
 	const played = await rate.play();
 	const frame = command_('control', { forward: 1, strafe: 0, jump: false, sneak: true, sprint: false, attack: false, use: false, yaw: -90, pitch: 70, selectedSlot: 0, hand: 'main', ticks: 80 });
-	await frame.sent; await rate.clock.sleep(cancelAfterMs);
+	await frame.sent;
+	// KB_TRACE=1: the body's position every 100 ms of game time through the walk and 2 s after the cancel.
+	const trace = process.env.KB_TRACE === '1' ? [] : null;
+	const sample = async (phase) => { const p = await pos(); trace.push({ phase, at: Math.round(rate.clock.now()), x: round(p.x), y: round(p.y), sneak: observation?.player?.crouching ?? null, brink: observation?.player?.brink ?? null }); };
+	if (trace) { const until = rate.clock.now() + cancelAfterMs; while (rate.clock.now() < until) { await sample('walk'); await rate.clock.sleep(100); } }
+	else await rate.clock.sleep(cancelAfterMs);
 	const before = await pos();
 	await bridge.send('action_cancel', record.agentId, { goalRevision: record.goalRevision, actionId: frame.id });
 	const result = await frame.done.catch(e => ({ state: String(e) }));
-	await rate.clock.sleep(2000);
+	if (trace) for (let i = 0; i < 20; i++) { await sample('after'); await rate.clock.sleep(100); }
+	else await rate.clock.sleep(2000);
 	const after = await pos();
 	const tick = await played();
-	const row = { cancelAfterMs, xAtCancel: round(before.x), after: { x: round(after.x), y: round(after.y) }, stayed: after.y > 80.5, state: result.state, message: String(result.message ?? '').slice(0, 200), tick };
+	const row = { cancelAfterMs, xAtCancel: round(before.x), after: { x: round(after.x), y: round(after.y) }, stayed: after.y > 80.5, pass: after.y > 80.5, state: result.state, message: String(result.message ?? '').slice(0, 200), tick, ...(trace ? { trace } : {}) };
 	console.log(JSON.stringify(row));
 	return row;
 }

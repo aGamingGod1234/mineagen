@@ -502,6 +502,8 @@ public final class DriverRuleVerification {
 				&& ReflexEngine.firingStep(leave, RUNNING, "", null, true, 199L, 200L, false).status() == RUNNING, "a settled hold ends done at its maxS");
 		check(!ReflexEngine.gatedTruth(defend, true, ActionType.USE_RANGED) && ReflexEngine.gatedTruth(defend, true, ActionType.DIG_TO)
 				&& ReflexEngine.gatedTruth(leave, true, ActionType.FLEE_FROM), "only defend's truth is gated by a fight or flee");
+		check(!ReflexEngine.gatedTruth(defend, true, ActionType.ESCAPE, true) && ReflexEngine.gatedTruth(defend, true, ActionType.ESCAPE, false)
+				&& ReflexEngine.gatedTruth(leave, true, ActionType.ESCAPE, true), "defend stands aside for an escape from a shooter in sight, not for one from a hole or a melee hit");
 	}
 
 	/**

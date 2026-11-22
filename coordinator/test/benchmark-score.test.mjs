@@ -306,6 +306,22 @@ test('a room judged on survival whose fixture records no death count has no verd
 	assert.deepEqual([runs[0].verdict, runs[0].reason], ['INVALID', 'no death record']);
 });
 
+test('the edge room judges the shield shot and only records the empty-handed knockback', async t => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'bench-edge-'));
+	t.after(() => rm(dir, { recursive: true, force: true }));
+	const put = async (file, value) => { await mkdir(path.dirname(path.join(dir, file)), { recursive: true }); await writeFile(path.join(dir, file), JSON.stringify(value)); };
+	const shot = (offBridge) => ({ cases: [{ case: 'edge-control', mode: 'defaults', alive: true, knockedOff: true }, { case: 'edge-control-shield', mode: 'defaults', alive: true, offBridge },
+		{ case: 'edge-control-shield', mode: 'none', alive: true, offBridge: true }] });
+	for (const [room, offBridge] of [['held', false], ['fell', true]]) {
+		await put(`rooms/${room}.c1/done.json`, { room: `${room}.c1`, arms: { r1: { exit: 0, seconds: 60 } } });
+		await put(`rooms/${room}.c1/r1/default-reflex.json`, shot(offBridge));
+	}
+	const runs = await collectRuns(dir, null, { held: { bar: 'none' }, fell: { bar: 'none' } });
+	const of = room => runs.filter(run => run.room === room).map(run => run.verdict);
+	assert.deepEqual(of('held'), ['PASS'], 'knocked off empty-handed, on the bridge behind the shield');
+	assert.deepEqual(of('fell'), ['FAIL'], 'off the bridge with a shield in hand');
+});
+
 test('what a fixture wrote outranks its exit 0: caught errors, pass false, alive false, empty rows and cut-short files', async t => {
 	const dir = await mkdtemp(path.join(os.tmpdir(), 'bench-score-'));
 	t.after(() => rm(dir, { recursive: true, force: true }));

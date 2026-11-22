@@ -23,6 +23,8 @@ test('gate run 3 forks go back with their reason: low health, a creeper, several
 	assert.match(searchDanger(view([zombie()], { health: 7 })).fork, /^health 7/);
 	assert.match(searchDanger(view([{ uuid: 'c', type: 'minecraft:creeper', distance: 3, targeting: true, lineOfSight: true, signals: ['creeper_close'] }])).fork, /creeper 3 blocks/);
 	assert.match(searchDanger(view([zombie(), { uuid: 's', type: 'minecraft:skeleton', distance: 6, targeting: true, lineOfSight: true, signals: ['ranged_aiming'] }])).fork, /2 hostiles after it/);
+	assert.match(searchDanger(view([zombie(), zombie({ uuid: 'z2', distance: 11, lineOfSight: false })])).fork, /2 hostiles after it/,
+		'a second pursuer rounding a corner can join the fight');
 	assert.match(searchDanger(view([{ uuid: 's', type: 'minecraft:skeleton', distance: 12, targeting: true, lineOfSight: true, signals: ['ranged_aiming'] }])).fork, /skeleton 12 blocks away with a line of sight/);
 	assert.match(searchDanger(view([zombie()], { health: 9, items: ['minecraft:stone_pickaxe'] })).fork, /3 of its hits would end a fight at 8 with it alive/, 'three zombie hits of 3');
 	// The search's fight bails at 8 (fleeAtHealth): it starts only three hits above that line, armed or not.
@@ -125,7 +127,7 @@ test('a mob passed by that keeps stopping digs where the body stands ends in a m
 	assert.ok(body.calls.some((call) => call.actionType === 'travel_to'), 'digs going nowhere move the body off the spot');
 });
 
-test('a fork hands back at once with its reason, walled in underground', async () => {
+test('a fork hands back at once with its reason, walled in underground when safe to build', async () => {
 	const creeper = { uuid: 'c', type: 'minecraft:creeper', distance: 4, targeting: true, lineOfSight: true, signals: ['creeper_close'] };
 	const start = atDepth([creeper]);
 	start.inventory.items = [{ itemId: 'minecraft:iron_pickaxe', count: 1 }, { itemId: 'minecraft:cobblestone', count: 32 }];
@@ -138,7 +140,12 @@ test('a fork hands back at once with its reason, walled in underground', async (
 	const pair = atDepth([zombie({ distance: 3 }), zombie({ uuid: 'z2', stableId: 'z2', distance: 4 })]);
 	pair.inventory.items = start.inventory.items;
 	const two = fakeBody({ start: pair, acts: { dig_to: [stopFor('zombie z1')], build_shelter: [{ result: { state: 'SUCCEEDED', reasonCode: 'SHELTER_BUILT' } }] } });
-	assert.match((await searchFor({ block: 'minecraft:lava' }, two)).message, /^Stopped for danger: 2 hostiles after it .*; walled in where it stands/);
+	assert.match((await searchFor({ block: 'minecraft:lava' }, two)).message, /^Stopped for danger: 2 hostiles after it /);
+	assert.equal(two.calls.some((call) => call.actionType === 'fight_target' || call.actionType === 'build_shelter'), false);
+	const archer = atDepth([{ uuid: 's', type: 'minecraft:skeleton', distance: 9, targeting: true, lineOfSight: true }]);
+	archer.inventory.items = start.inventory.items;
+	const shot = fakeBody({ start: archer, acts: { dig_to: [stopFor('skeleton s')], build_shelter: [{ result: { state: 'SUCCEEDED', reasonCode: 'SHELTER_BUILT' } }] } });
+	assert.match((await searchFor({ block: 'minecraft:lava' }, shot)).message, /shooting from where it stands.*; walled in where it stands/);
 });
 
 test('a zombie\'s hit on the dig is answered by fighting it; a fall is still handed back', async () => {
