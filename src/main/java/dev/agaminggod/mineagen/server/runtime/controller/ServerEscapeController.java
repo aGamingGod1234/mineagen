@@ -267,7 +267,8 @@ public final class ServerEscapeController implements ServerController {
 				BlockPos cell = feet.above(dy).relative(side);
 				if (!pool.contains(cell)) continue;
 				BlockPos under = cell.below();
-				if (!level.getFluidState(under).isEmpty() || !level.getBlockState(under).isFaceSturdy(level, under, Direction.UP)) continue;
+				if (!level.getFluidState(under).isEmpty() || !level.getBlockState(under).isFaceSturdy(level, under, Direction.UP)
+						|| level.getBlockState(under).is(net.minecraft.world.level.block.Blocks.MAGMA_BLOCK)) continue;
 				if (!roomOver(level, cell) || !roomOver(level, cell.above())) continue;
 				double ledge = cell.getY() - player.getY();
 				if (cell.getY() > ownFloorTop && ledge > bestLedge && ledge <= reach) { bestLedge = ledge; best = cell; }
@@ -283,12 +284,15 @@ public final class ServerEscapeController implements ServerController {
 				&& state.getCollisionShape(level, cell).isEmpty() && !hazard(state);
 	}
 
-	/** Face the flooded step and hold forward and jump: done standing on it, failed after 3 s. */
+	/**
+	 * Face the flooded step and hold forward and jump: done standing in its column (not on its lip from the column below,
+	 * where the next pick would measure the same lower floor again), failed after 3 s.
+	 */
 	static EscapeMoves.Move wadeUp(BlockPos cell) {
 		int[] ticks = {0};
 		return (player, input) -> {
 			double dx = cell.getX() + 0.5D - player.getX(), dz = cell.getZ() + 0.5D - player.getZ();
-			if (player.onGround() && player.getY() >= cell.getY() - 0.05D && dx * dx + dz * dz <= 0.36D)
+			if (player.onGround() && player.getY() >= cell.getY() - 0.05D && player.getBlockX() == cell.getX() && player.getBlockZ() == cell.getZ())
 				return new EscapeMoves.Result(EscapeMoves.Status.DONE, "on the flooded step at " + player.blockPosition().toShortString());
 			if (++ticks[0] > 60) return new EscapeMoves.Result(EscapeMoves.Status.FAILED, "could not get onto the flooded step at " + cell.toShortString() + " in 3 s");
 			float heading = net.minecraft.util.Mth.wrapDegrees((float) Math.toDegrees(Math.atan2(-dx, dz)));
