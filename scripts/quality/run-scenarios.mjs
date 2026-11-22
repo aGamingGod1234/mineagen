@@ -516,15 +516,19 @@ export function buildQualityScenario(s, { id = s.id, profile, budget = s.duratio
  * ARENA_LEAN_INPUT=1 unless the environment already sets it (CoordinatorProcessSupervisor.launchRequest). The harness
  * starts the coordinator itself, so without this its games ran on the full input, about twice the size per wake.
  */
-export function coordinatorLeanInput(env) {
+export function coordinatorLeanInput(env, { platform = process.platform } = {}) {
+	// Windows names are case-insensitive (the supervisor's map is too): the last spelling the env holds is the one set.
+	const key = Object.keys(env ?? {}).filter((name) => platform === 'win32' ? name.toUpperCase() === 'ARENA_LEAN_INPUT' : name === 'ARENA_LEAN_INPUT').at(-1);
 	// Set at all (even blank) wins, as the supervisor's putIfAbsent reads it.
-	const set = typeof env?.ARENA_LEAN_INPUT === 'string';
-	const value = set ? env.ARENA_LEAN_INPUT : '1';
+	const set = key !== undefined && typeof env[key] === 'string';
+	const value = set ? env[key] : '1';
 	return { value, on: leanInputEnabled({ ARENA_LEAN_INPUT: value }), source: set ? 'environment' : 'production default (as the mod supervisor sets it)' };
 }
 
 export async function runScenarios(options, { spawnLauncher = spawnOwnedProcess, gatewayFactory = startAnthropicGateway, onObserver = null } = {}) {
 	const leanInput = coordinatorLeanInput({ ...process.env, ...(options.env ?? {}) });
+	// One spelling reaches the launcher, so a Windows env block cannot keep a different value under another case.
+	const withoutLean = (env) => Object.fromEntries(Object.entries(env ?? {}).filter(([name]) => name.toUpperCase() !== 'ARENA_LEAN_INPUT'));
 	const coordinatorInputs = { leanInput: leanInput.on, leanInputSource: leanInput.source };
 	const strict = Boolean(options.spendGate) && isStrictBudget(options);
 	if (options.spendGate) requireRunBudgetPolicy(options);
@@ -620,7 +624,7 @@ export async function runScenarios(options, { spawnLauncher = spawnOwnedProcess,
 				: [path.join(ROOT, 'scripts/run-headless-provider-matrix.mjs')];
 			const child = launcher = spawnLauncher(launcherCommand, [...launcherArgs,
 				'-ProjectRoot', ROOT, '-CoordinatorRoot', options.coordinatorRoot ?? ROOT, '-MatrixPath', matrixFile, '-ServerTemplate', template, '-ModJar', jar, '-KeepArtifacts', '-RequireAll'],
-				{ cwd: ROOT, windowsHide: true, env: { ...process.env, ...(options.env ?? {}), ARENA_LEAN_INPUT: leanInput.value, ...(options.jvmArgs?.length ? { ARENA_HEADLESS_SERVER_JVM_ARGS: JSON.stringify(options.jvmArgs) } : {}), ...(gateway ? { ANTHROPIC_BASE_URL: gateway.url } : {}), ARENA_STRICT_SPEND_GATE: strict ? '1' : '0', ARENA_HEADLESS_JAVA: options.java, ARENA_HEADLESS_STARTUP_TIMEOUT_SECONDS: '300', ...(options.portBase ? { ARENA_HEADLESS_BRIDGE_PORT: String(options.portBase), ARENA_HEADLESS_RCON_PORT: String(options.portBase + 1), ARENA_HEADLESS_MINECRAFT_PORT: String(options.portBase + 2) } : {}) }, stdio: ['ignore', 'pipe', 'pipe'] });
+				{ cwd: ROOT, windowsHide: true, env: { ...withoutLean(process.env), ...withoutLean(options.env), ARENA_LEAN_INPUT: leanInput.value, ...(options.jvmArgs?.length ? { ARENA_HEADLESS_SERVER_JVM_ARGS: JSON.stringify(options.jvmArgs) } : {}), ...(gateway ? { ANTHROPIC_BASE_URL: gateway.url } : {}), ARENA_STRICT_SPEND_GATE: strict ? '1' : '0', ARENA_HEADLESS_JAVA: options.java, ARENA_HEADLESS_STARTUP_TIMEOUT_SECONDS: '300', ...(options.portBase ? { ARENA_HEADLESS_BRIDGE_PORT: String(options.portBase), ARENA_HEADLESS_RCON_PORT: String(options.portBase + 1), ARENA_HEADLESS_MINECRAFT_PORT: String(options.portBase + 2) } : {}) }, stdio: ['ignore', 'pipe', 'pipe'] });
 			child.stdout.on('data', c => { stdout.write(c); process.stdout.write(c); }); child.stderr.on('data', c => { stderr.write(c); process.stderr.write(c); });
 			child.once('error', reject); child.once('close', async (code, signal) => { await Promise.all([new Promise(r => stdout.end(r)), new Promise(r => stderr.end(r))]); resolve({ code, signal }); });
 		});

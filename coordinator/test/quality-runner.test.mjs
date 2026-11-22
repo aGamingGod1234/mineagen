@@ -300,4 +300,6 @@ test('harness games get the lean model input normal play gets, unless the enviro
 	assert.deepEqual(coordinatorLeanInput({ ARENA_LEAN_INPUT: '0' }), { value: '0', on: false, source: 'environment' });
 	assert.equal(coordinatorLeanInput({ ARENA_LEAN_INPUT: 'on' }).on, true);
 	assert.deepEqual(coordinatorLeanInput({ ARENA_LEAN_INPUT: '' }), { value: '', on: false, source: 'environment' }, 'a blank value is set, as the supervisor reads it');
+	assert.equal(coordinatorLeanInput({ arena_lean_input: '0' }, { platform: 'win32' }).value, '0', 'Windows names are case-insensitive');
+	assert.equal(coordinatorLeanInput({ arena_lean_input: '0' }, { platform: 'linux' }).value, '1', 'elsewhere only the exact name counts');
 });
