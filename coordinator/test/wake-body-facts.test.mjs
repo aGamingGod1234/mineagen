@@ -293,3 +293,16 @@ test('the live view remembers the last open sky and shows up once under cover', 
 	await views.observe(record, at(68, true));
 	assert.equal(views.continuity(record)?.up, undefined, 'under open sky again');
 });
+
+test('a queued underground sample keeps its own last open sky, not a later one', async () => {
+	const views = new LiveTaskViews();
+	const record = { agentId: 'up-queue', goalRevision: 1, currentGoal: 'Beat the game' };
+	const at = (x, y, skyOpen, ms) => ({ ready: true, observedAtEpochMs: ms, player: { dead: false, skyOpen, onGround: true, x, y, z: 0 }, world: { dimension: 'minecraft:overworld', dayTime: 1_000, worldId: 'w' }, inventory: { selectedSlot: 0, items: [] } });
+	await views.observe(record, at(0, 70, true, 1_000));
+	const queued = at(0, 20, false, 2_000);
+	await views.observe(record, queued);
+	await views.observe(record, at(100, 80, true, 3_000));
+	await views.observe(record, at(100, 30, false, 4_000));
+	assert.match(views.continuity(record, { observation: queued }).up, /^last open sky @0,70,0 /);
+	assert.match(views.continuity(record).up, /^last open sky @100,80,0 /);
+});
