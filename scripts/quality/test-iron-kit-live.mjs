@@ -69,6 +69,8 @@ console.log(`[kit] coordinator ${armId} (${arm})`);
 const sleep = ms => new Promise(done => setTimeout(done, ms));
 const number = text => Number((/(-?\d+(?:\.\d+)?)[fdb]?\s*$/.exec(String(text).trim()) ?? [])[1]);
 const SPACING = 200;
+// Mob night as the coordinator's danger contexts read it: dusk (12000) until sunrise burns them (23500).
+const isNightTime = dayTime => Number.isFinite(dayTime) ? ((dayTime % 24_000) + 24_000) % 24_000 >= 12_000 && ((dayTime % 24_000) + 24_000) % 24_000 < 23_500 : null;
 const lanes = Math.min(plan.lanes ?? 2, 4);
 const budgetMs = (plan.budgetMinutes ?? 45) * 60_000;
 const only = new Set(String(process.env.KIT_SEEDS ?? '').split(',').map(s => s.trim()).filter(Boolean));
@@ -308,7 +310,7 @@ async function playLane(s, agent, seed, seedIndex, dir) {
 				// Where and when, from the last sample alive: a surface death at night is the night-cover question.
 				const last = agent.latest() ? adaptObservation(agent.latest()) : null;
 				const worn = (last?.inventory?.items ?? []).filter(i => ['head', 'chest', 'legs', 'feet'].includes(i?.slot) && i.count > 0).map(i => String(i.itemId).replace(/^minecraft:/, ''));
-				(result.deathContext ??= []).push({ at: minutes(), daylight: last?.perception?.daylight ?? null, timeOfDay: last?.perception?.timeOfDay ?? null, skyOpen: last?.player?.skyOpen ?? null, y: last?.player?.y ?? null, worn });
+				(result.deathContext ??= []).push({ at: minutes(), dayTime: Number.isFinite(last?.world?.dayTime) ? last.world.dayTime : null, night: isNightTime(last?.world?.dayTime), skyOpen: last?.player?.skyOpen ?? null, y: last?.player?.y ?? null, worn });
 			} else result.stuckDead = (result.stuckDead ?? 0) + 1;
 			aliveSinceDeath = false;
 			foodHandedBack = false; woodHandedBack = false;
@@ -400,9 +402,10 @@ async function playLane(s, agent, seed, seedIndex, dir) {
 	sampling = false; clearInterval(stepWatch); await sampler;
 	result.minutes = minutes();
 	const deathResult = deathEvidence(deathsBefore, await deaths());
-	// The server's own death counter is the count; the loop's sightings are only a fallback when it cannot be read.
-	result.deaths = deathResult.valid ? deathResult.deaths : result.deathsAt.length;
-	result.deathsCounted = deathResult.valid ? 'server' : 'loop';
+	// The server's own death counter is the count. When it cannot be read the count is unknown (null fails the seed's
+	// integrity check): the loop skips unreadable health, so its sightings are kept only as a diagnostic, never as zero.
+	result.deaths = deathResult.valid ? deathResult.deaths : null;
+	result.deathsSeen = result.deathsAt.length;
 	result.bridgeEvents = (s.bridgeEvents ?? []).map((event) => ({ ...event, at: Math.round((event.at - t0) / 600) / 100 }));
 	result.end = await pos();
 	result.inventory = String(await s.command(`data get entity ${name} Inventory`)).slice(0, 1500);
