@@ -163,14 +163,19 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 				row.armed = (latest?.reflexes?.rules ?? []).map(rule => rule.id);
 				const deathsBefore = await readDeaths(), damageBefore = await readDamage();
 				await s.fastRate();
-				const now = () => s.clock.now(), wall0 = Date.now(), timer = await s.gameTimer(), t0 = now();
+				// The window is world ticks, not wall time: a server that cannot hold 20 TPS still plays the full game minutes.
+				const now = () => s.clock.now(), wall0 = Date.now(), timer = await s.gameTimer({ worldTicks: true }), t0 = now();
+				let played = 0, observeMisses = 0;
+				const inWindow = async () => (played = await timer.elapsed().catch(() => Infinity)) < limit;
 				const limit = SURVIVE ? SURVIVE_MS : FIGHT_MS;
 				const log = [], tried = new Set();
 				let dead = false, killed = false, minY = place.y, shots = 0, crystalBreaks = 0, meleeHits = 0, flyingShots = 0, passes = 0;
 				const note = (what, r) => { log.push([Math.round((now() - t0) / 1000), what, r?.state, r?.reasonCode, r?.message?.slice(0, 120)]); };
-				while (now() - t0 < limit) {
+				while (await inWindow()) {
 					// The raw sample decides death: a dead body's sample may not adapt, and it respawns in the Overworld.
 					const raw = await s.observe().catch(() => null);
+					// A lost sample feeds no reflex and shows no fall: counted, and more than two make the run invalid evidence.
+					if (raw === null) observeMisses += 1;
 					if (raw && (raw.player?.dead === true || raw.status === 'PLAYER_DEAD' || (raw.world?.dimension && raw.world.dimension !== 'minecraft:the_end'))) { dead = true; break; }
 					const deathsNow = await readDeaths().catch(() => null);
 					if (Number.isInteger(deathsNow) && Number.isInteger(deathsBefore) && deathsNow > deathsBefore) { dead = true; break; }
@@ -229,6 +234,14 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 					await act('look_at', { x: me.x + Math.cos(turn) * 20, y: me.y + 40, z: me.z + Math.sin(turn) * 20 });
 					await s.clock.sleep(1000);
 				}
+				// The last action can start inside the window and return after it (a melee runs up to 12 s): read the dragon once
+				// more and keep how late its death was seen; a kill seen more than 15 s past the window does not count.
+				if (!SURVIVE && !killed && !dead && Number.isFinite(dragon)) {
+					const health = await dragonHealth();
+					const gone = Number.isFinite(health) ? health <= 0 : /Test failed/i.test(String(await end(s, 'execute if entity @e[type=minecraft:ender_dragon]')));
+					const late = Number.isFinite(played) ? played - limit : Infinity;
+					if (gone) { row.killSeenLateMs = late; killed = late <= 15_000; }
+				}
 				Object.assign(row, damageEvidence(damageBefore, await readDamage(), row.start.health, latest?.player?.health));
 				row.deathEvidence = deathEvidence(deathsBefore, await readDeaths());
 				row.wallSeconds = Math.round((Date.now() - wall0) / 100) / 10;
@@ -242,11 +255,13 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 				row.deaths = row.deathEvidence.deaths;
 				row.harnessErrors = harnessErrors + (row.died ? 0 : staleRefusals);
 				row.staleRefusals = staleRefusals;
+				row.observeMisses = observeMisses;
 				// A fresh fight starts with a full dragon and all ten crystals; a repeat after a lost fight does not.
 				const fresh = Number.isFinite(dragon) && dragon >= 200 && row.start.crystals === 10;
 				const missing = [!row.deathEvidence.valid && 'death counter unreadable', !row.placed && `body not placed on the ${SURVIVE ? 'island' : 'arrival platform'}`,
 					!Number.isFinite(dragon) && 'no dragon at the start', !fresh && Number.isFinite(dragon) && `not a fresh fight (dragon ${dragon}, crystals ${row.start.crystals})`,
-					!row.armed.includes('default-breath') && 'the End reflexes never armed', row.harnessErrors > 0 && `${row.harnessErrors} harness error(s) sending commands`].filter(Boolean);
+					!row.armed.includes('default-breath') && 'the End reflexes never armed', row.harnessErrors > 0 && `${row.harnessErrors} harness error(s) sending commands`, observeMisses > 2 && `${observeMisses} live samples lost`,
+					!Number.isFinite(played) && 'world clock unreadable'].filter(Boolean);
 				if (missing.length) row.error = `not exercised: ${missing.join('; ')}`;
 				row.pass = SURVIVE ? !row.died && !row.voidFall : row.killed && !row.died;
 				row.failReason = row.pass ? null : row.died ? 'died' : row.voidFall ? 'void fall' : SURVIVE ? null : 'dragon alive at the window end';
@@ -260,7 +275,7 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 			}
 			await writeFile(path.join(out, 'result.json'), JSON.stringify(results, null, 2));
 		}
-		const valid = results.runs.filter(row => !row.error);
+		const valid = results.runs.filter(row => !row.error && !row.integrity?.length);
 		results.summary = { arm: results.arm, runs: results.runs.length, valid: valid.length, pass: valid.filter(row => row.pass).length,
 			killed: valid.filter(row => row.killed).length, deaths: valid.filter(row => row.died).length, voidFalls: valid.filter(row => row.voidFall).length };
 		console.log(JSON.stringify(results.summary));
