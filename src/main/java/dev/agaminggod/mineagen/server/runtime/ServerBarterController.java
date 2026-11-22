@@ -90,9 +90,15 @@ public final class ServerBarterController implements ServerController {
 	private long lastThrowMs = Long.MIN_VALUE / 2;
 	private Vec3 scanAim;
 	private int scanSteps;
-	private int thrown, crafted, armourTries, craftFailures;
+	private int thrown, crafted, armourTries, craftFailures, bartered;
+	/** Adult piglins seen examining a gold ingot: each new one is one ingot really bartered (a baby keeps its ingot). */
+	private final Set<UUID> admiring = new HashSet<>();
+	/** Piglins the body could not walk to twice in this call (a ledge, a gap): passed over for the rest of it. */
+	private final Map<UUID, Integer> walkFailures = new HashMap<>();
+	private final Set<net.minecraft.world.entity.EquipmentSlot> refusedSlots = java.util.EnumSet.noneOf(net.minecraft.world.entity.EquipmentSlot.class);
+	static final int WALK_FAILURES_TO_SKIP = 2;
 	private ServerController craft;
-	private int craftYield, ingotsBeforeCraft;
+	private int craftYield, ingotsBeforeCraft, pearlsLeft;
 	private String wornNow;
 	private ServerItemPickupController pickup;
 	private UUID pickupId;
@@ -137,6 +143,7 @@ public final class ServerBarterController implements ServerController {
 		TickResult danger = danger(player);
 		if (danger != null) return danger;
 		if (gained(player) >= count) return done(player, "BARTER_COUNT_REACHED", gained(player) + " " + wantedId + " gained (asked " + count + ")");
+		noteBarters(player);
 		// A running conversion finishes before anything else: it holds the body's input while it crafts, and a pickup
 		// started meanwhile could not move and would leave the craft's input lease expired.
 		if (craft != null) {
@@ -159,6 +166,12 @@ public final class ServerBarterController implements ServerController {
 		}
 		if (pause > 0) { pause--; return TickResult.running(progress(player)); }
 		ItemEntity drop = nearestDrop(player);
+		// No room for a pearl: drop barter rubble first; with none to drop, leave the pearl and report it.
+		if (drop != null && drop.getItem().is(wanted) && !dev.agaminggod.mineagen.server.runtime.InventoryRoom.canTake(player, drop.getItem()) && !dropJunk(player)) {
+			ignoredDrops.add(drop.getUUID());
+			pearlsLeft += drop.getItem().getCount();
+			drop = null;
+		}
 		if (drop != null) {
 			stopWalk(player);
 			pickupId = drop.getUUID();
@@ -182,7 +195,9 @@ public final class ServerBarterController implements ServerController {
 			}
 			if (ServerLookController.turnToward(player, scanAim)) {
 				scanAim = null;
-				scanSteps = visiblePiglins(player).isEmpty() ? scanSteps + 1 : 0;
+				// Count every look round without a piglin to throw to: one seen but out of reach or beside a hoglin does
+				// not reset it, so the call ends NO_PIGLIN instead of turning until it times out.
+				scanSteps++;
 				pause = 6;
 			}
 			if (scanSteps >= 6 && !waiting) return stop(player, "NO_PIGLIN", "No calm adult piglin in sight within " + (int) SEEK_RANGE + " blocks after a full look around");
@@ -202,7 +217,10 @@ public final class ServerBarterController implements ServerController {
 			TickResult moved = walk.tick(player, nowEpochMs);
 			if (moved.state() == State.RUNNING) return TickResult.running(progress(player));
 			stopWalk(player);
-			if (moved.state() != State.SUCCEEDED) busyUntil.put(target.getUUID(), nowEpochMs + THROW_WAIT_MS);
+			if (moved.state() != State.SUCCEEDED) {
+				busyUntil.put(target.getUUID(), nowEpochMs + THROW_WAIT_MS);
+				walkFailures.merge(target.getUUID(), 1, Integer::sum);
+			}
 			return TickResult.running(progress(player));
 		}
 		stopWalk(player);
@@ -292,12 +310,12 @@ public final class ServerBarterController implements ServerController {
 		int slot = -1, bestCost = Integer.MAX_VALUE;
 		for (int i = 0; i < 36; i++) {
 			ItemStack stack = player.getInventory().getItem(i);
-			if (!isGoldArmour(stack)) continue;
+			if (!isGoldArmour(stack) || refusedSlots.contains(goldSlot(stack))) continue;
 			ItemStack worn = player.getItemBySlot(goldSlot(stack));
 			int cost = armourTier(worn.isEmpty() ? null : BuiltInRegistries.ITEM.getKey(worn.getItem()).toString());
 			if (cost < bestCost) { slot = i; bestCost = cost; }
 		}
-		if (slot < 0 || armourTries >= 3) {
+		if (slot < 0 || armourTries >= 6) {
 			int ingots = carried(player, Items.GOLD_INGOT) + carried(player, Items.GOLD_BLOCK) * 9 + carried(player, Items.GOLD_NUGGET) / 9;
 			return stop(player, "NO_GOLD_ARMOUR", "No gold armour piece is worn" + (slot < 0 ? " or carried" : " (putting it on failed)")
 					+ "; piglins attack a player without one. A golden helmet is 5 gold ingots at a crafting table" + (ingots >= 5 ? " (enough gold held)" : ""));
@@ -315,9 +333,12 @@ public final class ServerBarterController implements ServerController {
 		armourTries++;
 		ItemStack held = player.getMainHandItem();
 		String id = BuiltInRegistries.ITEM.getKey(held.getItem()).toString();
+		var target = goldSlot(held);
 		player.gameMode.useItem(player, player.level(), held, InteractionHand.MAIN_HAND);
 		ArmSwing.use(player, InteractionHand.MAIN_HAND);
 		if (PiglinAi.isWearingSafeArmor(player)) wornNow = id;
+		// The worn piece would not come off (Curse of Binding): try a gold piece for another slot next.
+		else refusedSlots.add(target);
 		pause = 4;
 		return TickResult.running(progress(player));
 	}
@@ -406,13 +427,28 @@ public final class ServerBarterController implements ServerController {
 			ItemStack stack = player.getInventory().getItem(slot);
 			if (stack.isEmpty() || stack.is(wanted) || !JUNK.contains(BuiltInRegistries.ITEM.getKey(stack.getItem()).toString())) continue;
 			int drop = droppableJunk(stack.getCount(), carried(player, stack.getItem()), startCounts.getOrDefault(stack.getItem(), 0));
-			if (drop > bestDrop) { best = slot; bestDrop = drop; }
+			// Only a whole stack frees a slot; part of an old stack would leave the bags as full as before.
+			if (drop == stack.getCount() && drop > bestDrop) { best = slot; bestDrop = drop; }
 		}
 		if (best < 0) return false;
 		ItemStack stack = player.getInventory().removeItem(best, bestDrop);
 		ItemEntity dropped = McCompat.drop(player, stack, true, true);
 		if (dropped != null) ignoredDrops.add(dropped.getUUID());
 		return dropped != null;
+	}
+
+	/** Counts each adult piglin that starts examining a gold ingot: one real barter. */
+	private void noteBarters(ServerPlayer player) {
+		for (Piglin piglin : player.level().getEntitiesOfClass(Piglin.class, player.getBoundingBox().inflate(SEEK_RANGE + 8.0D),
+				p -> p.isAlive() && p.getType() == McEntityTypes.PIGLIN)) {
+			if (startsBarter(piglin.isBaby(), piglin.getOffhandItem().is(Items.GOLD_INGOT), admiring.contains(piglin.getUUID()))) bartered++;
+			if (!piglin.isBaby() && piglin.getOffhandItem().is(Items.GOLD_INGOT)) admiring.add(piglin.getUUID());
+			else admiring.remove(piglin.getUUID());
+		}
+	}
+
+	static boolean startsBarter(boolean baby, boolean goldInOffhand, boolean alreadyExamining) {
+		return !baby && goldInOffhand && !alreadyExamining;
 	}
 
 	/** How much of one rubble stack may go: at most what the barter added of that item since the call started. */
@@ -484,13 +520,15 @@ public final class ServerBarterController implements ServerController {
 						mob -> mob.isAlive() && isPiglinSideDanger(BuiltInRegistries.ENTITY_TYPE.getKey(mob.getType()).toString())
 								&& ObservationVisibility.canSeeEntity(player, mob))
 				.stream().map(Mob::position).toList();
-		List<Piglin> seen = visiblePiglins(player);
-		// Walk beyond 16 blocks only when no piglin at all is that near: a busy one close by is waited for, not left
+		// Usable: reachable so far and not beside a hoglin or brute. Only these count as near or get an ingot.
+		List<Piglin> seen = visiblePiglins(player).stream()
+				.filter(p -> walkFailures.getOrDefault(p.getUUID(), 0) < WALK_FAILURES_TO_SKIP && !nearDanger(p.position(), dangers)).toList();
+		// Walk beyond 16 blocks only when no usable piglin is that near: a busy one close by is waited for, not left
 		// for one 30 blocks off (chasing far piglins halved the throws in the held room).
 		boolean anyNear = seen.stream().anyMatch(p -> player.distanceTo(p) <= PIGLIN_RANGE);
 		return seen.stream()
 				.filter(p -> (!anyNear || player.distanceTo(p) <= PIGLIN_RANGE) && p.getOffhandItem().isEmpty()
-						&& busyUntil.getOrDefault(p.getUUID(), 0L) <= now && !nearDanger(p.position(), dangers))
+						&& busyUntil.getOrDefault(p.getUUID(), 0L) <= now)
 				.min(Comparator.comparingDouble(player::distanceTo)).orElse(null);
 	}
 
@@ -500,8 +538,9 @@ public final class ServerBarterController implements ServerController {
 						e -> e.isAlive() && !ignoredDrops.contains(e.getUUID()) && !e.getItem().is(Items.GOLD_INGOT)
 								&& (e.getItem().is(wanted) || !JUNK.contains(BuiltInRegistries.ITEM.getKey(e.getItem().getItem()).toString()))
 								&& e.onGround() && player.distanceTo(e) <= DROP_RANGE && ObservationVisibility.canSeeEntity(player, e)
-								&& dev.agaminggod.mineagen.server.runtime.InventoryRoom.canTake(player, e.getItem()))
-				.stream().min(Comparator.comparingDouble(player::distanceTo)).orElse(null);
+								&& (e.getItem().is(wanted) || dev.agaminggod.mineagen.server.runtime.InventoryRoom.canTake(player, e.getItem())))
+				// The asked item first (a pearl before gravel), then the nearest.
+				.stream().min(Comparator.<ItemEntity>comparingInt(e -> e.getItem().is(wanted) ? 0 : 1).thenComparingDouble(player::distanceTo)).orElse(null);
 	}
 
 	private int gained(ServerPlayer player) {
@@ -536,9 +575,10 @@ public final class ServerBarterController implements ServerController {
 		int gold = carried(player, Items.GOLD_INGOT);
 		// Ingots a piglin left on the ground come back by contact pickup and are thrown again, so throws overcount.
 		int traded = tradedIngots(startGold, crafted, gold);
-		return String.format(Locale.ROOT, "%s. %s gained: %d of %d (now held %d); gold ingots traded %d (%d throws), crafted %d, held %d (started with %d)%s; all items gained: %s",
-				why, wantedId, gained(player), count, carried(player, wanted), traded, thrown, crafted, gold, startGold,
-				wornNow == null ? "" : "; put on " + wornNow, gainedItems.isEmpty() ? "none" : gainedItems.toString());
+		return String.format(Locale.ROOT, "%s. %s gained: %d of %d (now held %d); gold ingots bartered %d (taken by adult piglins), gone %d (%d throws), crafted %d, held %d (started with %d)%s%s; all items gained: %s",
+				why, wantedId, gained(player), count, carried(player, wanted), bartered, traded, thrown, crafted, gold, startGold,
+				wornNow == null ? "" : "; put on " + wornNow, pearlsLeft == 0 ? "" : "; left " + pearlsLeft + " " + wantedId + " on the ground: no room and no barter rubble to drop",
+				gainedItems.isEmpty() ? "none" : gainedItems.toString());
 	}
 
 	private static int carried(ServerPlayer player, Item item) {

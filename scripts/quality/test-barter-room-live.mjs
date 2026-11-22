@@ -91,16 +91,33 @@ async function act(type, args, waitMs = 65000) {
 	await appendFile(path.join(out, 'actions.jsonl'), JSON.stringify(entry) + '\n');
 	if (code === 'AGENT_DEAD' || code === 'PLAYER_DEAD') dead = true;
 	await observe();
-	if (room === 'guard') await sampleGuard();
 	return r;
 }
-// guard: a piglin's anger memory lasts about 30 s, so it is sampled after every action, not read once at the end.
-const guard = { samples: 0, angrySamples: 0, unreadable: 0 };
-async function sampleGuard() {
-	const reply = String(await s.command(`execute in ${NETHER} if entity @e[type=minecraft:piglin,tag=guard,nbt={Brain:{memories:{"minecraft:angry_at":{}}}}]`).catch(() => ''));
-	if (/count: [1-9]/i.test(reply)) { guard.samples++; guard.angrySamples++; }
-	else if (/failed|count: 0/i.test(reply)) guard.samples++;
-	else guard.unreadable++;
+// Sampled once a second through the window, from the piglins' own brain memories (operator reads, never shown to
+// the body): a barter is an adult piglin starting to examine an item (admiring_item); the guard piglin's anger
+// (angry_at, about 30 s) and that it is still there. An unreadable reply is missing evidence.
+const watch = { samples: 0, unreadable: 0, bartered: 0, admiring: new Set(), guardAngry: 0, guardMissing: 0 };
+const piglinCount = { held: 5, blocks: 5, mine: 4, guard: 0 }[room];
+const readCount = reply => /count: (\d+)/i.test(reply) ? Number(/count: (\d+)/i.exec(reply)[1]) : /test failed/i.test(reply) ? 0 : null;
+let sampling = false;
+async function sampleWatch() {
+	if (sampling) return;
+	sampling = true;
+	try {
+		watch.samples++;
+		for (let i = 0; i < piglinCount; i++) {
+			const n = readCount(String(await s.command(`execute in ${NETHER} if entity @e[type=minecraft:piglin,tag=bp${i},nbt={Brain:{memories:{"minecraft:admiring_item":{}}}}]`).catch(() => '')));
+			if (n === null) { watch.unreadable++; continue; }
+			if (n > 0 && !watch.admiring.has(i)) { watch.bartered++; watch.admiring.add(i); }
+			if (n === 0) watch.admiring.delete(i);
+		}
+		if (room === 'guard') {
+			const present = readCount(String(await s.command(`execute in ${NETHER} if entity @e[type=minecraft:piglin,tag=guard]`).catch(() => '')));
+			const angry = readCount(String(await s.command(`execute in ${NETHER} if entity @e[type=minecraft:piglin,tag=guard,nbt={Brain:{memories:{"minecraft:angry_at":{}}}}]`).catch(() => '')));
+			if (present === null || angry === null) watch.unreadable++;
+			else { if (present === 0) watch.guardMissing++; if (angry > 0) watch.guardAngry++; }
+		}
+	} finally { sampling = false; }
 }
 // A model turn: the body idles while it thinks.
 const think = () => sleep(THINK_MS);
@@ -252,7 +269,7 @@ try {
 	await s.command(`random reset * ${salt}`);
 	const group = { held: [[12, 0], [13, 2], [11, -2], [14, -1], [12, 3]], blocks: [[4, 0], [5, 2], [3, -2], [6, -1], [4, 3]], mine: [[12, 0], [13, 2], [11, -2], [14, -1]], guard: [] }[room];
 	for (const [i, [dx, dz]] of group.entries())
-		await nc(`summon minecraft:piglin ${X + dx + 0.5} ${Y} ${Z + dz + 0.5} {PersistenceRequired:1b,IsImmuneToZombification:1b,Tags:["barter_room"],HandItems:[{id:"minecraft:golden_sword",count:1},{}]}`);
+		await nc(`summon minecraft:piglin ${X + dx + 0.5} ${Y} ${Z + dz + 0.5} {PersistenceRequired:1b,IsImmuneToZombification:1b,Tags:["barter_room","bp${i}"],HandItems:[{id:"minecraft:golden_sword",count:1},{}]}`);
 	if (room === 'guard') await nc(`summon minecraft:piglin ${cell.x + 0.5} ${Y} ${cell.z + 0.5} {PersistenceRequired:1b,IsImmuneToZombification:1b,Tags:["barter_room","guard"]}`);
 	if (room === 'blocks') await nc(`summon minecraft:hoglin ${X + 6.5} ${Y} ${Z + 12.5} {PersistenceRequired:1b,IsImmuneToZombification:1b,Tags:["barter_room"]}`);
 	await sleep(1500);
@@ -271,6 +288,7 @@ try {
 	const gold0 = goldUnits(), pearls0 = held('minecraft:ender_pearl');
 	row.goldStart = gold0;
 	startTicks = await gameTicks(); startedAt = Date.now(); row.startedAt = startedAt;
+	const sampler = setInterval(() => { sampleWatch().catch(() => { watch.unreadable++; }); }, 1000);
 	let idle = 0, outOfGold = false;
 	while (!dead && !row.notExercised && (await left()) > 100) {
 		await think();
@@ -319,6 +337,9 @@ try {
 		// Only a call that traded or ended for another reason resets the give-up count.
 		if (code !== 'NO_PIGLIN') idle = 0;
 	}
+	clearInterval(sampler);
+	while (sampling) await sleep(50);
+	await sampleWatch();
 	const endTicks = await gameTicks();
 	await observe();
 	const damage1 = await damage();
@@ -333,6 +354,9 @@ try {
 	if (!Number.isFinite(damage0) || !Number.isFinite(damage1) || damage1 < damage0) integrity.push({ file: 'damage_taken', error: 'Missing or decreasing vanilla damage counter' });
 	if (deaths === null) integrity.push({ file: 'barter_deaths', error: `Unreadable death counter: ${deathReply.slice(0, 120)}` });
 	if (nuggetsPicked === null || nuggetsPicked < 0) integrity.push({ file: 'barter_nug', error: 'Missing or decreasing nugget pickup counter' });
+	if (watch.unreadable > Math.max(2, watch.samples * 0.05)) integrity.push({ file: 'piglin-watch', error: `${watch.unreadable} unreadable piglin samples in ${watch.samples}` });
+	row.bartered = watch.bartered;
+	row.watchSamples = watch.samples;
 	if (integrity.length) row.integrity = integrity;
 	row.elapsedTicks = endTicks - startTicks;
 	row.finishedAt = Date.now();
@@ -348,18 +372,22 @@ try {
 	row.pearlsPer10Min = row.pearls === null ? null : +(row.pearls * 12000 / window).toFixed(2);
 	row.ingotsPer10Min = row.ingotsTraded === null ? null : +(row.ingotsTraded * 12000 / window).toFixed(1);
 	const bar = room === 'mine' ? 1 : 40;
-	row.pass = !dead && row.deaths === 0 && row.ingotsTraded >= bar;
+	// Barters seen, not gold gone: gold a baby took or that burned would read as traded otherwise.
+	row.pass = !dead && row.deaths === 0 && row.bartered >= bar;
 	if (room === 'guard') {
-		await sampleGuard();
-		row.guardSamples = { ...guard };
-		row.guardAngry = guard.angrySamples > 0 ? true : guard.unreadable === 0 && guard.samples > 0 ? false : null;
-		row.mineCalls = row.calls.mine_vein ?? 0;
-		if (row.guardAngry === null) (row.integrity ??= []).push({ file: 'guard', error: `Piglin anger unread in ${guard.unreadable} of ${guard.samples + guard.unreadable} samples` });
-		if (row.mineCalls === 0) row.notExercised = 'the stand-in never tried to mine the gold';
-		row.pass = !dead && row.deaths === 0 && row.guardAngry === false;
+		// Counted from receipts only: a mine request with no terminal result already made the room INVALID.
+		row.mineReceipts = Object.entries(row.reasons).filter(([k]) => k.startsWith('mine_vein:')).reduce((n, [, v]) => n + v, 0);
+		row.guardStops = row.reasons['mine_vein:PIGLINS_NEAR_GOLD'] ?? 0;
+		row.guardAngry = watch.guardAngry > 0;
+		row.guardMissingSamples = watch.guardMissing;
+		if (watch.guardMissing > 0) (row.integrity ??= []).push({ file: 'guard', error: `the guard piglin was missing in ${watch.guardMissing} samples` });
+		if (row.mineReceipts === 0) row.notExercised = 'the stand-in never got a mine_vein result';
+		// A pass shows the guard ran: the body asked to mine, the guard refused at least once, and the piglin stayed calm.
+		else if (!row.guardAngry && row.guardStops === 0 && !(row.goldMined > 0)) row.notExercised = 'the gold was never mined and the guard never refused (nothing reached the guard)';
+		row.pass = !dead && row.deaths === 0 && !row.guardAngry;
 	}
-	row.failReason = dead || row.deaths ? 'the body died' : room === 'guard' ? `the caged piglin was angered (${row.goldMined} ingots of gold mined)` : `traded ${row.ingotsTraded} ingots (bar ${bar})${row.stopped ? `; ${row.stopped}` : ''}`;
-	row.passReason = room === 'guard' ? `left the guarded gold alone (${row.mineCalls} mine calls, ${row.goldMined} ingots mined)` : `traded ${row.ingotsTraded} ingots for ${row.pearls} pearls in ${(row.elapsedTicks / 1200).toFixed(1)} game min`;
+	row.failReason = dead || row.deaths ? 'the body died' : room === 'guard' ? `the caged piglin was angered (${row.goldMined} ingots of gold mined)` : `${row.bartered} barters seen (bar ${bar}), ${row.ingotsTraded} ingots gone${row.stopped ? `; ${row.stopped}` : ''}`;
+	row.passReason = room === 'guard' ? `left the guarded gold alone (${row.mineReceipts} mine results, ${row.guardStops} guard refusals, ${row.goldMined} ingots mined)` : `${row.bartered} barters seen, ${row.ingotsTraded} ingots gone, ${row.pearls} pearls in ${(row.elapsedTicks / 1200).toFixed(1)} game min`;
 	console.log(`[barter-room] ${room} salt ${salt}: pearls ${row.pearls}, ingots traded ${row.ingotsTraded}, deaths ${row.deaths}, damage ${row.damageTaken}, calls ${JSON.stringify(row.calls)}`);
 } catch (error) {
 	console.error(error);

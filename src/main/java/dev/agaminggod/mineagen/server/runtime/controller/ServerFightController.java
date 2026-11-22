@@ -165,7 +165,9 @@ public final class ServerFightController implements ServerController {
 	/** Calm neutral mobs this fight's swings hurt besides the target (sword sweeps), "type uuid". */
 	private final List<String> neutralHits = new ArrayList<>(4);
 	/** Swings held because a calm neutral stood where the sword's sweep would land (a player waits for it to step clear). */
-	private int sweepHolds, sweepHoldRun;
+	private int sweepHolds;
+	/** Game tick the current run of held swings began, or -1: the hold is capped in game time, not in held swings. */
+	private long sweepHoldStart = -1L;
 	/** The longest a swing waits for a calm mob to step out of its sweep before it swings anyway (3 s). */
 	static final int MAX_SWEEP_HOLD_TICKS = 60;
 	private int ticksOnTarget;
@@ -560,8 +562,14 @@ public final class ServerFightController implements ServerController {
 		boolean sprintHit = player.isSprinting() && sprint && !sneak;
 		boolean sweepLands = player.getMainHandItem().is(net.minecraft.tags.ItemTags.SWORDS) && player.getAttackStrengthScale(0.5F) > 0.9F
 				&& player.onGround() && !sprintHit;
-		boolean holdForSweep = holdSwingForSweep(sweepLands, calm.size(), sweepHoldRun);
-		if (holdForSweep) { sweepHolds++; sweepHoldRun++; } else if (step.attack()) sweepHoldRun = 0;
+		long gameTime = player.level().getGameTime();
+		boolean holdForSweep = holdSwingForSweep(sweepLands, calm.size(), sweepHoldStart < 0 ? 0L : gameTime - sweepHoldStart);
+		if (holdForSweep) {
+			if (sweepHoldStart < 0) sweepHoldStart = gameTime;
+			sweepHolds++;
+			// No swing happened, so no post-swing backoff: the next tick may swing as soon as the sweep is clear.
+			backoffTicks = 0;
+		} else if (step.attack()) sweepHoldStart = -1L;
 		// A held swing keeps the shield up: lowering it for a hit that never comes leaves the body open.
 		input.apply(player, new AgentInputState(forward, strafe, jump, sneak, sprint && !sneak, false, shielding && (!step.attack() || holdForSweep),
 				yaw, pitch, weaponSlot, shielding ? InteractionHand.OFF_HAND : InteractionHand.MAIN_HAND));
@@ -1149,7 +1157,7 @@ public final class ServerFightController implements ServerController {
 	 * True when a sword swing now would sweep a calm neutral: the swing waits for it to step clear, for at most
 	 * MAX_SWEEP_HOLD_TICKS in a row, so a fight in a crowd of calm mobs still lands its hits.
 	 */
-	public static boolean holdSwingForSweep(boolean sweepLands, int calmNeutralsInSweep, int heldTicks) {
+	public static boolean holdSwingForSweep(boolean sweepLands, int calmNeutralsInSweep, long heldTicks) {
 		return sweepLands && calmNeutralsInSweep > 0 && heldTicks < MAX_SWEEP_HOLD_TICKS;
 	}
 
@@ -1165,7 +1173,7 @@ public final class ServerFightController implements ServerController {
 
 	private String kills() {
 		String extra = (blazeWaitTicks == 0 ? "" : String.format(Locale.ROOT, "; held deck awaiting blaze reach %.1f s", blazeWaitTicks / 20.0D)) + footworkFacts() + (shieldBroke ? "; offhand shield broke mid-fight, fought on unshielded" : "")
-				+ (sweepHolds == 0 ? "" : String.format(Locale.ROOT, "; held the sword %.1f s while a calm neutral stood in its sweep", sweepHolds / 20.0D))
+				+ (sweepHolds == 0 ? "" : String.format(Locale.ROOT, "; held the sword on %d ready swings while a calm neutral stood in its sweep", sweepHolds))
 				+ (neutralHits.isEmpty() ? "" : "; your sword sweep also hit calm " + String.join(", ", neutralHits)
 						+ " (now hostile; a hurt zombified piglin angers all within 35 blocks)");
 		if (kills.isEmpty()) return extra;

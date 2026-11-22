@@ -196,6 +196,9 @@ public final class PerceptionGateVerification {
 		check(ServerBarterController.armourTier(null) < ServerBarterController.armourTier("minecraft:iron_helmet")
 				&& ServerBarterController.armourTier("minecraft:iron_boots") < ServerBarterController.armourTier("minecraft:diamond_helmet"),
 				"gold goes on an empty slot first, then over iron before diamond");
+		check(ServerBarterController.startsBarter(false, true, false), "an adult piglin starting to examine a gold ingot is one barter");
+		check(!ServerBarterController.startsBarter(true, true, false), "a baby piglin keeps the ingot: no barter");
+		check(!ServerBarterController.startsBarter(false, true, true), "the same examination is counted once");
 		check(ServerBarterController.droppableJunk(64, 64, 64) == 0, "64 netherrack carried for bridging, none added: nothing dropped");
 		check(ServerBarterController.droppableJunk(64, 90, 64) == 26, "26 netherrack from piglins on top of 64 carried: only the 26 go");
 		check(ServerBarterController.droppableJunk(30, 118, 0) == 30, "gravel all from barters: the whole stack goes");

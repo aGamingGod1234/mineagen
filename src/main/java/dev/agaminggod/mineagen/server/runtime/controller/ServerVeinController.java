@@ -330,8 +330,8 @@ public final class ServerVeinController implements ServerController {
 	}
 
 	/**
-	 * Vanilla (PiglinAi.angerNearbyPiglins): breaking a block tagged guarded_by_piglins angers every piglin whose box
-	 * touches the player's box grown by 16 on each axis, seen or not. A piglin 12 east and 12 south (17 straight-line)
+	 * Vanilla (PiglinAi.angerNearbyPiglins): breaking a block tagged guarded_by_piglins angers every idle piglin whose
+	 * box touches the player's box grown by 16 on each axis, seen or not. A piglin 12 east and 12 south (17 straight-line)
 	 * is inside it.
 	 */
 	public static final double PIGLIN_GUARD_RANGE = 16.0D;
@@ -350,7 +350,8 @@ public final class ServerVeinController implements ServerController {
 		if (!state.is(BlockTags.GUARDED_BY_PIGLINS)) return null;
 		net.minecraft.world.phys.AABB body = player.getBoundingBox();
 		for (var piglin : player.level().getEntitiesOfClass(net.minecraft.world.entity.monster.piglin.Piglin.class, body.inflate(PIGLIN_GUARD_RANGE + 1.0D),
-				p -> p.isAlive() && p.getTarget() != player)) {
+				// Vanilla angers only idle piglins (PiglinAi.isIdle): one fleeing, fighting or admiring is left out.
+				p -> p.isAlive() && p.getTarget() != player && p.getBrain().isActive(net.minecraft.world.entity.schedule.Activity.IDLE))) {
 			if (!angersPiglins(true, body, piglin.getBoundingBox())) continue;
 			return stop(player, "PIGLINS_NEAR_GOLD", String.format(Locale.ROOT,
 					"a calm piglin is %.1f blocks away (seen or heard): breaking %s with a piglin within %d blocks on each axis turns them on you (vanilla), gold armour or not; mine it once they are further off",
