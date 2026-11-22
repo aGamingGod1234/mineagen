@@ -105,8 +105,8 @@ for (const reason of ['TARGET_UNREACHABLE', 'NO_SEEN_ROUTE', 'FIGHT_UNTIL_TIMED_
 test('a second skeleton drawing on the body during a bone hunt\'s walk-up is still danger', async () => {
 	const calls = [];
 	const state = { at: { x: 0.5, y: 64, z: 0.5 } };
-	const hunted = { type: 'minecraft:skeleton', uuid: 'h', x: 60.5, y: 64, z: 0.5, hostile: true, alive: true, visible: true };
-	const shooter = { type: 'minecraft:skeleton', uuid: 's', x: 15.5, y: 64, z: 30.5, hostile: true, alive: true, visible: true, targeting: true };
+	const hunted = { type: 'minecraft:skeleton', uuid: 'h', stableId: 'h', x: 60.5, y: 64, z: 0.5, hostile: true, alive: true, visible: true };
+	const shooter = { type: 'minecraft:skeleton', uuid: 's', stableId: 's', x: 15.5, y: 64, z: 30.5, hostile: true, alive: true, visible: true, targeting: true };
 	const rows = () => [hunted, ...(calls.includes('travel_to') ? [shooter] : [])].map((row) => ({ ...row, distance: Math.hypot(row.x - state.at.x, row.z - state.at.z) }));
 	const body = {
 		observe: async () => ({ ready: true, player: { ...state.at, health: 20, foodLevel: 20, skyOpen: true, onGround: true, threats: rows().filter((row) => row.distance <= 48) },
@@ -123,4 +123,55 @@ test('a second skeleton drawing on the body during a bone hunt\'s walk-up is sti
 	assert.equal(result.state, 'INTERRUPTED', result.message);
 	assert.equal(result.reasonCode, 'DANGER');
 	assert.equal(calls.filter((type) => type === 'travel_to').length, 1);
+});
+
+test('the hunted skeleton drawing on the body is still the walk-up\'s arrival', async () => {
+	const calls = [];
+	const state = { at: { x: 0.5, y: 64, z: 0.5 }, bone: 0 };
+	const hunted = { type: 'minecraft:skeleton', uuid: 'h', stableId: 'h', x: 40.5, y: 64, z: 0.5, hostile: true, alive: true, visible: true };
+	const rows = () => [{ ...hunted, targeting: calls.includes('travel_to'), distance: Math.hypot(hunted.x - state.at.x, hunted.z - state.at.z) }];
+	const body = {
+		observe: async () => ({ ready: true, player: { ...state.at, health: 20, foodLevel: 20, skyOpen: true, onGround: true, threats: rows() },
+			world: { dimension: 'minecraft:overworld', dayTime: 6000 }, blocks: [], entities: rows(),
+			inventory: { items: [{ itemId: 'minecraft:iron_sword', count: 1, slot: 0 }, ...(state.bone ? [{ itemId: 'minecraft:bone', count: state.bone, slot: 1 }] : [])] } }),
+		act: async (actionType, args) => {
+			calls.push(actionType);
+			if (actionType === 'travel_to') { state.at = { x: 26.5, y: 64, z: 0.5 }; return { state: 'FAILED', reasonCode: 'HOSTILE_NEAR', message: 'Stopped: minecraft:skeleton targeting 14 blocks away' }; }
+			if (actionType === 'fight_until') { state.bone = args.untilCount; return { state: 'SUCCEEDED', reasonCode: 'TARGET_REACHED' }; }
+			return { state: 'SUCCEEDED', reasonCode: 'ACTION_COMPLETED' };
+		},
+		search: async () => ({ state: 'FAILED', reasonCode: 'FIND_NOT_FOUND', message: 'none' }),
+		survey: async () => ({ entries: [] }), note: () => {}, stopped: () => false, interrupted: () => false, recovering: () => {},
+	};
+	const result = await runObtain({ item: 'bone', count: 2, timeoutMs: 600_000 }, body, { now: clock() });
+	assert.equal(result.state, 'SUCCEEDED', result.message);
+	assert.deepEqual(calls.filter((type) => ['travel_to', 'fight_until'].includes(type)), ['travel_to', 'fight_until']);
+});
+
+test('after climbing out of a failed hunt under cover, a spider on the surface above the spot is hunted', async () => {
+	const calls = [];
+	const state = { at: { x: 0.5, y: 20, z: 0.5 }, string: 0 };
+	const cave = { type: 'minecraft:cave_spider', uuid: 'cs', stableId: 'cs', x: 10.5, y: 20, z: 0.5, hostile: true, alive: true, visible: true };
+	const top = { type: 'minecraft:spider', uuid: 'sp', stableId: 'sp', x: 20.5, y: 64, z: 0.5, hostile: true, alive: true, visible: true };
+	const sky = () => state.at.y >= 60;
+	const rows = () => (sky() ? [top] : [cave]).map((row) => ({ ...row, distance: Math.hypot(row.x - state.at.x, row.y - state.at.y, row.z - state.at.z) }));
+	const body = {
+		observe: async () => ({ ready: true, player: { ...state.at, health: 20, foodLevel: 20, skyOpen: sky(), onGround: true, threats: [] },
+			world: { dimension: 'minecraft:overworld', dayTime: 6000 }, blocks: [], entities: rows(),
+			inventory: { items: [{ itemId: 'minecraft:iron_sword', count: 1, slot: 0 }, { itemId: 'minecraft:stone_pickaxe', count: 1, slot: 2 }, ...(state.string ? [{ itemId: 'minecraft:string', count: state.string, slot: 1 }] : [])] } }),
+		act: async (actionType, args) => {
+			calls.push(actionType);
+			if (actionType === 'fight_until') {
+				if (!sky()) return { state: 'FAILED', reasonCode: 'FIGHT_UNTIL_TIMED_OUT', message: 'out of time' };
+				state.string = args.untilCount; return { state: 'SUCCEEDED', reasonCode: 'TARGET_REACHED' };
+			}
+			if (actionType === 'dig_to') { state.at = { x: 0.5, y: 64, z: 0.5 }; return { state: 'SUCCEEDED', reasonCode: 'ARRIVED', message: 'at the surface' }; }
+			return { state: 'SUCCEEDED', reasonCode: 'ACTION_COMPLETED' };
+		},
+		search: async () => ({ state: 'FAILED', reasonCode: 'FIND_NOT_FOUND', message: 'none' }),
+		survey: async () => ({ entries: [] }), note: () => {}, stopped: () => false, interrupted: () => false, recovering: () => {},
+	};
+	const result = await runObtain({ item: 'string', count: 2, timeoutMs: 600_000 }, body, { now: clock() });
+	assert.equal(result.state, 'SUCCEEDED', `${result.message} ${JSON.stringify(calls)}`);
+	assert.equal(calls.filter((type) => type === 'fight_until').length, 2, JSON.stringify(calls));
 });
