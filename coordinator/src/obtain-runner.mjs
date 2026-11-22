@@ -635,7 +635,14 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 	const smeltsPer = (itemId) => (index.fuels?.[bare(itemId)] ?? 0) / 200;
 	const fuelCover = (counts) => Math.max(0, ...FUEL_GROUPS.map((group) => Math.max(0, ...fuelMembers(group).map((member) => Math.floor(Math.min(64, counts.get(member) ?? 0) * smeltsPer(member))))));
 	const act = async (type, args) => {
-		const result = await body.act(type, args);
+		let result;
+		try { result = await body.act(type, args); }
+		catch (error) {
+			// A move the tool refuses comes back from the production body as a FAILED result (native-tool-runtime's obtain
+			// run); a body that throws the refusal instead is taken the same way, so the step's why names it.
+			if (error?.code !== 'INVALID_MINECRAFT_TOOL_ARGUMENTS') throw error;
+			result = { state: 'FAILED', reasonCode: error.code, message: String(error?.message ?? error).slice(0, 300) };
+		}
 		if (result?.state !== 'SUCCEEDED') lastFailure = `${type} ${result?.reasonCode ?? result?.state ?? 'failed'}${result?.message ? `: ${String(result.message).slice(0, 160)}` : ''}`;
 		return result;
 	};

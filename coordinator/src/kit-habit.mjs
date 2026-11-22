@@ -70,7 +70,8 @@ export function craftsFromHeld(o, itemId, { reserved = null } = {}) {
 /**
  * The next kit step from a fresh observation, or null when the kit is kept or the body is hurt:
  * {kind:'equip', sourceSlot, targetSlot, itemId}, {kind:'hotbar', sourceSlot, hotbarSlot, itemId} or {kind:'craft', itemId}.
- * Equips come first (free), then food in reach, then a shield, then one armour piece from spare iron.
+ * Equips come first (free), then food in reach, then a shield, then one armour piece from spare iron, then a spare
+ * shield in the Overworld once the chestplate and boots are worn.
  * reserved ({ids, count}): what the obtain just handed back; kit crafts never spend it.
  */
 export function nextKitStep(o, { reserved = null } = {}) {
@@ -115,6 +116,12 @@ export function nextKitStep(o, { reserved = null } = {}) {
 		if (worn(piece.slot) || items.some(item => piece.part.test(item.itemId))) continue;
 		if (piece.iron <= spare && craftable(piece.itemId)) return { kind: 'craft', itemId: piece.itemId };
 	}
+	// COMBAT-2: a spare shield before the Nether, from iron left once the route's own armour is on (chestplate and boots,
+	// skill-fits KIT_ARMOUR), so it never takes that armour's iron. A shield that breaks there ("the shield broke") then
+	// has its replacement in the pack, which the equip step above puts in the off hand.
+	const routeArmour = worn('chest') && worn('feet');
+	if (shields.length === 1 && routeArmour && spare >= 1 && wood >= 6 && (o.world?.dimension ?? 'minecraft:overworld') === 'minecraft:overworld'
+		&& craftable('minecraft:shield')) return { kind: 'craft', itemId: 'minecraft:shield', spare: true };
 	return null;
 }
 
