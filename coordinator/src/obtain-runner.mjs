@@ -140,6 +140,9 @@ function slotOf(o, members, skip = null) {
 export function isDanger(result, observation) {
 	const code = result?.reasonCode;
 	if (DAMAGE_STOPS.has(code) || LIFE_SAFETY_STOPS.has(code)) return true;
+	// A reflex kept the body for minutes (the mod's REFLEX_HOLD_LIMIT_MS): retrying the leg would hand it straight back to
+	// the same reflex for another 2 minutes, so the run stops and the model hears why.
+	if (code === 'HELD_BY_REFLEX') return true;
 	return code === 'HOSTILE_NEAR' && hostileIsDanger(observation);
 }
 

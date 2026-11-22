@@ -290,3 +290,13 @@ test('a spot that forbids an action fails when the body took it, whatever the la
 	assert.equal(verdict.pass, false);
 	assert.match(verdict.failReason, /dig_to stairs_down, which this spot forbids/);
 });
+
+test('a spot with a final-probe expectation fails when the ground truth after the calls does not match', () => {
+	const spot = { expectCode: 'OBTAINED', expectFinalProbe: [{ index: 0, match: 'Test passed' }] };
+	const row = { calls: [{ reasonCode: 'OBTAINED', state: 'SUCCEEDED' }], deaths: 0, finalProbe: ['Test passed'] };
+	assert.equal(findSpotVerdict(spot, row).pass, true);
+	const left = findSpotVerdict(spot, { ...row, finalProbe: ['Test failed'] });
+	assert.equal(left.pass, false);
+	assert.match(left.failReason, /final probe 0 replied "Test failed"/);
+	assert.equal(findSpotVerdict(spot, { ...row, finalProbe: undefined }).pass, false, 'no probe reply is no pass');
+});

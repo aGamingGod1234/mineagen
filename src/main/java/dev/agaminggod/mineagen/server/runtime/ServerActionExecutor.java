@@ -126,6 +126,17 @@ public final class ServerActionExecutor {
 			Direction.NORTH, Direction.EAST, Direction.SOUTH, Direction.WEST
 	};
 	private static final long DEFAULT_TIMEOUT_MS = 60_000L;
+	/**
+	 * Longest a reflex may hold a running action paused without a single tick of it (game time). A paused action's own
+	 * timeout is frozen, so without this a reflex that never finishes held it for good with the model's wakes folded under
+	 * the step (playtest: an eat stance at a crafting table kept a bread craft paused for over 5 minutes).
+	 */
+	public static final long REFLEX_HOLD_LIMIT_MS = 120_000L;
+
+	/** The stuck-pause span after one more paused loop: a firing that holds on purpose (a fight, a hazard) restarts it. */
+	public static long stuckPauseSpan(long spanMs, long sinceLastLoopMs, boolean holdsOnPurpose) {
+		return holdsOnPurpose ? 0L : spanMs + Math.max(0L, sinceLastLoopMs);
+	}
 	private static final long MOVEMENT_STALL_TIMEOUT_MS = 4_000L;
 	private static final long PLACE_TIMEOUT_MS = 5_000L;
 	/** A 180 degree turn takes about 6 ticks; past this something is fighting the view and the frame starts anyway. */
@@ -410,6 +421,15 @@ public final class ServerActionExecutor {
 
 	/** As {@link #tick(Set, Set)}; {@code firingRule} names the reflex rule holding a paused agent (for the result text). */
 	public synchronized void tick(Set<AgentId> held, Set<AgentId> paused, java.util.function.Function<AgentId, String> firingRule) {
+		tick(held, paused, firingRule, ignored -> false);
+	}
+
+	/**
+	 * As {@link #tick(Set, Set, java.util.function.Function)}; {@code holdsOnPurpose} names agents whose current firing holds
+	 * the body for as long as its danger lasts (a fight, a shield, a hazard floor), which {@link #REFLEX_HOLD_LIMIT_MS} spares.
+	 */
+	public synchronized void tick(Set<AgentId> held, Set<AgentId> paused, java.util.function.Function<AgentId, String> firingRule,
+			java.util.function.Predicate<AgentId> holdsOnPurpose) {
 		long now = GameClock.nowMs();
 		retryPendingPublications();
 		tickShiftHolds();
@@ -435,6 +455,22 @@ public final class ServerActionExecutor {
 				if (paused.contains(action.request().agentId())) {
 					action.pausedMs += sinceLastLoop;
 					action.pauseUnder(firingRule.apply(action.request().agentId()));
+					// A fight or hazard floor holds as long as its danger lasts; any other firing that keeps the body this
+					// long is stuck, and the action's result is what brings the model back.
+					action.pausedSpanMs = stuckPauseSpan(action.pausedSpanMs, sinceLastLoop, holdsOnPurpose.test(action.request().agentId()));
+					if (!hasPendingPublication(action.request().agentId())) {
+						CleanupRetry<ServerActionResult> retained = pendingCompletions.get(action.request().agentId());
+						// A hold-limit end whose cleanup threw is retried here: the firing still holds the body, so the normal
+						// retry below is never reached and the action would be stuck again.
+						if (retained != null && action.endedByHoldLimit) finish(action, retained.pending());
+						else if (retained == null && action.pausedSpanMs >= REFLEX_HOLD_LIMIT_MS) {
+							long heldSeconds = action.pausedSpanMs / 1000L;
+							action.pausedSpanMs = 0L;
+							action.endedByHoldLimit = true;
+							finish(action, action.result(ServerActionState.FAILED, "HELD_BY_REFLEX", String.format(java.util.Locale.ROOT,
+									"Reflexes held the body for %d s in a row and this action could not run", heldSeconds), now));
+						}
+					}
 					continue;
 				}
 				if (held.contains(action.request().agentId())) continue;
@@ -1919,7 +1955,7 @@ public final class ServerActionExecutor {
 				JsonObject args = new JsonObject();
 				args.addProperty("pattern", "stairs_up"); args.addProperty("y", y); args.addProperty("heading", heading.getName());
 				args.addProperty("sealFluids", true); args.addProperty("timeoutMs", timeoutMs);
-				return digController(args);
+				return digController(args).climbsInTheOpen(true);
 			}
 			public Vec3 aim(ServerPlayer body, BlockPos at, Direction face, String itemId) { return shelterEnvironment(parent, itemId).aim(body, at, face); }
 			public String place(ServerPlayer body, BlockPos at, Direction face, String itemId) { return shelterEnvironment(parent, itemId).place(body, at, face); }
@@ -3283,6 +3319,10 @@ public final class ServerActionExecutor {
 		/** Reflex firings that paused this action (rule id -> times), whether one holds it now, and how often it resumed. */
 		private final java.util.LinkedHashMap<String, Integer> pausedBy = new java.util.LinkedHashMap<>();
 		private boolean pausedNow;
+		/** Game time paused since the action last ticked; reset on every resume. */
+		private long pausedSpanMs;
+		/** The reflex hold limit ended this action; its completion is retried even while the firing still holds the body. */
+		private boolean endedByHoldLimit;
 		private int resumes;
 		private long lastLoopMs;
 		private long startedAtEpochMs;
@@ -4554,6 +4594,7 @@ public final class ServerActionExecutor {
 		void resumeAfterPause() {
 			if (!pausedNow) return;
 			pausedNow = false;
+			pausedSpanMs = 0L;
 			resumes++;
 			if (controller != null && player != null) controller.resumed(player);
 		}
