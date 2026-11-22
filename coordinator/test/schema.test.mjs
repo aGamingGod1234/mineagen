@@ -262,7 +262,9 @@ test('fight_target and use_ranged count mode: untilItem with untilCount, roof on
 	assert.deepEqual([counted.untilItem, counted.untilCount, counted.roof], ['minecraft:ender_pearl', 4, true]);
 	assert.throws(() => validateAction({ ...melee, untilItem: 'minecraft:ender_pearl' }), /untilCount go together/);
 	assert.throws(() => validateAction({ ...melee, untilCount: 2 }), /untilCount go together/);
-	assert.throws(() => validateAction({ ...melee, roof: true }), /roof applies only/);
+	assert.throws(() => validateAction({ ...melee, roof: true }), /roof:true applies only/);
+	// roof:false keeps a single-target blaze fight in the open (no spawner hold wall-in).
+	assert.equal(validateAction({ ...melee, roof: false }).roof, false);
 	assert.throws(() => validateAction({ ...melee, untilItem: 'minecraft:ender_pearl', untilCount: 0 }), /untilCount/);
 	const bow = { type: 'use_ranged', targetId: id, drawDurationMs: 1000 };
 	const volley = validateAction({ ...bow, untilItem: 'minecraft:blaze_rod', untilCount: 3, collect: true, fleeAtHealth: 8 });

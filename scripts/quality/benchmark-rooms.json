@@ -1320,7 +1320,8 @@
    "estMinutes": 6,
    "tickRate": 20,
    "bar": "none",
-   "reads": "no pass bar: exit 0 means it ran; read OUT/blaze-spawner.json variants.gap0 (deaths, kills, rodsPicked, rodsAtEnd)"
+   "passWhen": { "field": "allRunsKilledAndKeptRod", "min": 1 },
+   "reads": "pass: alive at the end with a blaze killed and a rod kept (OUT/blaze-spawner.json allRunsKilledAndKeptRod); variants.gap0 has deaths, kills, rodsPicked, rodsAtEnd"
   },
   {
    "room": "blaze-spawner-gap5",
@@ -1332,7 +1333,8 @@
    "estMinutes": 6,
    "tickRate": 20,
    "bar": "none",
-   "reads": "no pass bar: exit 0 means it ran; read OUT/blaze-spawner.json variants.gap5 (deaths, kills, rodsPicked, rodsAtEnd)"
+   "passWhen": { "field": "allRunsKilledAndKeptRod", "min": 1 },
+   "reads": "pass: alive at the end with a blaze killed and a rod kept (OUT/blaze-spawner.json allRunsKilledAndKeptRod); variants.gap5 has deaths, kills, rodsPicked, rodsAtEnd"
   },
   {
    "room": "blaze-spawner-cover",
@@ -1344,7 +1346,8 @@
    "estMinutes": 6,
    "tickRate": 20,
    "bar": "none",
-   "reads": "no pass bar: exit 0 means it ran; read OUT/blaze-spawner.json variants.cover (deaths, kills, rodsPicked, rodsAtEnd)"
+   "passWhen": { "field": "allRunsKilledAndKeptRod", "min": 1 },
+   "reads": "pass: alive at the end with a blaze killed and a rod kept (OUT/blaze-spawner.json allRunsKilledAndKeptRod); variants.cover has deaths, kills, rodsPicked, rodsAtEnd"
   },
   {
    "room": "bow-crystal",

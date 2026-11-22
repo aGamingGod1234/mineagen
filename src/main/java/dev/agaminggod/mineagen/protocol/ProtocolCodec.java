@@ -846,7 +846,8 @@ public final class ProtocolCodec {
 		if (item != count) throw invalidField("untilItem and untilCount go together");
 		if (present(command, "roof")) {
 			requireBoolean(command, "roof");
-			if (!item) throw invalidField("Field 'roof' applies only with untilItem and untilCount");
+			// roof:false on a single-target fight keeps the open fight (no spawner hold wall-in for a blaze at a spawner).
+			if (!item && command.get("roof").getAsBoolean()) throw invalidField("Field 'roof':true applies only with untilItem and untilCount");
 		}
 		if (!item) return false;
 		requireIdentifier(command, "untilItem");
