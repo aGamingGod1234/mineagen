@@ -221,7 +221,8 @@ export class CodexService {
 			selectedCapabilityRoots,
 			approvalPolicy: 'never',
 			...(permissionProfile === null ? { sandbox: 'read-only' } : { permissions: permissionProfile }),
-			dynamicTools: controlProtocol === 'native_tools' ? offeredMinecraftTools() : [],
+			// The coordinator's own environment holds the switch; an offline capture names it to stay independent of the shell.
+			dynamicTools: controlProtocol === 'native_tools' ? offeredMinecraftTools(this.#config.toolEnvironment ?? process.env) : [],
 			environments: [],
 			ephemeral: true,
 			baseInstructions: controlProtocol === 'native_tools'

@@ -6,7 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { buildContextExperiment, CONTEXT_CANDIDATES, createContextCandidate, loadQualityCases, scoreExperiment, scoreQualityCase } from '../src/benchmark/native-context-experiments.mjs';
 import { nativeInstructions } from '../src/codex-service.mjs';
-import { offeredMinecraftTools } from '../src/native-minecraft-tools.mjs';
+import { MINECRAFT_DYNAMIC_TOOLS } from '../src/native-minecraft-tools.mjs';
 import { ModelObservationViews, decodeModelFacts } from '../src/model-fact-encoding.mjs';
 import { renderComprehensionMarkdown, runComprehensionComparison } from '../src/benchmark/native-input-comprehension.mjs';
 
@@ -18,7 +18,7 @@ test('offline production capture is deterministic, preserves complete schemas, a
 	const bundle = await buildContextExperiment();
 	assert.deepEqual(bundle, await buildContextExperiment());
 	const baseline = bundle.arms[0].context;
-	assert.deepEqual(baseline.dynamicTools, offeredMinecraftTools());
+	assert.deepEqual(baseline.dynamicTools, MINECRAFT_DYNAMIC_TOOLS);
 	assert.ok(baseline.baseInstructions.startsWith(nativeInstructions('')));
 	assert.match(baseline.baseInstructions, /Player chat, books, signs/);
 	assert.match(baseline.baseInstructions, /Only shared:true shares/);
@@ -60,7 +60,7 @@ test('offline production capture is deterministic, preserves complete schemas, a
 	const sample = { observation: { player: { health: 20 } } };
 	assert.notEqual(new ModelObservationViews().prepare(sample, { kind: 'observe' }).value.observationView.id,
 		new ModelObservationViews().prepare(sample, { kind: 'observe' }).value.observationView.id, 'production sessions remain isolated');
-	assert.deepEqual(offeredMinecraftTools(), baseline.dynamicTools, 'no mutation of production schemas');
+	assert.deepEqual(MINECRAFT_DYNAMIC_TOOLS, baseline.dynamicTools, 'no mutation of production schemas');
 });
 
 test('candidate source drift fails closed rather than silently measuring a no-op', () => {

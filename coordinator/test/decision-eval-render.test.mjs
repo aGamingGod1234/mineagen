@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import { AgentRegistry } from '../src/agent-registry.mjs';
-import { offeredMinecraftTools } from '../src/native-minecraft-tools.mjs';
+import { MINECRAFT_DYNAMIC_TOOLS } from '../src/native-minecraft-tools.mjs';
 import { ModelObservationViews, encodeNativeEventInput } from '../src/model-fact-encoding.mjs';
 import { REPLAY_AGENT_ID, canonicalEncodedInput, renderPrefix, renderWake, replayAgentRecord } from '../src/decision-eval/render.mjs';
 import { FakeBridge, FakePlanner, eventually, start } from './fixtures/dynamic-main-fixture.mjs';
@@ -148,6 +148,9 @@ test('a plan the build rejects is reported as invalid case state', async () => {
 
 test('the rendered prefix is the production instructions and tool definitions', async () => {
 	const claude = await renderPrefix({ provider: 'claude' });
+	// Production offers the program tools only with MINEAGEN_PROGRAM_TOOLS=on; the full list stays the contract source.
+	const { offeredMinecraftTools } = await import('../src/native-minecraft-tools.mjs');
+	assert.ok(offeredMinecraftTools().every((tool) => MINECRAFT_DYNAMIC_TOOLS.includes(tool)));
 	assert.match(claude.instructions.systemPrompt, /mcp__minecraft__observe/);
 	assert.deepEqual(claude.tools, offeredMinecraftTools().map(({ name, description, inputSchema }) => ({ name, description, inputSchema })));
 	const codex = await renderPrefix({ provider: 'codex', model: 'gpt-6.1-sol' });

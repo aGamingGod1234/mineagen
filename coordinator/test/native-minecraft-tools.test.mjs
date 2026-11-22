@@ -394,7 +394,7 @@ test('generic oversized terminal metadata bounds successor summaries without los
 
 test('native Minecraft tools expose the common fast path plus one validated advanced body operation', () => {
 	assert.deepEqual(MINECRAFT_DYNAMIC_TOOLS.map((tool) => tool.name), [
-		'do_step', 'taskMemory', 'observe', 'capabilities', 'inspect', 'actionStatus', 'cancelAction', 'replaceAction', 'startAction', 'notebook', 'queryMemory', 'runProgram', 'queueProgram', 'cancelQueuedProgram', 'programStatus', 'respondProgram', 'cancelProgram', 'lookAround', 'survey', 'control', 'moveTo', 'travelTo', 'exploreFrontier', 'mine', 'gather', 'say', 'wait', 'act', 'sequence', 'taskPlan', 'takeTask', 'finish',
+		'do_step', 'taskMemory', 'observe', 'capabilities', 'inspect', 'actionStatus', 'cancelAction', 'replaceAction', 'startAction', 'notebook', 'queryMemory', 'runProgram', 'queueProgram', 'cancelQueuedProgram', 'programStatus', 'respondProgram', 'cancelProgram', 'reflexes', 'lookAround', 'survey', 'control', 'moveTo', 'travelTo', 'exploreFrontier', 'mine', 'gather', 'say', 'wait', 'act', 'sequence', 'taskPlan', 'takeTask', 'finish',
 	]);
 	assert.ok(MINECRAFT_DYNAMIC_TOOLS.every((tool) => tool.type === 'function'));
 	assert.ok(NATIVE_AGENT_INSTRUCTIONS.length <= 1_500);
@@ -404,13 +404,11 @@ test('native Minecraft tools expose the common fast path plus one validated adva
 	assert.match(NATIVE_AGENT_INSTRUCTIONS, /exploreFrontier/);
 	assert.match(NATIVE_AGENT_INSTRUCTIONS, /Death preserves goals/i);
 	assert.match(NATIVE_AGENT_INSTRUCTIONS, /Omitted facts are unknown/i);
-	assert.match(NATIVE_AGENT_INSTRUCTIONS, /background:true/);
+	assert.match(NATIVE_AGENT_INSTRUCTIONS, /one background do_step/);
 	assert.match(NATIVE_AGENT_INSTRUCTIONS, /queryMemory/);
-	assert.match(NATIVE_AGENT_INSTRUCTIONS, /author source live with program\.parameters\(\); never noteKey/);
+	// Live authorship is taught where the program tools are offered: their own descriptions.
 	assert.match(MINECRAFT_DYNAMIC_TOOLS.find((tool) => tool.name === 'runProgram').description, /Use live-authored source/);
-	assert.match(NATIVE_AGENT_INSTRUCTIONS, /Calls idle the body \(stoodStillMs\): batch known steps in one sequence\/program, next read in inspectAfter; reuse facts/);
-	assert.match(NATIVE_AGENT_INSTRUCTIONS, /program\.parameters\(\)/);
-	assert.match(NATIVE_AGENT_INSTRUCTIONS, /Queue known work now from runProgram handles/);
+	assert.match(NATIVE_AGENT_INSTRUCTIONS, /Calls idle the body \(stoodStillMs\): batch known steps in one sequence or do_step, next read in inspectAfter; reuse facts/);
 	assert.match(MINECRAFT_DYNAMIC_TOOLS.find((tool) => tool.name === 'queueProgram').description, /Runtime chooses no gameplay/);
 	assert.match(MINECRAFT_DYNAMIC_TOOLS.find((tool) => tool.name === 'queueProgram').description, /Only successful natural PROGRAM_EXHAUSTED starts it, with no pending decision/);
 	assert.match(MINECRAFT_DYNAMIC_TOOLS.find((tool) => tool.name === 'queueProgram').description, /expectedDurationMs must fit it/);
@@ -420,10 +418,11 @@ test('native Minecraft tools expose the common fast path plus one validated adva
 test('guidance tells the model to loop bulk work, reuse facts, stop polling and end turns without text', () => {
 	const tools = Object.fromEntries(MINECRAFT_DYNAMIC_TOOLS.map((tool) => [tool.name, tool.description]));
 	assert.ok(NATIVE_AGENT_INSTRUCTIONS.length <= 1_500);
-	assert.match(NATIVE_AGENT_INSTRUCTIONS, /Loop repeat work in background:true programs\./);
+	// The always-sent text names no program tool: those six are offered only with MINEAGEN_PROGRAM_TOOLS=on.
+	assert.match(NATIVE_AGENT_INSTRUCTIONS, /Give repeat work to one background do_step; chain known next steps with after:<actionId>\./);
+	assert.doesNotMatch(NATIVE_AGENT_INSTRUCTIONS, /runProgram|queueProgram|respondProgram|programStatus|cancelProgram|program\.parameters|standing\.template|after:"reconsider"/);
 	assert.match(ARENA_SCRIPT_API_REFERENCE, /Bulk work is one program: program\.repeatUntil\(\(\) => count >= N.*an unqueued PROGRAM_EXHAUSTED needs another model decision/, 'the trimmed loop facts stay always-sent in the API reference');
 	assert.doesNotMatch(NATIVE_AGENT_INSTRUCTIONS, /exhaustion costs a decision/, 'a queued successor skips the model round');
-	assert.match(NATIVE_AGENT_INSTRUCTIONS, /Queue known work now from runProgram handles with a pure precondition; only natural exhaustion starts it\./);
 	assert.match(NATIVE_AGENT_INSTRUCTIONS, /Reclaim workstations/);
 	assert.match(tools.startAction, /Routine wakes wait up to 15 s.*danger\/dimension changes wake immediately, completion supplies fresh facts/);
 	assert.match(NATIVE_AGENT_INSTRUCTIONS, /next read in inspectAfter; reuse facts\. Never poll/);
@@ -1023,6 +1022,7 @@ test('the program tools are offered only with MINEAGEN_PROGRAM_TOOLS=on, and the
 	assert.deepEqual(names({}), all.map((tool) => tool.name).filter((name) => !PROGRAM_TOOL_NAMES.includes(name)));
 	assert.deepEqual(names({ MINEAGEN_PROGRAM_TOOLS: 'off' }), names({}));
 	assert.deepEqual(names({ MINEAGEN_PROGRAM_TOOLS: ' ON ' }), all.map((tool) => tool.name));
+	assert.ok(names({}).includes('reflexes'), 'rules-only reflexes stay offered without runProgram');
 	assert.equal(programToolsOffered({}), false);
 	assert.equal(programToolsOffered({ MINEAGEN_PROGRAM_TOOLS: 'on' }), true);
 	// The hidden tools stay callable through the normaliser and runtime for the on arm and recorded replays.

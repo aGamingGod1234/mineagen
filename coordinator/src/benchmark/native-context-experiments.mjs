@@ -57,7 +57,8 @@ export async function captureCurrentContext() {
 			return { thread: { id: 'offline-context-capture' } };
 		}
 	}
-	const service = new CodexService({ cwd: 'offline-context-capture', environment: {} }, {
+	// Every tool's description is a prose experiment, so the capture names the switch that offers all of them.
+	const service = new CodexService({ cwd: 'offline-context-capture', environment: {}, toolEnvironment: { MINEAGEN_PROGRAM_TOOLS: 'on' } }, {
 		transport: new CaptureTransport(), minecraftWorkspace: { prepare: async () => ({
 			cwd: 'offline-context-capture', selectedCapabilityRoots: [], instructions, skillInstructions,
 		}) },
