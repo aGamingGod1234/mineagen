@@ -104,6 +104,9 @@ test('each body plan is a valid model tool call', () => {
 	assert.ok(calls >= 10);
 	assert.equal(planChoice('threat', 'retreat_cover', s).args.arguments.targetId, zombie.uuid, 'flees from the nearest threat');
 	assert.deepEqual(planChoice('respawned', 'recover_items', s).args.target, { x: 10, y: 64, z: -4, tolerance: 2 });
+	assert.equal(planChoice('threat', 'block_shield', s).kind, 'hand_back', 'the shield does not turn to the mob, so blocking goes back to the model');
+	assert.equal(planChoice('night_falls', 'work_underground', s).kind, 'hand_back', 'no body step takes the bot underground');
+	assert.equal(planChoice('night_falls', 'work_surface', s).kind, 'carry_on');
 	assert.equal(planChoice('low_health', 'block_in', s).kind, 'hand_back', 'build_shelter leaves a window, so healing inside goes back to the model');
 	assert.deepEqual(planChoice('night_falls', 'shelter', s).args.target, { x: 3, y: 64, z: -10, opening: 'north', itemId: 'minecraft:cobblestone', roof: true });
 	assert.equal(planChoice('threat', 'ignore', s).kind, 'carry_on');

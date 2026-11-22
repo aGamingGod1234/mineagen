@@ -37,7 +37,8 @@ export const MOMENT_TEXT = Object.freeze({
 });
 
 /** Keys that leave the running step alone. */
-const CARRY_ON = new Set(['keep_working', 'ignore', 'carry_on', 'restart_here', 'head_out', 'work_surface', 'work_underground', 'own_tunnel']);
+// work_underground is not one: at nightfall the bot is on the surface, and no body step takes it down, so it goes back.
+const CARRY_ON = new Set(['keep_working', 'ignore', 'carry_on', 'restart_here', 'head_out', 'work_surface', 'own_tunnel']);
 // The same kind is not asked again within this window, so a long fight or a cave in view does not repeat the menu.
 // Lava is asked rarely: in the Nether it is in view most of the time. Night is asked once per night (a night is 7 min).
 const REPEAT_MS = Object.freeze({ low_health: 20_000, threat: 20_000, lava_seen: 180_000, respawned: 30_000, entered_dim: 30_000, night_falls: 600_000, cave_seen: 120_000, kit_gap: 300_000, food_stored: 300_000 });
@@ -157,7 +158,8 @@ export function planChoice(kind, key, s) {
 			return nearest ? act('flee_from', { targetId: threatId(nearest), distance: 16, timeoutMs: 10_000 }) : { kind: 'hand_back' };
 		case 'threat.fight': case 'low_health.fight':
 			return nearest ? act('fight_target', { targetId: threatId(nearest), timeoutMs: 30_000, single: true }) : { kind: 'hand_back' };
-		case 'threat.block_shield': return act('block_with_shield', { durationMs: 3000 });
+		// block_with_shield raises the shield where the body faces and does not turn to the mob, so blocking goes back to the model.
+		case 'threat.block_shield': return { kind: 'hand_back' };
 		// Healing needs a sealed box; build_shelter leaves an eye-height window (the mod seals only its own recovery shelter),
 		// so walling in to heal goes back to the model (dig in, or place the blocks). Night and respawn shelters keep it.
 		case 'low_health.block_in': return { kind: 'hand_back' };
