@@ -306,8 +306,13 @@ public final class ServerTravelController implements ServerController {
 		return stairs;
 	}
 
+	/**
+	 * Whether a target this far below the feet needs a staircase down: past the arrival band, plus a block for the loose
+	 * band (3 or more), where a target block a step below counts as reached. A trip aimed at a cell (band under 3) digs once
+	 * the target is past its own band, or a tolerance-1 trip to a target 2 below could neither arrive nor dig.
+	 */
 	static boolean digsDown(double feetY, double targetY, double heightTolerance) {
-		return Double.isFinite(targetY) && feetY - targetY > heightTolerance + 1.0D;
+		return Double.isFinite(targetY) && feetY - targetY > heightTolerance + (heightTolerance >= 3.0D ? 1.0D : 0.0D);
 	}
 
 	static boolean digsUp(double feetY, double targetY, double heightTolerance) {

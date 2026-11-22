@@ -116,5 +116,45 @@
    0
   ],
   "maxPlaced": 0
+ },
+ {
+  "name": "arrive-ore-two-below",
+  "seed": "1001",
+  "x": 0,
+  "z": 0,
+  "y": 100,
+  "legs": 1,
+  "inventory": [
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 32
+   }
+  ],
+  "fixture": [
+   "forceload add {x-6} {z-10} {x+16} {z+10}",
+   "time set noon",
+   "fill {x-6} {y} {z-10} {x+16} {y+30} {z+10} minecraft:air",
+   "fill {x-6} {y-8} {z-10} {x+16} {y-1} {z+10} minecraft:stone",
+   "setblock {x+3} {y-2} {z} minecraft:iron_ore"
+  ],
+  "travelTo": {
+   "dx": 3,
+   "dy": -2,
+   "dz": 0
+  },
+  "digArgs": {
+   "tolerance": 1,
+   "timeoutMs": 90000
+  },
+  "expectCode": "ARRIVED",
+  "expectEndDy": [
+   -3,
+   -1
+  ],
+  "maxPlaced": 99
  }
 ]
