@@ -41,11 +41,25 @@ async function writeJsonAtomic(file, value) {
 
 /**
  * Whether a failed exclusive create of a lock file means "someone holds it, wait": EEXIST everywhere, and on Windows also
- * EPERM, EBUSY and EACCES, which it returns while another process has the file open or is deleting it (a lock being
- * released). Anything else is a real error.
+ * EPERM and EBUSY, which it returns while another process has the file open or is deleting it (a lock being released).
+ * Anything else is a real error. A Windows code can also be a permanent permission error, so callers wait on it only
+ * for WINDOWS_HELD_MS (lockWait).
  */
 export function lockHeld(error, platform = process.platform) {
-	return error?.code === 'EEXIST' || (platform === 'win32' && ['EPERM', 'EBUSY', 'EACCES'].includes(error?.code));
+	return error?.code === 'EEXIST' || (platform === 'win32' && ['EPERM', 'EBUSY'].includes(error?.code));
+}
+export const WINDOWS_HELD_MS = 5_000;
+/** One wait: waits(error) is true to retry, and throws once a Windows-only code has lasted WINDOWS_HELD_MS. */
+export function lockWait({ platform = process.platform, clock = Date.now, heldMs = WINDOWS_HELD_MS } = {}) {
+	let oddSince = null;
+	return error => {
+		if (!lockHeld(error, platform)) throw error;
+		if (error.code === 'EEXIST') { oddSince = null; return true; }
+		oddSince ??= clock();
+		// A lock being released clears in milliseconds; this long is a folder that refuses the file.
+		if (clock() - oddSince > heldMs) throw error;
+		return true;
+	};
 }
 
 // onStale (tests only) runs after a lock is judged stale and before anything is done about it.
@@ -69,6 +83,7 @@ export function leaseStore({ dir = defaultPoolDir(), leaseStaleMs = 5 * 60_000, 
 		await setup();
 		await mkdir(path.dirname(file), { recursive: true });
 		let mine = null;
+		const held = lockWait();
 		for (let wait = 5; ; wait = Math.min(wait * 2, 100)) {
 			// Stamped at each attempt: a lock written after a long wait must not already read as stale.
 			mine = JSON.stringify({ pid: process.pid, token: randomBytes(8).toString('hex'), at: now() });
@@ -77,7 +92,7 @@ export function leaseStore({ dir = defaultPoolDir(), leaseStaleMs = 5 * 60_000, 
 				try { await handle.writeFile(mine); } finally { await handle.close(); }
 				break;
 			} catch (error) {
-				if (!lockHeld(error)) throw error;
+				held(error);
 			}
 			const text = await readFile(file, 'utf8').catch(() => null);
 			let holder = null;
@@ -159,8 +174,9 @@ export function leaseStore({ dir = defaultPoolDir(), leaseStaleMs = 5 * 60_000, 
 			await setup();
 			const file = path.join(dir, 'pool-id');
 			const id = randomBytes(3).toString('hex');
-			await writeFile(file, id, { flag: 'wx' }).catch(error => { if (!lockHeld(error)) throw error; });
-			const text = (await readFile(file, 'utf8')).trim();
+			const created = await writeFile(file, id, { flag: 'wx' }).then(() => null, error => { if (!lockHeld(error)) throw error; return error; });
+			// The id is there when the create says it is; if it cannot be read, the create's own error says why.
+			const text = (await readFile(file, 'utf8').catch(error => { throw created ?? error; })).trim();
 			if (!/^[a-z0-9]{1,12}$/.test(text)) throw new Error(`${file} holds no pool id`);
 			return text;
 		},
