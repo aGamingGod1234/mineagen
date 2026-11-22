@@ -203,7 +203,7 @@ public final class LiveAgentWindows {
 		if (roster == null) return;
 		if (!roster.canControl()) {
 			if (!waitingStatus.equals("Operator permission is required")) clearView("Operator permission is required");
-			SwingUtilities.invokeLater(LiveAgentWindows::disposeFrames);
+			if (planEnabled || terminalEnabled) SwingUtilities.invokeLater(LiveAgentWindows::disposeFrames);
 			return;
 		}
 		var agent = roster.agents().stream().filter(a -> a.agentId().equals(selected)).findFirst().orElse(null);
@@ -238,8 +238,10 @@ public final class LiveAgentWindows {
 		// The server replays its cached view while the coordinator is away: only a changed view from an online
 		// coordinator is fresh, as the desktop window judges it, so the Now card never shows an old step as current.
 		boolean sameAgent = packet.agentId().toString().equals(liveDecisionAgent);
-		if (!packet.online()) liveViewAt = 0L;
-		else if (!sameAgent || !parsed.equals(liveView)) liveViewAt = System.currentTimeMillis();
+		// The first view after a switch is the server's cache, possibly minutes old: fresh only once the coordinator
+		// sends a changed one.
+		if (!packet.online() || !sameAgent) liveViewAt = 0L;
+		else if (!parsed.equals(liveView)) liveViewAt = System.currentTimeMillis();
 		liveView = parsed;
 		liveDecisionAgent = packet.agentId().toString();
 		SwingUtilities.invokeLater(() -> {
