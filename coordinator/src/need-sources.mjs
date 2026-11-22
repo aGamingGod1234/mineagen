@@ -284,7 +284,10 @@ function readyStep(rows, position, items) {
 	const ore = rows.find((entry) => entry.direct && ['vein', 'block'].includes(entry.row.kind) && /_ore$/.test(entry.row.what ?? '') && harvestable(entry.row.what, items));
 	const cave = rows.find((entry) => entry.row.kind === 'cave' && Math.hypot(entry.row.x - position.x, entry.row.y - position.y, entry.row.z - position.z) <= CAVE_WALK_REACH);
 	const at = (row) => `@${row.x},${row.y},${row.z}`;
-	const steps = [ore && `do_step mine ${at(ore.row)} ${aboutMinutes(reach(position, ore.row) + LOOK_MIN)}`,
+	// mine_vein cuts only what is in reach from where the body stands; it never walks to the vein, so a farther one is a
+	// travel_to first (which digs the part below, as reach() prices it).
+	const near = ore && Math.hypot(ore.row.x - position.x, ore.row.y - position.y, ore.row.z - position.z) <= MINE_REACH;
+	const steps = [ore && `${near ? '' : `travel_to ${at(ore.row)} then `}do_step mine ${at(ore.row)} ${aboutMinutes(reach(position, ore.row) + LOOK_MIN)}`,
 		cave && `travel_to cave ${at(cave.row)} and look in ${aboutMinutes(caveWalk(position, cave.row) + LOOK_MIN)}`].filter(Boolean);
 	return steps.length ? `ready: ${steps.join(', or ')}` : null;
 }
@@ -324,6 +327,8 @@ const FLOOR_SEARCH = `search: 6 recorded descents, 2 saw a 64-source pool within
 const UPPER_Y = -20;
 // Looking round once inside a cave or beside seen ore before deciding: about the time of one lookAround.
 const LOOK_MIN = 0.5;
+// The body's block reach: ore within it is mined from where the body stands.
+const MINE_REACH = 4;
 // A cave seen this close is a walk in; a farther remembered one may lie behind rock, so it gets no ready step.
 const CAVE_WALK_REACH = 48;
 const DEEP_NOTE = 'below y-45 the recorded games had a 10+ source pool within 32 blocks at every moment (median 5), behind rock until a cave opening or heard lava shows its side';
