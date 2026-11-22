@@ -199,7 +199,7 @@ public final class WatchVerification {
 				&& Math.abs(DangerLog.facingErrorDeg(0.0D, 1.0D, 0.0D, -2.0D) - 180.0D) < 1.0E-9D
 				&& Math.abs(DangerLog.facingErrorDeg(1.0D, 1.0D, 0.0D, 4.0D) - 45.0D) < 1.0E-9D, "facing error is the horizontal angle to the source");
 		check(DangerLog.facingErrorDeg(0.0D, 0.0D, 1.0D, 0.0D) == null && DangerLog.facingErrorDeg(0.0D, 1.0D, 0.0D, 0.0D) == null,
-				"looking straight up or down, or a source straight above, has no horizontal facing error");
+				"a zero-length look or a source straight above has no horizontal facing error");
 	}
 
 	private static void dangerClearAndDeath() {

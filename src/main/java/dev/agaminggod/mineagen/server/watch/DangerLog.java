@@ -430,8 +430,9 @@ public final class DangerLog {
 
 	/**
 	 * Horizontal angle in degrees (0 to 180) between a look direction and the offset to a hit's source, the plane a
-	 * shield's block check uses ({@code ProjectilePerception.shieldBlocks}: a raised shield stops a hit under 90). Null
-	 * when either has no horizontal length (looking straight up or down, or a source straight above or below).
+	 * shield's block check uses ({@code ProjectilePerception.shieldBlocks}: a raised shield stops a hit under 90). The
+	 * Watcher passes the look direction from the body's yaw. Null when either has no horizontal length (a source straight
+	 * above or below).
 	 */
 	static Double facingErrorDeg(double lookX, double lookZ, double offsetX, double offsetZ) {
 		double look = Math.hypot(lookX, lookZ), offset = Math.hypot(offsetX, offsetZ);

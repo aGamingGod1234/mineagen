@@ -737,9 +737,10 @@ public final class Watcher {
 		Entity from = direct != null ? direct : cause;
 		Double facing = null;
 		if (from != null && from.level() == player.level()) {
-			Vec3 look = player.getViewVector(1.0F);
+			// The body's yaw, not its view vector: looking straight down (digging, pillaring) still faces a direction.
+			double yaw = Math.toRadians(player.getYRot());
 			Vec3 offset = from.position().subtract(player.position());
-			facing = DangerLog.facingErrorDeg(look.x, look.z, offset.x, offset.z);
+			facing = DangerLog.facingErrorDeg(-Math.sin(yaw), Math.cos(yaw), offset.x, offset.z);
 		}
 		Double distance = attacker != null && attacker.level() == player.level() ? Double.valueOf(player.distanceTo(attacker)) : null;
 		Integer light = player.level().getBrightness(LightLayer.BLOCK, player.blockPosition());
