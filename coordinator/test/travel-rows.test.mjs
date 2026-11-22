@@ -127,3 +127,20 @@ test('a room that wrote fewer rows than it planned counts its missing rows itsel
 test('a room-wide flag on a merged row names itself in the verdict reason', () => {
 	assert.deepEqual(roomVerdict({ pass: true, integrity: ['arm killed (room timeout)'] }), { verdict: 'INVALID', reason: 'missing evidence: arm killed (room timeout)' });
 });
+
+test('a lost room or one that wrote no rows can never be hidden by another room\'s extra rows', async () => {
+	const out = await mkdtemp(path.join(os.tmpdir(), 'travel-rows-lost-'));
+	try {
+		const rooms = parseCommands(`@lost ${LINE}\n@zero SPOTS=a,b,c,d ${LINE}\n@over ${LINE}`, ['new']);
+		const zero = path.join(out, 'rooms', 'zero', 'new'), over = path.join(out, 'rooms', 'over', 'new');
+		await mkdir(zero, { recursive: true }); await mkdir(over, { recursive: true });
+		await finishRun([], { file: path.join(zero, 'result.json'), planned: 4, setExitCode: false });
+		await finishRun([1, 2, 3, 4, 5, 6, 7].map(n => travelRow(course(`o${n}`))), { file: path.join(over, 'result.json'), planned: 2, setExitCode: false });
+		const outcomes = [{ room: 'lost', lost: true, reason: 'vm died', attempts: 2 }, ...['zero', 'over'].map(name => ({ room: name, lost: false, worker: 'vm1', attempts: 1, arms: { new: { exit: 0, seconds: 60 } } }))];
+		const merged = await mergeArms({ out, rooms, arms: ['new'], outcomes });
+		assert.equal(merged.new.summary.status, 'INVALID');
+		assert.equal(merged.new.rows.filter(row => row.room === 'zero').length, 4, 'four planned rows, four INVALID rows');
+		assert.equal(merged.new.rows.filter(row => row.room === 'lost').length, 1);
+		assert.equal(merged.new.summary.invalid, 5);
+	} finally { await rm(out, { recursive: true, force: true }); }
+});

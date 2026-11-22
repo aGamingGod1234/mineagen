@@ -226,15 +226,12 @@ export async function mergeArms({ out, rooms, arms, outcomes }) {
 			const roomFlags = [...(killed ? [`arm killed (${killed})`] : []), ...(roomInvalid ? [roomInvalid] : [])];
 			for (const row of roomRows) rows.push({ ...row, ...(roomFlags.length ? { integrity: [...(Array.isArray(row.integrity) ? row.integrity : []), ...roomFlags] } : {}),
 				room: room.room, host: outcome.worker ?? null, attempts: outcome.attempts ?? 0, cantKeepUp: run.cantKeepUp ?? null });
-			if (roomInvalid && !roomRows.length) {
-				rows.push({ name: room.room, room: room.room, host: outcome.worker ?? null, attempts: outcome.attempts ?? 0, cantKeepUp: run.cantKeepUp ?? null,
-					pass: false, error: roomInvalid, integrity: roomFlags, startedAt: null, finishedAt: null, deaths: null, damageTaken: null });
-			}
-			// Rows the room planned but never wrote are INVALID rows of that room, as collectRuns counts them, so another
-			// room's extra rows can never make up for them in the arm's count.
-			if (!roomInvalid && !outcome.lost && ownValid) for (let i = roomRows.length; i < own.planned; i++) {
-				rows.push({ name: `${room.room} row ${i + 1}`, room: room.room, host: outcome.worker ?? null, attempts: outcome.attempts ?? 0, cantKeepUp: run.cantKeepUp ?? null,
-					pass: false, error: `planned row ${i + 1} of ${own.planned} never written`, integrity: roomFlags, startedAt: null, finishedAt: null, deaths: null, damageTaken: null });
+			// Every row a room planned but did not bring back is an INVALID row of that room (a lost room's rows too), as
+			// collectRuns counts them, so no other room's extra rows can make up for them in the arm's count.
+			for (let i = roomRows.length; i < roomPlanned; i++) {
+				const why = outcome.lost ? `room lost: ${outcome.reason ?? 'unknown'}` : roomInvalid && !roomRows.length ? roomInvalid : `planned row ${i + 1} of ${roomPlanned} never written`;
+				rows.push({ name: roomPlanned > 1 ? `${room.room} row ${i + 1}` : room.room, room: room.room, host: outcome.worker ?? null, attempts: outcome.attempts ?? 0, cantKeepUp: run.cantKeepUp ?? null,
+					pass: false, error: why, integrity: roomFlags, startedAt: null, finishedAt: null, deaths: null, damageTaken: null, ...(outcome.lost ? { lost: true } : {}) });
 			}
 			perRoom.push({ room: room.room, lost: !!outcome.lost, reason: outcome.reason ?? null, rows: roomRows.length, planned: roomPlanned, exit: run.exit ?? null, seconds: run.seconds ?? null, timedOut: !!run.timedOut, cantKeepUp: run.cantKeepUp ?? null });
 		}
