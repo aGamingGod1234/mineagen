@@ -31,6 +31,7 @@ public final class ConsoleChoiceCard extends AbstractWidget implements ConsoleFo
 	private final Runnable onPress;
 	private final ConsoleMotion hover = new ConsoleMotion();
 	private final ConsoleMotion pick = new ConsoleMotion();
+	private ConsoleDraw.Icon markIcon;
 
 	public ConsoleChoiceCard(Font font, int x, int y, int width, int height, String title, String status, int statusColor,
 			String detail, int mark, boolean selected, Runnable onPress) {
@@ -49,6 +50,11 @@ public final class ConsoleChoiceCard extends AbstractWidget implements ConsoleFo
 	 * Starts the selection accent from nothing. The screen rebuilds its widgets when a tool is picked, so the new
 	 * card fades its accent in and the choice visibly lands; cards rebuilt for other reasons start settled.
 	 */
+	public ConsoleChoiceCard withMark(ConsoleDraw.Icon icon) {
+		this.markIcon = icon;
+		return this;
+	}
+
 	public ConsoleChoiceCard animateSelection() {
 		pick.toward(0F, 0);
 		return this;
@@ -72,9 +78,12 @@ public final class ConsoleChoiceCard extends AbstractWidget implements ConsoleFo
 		int markY = getY() + (getHeight() - markSize) / 2;
 		int markColor = active ? mark : ConsoleDraw.mix(mark, ConsoleTheme.SURFACE, 0.6F);
 		ConsoleDraw.surface(graphics, markX, markY, markSize, markSize, ConsoleDraw.RADIUS_CONTROL, ConsoleDraw.withAlpha(markColor, 0.22F));
-		String initial = title.isEmpty() ? "?" : title.substring(0, 1);
-		Component initialText = ConsoleText.strong(initial);
-		graphics.text(font, initialText, markX + (markSize - font.width(initialText)) / 2 + 1, markY + (markSize - 8) / 2, markColor, false);
+		if (markIcon != null) {
+			ConsoleDraw.icon(graphics, markIcon, markX + (markSize - 12) / 2, markY + (markSize - 12) / 2, markColor);
+		} else {
+			Component initialText = ConsoleText.strong(title.isEmpty() ? "?" : title.substring(0, 1));
+			graphics.text(font, initialText, markX + (markSize - font.width(initialText)) / 2 + 1, markY + (markSize - 8) / 2, markColor, false);
+		}
 		int textX = markX + markSize + 8;
 		int available = getRight() - textX - (selected ? 20 : 8);
 		graphics.text(font, ConsoleText.strong(fit(title, available, true)), textX, getY() + getHeight() / 2 - 10,

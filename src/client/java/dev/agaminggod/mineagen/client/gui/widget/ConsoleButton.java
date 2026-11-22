@@ -28,6 +28,7 @@ public final class ConsoleButton extends AbstractWidget implements ConsoleFocusT
 	private final Font font;
 	private final ConsoleMotion hover = new ConsoleMotion();
 	private ConsoleDraw.Icon icon;
+	private boolean small;
 	private final Runnable onPress;
 	private final int accent;
 	private final boolean selected;
@@ -72,6 +73,18 @@ public final class ConsoleButton extends AbstractWidget implements ConsoleFocusT
 		return this;
 	}
 
+	/** Label-sized text, for small inline actions such as Rescan beside a field label. */
+	public ConsoleButton small() {
+		this.small = true;
+		return this;
+	}
+
+	/** Width that fits the label and icon with even padding, so text-only actions line up with content edges. */
+	public static int fittedWidth(Font font, String label, boolean icon, boolean small) {
+		int text = small ? ConsoleDraw.labelWidth(font, label) : ConsoleText.strongWidth(font, label);
+		return text + (icon ? (small ? 14 : 16) : 0) + 16;
+	}
+
 	@Override
 	protected void extractWidgetRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
 		float lift = ConsoleMotion.smooth(hover.toward(active && (isHovered() || isFocused()) ? 1F : 0F, 120));
@@ -84,12 +97,18 @@ public final class ConsoleButton extends AbstractWidget implements ConsoleFocusT
 			ConsoleDraw.ring(graphics, getX(), getY(), getWidth(), getHeight(), ConsoleDraw.RADIUS_CONTROL, lit.border());
 		}
 		String label = fittedMessage().getString();
-		int iconSpace = icon == null ? 0 : 16;
-		int textWidth = ConsoleText.strongWidth(font, label);
-		int startX = getX() + (getWidth() - textWidth - iconSpace) / 2;
-		int textY = getY() + (getHeight() - 8) / 2;
-		if (icon != null) ConsoleDraw.icon(graphics, icon, startX, getY() + (getHeight() - 12) / 2, text);
-		graphics.text(font, ConsoleText.strong(label), startX + iconSpace, textY, text, false);
+		int iconSize = small ? 10 : 12;
+		int iconSpace = icon == null ? 0 : iconSize + 4;
+		int textWidth = small ? ConsoleDraw.labelWidth(font, label) : ConsoleText.strongWidth(font, label);
+		// Ghost actions read as text, so they start at their padding and line up with the content edge.
+		int startX = tone == Tone.GHOST ? getX() + 8 : getX() + (getWidth() - textWidth - iconSpace) / 2;
+		if (icon != null) ConsoleDraw.icon(graphics, icon, startX, getY() + (getHeight() - iconSize) / 2, iconSize, text);
+		if (small) {
+			ConsoleDraw.scaledText(graphics, font, ConsoleText.component(label), startX + iconSpace,
+					getY() + (getHeight() - 7) / 2F, ConsoleDraw.LABEL_SIZE, text);
+		} else {
+			graphics.text(font, ConsoleText.strong(label), startX + iconSpace, getY() + (getHeight() - 8) / 2, text, false);
+		}
 	}
 
 	/**

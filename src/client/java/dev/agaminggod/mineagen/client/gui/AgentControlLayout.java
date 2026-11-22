@@ -32,7 +32,7 @@ public record AgentControlLayout(
 	private static final int MINIMUM_WIDTH = 320;
 	private static final int MINIMUM_HEIGHT = 240;
 	private static final int OUTER_MARGIN = 8;
-	private static final int MAXIMUM_PANEL_WIDTH = 920;
+	private static final int MAXIMUM_PANEL_WIDTH = 760;
 	private static final int CONTEXT_RAIL_BREAKPOINT = 700;
 	private static final int CONTEXT_RAIL_WIDTH = 208;
 	private static final int REGION_GAP = 16;
@@ -70,13 +70,13 @@ public record AgentControlLayout(
 		);
 	}
 
-	/** Width of a centered form column: forms read better at a measured width than stretched across a wide panel. */
+	/** Forms use the whole content width; the panel's own width cap keeps lines a readable length. */
 	public int formWidth() {
-		return Math.min(contentWidth(), 600);
+		return contentWidth();
 	}
 
 	public int formLeft() {
-		return contentLeft + (contentWidth() - formWidth()) / 2;
+		return contentLeft;
 	}
 
 	public int panelWidth() {

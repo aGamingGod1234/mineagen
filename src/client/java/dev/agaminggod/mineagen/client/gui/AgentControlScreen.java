@@ -67,7 +67,7 @@ public final class AgentControlScreen extends Screen {
 	private String keyDraft = "";
 	private ConsoleEditBox keyInput;
 	private static final int PROVIDER_KEY_ROW_HEIGHT = 44;
-	private static final int TITLE_BLOCK = 38;
+	private static final int TITLE_BLOCK = 44;
 	private static final int FORM_GAP = 10;
 	private static final int LABEL_HEIGHT = 12;
 	private static final String KEY_BILLING_NOTE = "An API key bills per token. Without one, the tool's signed-in plan is used.";
@@ -529,7 +529,7 @@ public final class AgentControlScreen extends Screen {
 
 		// Brain: one card per model tool found on the server machine; picking a card picks the provider.
 		addFormLabel("Brain", x, y + 1);
-		addRescanButton(x + width - 64, y - 3);
+		addRescanButton(x + width, y - 3);
 		y += LABEL_HEIGHT;
 		List<dev.agaminggod.mineagen.control.AgentControlProvider> rows = AgentControlCatalog.providerRows();
 		int perRow = width >= 360 ? 2 : 1;
@@ -543,7 +543,7 @@ public final class AgentControlScreen extends Screen {
 			boolean chosen = offered && row.id().equals(provider);
 			ConsoleChoiceCard card = new ConsoleChoiceCard(font, cardX, cardY, cardWidth, cardHeight,
 					providerTitle(row), providerStatus(row), providerStatusColor(row), providerDetail(row),
-					ConsoleTheme.providerColor(row.id()), chosen, () -> chooseProvider(row.id()));
+					ConsoleTheme.providerColor(row.id()), chosen, () -> chooseProvider(row.id())).withMark(providerMark(row.id()));
 			if (chosen && pickAnimated) card.animateSelection();
 			card.active = canControl() && offered;
 			addRenderableWidget(card);
@@ -623,11 +623,13 @@ public final class AgentControlScreen extends Screen {
 		rebuildWidgets();
 	}
 
-	private void addRescanButton(int x, int y) {
-		ConsoleButton rescan = ghostButton("Rescan", x, y, 64, 16, () -> {
+	/** Small Rescan action whose text ends at {@code right}, on the same line as a field label. */
+	private void addRescanButton(int right, int y) {
+		int width = ConsoleButton.fittedWidth(font, "Rescan", true, true);
+		ConsoleButton rescan = ghostButton("Rescan", right - width + 8, y, width, 14, () -> {
 			AgentControlClient.requestProviderRescan();
 			setFeedback("Checking the server machine for model tools...", false);
-		}).withIcon(ConsoleDraw.Icon.REFRESH);
+		}).withIcon(ConsoleDraw.Icon.REFRESH).small();
 		rescan.active = canControl();
 		rescan.setTooltip(net.minecraft.client.gui.components.Tooltip.create(Component.literal(
 				"Check the server machine again for model tools, how they sign in and their models. Starts no model calls.")));
@@ -641,7 +643,7 @@ public final class AgentControlScreen extends Screen {
 		int width = layout.formWidth();
 		int y = bodyTop();
 		boolean localKeys = AgentControlClient.canSaveProviderApiKey();
-		addRescanButton(x + width - 64, y - 3);
+		addRescanButton(x + width, y - 3);
 		y += LABEL_HEIGHT + 2;
 		for (var row : AgentControlCatalog.providerRows()) {
 			String id = row.id();
@@ -726,9 +728,23 @@ public final class AgentControlScreen extends Screen {
 		return Boolean.FALSE.equals(row.signedIn()) ? ConsoleTheme.WARNING : SUCCESS;
 	}
 
+	/** A small glyph per tool so two tools that share an initial still read apart at a glance. */
+	private static ConsoleDraw.Icon providerMark(String id) {
+		return switch (id) {
+			case "codex" -> ConsoleDraw.Icon.TERMINAL;
+			case "claude" -> ConsoleDraw.Icon.SPARK;
+			default -> null;
+		};
+	}
+
 	private void renderProviderMark(GuiGraphicsExtractor graphics, String id, String title, int x, int y, int size) {
 		int mark = ConsoleTheme.providerColor(id);
 		ConsoleDraw.surface(graphics, x, y, size, size, ConsoleDraw.RADIUS_CONTROL, ConsoleDraw.withAlpha(mark, 0.22F));
+		ConsoleDraw.Icon icon = providerMark(id);
+		if (icon != null) {
+			ConsoleDraw.icon(graphics, icon, x + (size - 12) / 2, y + (size - 12) / 2, mark);
+			return;
+		}
 		Component initial = ConsoleText.strong(title.isEmpty() ? "?" : title.substring(0, 1));
 		graphics.text(font, initial, x + (size - font.width(initial)) / 2 + 1, y + (size - 8) / 2, mark, false);
 	}
@@ -882,16 +898,19 @@ public final class AgentControlScreen extends Screen {
 
 	private void addOverviewFooter() {
 		int y = layout().footerY();
-		addRenderableWidget(ghostButton("Refresh", contentLeft(), y, 92, ROW_HEIGHT,
-				AgentControlClient::requestSnapshot).withIcon(ConsoleDraw.Icon.REFRESH));
-		addRenderableWidget(ghostButton("Close", contentRight() - 80, y, 80, ROW_HEIGHT, this::onClose));
+		addRenderableWidget(ghostButton("Refresh", contentLeft() - 8, y, ConsoleButton.fittedWidth(font, "Refresh", true, false),
+				ROW_HEIGHT, AgentControlClient::requestSnapshot).withIcon(ConsoleDraw.Icon.REFRESH));
+		int closeWidth = ConsoleButton.fittedWidth(font, "Close", false, false);
+		addRenderableWidget(ghostButton("Close", contentRight() - closeWidth + 8, y, closeWidth, ROW_HEIGHT, this::onClose));
 	}
 
 	private void addCreateFooter() {
 		int y = layout().footerY();
-		addRenderableWidget(ghostButton("Back", contentLeft(), y, 76, ROW_HEIGHT, this::navigateBack)
+		int backWidth = ConsoleButton.fittedWidth(font, "Back", true, false);
+		addRenderableWidget(ghostButton("Back", contentLeft() - 8, y, backWidth, ROW_HEIGHT, this::navigateBack)
 				.withIcon(ConsoleDraw.Icon.BACK));
-		addRenderableWidget(ghostButton("Sign-in & keys", contentLeft() + 80, y, 116, ROW_HEIGHT, () -> show(Page.KEYS))
+		addRenderableWidget(ghostButton("Sign-in & keys", contentLeft() - 8 + backWidth + 8, y,
+				ConsoleButton.fittedWidth(font, "Sign-in & keys", true, false), ROW_HEIGHT, () -> show(Page.KEYS))
 				.withIcon(ConsoleDraw.Icon.KEY));
 		ConsoleButton create = primaryButton("Create agent", contentRight() - 124, y, 124, ROW_HEIGHT, this::submitSummon)
 				.withIcon(ConsoleDraw.Icon.SPARK);
@@ -901,8 +920,8 @@ public final class AgentControlScreen extends Screen {
 
 	private void addBackFooter() {
 		int y = layout().footerY();
-		addRenderableWidget(ghostButton("Back", contentLeft(), y, 76, ROW_HEIGHT, this::navigateBack)
-				.withIcon(ConsoleDraw.Icon.BACK));
+		addRenderableWidget(ghostButton("Back", contentLeft() - 8, y, ConsoleButton.fittedWidth(font, "Back", true, false),
+				ROW_HEIGHT, this::navigateBack).withIcon(ConsoleDraw.Icon.BACK));
 	}
 
 	/** Header row: the mark and breadcrumb on the left, one live status on the right. */
@@ -914,7 +933,10 @@ public final class AgentControlScreen extends Screen {
 		int x = left + 22;
 		graphics.text(font, ConsoleText.strong("Mineagen"), x, middle - 4, TEXT, false);
 		x += ConsoleText.strongWidth(font, "Mineagen") + 8;
-		for (String crumb : breadcrumb()) {
+		List<String> crumbs = breadcrumb();
+		// With a page title on screen, the breadcrumb names only the way back; the title already says where you are.
+		if (layout.roomy() && crumbs.size() > 1) crumbs = crumbs.subList(0, crumbs.size() - 1);
+		for (String crumb : crumbs) {
 			ConsoleDraw.icon(graphics, ConsoleDraw.Icon.CHEVRON_RIGHT, x - 2, middle - 6, ConsoleTheme.SUBTLE);
 			x += 12;
 			graphics.text(font, ConsoleText.component(crumb), x, middle - 4, MUTED, false);
@@ -962,8 +984,8 @@ public final class AgentControlScreen extends Screen {
 		};
 		int x = page == Page.CREATE || page == Page.KEYS ? layout.formLeft() : layout.contentLeft();
 		int available = page == Page.CREATE || page == Page.KEYS ? layout.formWidth() : layout.contentWidth();
-		ConsoleDraw.title(graphics, font, fitStrong(title, Math.round(available / ConsoleDraw.TITLE_SIZE)), x, layout.contentTop() + 2, TEXT);
-		graphics.text(font, ConsoleText.component(fit(help, available)), x, layout.contentTop() + 20, MUTED, false);
+		ConsoleDraw.title(graphics, font, fitStrong(title, Math.round(available / ConsoleDraw.TITLE_SIZE)), x, layout.contentTop() + 6, TEXT);
+		graphics.text(font, ConsoleText.component(fit(help, available)), x, layout.contentTop() + 24, MUTED, false);
 	}
 
 	private String fitStrong(String value, int available) {

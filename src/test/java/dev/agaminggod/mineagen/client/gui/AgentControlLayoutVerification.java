@@ -17,8 +17,7 @@ public final class AgentControlLayoutVerification {
 				"content starts below the header row");
 		assertTrue(wide.contentBottom() < wide.footerY(), "wide content never collides with footer actions");
 		assertTrue(wide.roomy(), "wide panels show page titles and field labels");
-		assertTrue(wide.formWidth() <= 600 && wide.formLeft() > wide.contentLeft(),
-				"forms keep a measured, centered column on wide panels");
+		assertTrue(wide.panelWidth() <= 760, "the panel stops growing so lines stay a readable length");
 
 		AgentControlLayout compact = AgentControlLayout.calculate(320, 240);
 		assertTrue(!compact.splitWorkspace(), "compact control center stacks context below the primary task");
