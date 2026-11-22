@@ -119,7 +119,8 @@ test('a village chest that lacks the item is opened once, then the plan goes bac
 	{ now: (() => { let t = 0; return () => (t += 100); })(), looted });
 	assert.notEqual(result.state, 'SUCCEEDED');
 	assert.deepEqual(looted.opened, ['305,77,-236']);
-	assert.ok(searches.some((target) => target.block === 'minecraft:chest'), 'looks for the village\'s other chests');
+	assert.ok(searches.some((target) => target.block === 'minecraft:oak_door'), 'looks for the village\'s other houses');
+	assert.equal(searches.some((target) => target.block === 'minecraft:chest'), false, 'no chest search in a village: its chests are indoors');
 	assert.deepEqual(looted.searched, ['311,78,-239']);
 	assert.ok(searches.some((target) => /iron_ore/.test(target.block ?? '')), `then mines: ${JSON.stringify(searches)}`);
 });

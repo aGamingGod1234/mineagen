@@ -1259,7 +1259,7 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 	// A door no row lists yet: find's sight search for any door kind, kept to the structure and to doors not yet tried.
 	const doorInSight = async (source, reach) => {
 		if (typeof body.search !== 'function') return null;
-		const result = await body.search({ block: 'minecraft:oak_door', also: DOOR_KINDS.slice(1) }, { timeoutMs: Math.min(30_000, left()), within: Math.min(48, reach) });
+		const result = await body.search({ block: 'minecraft:oak_door', also: DOOR_KINDS.slice(1) }, { timeoutMs: Math.min(20_000, left()), within: 24 });
 		const at = result?.find?.seen;
 		if (result?.reasonCode !== 'FIND_SEEN' || !at || ![at.x, at.y, at.z].every(Number.isFinite) || Math.hypot(at.x - source.x, at.z - source.z) > reach
 			|| looted.doors.some((d) => Math.hypot(d.x - at.x, d.z - at.z) < 2 && Math.abs(d.y - at.y) < 2)) return null;
@@ -1301,7 +1301,7 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 				if (!(await walk(door, 2))) { if (body.interrupted() || body.stopped()) return 'stopped'; continue; }
 				await act('set_door', { x: door.x, y: door.y, z: door.z, open: true });
 				// A hostile in or by the house: not a house to walk into. Shut it again and try the next.
-				const inside = (await body.observe()).entities?.find((row) => (row?.hostile === true || HOSTILE_MOB.test(bare(row?.type ?? '')))
+				const inside = (await body.observe()).entities?.find((row) => HOSTILE_MOB.test(bare(row?.type ?? ''))
 					&& row.alive !== false && [row.x, row.z].every(Number.isFinite) && Math.hypot(row.x - door.x - 0.5, row.z - door.z - 0.5) <= HOUSE_REACH);
 				if (inside) { await act('set_door', { x: door.x, y: door.y, z: door.z, open: false }); step(`a ${bare(inside.type)} by the door at ${cellKey(door)}: not going in`); continue; }
 				await act('travel_to', { x: Math.floor(door.x) + 0.5, y: Math.floor(door.y), z: Math.floor(door.z) + 0.5, tolerance: 0.5, timeoutMs: 15_000 });
@@ -1312,7 +1312,8 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 				if (chest === null) await act('set_door', { x: door.x, y: door.y, z: door.z, open: false });
 				else houseDoor = door;
 			}
-			if (chest === null && typeof body.search === 'function') {
+			// A chest search sees only chests in the open (a shipwreck's, a ruined portal's): a village's stand indoors.
+			if (chest === null && typeof body.search === 'function' && !/^village/.test(source.name)) {
 				// Kept to the structure: legs of half the radius, a hand-back at its edge.
 				const result = await body.search({ block: 'minecraft:chest' }, { timeoutMs: Math.min(60_000, left()), within: Math.min(48, reach) });
 				const at = result?.find?.seen;
