@@ -177,6 +177,11 @@ public final class ServerSpawnerHoldController implements ServerController {
 	private BlockPos emergencyCell;
 	private long emergencyRetryTick;
 	private int emergencies;
+	/**
+	 * Part of the doorway placed (the sill) but its window still open: the heal stays the shield heal and the wall-in is
+	 * retried, and whatever stands is mined open after the heal. Only both blocks placed make the unshielded sealed heal.
+	 */
+	private boolean partlySealed;
 	private long sealRetryTick;
 	private int seals, reopens, reopenFails;
 	private long reopenRetryTick;
@@ -608,12 +613,14 @@ public final class ServerSpawnerHoldController implements ServerController {
 		triedSites.add(cell);
 		blockItem = roofing.blockItem(player);
 		if (doorwayClosed(player, cell, opening, false)) {
-			sealed = true;
+			// Both doorway blocks: the walled-in heal; only the sill: the shield heal, the wall-in retried, opened after.
+			sealed = doorwayClosed(player, cell, opening, true);
+			partlySealed = !sealed;
 			// Walled in and still hurt: heal on before opening (the last call ended mid-heal).
 			if (player.getHealth() < SpawnerHold.TURTLE_DONE) turtleSinceMs = Math.max(0L, lastElapsed);
 			else reopening = true;
 		}
-		note("resumed the hold in its cell " + cell.toShortString() + (sealed ? ", doorway walled up" : ""));
+		note("resumed the hold in its cell " + cell.toShortString() + (sealed || partlySealed ? ", doorway walled up" : ""));
 	}
 
 	/** fight_target form: the body stands walled up in the last hold's cell; it heals on there (true) or fights (false). */
@@ -722,11 +729,13 @@ public final class ServerSpawnerHoldController implements ServerController {
 				if (built.state() == State.RUNNING) return TickResult.running(progress(player));
 				sealWork.cancel(player);
 				sealWork = null;
-				// A wall-in that failed after placing part of the doorway (the sill) still counts: the doorway is mined open after.
+				// A wall-in that failed after placing part of the doorway (the sill) is mined open after the heal, but the
+				// heal stays the shield heal and the wall-in is retried while the window is open.
 				BlockPos doorway = cell.relative(opening);
 				boolean partly = !player.level().getBlockState(doorway).getCollisionShape(player.level(), doorway).isEmpty()
 						|| !player.level().getBlockState(doorway.above()).getCollisionShape(player.level(), doorway.above()).isEmpty();
-				sealed = built.state() == State.SUCCEEDED || partly;
+				sealed = built.state() == State.SUCCEEDED;
+				partlySealed = !sealed && partly;
 				note(built.state() == State.SUCCEEDED ? "walled the doorway up to heal" : "walling the doorway up failed: " + built.reasonCode() + (partly ? " (part placed)" : ""));
 				// A blaze in the doorway blocks the wall: try again in a second (the shield heal holds meanwhile).
 				if (!sealed) { sealTried = false; sealRetryTick = player.level().getGameTime() + 20L; }
@@ -756,8 +765,9 @@ public final class ServerSpawnerHoldController implements ServerController {
 			turtleSinceMs = -1L;
 			shieldInput.release();
 			// Healed while the wall-in was still being placed: stop it and open whatever of the doorway it already closed.
-			if (sealWork != null) { sealWork.cancel(player); sealWork = null; sealed = true; }
-			if (sealed) {
+			if (sealWork != null) { sealWork.cancel(player); sealWork = null; partlySealed = true; }
+			if (sealed || partlySealed) {
+				partlySealed = false;
 				reopening = true;
 				TickResult opening = reopen(player, now);
 				if (opening != null) return opening;
@@ -993,7 +1003,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 
 	/** fight_target form: end now, or first open a walled-up doorway so the next call can see out (death and lava end at once). */
 	private TickResult endTarget(ServerPlayer player, long now, TickResult end) {
-		if (!(sealed || sealWork != null || emergency != null) || cell == null && emergencyCell == null) return stop(player, end);
+		if (!(sealed || partlySealed || sealWork != null || emergency != null) || cell == null && emergencyCell == null) return stop(player, end);
 		// Still hurt: the call ends walled in and the body heals on behind the wall, also when the wall-in's last block
 		// landed this tick (its result comes a tick later). Opening first exposed a hurt body at every 15 s call's end (blaze
 		// spawner rooms, review-fix jar: alive in 3 of 15 against 19 of 30 before). The next blaze fight_target or
@@ -1042,6 +1052,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 				if (!player.level().getBlockState(at).getCollisionShape(player.level(), at).isEmpty()) { next = at; break; }
 			if (next == null) {
 				sealed = false;
+				partlySealed = false;
 				reopening = false;
 				reopens++;
 				note("doorway open again");
@@ -1244,6 +1255,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 		phase = Phase.SITE;
 		cell = null;
 		sealed = false;
+		partlySealed = false;
 		reopening = false;
 		sealTried = false;
 		return TickResult.running(progress(player));
