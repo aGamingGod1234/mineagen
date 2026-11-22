@@ -15,7 +15,7 @@ TOPICS.set('tools', { title: 'All native tool contracts and examples', text: CON
 TOPICS.set('actions', { title: 'All action contracts and examples', text: CONTROL_REFERENCE.slice(actionsStart, validationStart) });
 TOPICS.set('validation', { title: 'Dependent calls and rejected inputs', text: CONTROL_REFERENCE.slice(validationStart) });
 
-for (const [id, title] of Object.entries({ plan: 'Live advisory plan', workflow: 'Read facts, choose, act, verify', observations: 'Observations and memory', preparation: 'Trip preparation', travel: 'Cave travel', portals: 'Portals and dimension changes', survival: 'Survival and recovery', precision: 'Input ownership and precision', interaction: 'Interaction details' })) {
+for (const [id, title] of Object.entries({ plan: 'Live advisory plan', workflow: 'Read facts, choose, act, verify', observations: 'Observations and memory', preparation: 'Trip preparation', travel: 'Cave travel', portals: 'Portals and dimension changes', survival: 'Survival and recovery', precision: 'Input ownership and precision', interaction: 'Interaction details', programs: 'Programs, standing guards and watchers' })) {
 	const heading = headings.find((entry) => entry.title === title);
 	if (heading === undefined) throw new Error(`Missing Minecraft control reference heading: ${title}`);
 	const end = headings.find((entry) => entry.offset > heading.offset && entry.level <= heading.level)?.offset ?? CONTROL_REFERENCE.length;
