@@ -1239,7 +1239,7 @@
    "stage": "iron-kit",
    "skill": "combat",
    "skill2": null,
-   "line": "DISTANCES=4 REPEATS=1 ARENA_JAR=$JAR node scripts/quality/test-drawn-bow-live.mjs $OUT",
+   "line": "RULE_ARMS=drawn DISTANCES=4 REPEATS=1 ARENA_JAR=$JAR node scripts/quality/test-drawn-bow-live.mjs $OUT",
    "estMinutes": 2,
    "tickRate": 20,
    "reads": "OUT/acceptance-summary.json and the exit code (0 pass, 1 fail, 2 invalid); room-batch shows \"no rows (exit N)\""
@@ -1250,7 +1250,7 @@
    "stage": "iron-kit",
    "skill": "combat",
    "skill2": null,
-   "line": "DISTANCES=7 REPEATS=1 ARENA_JAR=$JAR node scripts/quality/test-drawn-bow-live.mjs $OUT",
+   "line": "RULE_ARMS=drawn DISTANCES=7 REPEATS=1 ARENA_JAR=$JAR node scripts/quality/test-drawn-bow-live.mjs $OUT",
    "estMinutes": 2,
    "tickRate": 20,
    "reads": "OUT/acceptance-summary.json and the exit code (0 pass, 1 fail, 2 invalid); room-batch shows \"no rows (exit N)\""
@@ -1261,7 +1261,7 @@
    "stage": "iron-kit",
    "skill": "combat",
    "skill2": null,
-   "line": "DISTANCES=10 REPEATS=1 ARENA_JAR=$JAR node scripts/quality/test-drawn-bow-live.mjs $OUT",
+   "line": "RULE_ARMS=drawn DISTANCES=10 REPEATS=1 ARENA_JAR=$JAR node scripts/quality/test-drawn-bow-live.mjs $OUT",
    "estMinutes": 2,
    "tickRate": 20,
    "reads": "OUT/acceptance-summary.json and the exit code (0 pass, 1 fail, 2 invalid); room-batch shows \"no rows (exit N)\""
