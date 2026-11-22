@@ -101,7 +101,7 @@ export function dependentChain(plan, id) {
  * ({ active: [ids], lastFired: text }) shown as-is; `annotate(intent, { contradicted, since, evidence })` lets a
  * shared provenance layer word validity. Neither may choose a replacement intent.
  */
-export function composeContinuityHeader({ goal, intent = null, evidence = null, since = null, progress = null, route = null, stepProgress = null, repeats = null, search = null, hunt = null, options = null, craft = null, known = null, mining = null, light = null, sleep = null, casting = null, frame = null, tools = null, results = [], running = null, effect = null, orders = null, guardInstalled = undefined, guardCoverage = null, guardThreatsNear = 0, guardThreatsTargeting = 0, annotate = null }) {
+export function composeContinuityHeader({ goal, intent = null, evidence = null, since = null, progress = null, route = null, stepProgress = null, repeats = null, search = null, hunt = null, options = null, craft = null, known = null, mining = null, light = null, up = null, sleep = null, casting = null, frame = null, tools = null, results = [], running = null, effect = null, orders = null, guardInstalled = undefined, guardCoverage = null, guardThreatsNear = 0, guardThreatsTargeting = 0, annotate = null }) {
 	// The event's own goal field carries the goal; the header starts at the intent.
 	if (typeof goal !== 'string' || goal.length === 0) return null;
 	const header = {};
@@ -148,6 +148,8 @@ export function composeContinuityHeader({ goal, intent = null, evidence = null, 
 	if (typeof known === 'string' && known.length) header.known = known;
 	if (typeof mining === 'string' && mining.length) header.mining = mining;
 	if (typeof light === 'string' && light.length) header.light = light;
+	// Under cover: the last spot under open sky and its walked way back (retrace), beside the light line.
+	if (typeof up === 'string' && up.length) header.up = up;
 	if (typeof casting === 'string' && casting.length) header.casting = casting;
 	if (typeof frame === 'string' && frame.length) header.frame = frame;
 	if (typeof sleep === 'string' && sleep.length) header.sleep = sleep;

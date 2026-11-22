@@ -2906,6 +2906,26 @@ test('a seen portal frame row passes wire validation with bounded cells', () => 
 	}
 });
 
+test('seen resource rows (placed blocks, doors, containers) pass wire validation', () => {
+	const observation = readyServerObservation();
+	observation.sighted = { resources: [
+		{ x: 311, y: 77, z: -241, distance: 14, bearing: 3, blockId: 'minecraft:cobblestone', count: 6 },
+		{ x: 305, y: 78, z: -236, distance: 9, bearing: 7, blockId: 'minecraft:chest', count: 1, opened: false, new: true },
+	] };
+	assert.deepEqual(validateProtocolV2Payload('observation', observation).sighted, observation.sighted);
+	for (const mutate of [
+		(value) => { delete value.sighted.resources[0].count; },
+		(value) => { value.sighted.resources[0].blockId = ''; },
+		(value) => { value.sighted.resources[1].opened = 'no'; },
+		(value) => { value.sighted.resources[0].contents = []; },
+		(value) => { value.sighted.resources = Array.from({ length: 25 }, () => value.sighted.resources[0]); },
+	]) {
+		const bad = structuredClone(observation);
+		mutate(bad);
+		assert.throws(() => validateProtocolV2Payload('observation', bad));
+	}
+});
+
 test('block tags listed once per type are put back on every row before anything reads the observation', () => {
 	const tags = ['#minecraft:mineable/pickaxe', '#minecraft:base_stone_overworld'];
 	const grass = ['#minecraft:dirt'];

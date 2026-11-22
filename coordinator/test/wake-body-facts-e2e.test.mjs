@@ -89,3 +89,14 @@ test('sleep rules cross strict wire validation and adaptation into the actual pr
  assert.throws(()=>validateProtocolV2Payload('observation',{...strictPayload,world:{...strictPayload.world,sleep:{bedExplodes:'false',timeAllowsSleep:true}}}),/boolean/);
  assert.throws(()=>validateProtocolV2Payload('observation',{...strictPayload,world:{...strictPayload.world,sleep:{bedExplodes:false,timeAllowsSleep:true,hiddenMonsters:0}}}),/field/i);
 });
+
+test('under cover the provider wake carries now.up with the last open sky and the retrace hint', async t => {
+	const { wake, planner } = await coordinator(t);
+	await wake(wire(1));
+	const below = wire(2, { skyOpen: false });
+	below.payload.position.y = 20;
+	const event = await wake(below);
+	assert.equal(event.now.up, 'last open sky @10,64,10 44m dy+44; travel_to retrace:true there walks your own way back up');
+	const encoded = decodeModelFacts(JSON.parse(encodeNativeEventInput(planner.requests.at(-1).input, new ModelObservationViews()).split('\n')[1]));
+	assert.equal(encoded.now.up, event.now.up);
+});

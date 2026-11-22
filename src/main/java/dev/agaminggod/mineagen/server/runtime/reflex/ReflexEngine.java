@@ -725,6 +725,25 @@ public final class ReflexEngine {
 	public record RuleView(String id, String state, Set<String> when) {
 	}
 
+	/** Reflex actions that hold the body on purpose for as long as their danger lasts (a fight, a raised shield, a brace). */
+	public static final java.util.Set<String> HOLDING_ACTIONS = java.util.Set.of("defend", "shield", "brace");
+
+	/**
+	 * Whether the firing that holds the agent now is a hold the reflex-hold limit leaves alone: a hazard floor or a fight,
+	 * shield or brace, which hold for as long as their danger lasts. Anything else (a meal, a pickup) that keeps the body
+	 * for minutes is stuck.
+	 */
+	public synchronized boolean firingHoldsOnPurpose(AgentId agentId) {
+		AgentReflexes agent = agents.get(agentId);
+		ReflexScheduler.Firing firing = agent == null ? null : agent.scheduler.current();
+		if (firing == null) return false;
+		for (ReflexSpec.Rule rule : agent.scheduler.activeRules()) {
+			if (!rule.id().equals(firing.ruleId())) continue;
+			return ReflexScheduler.floor(rule) || HOLDING_ACTIONS.contains(rule.action().type());
+		}
+		return false;
+	}
+
 	/** The id of the rule whose firing holds the agent's body now, or null. */
 	public synchronized String firingRule(AgentId agentId) {
 		AgentReflexes agent = agents.get(agentId);
