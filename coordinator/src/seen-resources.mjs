@@ -155,17 +155,12 @@ export function rememberResources(memory, observation, { now = Date.now() } = {}
  *   block of it is left.
  */
 export function forgetResourceResult(memory, observation, { actionType, arguments: args, state, reasonCode, message = null } = {}) {
-	// A vein run stopped part way that mined blocks took its start cell (see observed-memory-store).
-	const partial = actionType === 'mine_vein' && state !== 'SUCCEEDED' && /mined: [1-9]\d* minecraft:/.test(String(message ?? ''));
-	if (!memory?.rows || (state !== 'SUCCEEDED' && !partial) || !args || ![args.x, args.y, args.z].every(Number.isFinite)) return memory;
+	if (!memory?.rows || state !== 'SUCCEEDED' || !args || ![args.x, args.y, args.z].every(Number.isFinite)) return memory;
 	const dimension = observation?.world?.dimension ?? observation?.dimension ?? null;
 	const [x, y, z] = [Math.floor(args.x), Math.floor(args.y), Math.floor(args.z)];
 	let reach = -1, ore = null;
 	if (actionType === 'break_block' && reasonCode === 'BLOCK_BROKEN') reach = 0;
-	else if (partial) {
-		reach = 0;
-		ore = /mined: \d+ (minecraft:[a-z0-9_]+)/.exec(String(message ?? ''))?.[1] ?? null;
-	} else if (actionType === 'mine_vein' && reasonCode === 'VEIN_MINED') {
+	else if (actionType === 'mine_vein' && reasonCode === 'VEIN_MINED') {
 		reach = /no seen block of it is left/.test(String(message ?? '')) ? 2 : 0;
 		ore = /mined: \d+ (minecraft:[a-z0-9_]+)/.exec(String(message ?? ''))?.[1] ?? null;
 	}

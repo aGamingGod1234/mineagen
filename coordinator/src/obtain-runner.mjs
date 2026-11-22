@@ -421,7 +421,9 @@ function rememberedOre(need, o, budget, missed = []) {
 	const rows = (o.seenResources ?? []).filter((row) => row?.kind === 'block' && blocks.has(row.id) && [row.x, row.y, row.z].every(Number.isSafeInteger))
 		.map((row) => ({ x: row.x, y: row.y, z: row.z, blockId: row.id, cost: seenRowCost(row, o) }))
 		.filter((row) => row.cost < searchCost(row.blockId) && !budget?.failed?.has(`${row.x},${row.y},${row.z}`) && !unreachable.has(`${row.x},${row.y},${row.z}`) && !floodedApproach(budget, row));
-	const vein = budget?.unreached?.length > 0 ? sameVein(budget.unreached, rows) : new Set();
+	// A vein joined to an ore this run or an earlier search could not reach is that same vein: never walked back to.
+	const bad = [...(budget?.unreached ?? []), ...missed.filter((place) => place.why === UNREACHED)];
+	const vein = bad.length > 0 ? sameVein(bad, rows) : new Set();
 	return rows.filter((row) => !vein.has(row))
 		.map((row) => ({ ...row, remembered: true, d: Math.hypot(row.x + 0.5 - at.x, row.y - at.y, row.z + 0.5 - at.z) }))
 		.sort((a, b) => a.cost - b.cost)[0] ?? null;

@@ -322,3 +322,9 @@ test('a forbid rule can allow a few of an action', () => {
 	assert.equal(findSpotVerdict(spot, row(2)).pass, true);
 	assert.match(findSpotVerdict(spot, row(3)).failReason, /3x dig_to tunnel, which this spot allows 2 of/);
 });
+
+test('review: a room time limit counts the run\'s own play time, background waits included', () => {
+	const spot = { expectCode: 'OBTAINED', maxSeconds: 120 };
+	const row = { calls: [{ reasonCode: 'OBTAINED', state: 'SUCCEEDED', seconds: 40 }], deaths: 0, seconds: 200 };
+	assert.match(findSpotVerdict(spot, row).failReason, /took 200 s, more than 120 s/);
+});

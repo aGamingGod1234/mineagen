@@ -119,14 +119,14 @@ test('a block the agent broke or a vein it mined is forgotten, though no sample 
 		'the vein beside the start is gone; a vein 20 blocks off and the deepslate one 18 above stay');
 });
 
-test('review: a vein run stopped part way forgets its start cell; a known block ages by its game tick', async () => {
+test('review: a vein run stopped part way forgets nothing; a known block ages by its game tick', async () => {
 	const { forgetResourceResult, rememberKnownBlocks, newResourceMemory, RESOURCE_TTL_MS } = await import('../src/seen-resources.mjs');
 	const o = { world: { dimension: 'minecraft:overworld' }, player: { x: 0.5, y: 20, z: 0.5 } };
 	const memory = newResourceMemory();
 	rememberKnownBlocks(memory, o, [{ blockId: 'minecraft:iron_ore', x: 3, y: 18, z: 0, tick: 100 }], { now: 1_000_000, tick: 100 });
 	assert.equal(memory.rows.size, 1);
 	forgetResourceResult(memory, o, { actionType: 'mine_vein', arguments: { x: 3, y: 18, z: 0 }, state: 'FAILED', reasonCode: 'LAVA_OPENED', message: 'Lava seen at 4,18,0; so far mined: 2 minecraft:iron_ore in 3.1 s' });
-	assert.equal(memory.rows.size, 0, 'a stop after mining forgets the cell it aimed at');
+	assert.equal(memory.rows.size, 1, 'a stop part way says nothing about which block went: the aimed cell stays (review)');
 	const kept = newResourceMemory();
 	rememberKnownBlocks(kept, o, [{ blockId: 'minecraft:iron_ore', x: 3, y: 18, z: 0, tick: 100 }], { now: 1_000_000, tick: 100 });
 	forgetResourceResult(kept, o, { actionType: 'mine_vein', arguments: { x: 3, y: 18, z: 0 }, state: 'FAILED', reasonCode: 'HOSTILE_NEAR', message: 'zombie 6 blocks away' });

@@ -384,7 +384,8 @@ public final class ServerDigController implements ServerController {
 		if (danger != null) return danger;
 		TickResult sight = sight(player, nowEpochMs);
 		if (sight != null) return sight;
-		if (passLookPending && phase == Phase.START && stopWhenSeen != null && !"minecraft:lava".equals(stopWhenSeen)
+		// Blocks only: a fluid target keeps its own source-only sighting (sight()), which this look does not apply.
+		if (passLookPending && phase == Phase.START && stopWhenSeen != null && !ServerTravelController.bucketFluid(stopWhenSeen)
 				&& passLooks < PASS_LOOKS && standsOnOwnBlock(player)) {
 			passLookPending = false;
 			passLooks++;

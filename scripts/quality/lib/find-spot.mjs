@@ -80,7 +80,8 @@ export function findSpotVerdict(spot = {}, row = {}) {
 	}
 	// maxSeconds: the calls together must end within this much game time.
 	if (Number.isFinite(spot.maxSeconds)) {
-		const seconds = calls.reduce((total, call) => total + (Number.isFinite(call?.seconds) ? call.seconds : Infinity), 0);
+		// The run's own play time when recorded (background steps and waits included), else the calls' own.
+		const seconds = Number.isFinite(row.seconds) ? row.seconds : calls.reduce((total, call) => total + (Number.isFinite(call?.seconds) ? call.seconds : Infinity), 0);
 		if (!(seconds <= spot.maxSeconds)) misses.push(`took ${Number.isFinite(seconds) ? `${seconds} s` : 'an unknown time'}, more than ${spot.maxSeconds} s`);
 	}
 	// expectFinalProbe: [{ index, match }] a finalProbe reply (ground truth after the calls) must match (an ore left in the floor).

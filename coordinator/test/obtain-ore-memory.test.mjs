@@ -83,3 +83,12 @@ test('review: a remembered walk that sights another block of the ore takes that 
 	assert.equal(acts.filter(([type, args]) => type === 'dig_to' && args.x === 298).length, 0, 'no dig toward the old cell');
 	assert.equal(missed.filter((row) => row.x === 298 && row.z === -261).length, 0, 'the old cell is not written off');
 });
+
+test('review: a remembered ore joined to a cell a search marked unreachable is not walked back to', async () => {
+	const neighbour = { ...ore, z: -262 };
+	let searched = 0;
+	const body = { observe: async () => at({ seenResources: [neighbour] }), missedPlaces: () => [{ x: 298, y: 14, z: -261, why: 'unreachable' }],
+		search: async () => { searched++; return { reasonCode: 'FIND_NOT_FOUND' }; } };
+	assert.equal(await locate(need, body, { budget: { failed: new Set() }, timeoutMs: 60_000 }), null);
+	assert.equal(searched, 1);
+});
