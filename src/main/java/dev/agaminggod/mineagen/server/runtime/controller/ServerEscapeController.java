@@ -462,6 +462,16 @@ public final class ServerEscapeController implements ServerController {
 		// A child that failed, timed out or threw may still hold keys under its own lease: release them before moving on.
 		if (result.state() != State.SUCCEEDED) child.cancel(player);
 		note(childLabel + (result.state() == State.SUCCEEDED ? ": " : " (" + result.reasonCode() + "): ") + shortMessage(result.message()));
+		// A hostile stopped the step (a pillar or stairs refuses with a mob beside the body): it is the threat, not an
+		// obstacle to climb past. Retrying left the body in a hole beside a skeleton for 3 refused pillars, the fighting
+		// reflex yielded to this command throughout (playtest 22 Nov: shot point-blank at 7 health). The body goes back to
+		// the agent's rules (CommandFollower hands an escape that ends on HOSTILE_NEAR to them), which answer the mob.
+		if (result.state() != State.SUCCEEDED && "HOSTILE_NEAR".equals(result.reasonCode())) {
+			child = null;
+			travelBank = null;
+			return finish(player, TickResult.failed("HOSTILE_NEAR", "Stopped getting out for a hostile: " + shortMessage(result.message())
+					+ done() + facts(player), 0.2D));
+		}
 		// travel stopping to breathe is progress, not a missed bank: the swim to air comes next and the walk goes on.
 		if (travelBank != null && ("AIR_RESERVE_REACHED".equals(result.reasonCode()) || "BREATH_NOT_COVERED".equals(result.reasonCode()))) bankTries.merge(travelBank, -1, Integer::sum);
 		travelBank = null;

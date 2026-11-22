@@ -13,6 +13,8 @@
 //            under the shaft): afloat with the feet in the lake's top cell and the head in the shaft; 16 cobblestone and
 //            an iron pickaxe. The only air is the shaft. Pass: dry footing out of the water.
 //   skeleton the body on open ground with an offhand shield, a skeleton 10 blocks east, a 3x3 stone wall 3 blocks west.
+//   pitskel  the playtest's cave death: a hole 2 deep at 7 health, cobblestone and a stone sword, a bow skeleton at the rim
+//            beside it. Pass: alive, and out of the hole or the skeleton dead, within 40 s.
 // Optional regressions (escape jar): archer-direction puts a nearer zombie west of the body and a skeleton east.
 // archer-resume pauses the run with a reflex while the skeleton is still in range.
 // The arm is read from the jar: a jar with the escape body job plays "escape" (every decision is do_step escape); any
@@ -45,7 +47,7 @@ const rooms = (roomsArg ?? 'deep;stair;pit;pitdig;shaft;lake;skeleton').split(';
 const THINK_MS = Number(process.env.ESCAPE_THINK_MS ?? 6_000);
 const PAD_Y = 150;
 const LEGACY = process.env.ESCAPE_LEGACY === 'wake' ? 'wake' : 'strong';
-const WINDOW_MS = { deep: 60_000, stair: 60_000, pit: 60_000, pitdig: 60_000, shaft: 90_000, lake: 90_000, skeleton: 30_000,
+const WINDOW_MS = { deep: 60_000, stair: 60_000, pit: 60_000, pitdig: 60_000, shaft: 90_000, lake: 90_000, skeleton: 30_000, pitskel: 40_000,
 	'archer-direction': 15_000, 'archer-resume': 15_000 };
 const out = path.resolve(outArg);
 await mkdir(out, { recursive: true });
@@ -131,6 +133,12 @@ try {
 			start = [X + 0.5, F - 8.2, Z + 0.5];
 			await s.command(`item replace entity ${NAME} hotbar.0 with minecraft:cobblestone 16`);
 			await s.command(`item replace entity ${NAME} hotbar.1 with minecraft:iron_pickaxe 1`);
+		} else if (room === 'pitskel') {
+			// The playtest's cave death: a hole 2 deep at 7 health, blocks and a sword carried, a skeleton at the rim beside it.
+			await s.command(`fill ${X} ${F - 2} ${Z} ${X} ${F - 1} ${Z} minecraft:air`);
+			start = [X + 0.5, F - 2, Z + 0.5];
+			await s.command(`item replace entity ${NAME} hotbar.0 with minecraft:cobblestone 16`);
+			await s.command(`item replace entity ${NAME} hotbar.1 with minecraft:stone_sword 1`);
 		} else if (room === 'skeleton') {
 			await s.command(`fill ${X - 3} ${F} ${Z - 1} ${X - 3} ${F + 2} ${Z + 1} minecraft:stone`);
 			wall = { x0: X - 3, x1: X - 2, y0: F, y1: F + 3, z0: Z - 1, z1: Z + 2 };
@@ -182,6 +190,12 @@ try {
 			continue;
 		}
 		let skeleton = null;
+		if (room === 'pitskel') {
+			await s.command('difficulty normal');
+			await s.command(`damage ${NAME} 13 minecraft:generic`);
+			await s.command(`summon minecraft:skeleton ${X + 1.5} ${F} ${Z + 0.5} {PersistenceRequired:1b,equipment:{mainhand:{id:"minecraft:bow",count:1}}}`);
+			await sleep(500);
+		}
 		if (room === 'skeleton') {
 			await s.command('difficulty normal');
 			await s.command(`summon minecraft:skeleton ${X + 10.5} ${F} ${Z + 0.5} {PersistenceRequired:1b,equipment:{mainhand:{id:"minecraft:bow",count:1}}}`);
@@ -227,13 +241,17 @@ try {
 				return await onGround() && !(await blockAt(...feet, 'minecraft:water')) && p[1] >= F - 0.01;
 			}
 			if (room === 'pit' || room === 'pitdig' || room === 'shaft') return p[1] >= F - 0.01 && await onGround();
+			// Out of the hole, or the skeleton beside it dead.
+			if (room === 'pitskel') return p[1] >= F - 0.01 && await onGround()
+				|| !String(await s.command('execute if entity @e[type=minecraft:skeleton]').catch(() => 'passed')).includes('passed');
 			if (room === 'lake') return await onGround() && !(await blockAt(Math.floor(p[0]), Math.floor(p[1]), Math.floor(p[2]), 'minecraft:water'));
 			return hidden();
 		};
 		const live = await pos();
 		const exposed = live === null ? false : room === 'deep' || room === 'stair' ? await blockAt(Math.floor(live[0]), Math.floor(live[1] + 1.62), Math.floor(live[2]), 'minecraft:water')
 			: room === 'skeleton' ? skeleton !== null && !(await hidden())
-			: room === 'shaft' || room === 'lake' ? await blockAt(Math.floor(live[0]), Math.floor(live[1]), Math.floor(live[2]), 'minecraft:water') : live[1] < F - 2;
+			: room === 'shaft' || room === 'lake' ? await blockAt(Math.floor(live[0]), Math.floor(live[1]), Math.floor(live[2]), 'minecraft:water')
+			: room === 'pitskel' ? live[1] < F - 1 : live[1] < F - 2;
 		const t0 = Date.now(), window = WINDOW_MS[room];
 		let calls = 0, executed = 0, last = null, safeAt = null;
 		const results = [];
