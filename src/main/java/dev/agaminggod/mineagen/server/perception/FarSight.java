@@ -673,6 +673,10 @@ public final class FarSight {
 			long x = Math.round(eye.x * 2.0D), y = Math.round(eye.y * 2.0D), z = Math.round(eye.z * 2.0D);
 			if (!dimension.equals(this.dimension) || x != eyeX || y != eyeY || z != eyeZ || revision != this.revision || ends.size() > 16_384) {
 				ends.clear();
+				if (!dimension.equals(this.dimension)) {
+					lava.clear();
+					built.clear();
+				}
 				this.dimension = dimension;
 				eyeX = x;
 				eyeY = y;
@@ -920,13 +924,13 @@ public final class FarSight {
 		Cluster filter(Predicate<Found> keep) {
 			if (distances == null) return new Cluster(members.stream().filter(keep).toList(), distance);
 			List<Found> kept = new ArrayList<>();
-			double[] keptDistances = new double[members.size()];
+			it.unimi.dsi.fastutil.doubles.DoubleArrayList keptDistances = new it.unimi.dsi.fastutil.doubles.DoubleArrayList();
 			for (int i = 0; i < members.size(); i++) {
 				if (!keep.test(members.get(i))) continue;
-				keptDistances[kept.size()] = distances[i];
+				keptDistances.add(distances[i]);
 				kept.add(members.get(i));
 			}
-			return new Cluster(kept, java.util.Arrays.copyOf(keptDistances, kept.size()), distance);
+			return new Cluster(kept, keptDistances.toDoubleArray(), distance);
 		}
 
 		/** The member with the smallest packed position: stable while the cluster stands, wherever the agent views it from. */
@@ -1209,6 +1213,12 @@ public final class FarSight {
 			}
 			return groups;
 		}
+
+		/** Lets go of the last gather (a lava sea can hold a few MB), as when the agent leaves the dimension. */
+		void clear() {
+			blocks = List.of();
+			groups = List.of();
+		}
 	}
 
 	/** Blocks within about 4 blocks of each other (linked 4-block cells), each group in discovery order. */
@@ -1237,7 +1247,7 @@ public final class FarSight {
 					if (cells.containsKey(next) && claimed.add(next)) queue.enqueue(next);
 				}
 			}
-			groups.add(List.copyOf(members));
+			groups.add(members);
 		}
 		return groups;
 	}

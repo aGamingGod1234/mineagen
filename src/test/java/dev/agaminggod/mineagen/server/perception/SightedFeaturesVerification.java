@@ -350,6 +350,7 @@ public final class SightedFeaturesVerification {
 		check(clusters.get(0).members().size() == 1 && clusters.get(1).members().size() == 20, "nearest cluster first; the house keeps all 20 blocks");
 		check(net.minecraft.core.BlockPos.getX(clusters.get(1).members().getFirst().position()) == 100, "members are nearest first");
 		clusterOrderMatchesAStableSort();
+		centreDistanceMatchesVec3();
 	}
 
 	/**
@@ -390,19 +391,47 @@ public final class SightedFeaturesVerification {
 		check(!sources.isEmpty() && sources.equals(sea.members().stream().filter(FarSight::fluidSource).toList()),
 				"a filtered cluster keeps the full sort's order");
 		check(filtered.distance() == sea.distance(), "a filtered cluster keeps the pool's distance");
+		// A pool whose nearest block is flowing: its sources sub-cluster must keep the pool's distance, not its own nearest.
+		var flowingState = Blocks.LAVA.defaultBlockState().setValue(net.minecraft.world.level.block.LiquidBlock.LEVEL, 2);
+		List<FarSight.Found> spill = List.of(
+				new FarSight.Found(net.minecraft.core.BlockPos.asLong(1, 31, 0), flowingState, FarSight.LAVA, 1),
+				new FarSight.Found(net.minecraft.core.BlockPos.asLong(3, 31, 0), Blocks.LAVA.defaultBlockState(), FarSight.LAVA, 1));
+		FarSight.Cluster spillPool = FarSight.cluster(spill, SightedFeaturesVerification::horizontal).getFirst();
+		FarSight.Cluster spillSources = spillPool.filter(FarSight::fluidSource);
+		check(spillPool.distance() == 1.0D && spillSources.size() == 1 && spillSources.distance() == 1.0D
+				&& horizontal(spillSources.members().getFirst()) == 3.0D, "sources keep the pool's distance (1), not the nearest source's (3)");
 		FarSight.Grouping grouping = new FarSight.Grouping();
 		var first = grouping.groups(blocks);
 		check(grouping.groups(new ArrayList<>(blocks)) == first, "the same blocks gathered again reuse their groups");
 		List<FarSight.Found> moved = new ArrayList<>(blocks);
 		moved.removeLast();
-		check(grouping.groups(moved) != first && grouping.groups(moved).stream().mapToInt(List::size).sum() == moved.size(),
-				"changed blocks are grouped again");
+		check(grouping.groups(moved) != first && grouping.groups(moved).equals(FarSight.groups(moved)), "fewer blocks are grouped again, correctly");
+		List<FarSight.Found> restated = new ArrayList<>(blocks);
+		FarSight.Found changed = restated.getFirst();
+		restated.set(0, new FarSight.Found(changed.position(), changed.state(), changed.kinds(), changed.openFaces() ^ 1));
+		var beforeRestate = grouping.groups(blocks);
+		check(grouping.groups(restated) != beforeRestate && grouping.groups(restated).equals(FarSight.groups(restated)),
+				"the same number of blocks with one block's faces changed is grouped again, correctly");
 		ToDoubleFunction<FarSight.Found> elsewhere = entry -> Math.floor(Math.abs(net.minecraft.core.BlockPos.getX(entry.position()) - 90) / 3.0D);
 		List<List<FarSight.Found>> fromElsewhere = fullSortClusters(blocks, elsewhere);
 		List<FarSight.Cluster> reused = FarSight.withDistances(first, elsewhere);
 		boolean sameElsewhere = reused.size() == fromElsewhere.size();
 		for (int i = 0; sameElsewhere && i < reused.size(); i++) sameElsewhere = reused.get(i).members().equals(fromElsewhere.get(i));
 		check(sameElsewhere, "reused groups seen from another eye order like a fresh full sort from there");
+	}
+
+	/** centreDistance must be bit for bit the old eye.distanceTo(Vec3.atCenterOf(BlockPos.of(position))). */
+	private static void centreDistanceMatchesVec3() {
+		java.util.Random random = new java.util.Random(11);
+		boolean same = true;
+		for (int i = 0; i < 20_000 && same; i++) {
+			Vec3 eye = new Vec3((random.nextDouble() - 0.5D) * 60_000D, random.nextDouble() * 400D - 64D, (random.nextDouble() - 0.5D) * 60_000D);
+			long position = net.minecraft.core.BlockPos.asLong((int) Math.floor(eye.x) + random.nextInt(513) - 256,
+					(int) Math.floor(eye.y) + random.nextInt(129) - 64, (int) Math.floor(eye.z) + random.nextInt(513) - 256);
+			double expected = eye.distanceTo(Vec3.atCenterOf(net.minecraft.core.BlockPos.of(position)));
+			same = Double.doubleToRawLongBits(FarSight.centreDistance(eye, position)) == Double.doubleToRawLongBits(expected);
+		}
+		check(same, "centreDistance is bit for bit the Vec3 distance, negative and fractional coordinates included");
 	}
 
 	/** The clustering before the lazy order: cells in first-seen order, breadth first, each cluster stably sorted. */
