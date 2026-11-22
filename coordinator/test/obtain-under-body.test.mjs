@@ -2,21 +2,18 @@
 // obtain wrote the ore off as unreachable; the next iron trip saw it 2.9 blocks away and tunnelled past it.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { runObtain } from '../src/obtain-runner.mjs';
-import { normalizeMinecraftToolCall } from '../src/native-minecraft-tools.mjs';
-// Every act a fake body takes must be one the real tool accepts (a tolerance travel_to refuses never runs).
-const valid = (type, args) => normalizeMinecraftToolCall('act', { actionType: type, arguments: args });
+import { checkedObtainBody, runObtain } from './helpers/checked-body.mjs';
 
 test('an ore under the body (VEIN_UNDER_BODY) is not written off as unreachable for later searches', async () => {
 	const missed = [];
 	const o = () => ({ world: { dimension: 'minecraft:overworld' }, player: { x: 298.5, y: 15, z: -260.5, health: 20, food: 20, onGround: true },
 		inventory: { selectedSlot: 0, items: [{ itemId: 'minecraft:stone_pickaxe', slot: 0, count: 1, remainingDurability: 100 }] },
 		blocks: [{ blockId: 'minecraft:iron_ore', x: 298, y: 14, z: -261 }, { blockId: 'minecraft:stone', x: 298, y: 14, z: -260 }] });
-	const body = { observe: async () => o(), stopped: () => false, interrupted: () => false, note: () => {},
+	const body = checkedObtainBody({ observe: async () => o(), stopped: () => false, interrupted: () => false, note: () => {},
 		act: async () => ({ state: 'SUCCEEDED', reasonCode: 'DIG_GOAL_REACHED' }),
 		mine: async () => ({ state: 'FAILED', reasonCode: 'VEIN_UNDER_BODY', message: 'every seen block lies under the body' }),
 		search: async () => ({ reasonCode: 'FIND_NOT_FOUND', message: 'not found' }),
-		missPlace: (place, why) => missed.push({ ...place, why }) };
+		missPlace: (place, why) => missed.push({ ...place, why }) });
 	let t = 0;
 	await runObtain({ item: 'raw_iron', count: 1, timeoutMs: 60_000 }, body, { now: () => (t += 1000) });
 	assert.deepEqual(missed.filter((row) => row.why === 'unreachable'), [], 'the ore stays a known source');
@@ -28,10 +25,10 @@ test('an ore under the body with no stance mine_vein can take: obtain steps back
 		inventory: { selectedSlot: 0, items: [{ itemId: 'minecraft:stone_pickaxe', slot: 0, count: 1, remainingDurability: 100 }] },
 		blocks: [{ blockId: 'minecraft:iron_ore', x: 298, y: 14, z: -261 }] });
 	let mines = 0;
-	const body = { observe: async () => o(), stopped: () => false, interrupted: () => false, note: () => {},
-		act: async (type, args) => { valid(type, args); calls.push([type, args]); return { state: 'SUCCEEDED', reasonCode: 'ARRIVED' }; },
+	const body = checkedObtainBody({ observe: async () => o(), stopped: () => false, interrupted: () => false, note: () => {},
+		act: async (type, args) => { calls.push([type, args]); return { state: 'SUCCEEDED', reasonCode: 'ARRIVED' }; },
 		mine: async (args) => { calls.push(['mine', args]); return mines++ === 0 ? { state: 'FAILED', reasonCode: 'VEIN_UNDER_BODY' } : { state: 'SUCCEEDED', reasonCode: 'VEIN_MINED', message: 'mined: 1 minecraft:iron_ore in 1 s' }; },
-		search: async () => ({ reasonCode: 'FIND_NOT_FOUND' }), missPlace: () => {} };
+		search: async () => ({ reasonCode: 'FIND_NOT_FOUND' }), missPlace: () => {} });
 	let t = 0;
 	await runObtain({ item: 'raw_iron', count: 1, timeoutMs: 30_000 }, body, { now: () => (t += 1000) });
 	const first = calls.findIndex(([type]) => type === 'mine');
@@ -45,10 +42,10 @@ test('drops not picked up after a vein: the body steps into the pocket itself, n
 	const o = () => ({ world: { dimension: 'minecraft:overworld' }, player: { x: 299.4, y: 15, z: -261.5, yaw: 90, health: 20, food: 20, onGround: true },
 		inventory: { selectedSlot: 0, items: [{ itemId: 'minecraft:stone_pickaxe', slot: 0, count: 1, remainingDurability: 100 }] },
 		blocks: [{ blockId: 'minecraft:iron_ore', x: 298, y: 14, z: -262 }] });
-	const body = { observe: async () => o(), stopped: () => false, interrupted: () => false, note: () => {},
-		act: async (type, args) => { valid(type, args); calls.push([type, args]); return { state: 'SUCCEEDED', reasonCode: 'ARRIVED' }; },
+	const body = checkedObtainBody({ observe: async () => o(), stopped: () => false, interrupted: () => false, note: () => {},
+		act: async (type, args) => { calls.push([type, args]); return { state: 'SUCCEEDED', reasonCode: 'ARRIVED' }; },
 		mine: async () => ({ state: 'SUCCEEDED', reasonCode: 'VEIN_MINED', message: 'mined: 2 minecraft:iron_ore in 4 s; no seen block of it is left' }),
-		search: async () => ({ reasonCode: 'FIND_NOT_FOUND' }), missPlace: () => {} };
+		search: async () => ({ reasonCode: 'FIND_NOT_FOUND' }), missPlace: () => {} });
 	let t = 0;
 	await runObtain({ item: 'raw_iron', count: 2, timeoutMs: 600_000 }, body, { now: () => (t += 100) });
 	const into = calls.find(([type, args]) => type === 'navigate_to' && args.x === 298.5 && args.z === -261.5);
@@ -63,10 +60,10 @@ test('the pocket step: never into lava or water, and climbs back out to its mini
 		const o = () => ({ world: { dimension: 'minecraft:overworld' }, player,
 			inventory: { selectedSlot: 0, items: [{ itemId: 'minecraft:stone_pickaxe', slot: 0, count: 1, remainingDurability: 100 }] },
 			blocks: [{ blockId: 'minecraft:iron_ore', x: 298, y: 14, z: -262 }, ...extra] });
-		const body = { observe: async () => o(), stopped: () => false, interrupted: () => false, note: () => {},
-			act: async (type, args) => { valid(type, args); calls.push([type, args]); if (type === 'navigate_to' && args.tolerance < 1) player = { ...player, x: 298.5, y: 13, z: -261.5 }; else if (type === 'travel_to') player = { ...player, x: args.x, y: args.y, z: args.z }; return { state: 'SUCCEEDED', reasonCode: 'ARRIVED' }; },
+		const body = checkedObtainBody({ observe: async () => o(), stopped: () => false, interrupted: () => false, note: () => {},
+			act: async (type, args) => { calls.push([type, args]); if (type === 'navigate_to' && args.tolerance < 1) player = { ...player, x: 298.5, y: 13, z: -261.5 }; else if (type === 'travel_to') player = { ...player, x: args.x, y: args.y, z: args.z }; return { state: 'SUCCEEDED', reasonCode: 'ARRIVED' }; },
 			mine: async () => ({ state: 'SUCCEEDED', reasonCode: 'VEIN_MINED', message: 'mined: 2 minecraft:iron_ore in 4 s' }),
-			search: async () => ({ reasonCode: 'FIND_NOT_FOUND' }), missPlace: () => {} };
+			search: async () => ({ reasonCode: 'FIND_NOT_FOUND' }), missPlace: () => {} });
 		let t = 0;
 		await runObtain({ item: 'raw_iron', count: 2, timeoutMs: 600_000 }, body, { now: () => (t += 100) });
 		return calls;
@@ -85,10 +82,10 @@ test('water under the pocket\'s solid floor does not keep the bot out of a dry p
 	const o = () => ({ world: { dimension: 'minecraft:overworld' }, player: { x: 299.4, y: 15, z: -261.5, yaw: 90, health: 20, food: 20, onGround: true },
 		inventory: { selectedSlot: 0, items: [{ itemId: 'minecraft:stone_pickaxe', slot: 0, count: 1, remainingDurability: 100 }] },
 		blocks: [{ blockId: 'minecraft:iron_ore', x: 298, y: 14, z: -262 }, { blockId: 'minecraft:stone', x: 298, y: 12, z: -262 }, { blockId: 'minecraft:water', x: 298, y: 11, z: -262 }] });
-	const body = { observe: async () => o(), stopped: () => false, interrupted: () => false, note: () => {},
-		act: async (type, args) => { valid(type, args); calls.push([type, args]); return { state: 'SUCCEEDED', reasonCode: 'ARRIVED' }; },
+	const body = checkedObtainBody({ observe: async () => o(), stopped: () => false, interrupted: () => false, note: () => {},
+		act: async (type, args) => { calls.push([type, args]); return { state: 'SUCCEEDED', reasonCode: 'ARRIVED' }; },
 		mine: async () => ({ state: 'SUCCEEDED', reasonCode: 'VEIN_MINED', message: 'mined: 2 minecraft:iron_ore in 4 s' }),
-		search: async () => ({ reasonCode: 'FIND_NOT_FOUND' }), missPlace: () => {} };
+		search: async () => ({ reasonCode: 'FIND_NOT_FOUND' }), missPlace: () => {} });
 	let t = 0;
 	await runObtain({ item: 'raw_iron', count: 2, timeoutMs: 600_000 }, body, { now: () => (t += 100) });
 	assert.ok(calls.some(([type, args]) => type === 'navigate_to' && args.tolerance < 1), 'steps into the dry pocket');
@@ -99,10 +96,10 @@ test('the pocket step tries the floor one or two below the top cell when the top
 	const o = () => ({ world: { dimension: 'minecraft:overworld' }, player: { x: 300.3, y: 15, z: -261.5, yaw: 90, health: 20, food: 20, onGround: true },
 		inventory: { selectedSlot: 0, items: [{ itemId: 'minecraft:stone_pickaxe', slot: 0, count: 1, remainingDurability: 100 }] },
 		blocks: [{ blockId: 'minecraft:iron_ore', x: 298, y: 14, z: -262 }] });
-	const body = { observe: async () => o(), stopped: () => false, interrupted: () => false, note: () => {},
-		act: async (type, args) => { valid(type, args); if (type === 'navigate_to') { navs.push(args.y); return args.y === 14 ? { state: 'FAILED', reasonCode: 'NO_STANDABLE_PATH' } : { state: 'SUCCEEDED', reasonCode: 'DESTINATION_REACHED' }; } return { state: 'SUCCEEDED', reasonCode: 'ARRIVED' }; },
+	const body = checkedObtainBody({ observe: async () => o(), stopped: () => false, interrupted: () => false, note: () => {},
+		act: async (type, args) => { if (type === 'navigate_to') { navs.push(args.y); return args.y === 14 ? { state: 'FAILED', reasonCode: 'NO_STANDABLE_PATH' } : { state: 'SUCCEEDED', reasonCode: 'DESTINATION_REACHED' }; } return { state: 'SUCCEEDED', reasonCode: 'ARRIVED' }; },
 		mine: async () => ({ state: 'SUCCEEDED', reasonCode: 'VEIN_MINED', message: 'mined: 2 minecraft:iron_ore in 4 s' }),
-		search: async () => ({ reasonCode: 'FIND_NOT_FOUND' }), missPlace: () => {} };
+		search: async () => ({ reasonCode: 'FIND_NOT_FOUND' }), missPlace: () => {} });
 	let t = 0;
 	await runObtain({ item: 'raw_iron', count: 2, timeoutMs: 600_000 }, body, { now: () => (t += 100) });
 	assert.deepEqual(navs.slice(0, 2), [14, 13]);

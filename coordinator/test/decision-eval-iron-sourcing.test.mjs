@@ -1,9 +1,10 @@
-import { privateInputUrl } from '../scripts/private-inputs.mjs';
+import { privateInputUrl, privateModule } from '../scripts/private-inputs.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { gradeSample } from '../src/decision-eval/grade.mjs';
 import { renderWake } from '../src/decision-eval/render.mjs';
+await privateModule(import.meta.url);
 
 const { cases } = JSON.parse(fs.readFileSync(privateInputUrl('coordinator/test/fixtures/decision-eval/train/iron-sourcing.json')));
 const call = (name, args) => ({ name, args });

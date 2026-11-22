@@ -12,6 +12,7 @@ import dev.agaminggod.mineagen.server.ChunkedSavedPayloadVerification;
 import dev.agaminggod.mineagen.server.OfflineAgentProfileLookupVerification;
 import dev.agaminggod.mineagen.server.VoiceConsentCommandVerification;
 import dev.agaminggod.mineagen.client.gui.AgentControlLayoutVerification;
+import dev.agaminggod.mineagen.client.gui.AgentNowCardLayoutVerification;
 import dev.agaminggod.mineagen.client.gui.AgentControlSubmissionVerification;
 import dev.agaminggod.mineagen.client.gui.AgentRosterGridLayoutVerification;
 import dev.agaminggod.mineagen.client.gui.AgentRosterGridVerification;
@@ -210,6 +211,8 @@ public final class VerificationMain {
 		passedAssertions += AgentControlSelectionStateVerification.verify();
 		passedAssertions += AgentRosterViewStateVerification.verify();
 		passedAssertions += AgentControlLayoutVerification.verify();
+		passedAssertions += AgentNowCardLayoutVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.control.AgentNowCardVerification.verify();
 		passedAssertions += AgentControlSubmissionVerification.verify();
 		passedAssertions += BlockObservationOrderingVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.perception.PortalFrameSightVerification.verify();

@@ -191,6 +191,13 @@ export async function collectComparison(context, { incident = null, root, git: r
 	report.base = { sha: context.base }; report.head = context.head; report.evaluated = context.evaluated ?? context.head; report.summaryUrl = context.summaryUrl;
 	// The PR head object is not in a merge checkout; the evaluated merge carries the head's files.
 	try { report.product = await findGateFunnel({ base: context.base, evaluated: report.evaluated, head: context.head, repo: context.repo }, run); } catch { report.product = null; }
+	// What the diff changed, for the coverage line: the working tree against the base (the stake runs the working tree;
+	// in CI it is the evaluated merge), from the merge base so a base that moved on is not counted as this change. null
+	// (unknown) when git cannot list it, never "covered".
+	try {
+		const from = (await run('merge-base', context.base, 'HEAD').catch(() => '')).trim() || context.base;
+		report.changedFiles = (await run('diff', '--name-only', from)).split('\n').map(line => line.trim()).filter(Boolean);
+	} catch { report.changedFiles = null; }
 	report.checkMs = Math.round(performance.now() - started);
 	return report;
 }

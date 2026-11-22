@@ -71,9 +71,28 @@ public final class LiveAgentWindows {
 	private static volatile ParsedView parsedView;
 	private static volatile JsonObject liveDecision;
 	private static volatile String liveDecisionAgent = "";
+	/** The latest validated live view and its agent, for the control center's Now card (any thread). */
+	private static volatile JsonObject liveView;
+	private static volatile long liveViewAt;
+	/** When the control center last drew: while it is open the live view is fetched even with no desktop window. */
+	private static volatile long watchedAt;
+	private static final long WATCH_GRACE_MS = 2_000L;
+	private static final long LIVE_VIEW_FRESH_MS = 10_000L;
 
 	public static JsonObject decision(AgentControlAgent agent) {
 		return agent != null && agent.agentId().equals(liveDecisionAgent) ? liveDecision : null;
+	}
+
+	/** Called each frame the control center is open, so the selected agent's live view keeps coming. */
+	public static void watch() {
+		watchedAt = System.currentTimeMillis();
+	}
+
+	/** The selected agent's live view if one arrived in the last few seconds, else null. */
+	public static JsonObject liveView(AgentControlAgent agent) {
+		JsonObject view = liveView;
+		return agent != null && agent.agentId().equals(liveDecisionAgent) && view != null
+				&& System.currentTimeMillis() - liveViewAt <= LIVE_VIEW_FRESH_MS ? view : null;
 	}
 	private static volatile String waitingStatus = "Waiting for live task data";
 	private static Path settingsPath;
@@ -157,7 +176,7 @@ public final class LiveAgentWindows {
 	private static void clearView(String status) {
 		PlanItemIcons.clear();
 		waitingStatus = status;
-		liveDecision = null; liveDecisionAgent = "";
+		liveDecision = null; liveDecisionAgent = ""; liveView = null;
 		receivedAt = 0;
 		SwingUtilities.invokeLater(() -> { latest = new JsonObject(); lastSnapshot = null; parsedView = null; lastTerminal = ""; refresh(); });
 	}
@@ -178,12 +197,13 @@ public final class LiveAgentWindows {
 		boolean connected = client.player != null && client.level != null && client.getConnection() != null;
 		if (!connected) { if (wasConnected) disconnect(); return; }
 		if (!wasConnected) { wasConnected = true; pollTicks = 0; }
-		if ((!planEnabled && !terminalEnabled) || selected.isBlank()) return;
+		boolean watched = System.currentTimeMillis() - watchedAt <= WATCH_GRACE_MS;
+		if ((!planEnabled && !terminalEnabled && !watched) || selected.isBlank()) return;
 		var roster = AgentControlClient.snapshot().orElse(null);
 		if (roster == null) return;
 		if (!roster.canControl()) {
 			if (!waitingStatus.equals("Operator permission is required")) clearView("Operator permission is required");
-			SwingUtilities.invokeLater(LiveAgentWindows::disposeFrames);
+			if (planEnabled || terminalEnabled) SwingUtilities.invokeLater(LiveAgentWindows::disposeFrames);
 			return;
 		}
 		var agent = roster.agents().stream().filter(a -> a.agentId().equals(selected)).findFirst().orElse(null);
@@ -215,6 +235,14 @@ public final class LiveAgentWindows {
 			return;
 		}
 		liveDecision = parsed.has("decision") && parsed.get("decision").isJsonObject() ? parsed.getAsJsonObject("decision") : null;
+		// The server replays its cached view while the coordinator is away: only a changed view from an online
+		// coordinator is fresh, as the desktop window judges it, so the Now card never shows an old step as current.
+		boolean sameAgent = packet.agentId().toString().equals(liveDecisionAgent);
+		// The first view after a switch is the server's cache, possibly minutes old: fresh only once the coordinator
+		// sends a changed one.
+		if (!packet.online() || !sameAgent) liveViewAt = 0L;
+		else if (!parsed.equals(liveView)) liveViewAt = System.currentTimeMillis();
+		liveView = parsed;
 		liveDecisionAgent = packet.agentId().toString();
 		SwingUtilities.invokeLater(() -> {
 			if (!packet.agentId().toString().equals(selected)) return;
@@ -235,7 +263,7 @@ public final class LiveAgentWindows {
 	public static void disconnect() {
 		PlanItemIcons.clear();
 		wasConnected = false;
-		liveDecision = null; liveDecisionAgent = "";
+		liveDecision = null; liveDecisionAgent = ""; liveView = null;
 		receivedAt = 0;
 		pollTicks = 0;
 		waitingStatus = "Disconnected from Minecraft";

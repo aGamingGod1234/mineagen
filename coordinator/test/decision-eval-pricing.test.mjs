@@ -1,4 +1,4 @@
-import { privateInputUrl } from '../scripts/private-inputs.mjs';
+import { privateInputUrl, privateModule } from '../scripts/private-inputs.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
@@ -9,6 +9,7 @@ import { readFile } from 'node:fs/promises';
 
 import { renderWake } from '../src/decision-eval/render.mjs';
 import { encodeNativeEventInput, ModelObservationViews } from '../src/model-fact-encoding.mjs';
+await privateModule(import.meta.url);
 
 const replay = JSON.parse(await readFile(privateInputUrl('coordinator/test/fixtures/decision-eval/g1-replay-sample.json'), 'utf8'));
 

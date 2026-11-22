@@ -227,10 +227,10 @@ test('stage references subordinate quick bed setup and food supply to current ne
 
 test('the End topic carries a directly valid optional cloud rule without another syntax read', () => {
  const page = minecraftCapabilities({ section: 'strategy', topic: 'end' });
- const match = /`runProgram\((\{[^`]+\})\)`/.exec(page.reference);
+ const match = /`reflexes\((\{[^`]+\})\)`/.exec(page.reference);
  assert.ok(match, 'copyable call remains in the actual first-read End topic');
  const args = JSON.parse(match[1]), before = structuredClone(args);
- const normalized = normalizeMinecraftToolCall('runProgram', args);
+ const normalized = normalizeMinecraftToolCall('reflexes', args);
  assert.equal(normalized.kind, 'reflexes');
  assert.equal(normalized.reflexes[0].when[0].type, 'cloud_near');
  assert.equal(normalized.reflexes[0].do.type, 'sprint_away');

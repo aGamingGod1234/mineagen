@@ -26,6 +26,16 @@ public final class ConsoleTheme {
 	public static final int ROSTER_FOCUS = 0xFFCAD2DC;
 	public static final int ROSTER_SELECTED_SURFACE = 0xFF15303A;
 	public static final int ROSTER_UNAVAILABLE_SURFACE = 0xFF151A21;
+
+	/** The colour of a lifecycle state's tone, wherever the state is drawn. */
+	public static int stateColor(dev.agaminggod.mineagen.control.AgentControlPresentation.StateTone tone) {
+		return switch (tone) {
+			case POSITIVE -> SUCCESS;
+			case ACTIVE -> ACCENT;
+			case PROBLEM -> ERROR;
+			case NEUTRAL -> MUTED;
+		};
+	}
 	public static final int SUCCESS = 0xFF5EE0A0;
 	public static final int WARNING = 0xFFF5C451;
 	public static final int ERROR = 0xFFFF6B7A;

@@ -71,7 +71,7 @@ async function finishWait(bridge) {
 test('takeTask is a model-visible tool and the native instructions tell the model when to use it', () => {
 	assert.ok(MINECRAFT_DYNAMIC_TOOLS.some((tool) => tool.name === 'takeTask'));
 	assert.match(NATIVE_AGENT_INSTRUCTIONS, /No task: takeTask operator requests, end turn; else say\./);
-	assert.match(NATIVE_AGENT_INSTRUCTIONS, /only natural exhaustion starts it/);
+	assert.match(NATIVE_AGENT_INSTRUCTIONS, /chain known next steps with after:<actionId>/);
 	assert.deepEqual(normalizeMinecraftToolCall('takeTask', {}), { kind: 'take_task', resume: false });
 	assert.deepEqual(normalizeMinecraftToolCall('takeTask', { request: 'Continue mining iron.', resume: true, requesterId: PLAYER.toUpperCase() }),
 		{ kind: 'take_task', request: 'Continue mining iron.', resume: true, requesterId: PLAYER });
