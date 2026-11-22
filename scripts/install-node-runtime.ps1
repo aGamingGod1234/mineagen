@@ -25,6 +25,26 @@ function Test-PinnedNodeRuntime([string] $NodePath) {
 	return $LASTEXITCODE -eq 0 -and $versionText -ceq "v$nodeVersion"
 }
 
+# Windows can hold a sharing lock on node.exe for seconds after the process that ran it exits (CI saw it outlast a
+# 2 s window), so a move retries for up to 20 s and logs each retry before it gives up with the last error.
+function Move-ItemWithRetry([string] $LiteralPath, [string] $Destination) {
+	$deadline = [DateTime]::UtcNow.AddSeconds(20)
+	$attempt = 0
+	while ($true) {
+		try {
+			Move-Item -LiteralPath $LiteralPath -Destination $Destination -ErrorAction Stop
+			if ($attempt -gt 0) { Write-Host "Moved $LiteralPath after $attempt retries" }
+			return
+		} catch {
+			$lockLike = $_.Exception -is [System.IO.IOException] -or $_.Exception -is [System.UnauthorizedAccessException]
+			$attempt++
+			if (-not $lockLike -or [DateTime]::UtcNow -ge $deadline) { throw }
+			Write-Host "Move of $LiteralPath to $Destination failed (retry $attempt): $($_.Exception.Message)"
+			Start-Sleep -Milliseconds 500
+		}
+	}
+}
+
 if (Test-PinnedNodeRuntime $node) {
 	Write-Host "Bundled Node.js v$nodeVersion is ready: $node"
 	return
@@ -50,15 +70,15 @@ try {
 
 	New-Item -ItemType Directory -Path (Split-Path -Parent $runtime) -Force | Out-Null
 	New-Item -ItemType Directory -Path $staging -ErrorAction Stop | Out-Null
-	Move-Item -LiteralPath $downloadedNode -Destination (Join-Path $staging 'node.exe') -ErrorAction Stop
+	Move-ItemWithRetry $downloadedNode (Join-Path $staging 'node.exe')
 	$backedUp = $false
 	$promoted = $false
 	try {
 		if (Test-Path -LiteralPath $runtime) {
-			Move-Item -LiteralPath $runtime -Destination $backup -ErrorAction Stop
+			Move-ItemWithRetry $runtime $backup
 			$backedUp = $true
 		}
-		Move-Item -LiteralPath $staging -Destination $runtime -ErrorAction Stop
+		Move-ItemWithRetry $staging $runtime
 		$promoted = $true
 		if (-not (Test-PinnedNodeRuntime $node)) {
 			throw "Bundled Node.js v$nodeVersion failed verification after installation."
@@ -69,7 +89,7 @@ try {
 			# A failed backup move must never delete the original active runtime.
 			if ($promoted -and (Test-Path -LiteralPath $runtime)) { Remove-Item -LiteralPath $runtime -Recurse -Force -ErrorAction Stop }
 			if ($backedUp -and (Test-Path -LiteralPath $backup)) {
-				Move-Item -LiteralPath $backup -Destination $runtime -ErrorAction Stop
+				Move-ItemWithRetry $backup $runtime
 			}
 		} catch {
 			throw "Bundled Node.js installation failed and rollback was incomplete: $($_.Exception.Message). Original failure: $($failure.Exception.Message)"

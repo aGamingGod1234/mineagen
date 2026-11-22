@@ -394,7 +394,7 @@ test('generic oversized terminal metadata bounds successor summaries without los
 
 test('native Minecraft tools expose the common fast path plus one validated advanced body operation', () => {
 	assert.deepEqual(MINECRAFT_DYNAMIC_TOOLS.map((tool) => tool.name), [
-		'do_step', 'taskMemory', 'observe', 'capabilities', 'inspect', 'actionStatus', 'cancelAction', 'replaceAction', 'startAction', 'notebook', 'queryMemory', 'runProgram', 'queueProgram', 'cancelQueuedProgram', 'programStatus', 'respondProgram', 'cancelProgram', 'lookAround', 'survey', 'control', 'moveTo', 'travelTo', 'exploreFrontier', 'mine', 'gather', 'say', 'wait', 'act', 'sequence', 'taskPlan', 'takeTask', 'finish',
+		'do_step', 'taskMemory', 'observe', 'capabilities', 'inspect', 'actionStatus', 'cancelAction', 'replaceAction', 'startAction', 'notebook', 'queryMemory', 'runProgram', 'queueProgram', 'cancelQueuedProgram', 'programStatus', 'respondProgram', 'cancelProgram', 'reflexes', 'lookAround', 'survey', 'control', 'moveTo', 'travelTo', 'exploreFrontier', 'mine', 'gather', 'say', 'wait', 'act', 'sequence', 'taskPlan', 'takeTask', 'finish',
 	]);
 	assert.ok(MINECRAFT_DYNAMIC_TOOLS.every((tool) => tool.type === 'function'));
 	assert.ok(NATIVE_AGENT_INSTRUCTIONS.length <= 1_500);
@@ -404,13 +404,11 @@ test('native Minecraft tools expose the common fast path plus one validated adva
 	assert.match(NATIVE_AGENT_INSTRUCTIONS, /exploreFrontier/);
 	assert.match(NATIVE_AGENT_INSTRUCTIONS, /Death preserves goals/i);
 	assert.match(NATIVE_AGENT_INSTRUCTIONS, /Omitted facts are unknown/i);
-	assert.match(NATIVE_AGENT_INSTRUCTIONS, /background:true/);
+	assert.match(NATIVE_AGENT_INSTRUCTIONS, /one background do_step/);
 	assert.match(NATIVE_AGENT_INSTRUCTIONS, /queryMemory/);
-	assert.match(NATIVE_AGENT_INSTRUCTIONS, /author source live with program\.parameters\(\); never noteKey/);
+	// Live authorship is taught where the program tools are offered: their own descriptions.
 	assert.match(MINECRAFT_DYNAMIC_TOOLS.find((tool) => tool.name === 'runProgram').description, /Use live-authored source/);
-	assert.match(NATIVE_AGENT_INSTRUCTIONS, /Calls idle the body \(stoodStillMs\): batch known steps in one sequence\/program, next read in inspectAfter; reuse facts/);
-	assert.match(NATIVE_AGENT_INSTRUCTIONS, /program\.parameters\(\)/);
-	assert.match(NATIVE_AGENT_INSTRUCTIONS, /Queue known work now from runProgram handles/);
+	assert.match(NATIVE_AGENT_INSTRUCTIONS, /Calls idle the body \(stoodStillMs\): batch known steps in one sequence or do_step, next read in inspectAfter; reuse facts/);
 	assert.match(MINECRAFT_DYNAMIC_TOOLS.find((tool) => tool.name === 'queueProgram').description, /Runtime chooses no gameplay/);
 	assert.match(MINECRAFT_DYNAMIC_TOOLS.find((tool) => tool.name === 'queueProgram').description, /Only successful natural PROGRAM_EXHAUSTED starts it, with no pending decision/);
 	assert.match(MINECRAFT_DYNAMIC_TOOLS.find((tool) => tool.name === 'queueProgram').description, /expectedDurationMs must fit it/);
@@ -420,10 +418,11 @@ test('native Minecraft tools expose the common fast path plus one validated adva
 test('guidance tells the model to loop bulk work, reuse facts, stop polling and end turns without text', () => {
 	const tools = Object.fromEntries(MINECRAFT_DYNAMIC_TOOLS.map((tool) => [tool.name, tool.description]));
 	assert.ok(NATIVE_AGENT_INSTRUCTIONS.length <= 1_500);
-	assert.match(NATIVE_AGENT_INSTRUCTIONS, /Loop repeat work in background:true programs\./);
+	// The always-sent text names no program tool: those six are offered only with MINEAGEN_PROGRAM_TOOLS=on.
+	assert.match(NATIVE_AGENT_INSTRUCTIONS, /Give repeat work to one background do_step; chain known next steps with after:<actionId>\./);
+	assert.doesNotMatch(NATIVE_AGENT_INSTRUCTIONS, /runProgram|queueProgram|respondProgram|programStatus|cancelProgram|program\.parameters|standing\.template|after:"reconsider"/);
 	assert.match(ARENA_SCRIPT_API_REFERENCE, /Bulk work is one program: program\.repeatUntil\(\(\) => count >= N.*an unqueued PROGRAM_EXHAUSTED needs another model decision/, 'the trimmed loop facts stay always-sent in the API reference');
 	assert.doesNotMatch(NATIVE_AGENT_INSTRUCTIONS, /exhaustion costs a decision/, 'a queued successor skips the model round');
-	assert.match(NATIVE_AGENT_INSTRUCTIONS, /Queue known work now from runProgram handles with a pure precondition; only natural exhaustion starts it\./);
 	assert.match(NATIVE_AGENT_INSTRUCTIONS, /Reclaim workstations/);
 	assert.match(tools.startAction, /Routine wakes wait up to 15 s.*danger\/dimension changes wake immediately, completion supplies fresh facts/);
 	assert.match(NATIVE_AGENT_INSTRUCTIONS, /next read in inspectAfter; reuse facts\. Never poll/);
@@ -865,6 +864,11 @@ test('a survey drops bulk-terrain block searches the server refuses when somethi
 	assert.deepEqual(look.survey.include, ['caves', 'blocks:minecraft:lava']);
 	assert.match(toolAdjustments(look)['survey.include'], /dropped blocks:minecraft:water/);
 	assert.deepEqual(normalizeMinecraftToolCall('survey', { include: ['blocks:minecraft:water'] }).include, ['blocks:minecraft:water'], 'a survey of only bulk terrain still gets the server reason');
+	// A vanilla block named without its namespace is that block (gpt-6.2-sol, 19 Nov: 11 surveys and lookArounds lost to it).
+	const bare = normalizeMinecraftToolCall('lookAround', { centerYaw: 0, pitch: 0, steps: 4, ticksPerStep: 2, survey: { include: ['caves', 'blocks:lava', 'blocks:water'] } });
+	assert.deepEqual(bare.survey.include, ['caves', 'blocks:minecraft:lava']);
+	assert.match(toolAdjustments(bare)['survey.include'], /^read blocks:lava, blocks:water as minecraft: ids; dropped blocks:minecraft:water/);
+	assert.deepEqual(normalizeMinecraftToolCall('survey', { include: ['veins', 'blocks:iron_ore'] }).include, ['veins', 'blocks:minecraft:iron_ore']);
 	const java = readFileSync(new URL('../../src/main/java/dev/agaminggod/mineagen/server/perception/FarSight.java', import.meta.url), 'utf8');
 	const server = java.match(/UNSEARCHABLE = Set\.of\(([^;]+)\);/)[1].match(/Blocks\.([A-Z_]+)/g).map(name => `minecraft:${name.slice(7).toLowerCase()}`);
 	assert.deepEqual([...UNSEARCHABLE_BLOCKS].sort(), server.sort(), 'the coordinator mirrors FarSight.UNSEARCHABLE');
@@ -998,7 +1002,17 @@ test('do_step maps each verb to the call it runs and rejects a step it cannot ru
 	rejects({ verb: 'fly', target: {}, why: 'x' });
 	rejects({ verb: 'dig_to', target: { y: 16 } });
 	rejects({ verb: 'dig_to', target: { y: 16 }, why: 'two\nlines' });
-	rejects({ verb: 'dig_to', target: { y: 16 }, why: 'x'.repeat(101) });
+	// Harmless slips cost no call (gpt-6.2-sol, 19 Nov: 50 of 917 calls lost to them): a background flag the verb already
+	// decides is dropped, an over-long why is cut at a word, and vein:true on a mine step says what it does anyway.
+	const long = normalizeMinecraftToolCall('do_step', { verb: 'dig_to', target: { y: 16 }, why: `${'word '.repeat(30)}end`, background: true });
+	assert.ok(Array.from(long.step.why).length <= 100 && long.step.why.endsWith('…'), long.step.why);
+	assert.equal(long.background, undefined);
+	assert.match(toolAdjustments(long).why, /cut to \d+ characters \(max 100\)/);
+	assert.match(toolAdjustments(long).background, /ignored/);
+	const vein = normalizeMinecraftToolCall('do_step', { verb: 'mine', target: { x: 1, y: 2, z: 3, vein: true }, why: 'x' });
+	assert.equal(vein.arguments.vein, undefined);
+	assert.match(toolAdjustments(vein)['target.vein'], /always a vein mine/);
+	rejects({ verb: 'mine', target: { x: 1, y: 2, z: 3, expectedBlockId: 'minecraft:iron_ore', vein: false }, why: 'x' });
 	rejects({ verb: 'gather', target: { itemId: 'oak_log', count: 8 }, why: 'x', after: 'native:a:1:1' });
 	const named = normalizeMinecraftToolCall('do_step', { verb: 'mine', target: { x: 1, y: 2, z: 3, expectedBlockId: 'minecraft:spruce_log' }, why: 'x' });
 	assert.equal(named.arguments.expectedBlockId, undefined, 'a vein mine takes the block it starts on');
@@ -1014,4 +1028,26 @@ test('do_step maps each verb to the call it runs and rejects a step it cannot ru
 	rejects({ verb: 'gather', target: { itemId: 'oak_log', count: 8 }, why: 'x', until: 'seen:oak_log' });
 	rejects({ verb: 'dig_to', target: { y: 16, stopWhenSeen: 'minecraft:coal_ore' }, why: 'x', until: 'seen:iron_ore' });
 	assert.equal(MINECRAFT_DYNAMIC_TOOLS[0].name, 'do_step', 'the step tool is listed first; the step-by-step tools follow as the fallback');
+});
+
+test('the program tools are offered only with MINEAGEN_PROGRAM_TOOLS=on, and the rest are always offered', async () => {
+	const { MINECRAFT_DYNAMIC_TOOLS: all, PROGRAM_TOOL_NAMES, offeredMinecraftTools, programToolsOffered } = await import('../src/native-minecraft-tools.mjs');
+	assert.deepEqual(PROGRAM_TOOL_NAMES.filter((name) => !all.some((tool) => tool.name === name)), [], 'every program tool is a real tool');
+	const names = (environment) => offeredMinecraftTools(environment).map((tool) => tool.name);
+	assert.deepEqual(names({}), all.map((tool) => tool.name).filter((name) => !PROGRAM_TOOL_NAMES.includes(name)));
+	assert.deepEqual(names({ MINEAGEN_PROGRAM_TOOLS: 'off' }), names({}));
+	assert.deepEqual(names({ MINEAGEN_PROGRAM_TOOLS: ' ON ' }), all.map((tool) => tool.name));
+	assert.ok(names({}).includes('reflexes'), 'rules-only reflexes stay offered without runProgram');
+	// The always-loaded role and skill files rely on no hidden tool: any mention of a program tool, guard or watcher says
+	// it applies when runProgram is offered.
+	for (const file of ['../config/minecraft-agent/AGENTS.md', '../config/minecraft-agent/.codex/skills/minecraft-control/SKILL.md']) {
+		const text = readFileSync(new URL(file, import.meta.url), 'utf8');
+		for (const paragraph of text.split(/\n\s*\n/)) {
+			if (/runProgram|queueProgram|respondProgram|programStatus|cancelProgram|standing guard|program\.watch/i.test(paragraph)) assert.match(paragraph, /when (it|runProgram) is offered/, `${file}: ${paragraph.slice(0, 80)}`);
+		}
+	}
+	assert.equal(programToolsOffered({}), false);
+	assert.equal(programToolsOffered({ MINEAGEN_PROGRAM_TOOLS: 'on' }), true);
+	// The hidden tools stay callable through the normaliser and runtime for the on arm and recorded replays.
+	assert.equal(normalizeMinecraftToolCall('programStatus', {}).kind, 'program_status');
 });

@@ -1,12 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { searchFor } from '../src/find-search.mjs';
 import { DROP_SEARCH_BLOCKS, trustedCross } from '../src/find-eyes.mjs';
 import { EYE_PLAN, FRAME_EYES, PEARL_PLAN, ROD_PLAN } from '../src/eye-plan.mjs';
 import { planObtain } from '../src/obtain-plan.mjs';
 import { routeLine } from '../src/skill-fits.mjs';
 import { emptyKnown, evaluatePlanCheck } from '../src/plan-checks.mjs';
-import { normalizeMinecraftToolCall } from '../src/native-minecraft-tools.mjs';
+import { checkedSearchBody, searchFor } from './helpers/checked-body.mjs';
 
 // The late-game contract, part A: eye margin, eye pickup and stop-throwing (wall-breakers late-game-contract.md).
 const STRONGHOLD = { x: 300, z: 120 };
@@ -19,9 +18,8 @@ function body({ eyes = 16, flight = () => ({}), onAct = () => null } = {}) {
 	const o = { player: { x: 0, y: 70, z: 0, health: 20, skyOpen: true, threats: [] }, world: { dimension: 'minecraft:overworld' },
 		inventory: { selectedSlot: 0, items: [{ itemId: 'minecraft:ender_eye', count: eyes, slot: 0 }] }, perception: { events: [] }, blocks: [], items: [] };
 	const calls = [];
-	const b = { calls, o, eyeSearchState: {}, now: () => clock, observe: async () => structuredClone(o), look: async () => ({ survey: {} }), progress: () => {},
+	const b = checkedSearchBody({ calls, o, eyeSearchState: {}, now: () => clock, observe: async () => structuredClone(o), look: async () => ({ survey: {} }), progress: () => {},
 		act: async (type, args, options) => {
-			normalizeMinecraftToolCall('act', { actionType: type, arguments: args });
 			calls.push({ type, args }); clock += ['control', 'look_at'].includes(type) ? 100 : 1000;
 			const custom = onAct(type, args, o, calls);
 			if (custom) return custom;
@@ -40,7 +38,7 @@ function body({ eyes = 16, flight = () => ({}), onAct = () => null } = {}) {
 			if (type === 'pick_up_item') o.inventory.items[0].count++;
 			return { state: 'SUCCEEDED', reasonCode: 'ARRIVED', ...(options?.watch?.(o) ? { seen: options.watch(o) } : {}) };
 		},
-	};
+	});
 	return b;
 }
 const eyesHeld = b => b.o.inventory.items[0].count;

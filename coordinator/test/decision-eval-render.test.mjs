@@ -1,4 +1,4 @@
-import { privateInputUrl } from '../scripts/private-inputs.mjs';
+import { privateInputUrl, privateModule } from '../scripts/private-inputs.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
@@ -8,6 +8,7 @@ import { MINECRAFT_DYNAMIC_TOOLS } from '../src/native-minecraft-tools.mjs';
 import { ModelObservationViews, encodeNativeEventInput } from '../src/model-fact-encoding.mjs';
 import { REPLAY_AGENT_ID, canonicalEncodedInput, renderPrefix, renderWake, replayAgentRecord } from '../src/decision-eval/render.mjs';
 import { FakeBridge, FakePlanner, eventually, start } from './fixtures/dynamic-main-fixture.mjs';
+await privateModule(import.meta.url);
 
 const replay = JSON.parse(await readFile(privateInputUrl('coordinator/test/fixtures/decision-eval/g1-replay-sample.json'), 'utf8'));
 const NATIVE_CONFIG = { bridge: { port: 25570, secret: 's'.repeat(32) }, codex: { controlProtocol: 'native_tools', launchProfile: { agentId: 'coordinator', model: 'gpt-6-luna', reasoningEffort: 'low', serviceTier: 'fast' } } };
@@ -148,10 +149,13 @@ test('a plan the build rejects is reported as invalid case state', async () => {
 
 test('the rendered prefix is the production instructions and tool definitions', async () => {
 	const claude = await renderPrefix({ provider: 'claude' });
+	// Production offers the program tools only with MINEAGEN_PROGRAM_TOOLS=on; the full list stays the contract source.
+	const { offeredMinecraftTools } = await import('../src/native-minecraft-tools.mjs');
+	assert.ok(offeredMinecraftTools().every((tool) => MINECRAFT_DYNAMIC_TOOLS.includes(tool)));
 	assert.match(claude.instructions.systemPrompt, /mcp__minecraft__observe/);
-	assert.deepEqual(claude.tools, MINECRAFT_DYNAMIC_TOOLS.map(({ name, description, inputSchema }) => ({ name, description, inputSchema })));
+	assert.deepEqual(claude.tools, offeredMinecraftTools().map(({ name, description, inputSchema }) => ({ name, description, inputSchema })));
 	const codex = await renderPrefix({ provider: 'codex', model: 'gpt-6.1-sol' });
-	assert.deepEqual(codex.tools, JSON.parse(JSON.stringify(MINECRAFT_DYNAMIC_TOOLS)));
+	assert.deepEqual(codex.tools, JSON.parse(JSON.stringify(offeredMinecraftTools())));
 	assert.ok(codex.instructions.baseInstructions.length > 1_000);
 	assert.notEqual(claude.prefixSha256, codex.prefixSha256);
 	assert.equal((await renderPrefix({ provider: 'claude' })).prefixSha256, claude.prefixSha256, 'prefix renders are stable');

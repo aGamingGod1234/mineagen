@@ -29,6 +29,7 @@ import { fixtureCatalogCodexModels } from '../../coordinator/src/default-models.
 import { stageServer, worldProperties, lookupWorld, snapshotWorld, worldCacheEnabled } from './fixture-servers.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 import { deathCounter } from './lib/damage-counter.mjs';
+import { keepDangerFiles } from './lib/danger-rows.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const sleep = ms => new Promise(done => setTimeout(done, ms));
@@ -107,6 +108,17 @@ export async function stopReplayServer(s, { gracefulMs = 15000, killMs = 5000 } 
 		if (!await replayExit(s.child, killMs)) throw new Error('Replay server exit unconfirmed; preserve its world');
 	}
 	await s.log.close();
+	// The danger rows outlive the world: fixtures delete dir/server once the server is down.
+	if (s.watchFrom) await keepDangerFiles(s.watchFrom, s.watchTo).catch(() => {});
+}
+
+/**
+ * Test only: the Watcher switch for a fixture server. On unless FIXTURE_WATCH is 0, false or off, so every room records
+ * what hit the bot (arena-watch/<agentId>-danger.jsonl, folded into row.hits by finishRun). It only observes: recorded
+ * games put its cost at about 55 us a tick (median; 101 us p95), under 1% of a 60 TPS tick.
+ */
+export function watchArgs(value = process.env.FIXTURE_WATCH) {
+	return /^(0|false|off)$/i.test(String(value ?? '').trim()) ? [] : ['-Dmineagen.watch=true'];
 }
 
 /** A failed start never reaches the caller's stop handle. */
@@ -312,8 +324,8 @@ export async function boot(dir, { jar, template, port, world, seed, goalTicks = 
 	await writeFile(path.join(server, 'server.properties'), `online-mode=false\nserver-ip=127.0.0.1\nserver-port=${port + 2}\nenable-rcon=true\nrcon.ip=127.0.0.1\nrcon.port=${port + 1}\nrcon.password=${secret}\n${worldProperties({ world, seed, spawnMonsters, extraProperties })}`);
 	const log = await open(path.join(dir, 'server.log'), 'a');
 	const java = path.join(process.env.JAVA_HOME, 'bin', process.platform === 'win32' ? 'java.exe' : 'java');
-	const child = spawn(java, [`-Dmineagen.bridgePort=${port}`, '-Dmineagen.coordinatorAutoStart=false', `-Dmineagen.bridgeSecretFile=${path.join(dir, 'secret.txt')}`, '-Xms512M', '-Xmx2G', ...(process.env.REPLAY_JAVA_OPTS ?? '').split(' ').filter(Boolean), '-jar', 'fabric-server-launch.jar', 'nogui'], { cwd: server, stdio: ['ignore', log.fd, log.fd], windowsHide: true });
-	const s = { child, log, record: null, observation: null, ordinal: 0, revision: 0 };
+	const child = spawn(java, [`-Dmineagen.bridgePort=${port}`, '-Dmineagen.coordinatorAutoStart=false', `-Dmineagen.bridgeSecretFile=${path.join(dir, 'secret.txt')}`, ...watchArgs(), '-Xms512M', '-Xmx2G', ...(process.env.REPLAY_JAVA_OPTS ?? '').split(' ').filter(Boolean), '-jar', 'fabric-server-launch.jar', 'nogui'], { cwd: server, stdio: ['ignore', log.fd, log.fd], windowsHide: true });
+	const s = { child, log, record: null, observation: null, ordinal: 0, revision: 0, watchFrom: path.join(server, 'arena-watch'), watchTo: path.join(dir, 'arena-watch') };
 	s.stop = () => s.stopping ??= stopReplayServer(s);
 	liveServer = child;
 	let spawnError = null;

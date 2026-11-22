@@ -23,6 +23,7 @@ import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.CameraType;
 import net.minecraft.client.KeyMapping;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.player.AbstractClientPlayer;
@@ -60,13 +61,14 @@ public final class PovClient {
 	private static final PovLatencyProbe LATENCY = new PovLatencyProbe(LOGGER::info);
 	// A teleport or respawn this far is shown as a cut rather than a one-tick streak across the world.
 	private static final double SNAP_DISTANCE_SQR = 8.0D * 8.0D;
+	// The corner label: a dark backdrop at about half opacity behind light text, clear of the action bar and hotbar.
+	private static final int LABEL_MARGIN = 4;
+	private static final int LABEL_PADDING = 2;
+	private static final int LABEL_BACKDROP = 0x80000000;
+	private static final int LABEL_TEXT = 0xFFE0E0E0;
 	private static Entity followedBody;
 	private static PovBodyPosition.Position lastFollowed;
 	private static boolean registered;
-	// The free-look hint shows once per game launch, the first time a spectated agent is on screen; the exit hint once per
-	// launch for takeover.
-	private static boolean freeLookHintShown;
-	private static boolean takeoverHintShown;
 	private static AgentPovStatePayload latestState;
 	private static AgentPovMenuPayload latestMenu;
 	private static float attackStrength = 1.0F;
@@ -341,15 +343,6 @@ public final class PovClient {
 		else BODY_POSITION.reset();
 		PovHudProxy.tick(client, agent);
 		updateFreeLook(client);
-		if (agent != null && !current.takeover() && !freeLookHintShown) {
-			freeLookHintShown = true;
-			overlay(client, Component.literal("Hold ").append(client.options.keyShift.getTranslatedKeyMessage()).append(" to look around, ")
-					.append(exitHint()));
-		}
-		if (agent != null && current.takeover() && !takeoverHintShown) {
-			takeoverHintShown = true;
-			overlay(client, exitHint());
-		}
 		// The view rotation is what the camera shows, so the hands chase exactly that; a lost agent forgets
 		// the bob so the hands snap to its look when it reappears instead of swinging in from a stale one.
 		// Free look hides the hands, which then reseed on the agent's look the same way.
@@ -403,10 +396,39 @@ public final class PovClient {
 		if (PovLatencyProbe.ENABLED) LATENCY.sent(sequence, System.nanoTime());
 	}
 
-	// An unbound key has no name worth showing; the chat command always works then.
-	private static Component exitHint() {
-		return EXIT_VIEW.isUnbound() ? Component.literal("type /mineagen " + (isTakeover() ? "takeover" : "spectate") + " exit to return")
-				: Component.literal("press ").append(EXIT_VIEW.getTranslatedKeyMessage()).append(" to return");
+	/**
+	 * Draws the lasting way-out label in the top-left corner every frame while an agent view is active. Called from each
+	 * target's HUD mixin inside the part of the HUD that F1 hides; the corner is free of chat (bottom left), effects (top
+	 * right) and the action bar and hotbar (bottom centre), and the F3 screen there hides the label.
+	 */
+	public static void extractCornerLabel(GuiGraphicsExtractor graphics, Minecraft client) {
+		PovClientSession current = TRACKER.session().orElse(null);
+		// Only the F3 text screen covers this corner. Hitboxes (F3+B) and chunk borders (F3+G) also count as "debug
+		// shown", yet draw nothing here, so they must not hide the way out.
+		java.util.List<String> keys = PovCornerLabel.lines(current != null, current != null && current.takeover(),
+				EXIT_VIEW.isUnbound(), client.debugEntries.isOverlayVisible());
+		if (keys.isEmpty()) return;
+		java.util.List<Component> kept = new java.util.ArrayList<>();
+		int width = 0, screenWidth = client.getWindow().getGuiScaledWidth();
+		for (int i = 0; i < keys.size(); i++) {
+			Component line = cornerLine(client, keys.get(i), current.takeover());
+			int lineWidth = client.font.width(line);
+			if (!PovCornerLabel.keep(i, LABEL_MARGIN + lineWidth + LABEL_PADDING, screenWidth)) break;
+			kept.add(line);
+			width = Math.max(width, lineWidth);
+		}
+		Component[] lines = kept.toArray(Component[]::new);
+		int lineHeight = client.font.lineHeight + LABEL_PADDING;
+		graphics.fill(LABEL_MARGIN - LABEL_PADDING, LABEL_MARGIN - LABEL_PADDING, LABEL_MARGIN + width + LABEL_PADDING,
+				LABEL_MARGIN + lines.length * lineHeight, LABEL_BACKDROP);
+		for (int i = 0; i < lines.length; i++)
+			graphics.text(client.font, lines[i], LABEL_MARGIN, LABEL_MARGIN + i * lineHeight, LABEL_TEXT, false);
+	}
+
+	private static Component cornerLine(Minecraft client, String key, boolean takeover) {
+		if (PovCornerLabel.LEAVE_KEY.equals(key)) return Component.translatable(key, EXIT_VIEW.getTranslatedKeyMessage());
+		if (PovCornerLabel.LOOK_AROUND.equals(key)) return Component.translatable(key, client.options.keyShift.getTranslatedKeyMessage());
+		return Component.translatable(key, PovCornerLabel.commandMode(takeover));
 	}
 
 	private static void overlay(Minecraft client, String message) {

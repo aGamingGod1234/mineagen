@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { nightFor, nightMoveStop } from '../src/night-cover.mjs';
-import { searchFor } from '../src/find-search.mjs';
+import { checkedSearchBody, searchFor } from './helpers/checked-body.mjs';
 
 const at = (dayTime, player = {}, dimension = 'minecraft:overworld') => ({ world: { dimension, dayTime },
 	player: { x: 0.5, y: 70, z: 0.5, yaw: 0, health: 20, armor: 0, skyOpen: true, ...player } });
@@ -52,14 +52,33 @@ test('a find for gravel from under cover at dusk hands back FIND_NIGHT without c
 	const calls = [];
 	let clock = 0;
 	const observation = { ...at(11_500, { y: 30, skyOpen: false }), inventory: { items: [] } };
-	const body = {
+	const body = checkedSearchBody({
 		now: () => clock, progress: () => {}, observe: async () => structuredClone(observation),
 		look: async () => { clock += 2_000; return { state: 'SUCCEEDED', survey: {} }; },
 		act: async (actionType, args) => { calls.push({ actionType, args }); clock += 30_000; return { state: 'SUCCEEDED', reasonCode: 'ARRIVED' }; },
 		frontier: () => null, known: () => null, places: async () => [], openSky: () => ({ x: 0.5, y: 70, z: 0.5, dimension: 'minecraft:overworld' }),
-	};
+	});
 	const result = await searchFor({ block: 'minecraft:oak_log' }, body);
 	assert.equal(result.reasonCode, 'FIND_NIGHT');
 	assert.match(result.message, /staying under cover/);
 	assert.equal(calls.some((call) => call.actionType === 'dig_to' && call.args.pattern === 'stairs_up' || call.args?.retrace === true), false, 'no climb was sent');
+});
+
+test('PORTAL-LAVA-8: deep underground at night the gate names what works there, not a rest that hands back at once', () => {
+	const sky = { openSky: { x: 0.5, y: 70, z: 0.5 } };
+	// y-54 under 124 blocks of ground: rest returns UNDERGROUND at once (ServerRestController.underground, > 4 over the eyes).
+	const deep = nightMoveStop(at(15_000, { y: -54, skyOpen: false }), 'dig_to', { pattern: 'stairs_up' }, sky);
+	assert.match(deep, /staying under cover/);
+	assert.doesNotMatch(deep, /\brest\b/);
+	assert.match(deep, /craft/);
+	assert.match(deep, /mine on/);
+	assert.match(deep, /wait for dawn/);
+	assert.doesNotMatch(nightMoveStop(at(15_000, { y: -54, skyOpen: false }), 'dig_to', { pattern: 'stairs_up' }), /\brest\b/, 'no open sky known to measure from');
+	// Just under a roof near the surface (2.4 blocks over the eyes) rest still seals the way up.
+	assert.match(nightMoveStop(at(15_000, { y: 66, skyOpen: false }), 'dig_to', { pattern: 'stairs_up' }, sky), /rest \(it seals the way up\)/);
+	// rest's own cut: 4 blocks of ground over the eyes still seals, any more is underground.
+	assert.match(nightMoveStop(at(15_000, { y: 64.38, skyOpen: false }), 'dig_to', { pattern: 'stairs_up' }, sky), /rest \(it seals/);
+	assert.doesNotMatch(nightMoveStop(at(15_000, { y: 64.3, skyOpen: false }), 'dig_to', { pattern: 'stairs_up' }, sky), /\brest\b/);
+	// The open-ground line is unchanged: rest is what works there.
+	assert.match(nightMoveStop(at(14_000), 'travel_to', { x: 84, y: 62, z: -122 }), /rest \(bed, walls or a dug hole\)/);
 });

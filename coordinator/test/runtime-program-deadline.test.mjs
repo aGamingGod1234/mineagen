@@ -8,6 +8,29 @@ import { ActiveGoalSupervisor } from '../src/active-goal-supervisor.mjs';
 import { validateProtocolV2Payload } from '../src/protocol-v2.mjs';
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const flush = async () => { for (let i = 0; i < 20; i++) await new Promise(r => setImmediate(r)); };
+// The program deadline and the outer lease run on this clock, so a deadline fires only when the test advances it, after
+// the program's first move. On wall time a slow runner could pass the 200 ms deadline before the program started its
+// wait: no action_command ever went out and the test timed out (Coordinator (Windows), run 45072640395).
+function manualClock() {
+ let now = 0, ids = 0;
+ const timers = new Map();
+ const clock = {
+  now: () => now,
+  setTimeout: (callback, ms, ...args) => { const handle = { id: ++ids, at: now + Math.max(0, ms || 0), callback, args, unref() { return handle; }, ref() { return handle; } }; timers.set(handle.id, handle); return handle; },
+  clearTimeout: handle => { if (handle != null) timers.delete(handle.id); },
+  sleep: ms => new Promise(resolve => clock.setTimeout(resolve, ms)),
+  async advance(ms) {
+   const until = now + ms;
+   for (;;) {
+    const due = [...timers.values()].filter(timer => timer.at <= until).sort((a, b) => a.at - b.at || a.id - b.id)[0];
+    if (!due) break;
+    timers.delete(due.id); now = due.at; due.callback(...due.args); await flush();
+   }
+   now = until; await flush();
+  },
+ };
+ return clock;
+}
 async function directory(t) {
  const path = await mkdtemp(join(tmpdir(), 'runtime-lifecycle-'));
  t.after(() => rm(path, {recursive:true, force:true}));
@@ -20,16 +43,19 @@ class ProgramSupervisor extends ActiveGoalSupervisor {
 }
 async function deadline(t,delayed,ack){
  const registry=new AgentRegistry(),bridge=new FakeBridge(),planner=new FakePlanner(registry),provider=new FakeProvider(),errors=[],traces=[];
+ const clock=manualClock();
  let run,request,handle;
- const supervisor=new ProgramSupervisor({requestObservation:key=>run.coordinator.requestSupervisedObservation(key),onExpire:e=>{supervisor.expirations.push(e);run.coordinator.handleLeaseExpired(e);}},delayed);
+ const supervisor=new ProgramSupervisor({clock:clock.now,schedule:(fn,ms)=>clock.setTimeout(fn,ms),cancelSchedule:handle=>clock.clearTimeout(handle),requestObservation:key=>run.coordinator.requestSupervisedObservation(key),onExpire:e=>{supervisor.expirations.push(e);run.coordinator.handleLeaseExpired(e);}},delayed);
  planner.requestNativeTurn=async r=>{planner.requests.push(r);if(!request){request=r;handle=await r.executeTool({agentId:r.agentId,goalRevision:r.goalRevision,turnId:'deadline',callId:'run',tool:{kind:'run_program',background:true,timeoutMs:200,source:'program.onUnhandledAttention("continue_and_notify"); await player.wait(10000);'}});}return new Promise(()=>{});};
  const send=bridge.send.bind(bridge);bridge.send=async(type,id,payload,options)=>{if(type==='action_command'||type==='action_cancel')validateProtocolV2Payload(type,payload);await send(type,id,payload,options);if(type==='action_cancel'&&ack)queueMicrotask(()=>bridge.emit('action_result',{agentId:id,payload:{goalRevision:payload.goalRevision,actionId:payload.actionId,actionType:'wait',state:'CANCELLED',reasonCode:'ACTION_CANCELLED',eventSequence:10,observedAtEpochMs:10}}));};
- run=await start({registry,bridge,planner,codexService:provider,goalSupervisor:supervisor,memoryDirectory:await directory(t),setStatusInterval:()=>null,clearStatusInterval:()=>{},traceWriter:{write:(event,data)=>traces.push({event,...data})},config:{bridge:{port:25570,secret:'s'.repeat(32)},codex:{controlProtocol:'native_tools'}}});
+ run=await start({registry,bridge,planner,codexService:provider,goalSupervisor:supervisor,memoryDirectory:await directory(t),setStatusInterval:()=>null,clearStatusInterval:()=>{},traceWriter:{write:(event,data)=>traces.push({event,...data})},nativeClock:clock,config:{bridge:{port:25570,secret:'s'.repeat(32)},codex:{controlProtocol:'native_tools'}}});
  run.coordinator.on('runtimeError',e=>errors.push({code:e.code,message:e.message}));
  try{
   bridge.emit('goal_control',{agentId:'agent-a',payload:{operation:'start',goalRevision:1,goal:'Wait.'}});
   bridge.emit('observation',{agentId:'agent-a',payload:{goalRevision:1,eventSequence:1,observation:{player:{x:0,y:64,z:0,health:20},inventory:{items:[]}}}});
-  await eventually(()=>handle&&bridge.sent.some(m=>m.type==='action_command'));await eventually(()=>bridge.sent.some(m=>m.type==='action_cancel'));await sleep(70);await flush();
+  await eventually(()=>handle&&bridge.sent.some(m=>m.type==='action_command'));
+  assert.equal(bridge.sent.some(m=>m.type==='action_cancel'),false,'no deadline before the clock moves');
+  await clock.advance(200);await eventually(()=>bridge.sent.some(m=>m.type==='action_cancel'));await clock.advance(70);await flush();
   const tool=async(callId,tool)=>request.executeTool({agentId:'agent-a',goalRevision:1,turnId:'deadline',callId,tool});
   const status=await tool('status',{kind:'program_status',programId:handle.programId});
   let replacement,error=null;try{replacement=await tool('replace',{kind:'start_action',actionType:'wait',arguments:{durationMs:1}});}catch(e){error=e.code;}

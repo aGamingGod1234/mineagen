@@ -373,7 +373,8 @@ export async function runBenchmark({ inputPath, beforeContextPath = null, afterC
 		inputSha256: sha256(inputText),
 		manifest: { benchmarkSha256: sha256(await readFile(fileURLToPath(import.meta.url))),
 			encoderSha256: defaultEncoder ? sha256(await readFile(new URL('../model-fact-encoding.mjs', import.meta.url))) : null,
-			nativeEventBuilderSourceSha256: sha256(await readFile(new URL('../dynamic-main.mjs', import.meta.url))) },
+			// buildNativeEventInput and the facts and lines it composes live in these three modules.
+			nativeEventBuilderSourceSha256: sha256(Buffer.concat(await Promise.all(['../wake-input.mjs', '../danger-lines.mjs', '../observation-facts.mjs'].map((file) => readFile(new URL(file, import.meta.url)))))) },
 		tokenizer: counts === null ? null : { encoding: 'o200k_base', kind: 'offline proxy',
 			verifiedModelTokenizer: false, includesMessageEnvelope: false },
 		replay: summarizeMeasurements(measured, counts === null ? null : counts.slice(0, measured.length * 2)),

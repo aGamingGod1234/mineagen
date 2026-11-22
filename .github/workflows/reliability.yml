@@ -23,6 +23,8 @@ jobs:
     name: Coordinator (Windows)
     if: vars.WINDOWS_CI == 'on' && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     runs-on: windows-latest
+    # A hung test must not hold the runner for the 6 hour default; the job takes 5-8 minutes.
+    timeout-minutes: 30
     concurrency:
       group: ${{ github.workflow }}-coordinator-windows-${{ github.event.pull_request.number || github.sha }}-${{ github.event.pull_request.draft }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -53,6 +55,8 @@ jobs:
     # fork-aware expression that scripts/check-public-tree.mjs allows, so a fork's pull request stays on GitHub's runner.
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
+    # Each leg takes 3-5 minutes; a hung build or server boot stops at 30 instead of the 6 hour default.
+    timeout-minutes: 30
     # The draft state is part of the group, so a draft run's skipped leg cannot cancel a ready run's leg.
     concurrency:
       group: ${{ github.workflow }}-mod-${{ matrix.mc }}-${{ github.event.pull_request.number || github.sha }}-${{ github.event.pull_request.draft }}
@@ -110,6 +114,8 @@ jobs:
     # Off with Coordinator (Windows); see WINDOWS_CI above.
     if: vars.WINDOWS_CI == 'on' && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     runs-on: windows-latest
+    # The job takes 7-10 minutes; a hung boot or package step stops at 45 instead of the 6 hour default.
+    timeout-minutes: 45
     concurrency:
       group: ${{ github.workflow }}-java-windows-${{ github.event.pull_request.number || github.sha }}-${{ github.event.pull_request.draft }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}

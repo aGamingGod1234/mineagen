@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { searchFor } from '../src/find-search.mjs';
+import { checkedSearchBody, searchFor } from './helpers/checked-body.mjs';
 
 // A forest whose ground starts at z >= 85; the body starts in basalt deltas at the origin.
 const FOREST_Z = 85;
@@ -17,7 +17,7 @@ function netherBody({ forestZ = FOREST_Z, airborneIn = 0, short = 0, sighted = n
 	const biome = () => (at.z >= forestZ ? 'minecraft:warped_forest' : dimension === 'minecraft:the_nether' ? 'minecraft:basalt_deltas' : 'minecraft:plains');
 	let airborne = airborneIn;
 	const sample = () => ({ player: { ...at, yaw: 0, health: 20, ...(at.z >= forestZ && airborne-- > 0 ? { onGround: false } : {}) }, world: { dimension, biome: biome() }, inventory: { items: structuredClone(items) }, ...(sighted && calls.length === 0 ? { sighted } : {}) });
-	return {
+	return checkedSearchBody({
 		calls, missed,
 		now: () => clock,
 		progress: () => {},
@@ -41,7 +41,7 @@ function netherBody({ forestZ = FOREST_Z, airborneIn = 0, short = 0, sighted = n
 		places: async () => [],
 		missedPlaces: () => missed,
 		missPlace: (place, why) => missed.push({ ...place, why }),
-	};
+	});
 }
 const seenForest = { state: 'SUCCEEDED', survey: { biomes: [{ biome: 'minecraft:warped_forest', x: 0, y: 70, z: 90 }] } };
 
@@ -136,16 +136,18 @@ test('a fight on the way to a Nether forest does not end the approach on a far s
 	const body = netherBody({ looks: [seenForest], items: [NETHERRACK, { itemId: 'minecraft:iron_sword', count: 1 }] });
 	const observe = body.observe, act = body.act;
 	let stopped = false, zombie = true;
+	// The game names every seen entity by a UUID; fight_target refuses any other id.
+	const ZOMBIE = '00000000-0000-4000-8000-0000000000a1';
 	body.observe = async () => {
 		const sample = await observe();
 		return { ...sample, sighted: { biomes: [{ biome: 'minecraft:warped_forest', x: 0, y: 70, z: 90 }] },
-			entities: zombie ? [{ stableId: 'z1', type: 'minecraft:zombie', hostile: true, alive: true, x: sample.player.x + 2, y: sample.player.y, z: sample.player.z, distance: 2 }] : [] };
+			entities: zombie ? [{ stableId: ZOMBIE, type: 'minecraft:zombie', hostile: true, alive: true, x: sample.player.x + 2, y: sample.player.y, z: sample.player.z, distance: 2 }] : [] };
 	};
 	body.act = async (actionType, args) => {
 		if (actionType === 'travel_to' && Number.isFinite(args.yaw) && !stopped) {
 			stopped = true;
 			body.calls.push({ actionType, args });
-			return { state: 'FAILED', reasonCode: 'HOSTILE_NEAR', message: 'minecraft:zombie z1 2.0 blocks away at 2,70,0, targeting you' };
+			return { state: 'FAILED', reasonCode: 'HOSTILE_NEAR', message: `minecraft:zombie ${ZOMBIE} 2.0 blocks away at 2,70,0, targeting you` };
 		}
 		if (actionType === 'fight_target') { zombie = false; body.calls.push({ actionType, args }); return { state: 'SUCCEEDED', reasonCode: 'TARGET_KILLED' }; }
 		return act(actionType, args);

@@ -1,5 +1,6 @@
 package dev.agaminggod.mineagen.client.gui;
 
+import dev.agaminggod.mineagen.control.AgentControlPresentation;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -73,6 +74,46 @@ public final class ConsoleDraw {
 		int set = Math.min(scale, MAX_ICON_SCALE);
 		Identifier id = Identifier.fromNamespaceAndPath("mineagen", "console/icon/" + icon.sprite() + "_s" + set);
 		blitScaled(graphics, id, x, y, size, size, color, scale, set);
+	}
+
+	/**
+	 * The state mark's size: the icons' own 12 GUI px, so each sprite set maps texel for texel. Drawn smaller, point
+	 * sampling skipped whole columns of the art (the pause bars all but vanished at GUI scale 1).
+	 */
+	public static final int STATE_MARK_SIZE = 12;
+
+	/** How a state is marked: an icon for what the bot is doing, else a dot (hollow when the state is not known live). */
+	public record StateMark(Icon icon, boolean hollow, int color) {
+	}
+
+	public static StateMark stateMark(AgentControlPresentation.StateCue cue) {
+		int color = ConsoleTheme.stateColor(cue.tone());
+		return switch (cue) {
+			case STARTING -> new StateMark(Icon.REFRESH, false, color);
+			case THINKING -> new StateMark(Icon.SPARK, false, color);
+			case WORKING -> new StateMark(Icon.PLAY, false, color);
+			case PAUSED -> new StateMark(Icon.PAUSE, false, color);
+			case DONE -> new StateMark(Icon.CHECK, false, color);
+			case DEAD -> new StateMark(Icon.RESPAWN, false, color);
+			case READY, NEEDS_ATTENTION -> new StateMark(null, false, color);
+			case DISCONNECTED, UNKNOWN -> new StateMark(null, true, color);
+		};
+	}
+
+	/** Draws the mark of a raw lifecycle state (AgentLifecycleState name) in a {@link #STATE_MARK_SIZE} square. */
+	public static void stateMark(GuiGraphicsExtractor graphics, String lifecycleState, int x, int y) {
+		stateMark(graphics, stateMark(AgentControlPresentation.stateCue(lifecycleState)), x, y, STATE_MARK_SIZE);
+	}
+
+	public static void stateMark(GuiGraphicsExtractor graphics, StateMark mark, int x, int y, int size) {
+		if (mark.icon() != null) {
+			icon(graphics, mark.icon(), x, y, size, mark.color());
+			return;
+		}
+		int dot = Math.max(4, size / 2);
+		int offset = (size - dot) / 2;
+		if (mark.hollow()) ring(graphics, x + offset, y + offset, dot, dot, RADIUS_SMALL, mark.color());
+		else surface(graphics, x + offset, y + offset, dot, dot, RADIUS_SMALL, mark.color());
 	}
 
 	/** Text in the Medium weight, for titles, values and buttons. */

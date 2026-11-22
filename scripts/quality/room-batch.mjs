@@ -1,7 +1,10 @@
 // Plays a batch of practice rooms x arms on cloud machines or Windows PCs, split by room so both arms of a room play side
 // by side on one machine, and merges each arm's rows with finishRun.
 //   node scripts/quality/room-batch.mjs --commands ROOMS.txt --arm new=NEW.jar --arm old=OLD.jar --pool boat|windows --vms N --out FRESH_DIR
-//     [--code REF] [--snapshot NAME] [--type TYPE] [--room-timeout MIN] [--name PREFIX] [--dry-run]
+//     [--code REF] [--snapshot NAME] [--type TYPE] [--room-timeout MIN] [--name PREFIX] [--valid N] [--dry-run]
+// --valid N replays a room's INVALID or lost copies: rooms ROOM.c1, ROOM.c2... form one repeat group, and while any arm
+// of a group has fewer than N valid runs (PASS or FAIL rows) another copy ROOM.cK plays every arm side by side, so the
+// arms stay paired, up to 2N planned runs an arm. summary.txt ends with the top-ups and the groups still short.
 // ROOMS.txt, one line per room (see parseCommands in lib/room-batch-core.mjs):
 //   @carve-hidden-lava BUILD_ONLY=carve-hidden-lava node scripts/quality/test-build-live.mjs scripts/quality/carve-hidden-fluid-spots.json $OUT $JAR --descriptive
 // The code is the commit REF (default HEAD) as git archive of the paths fixtures use (BUNDLE_PATHS in lib/boat-pool.mjs)
@@ -42,7 +45,7 @@ import { warmBoatPool } from './lib/boat-warm.mjs';
 import { parseWindowsHosts, windowsPool } from './lib/windows-pool.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
-const USAGE = 'Usage: room-batch.mjs --commands ROOMS.txt --arm NAME=JAR [--arm NAME=JAR] --pool boat|windows --vms N --out FRESH_DIR [--code REF] [--snapshot NAME] [--type TYPE] [--room-timeout MIN] [--name PREFIX] [--idle-ttl MIN] [--machines ID,...] [--ephemeral] [--dry-run]\n       room-batch.mjs --player model --jar JAR --codex-auth AUTH.json [--ai-rooms ROOMS.json] [--rooms NAME,...] [--repeats N] [--no-script] [--model M] --pool boat --vms N --out FRESH_DIR [...]';
+const USAGE = 'Usage: room-batch.mjs --commands ROOMS.txt --arm NAME=JAR [--arm NAME=JAR] --pool boat|windows --vms N --out FRESH_DIR [--code REF] [--snapshot NAME] [--type TYPE] [--room-timeout MIN] [--name PREFIX] [--idle-ttl MIN] [--machines ID,...] [--valid N] [--ephemeral] [--dry-run]\n       room-batch.mjs --player model --jar JAR --codex-auth AUTH.json [--ai-rooms ROOMS.json] [--rooms NAME,...] [--repeats N] [--no-script] [--model M] --pool boat --vms N --out FRESH_DIR [...]';
 
 function parseFlags(argv) {
 	const flags = { arms: [] };
@@ -101,6 +104,8 @@ const warmPool = !windowsHosts && !flags.ephemeral;
 const snapshot = flags.snapshot ?? process.env.ROOM_BATCH_SNAPSHOT;
 const type = flags.type ?? process.env.ROOM_BATCH_TYPE ?? 'default';
 const roomTimeoutMs = Number(flags.roomTimeout ?? 40) * 60_000;
+const valid = flags.valid === undefined ? null : Number(flags.valid);
+if (valid !== null && (!Number.isInteger(valid) || valid < 1)) fail('--valid wants a whole number of 1 or more');
 const idleTtlMinutes = Number(flags.idleTtl ?? process.env.ROOM_BATCH_IDLE_TTL_MIN ?? 60);
 if (!Number.isFinite(idleTtlMinutes) || idleTtlMinutes < 5 || idleTtlMinutes > 30 * 24 * 60) fail('--idle-ttl wants 5 to 43200 minutes');
 const startsPerMinute = Number(process.env.ROOM_BATCH_STARTS_PER_MINUTE ?? 20);
@@ -176,8 +181,8 @@ const signInWatch = flags.player === 'model' ? setInterval(async () => {
 }, 5_000) : null;
 try {
 	// The boat poll waits for the room's end itself; a Windows poll answers at once, so it gets a pause between asks.
-	const result = await runBatch({ batch, rooms, arms: flags.arms, pool, vms, out, roomTimeoutMs, log, rewrite, signal: controller.signal, ...(windowsHosts ? { pollMs: 10_000 } : {}) });
-	await writeFile(path.join(out, 'batch.json'), JSON.stringify({ ...batch, began, ended: new Date().toISOString(), wallSeconds: result.wallSeconds, outcomes: result.outcomes, machines: result.machines }, null, 2) + '\n');
+	const result = await runBatch({ batch, rooms, arms: flags.arms, pool, vms, out, roomTimeoutMs, log, rewrite, signal: controller.signal, valid, ...(windowsHosts ? { pollMs: 10_000 } : {}) });
+	await writeFile(path.join(out, 'batch.json'), JSON.stringify({ ...batch, began, ended: new Date().toISOString(), wallSeconds: result.wallSeconds, outcomes: result.outcomes, topUps: result.topUps, machines: result.machines }, null, 2) + '\n');
 	await writeFile(path.join(out, 'summary.txt'), result.text + '\n');
 	console.log(result.text);
 	const leftover = result.machines.filter(vm => !vm.destroyed && !vm.returned);

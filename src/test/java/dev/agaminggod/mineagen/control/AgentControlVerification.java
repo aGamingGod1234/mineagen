@@ -29,6 +29,7 @@ public final class AgentControlVerification {
 		assertions += verifySelectionStability();
 		assertions += verifyActionSafety();
 		assertions += verifySnapshotOrdering();
+		assertions += verifyStateCues();
 		return assertions;
 	}
 
@@ -332,6 +333,50 @@ public final class AgentControlVerification {
 		assertEquals("Normal", AgentControlPresentation.speedLabel("priority"),
 				"provider-native priority tier is presented as the normal player speed");
 		return 12;
+	}
+
+	/** Every lifecycle state has its own cue, read from the raw state: never from label text, never a red guess. */
+	private static int verifyStateCues() {
+		int assertions = 0;
+		java.util.Map<AgentLifecycleState, AgentControlPresentation.StateCue> expected = java.util.Map.of(
+				AgentLifecycleState.IDLE, AgentControlPresentation.StateCue.READY,
+				AgentLifecycleState.STARTING, AgentControlPresentation.StateCue.STARTING,
+				AgentLifecycleState.PLANNING, AgentControlPresentation.StateCue.THINKING,
+				AgentLifecycleState.ACTING, AgentControlPresentation.StateCue.WORKING,
+				AgentLifecycleState.PAUSED, AgentControlPresentation.StateCue.PAUSED,
+				AgentLifecycleState.COMPLETED, AgentControlPresentation.StateCue.DONE,
+				AgentLifecycleState.ERROR, AgentControlPresentation.StateCue.NEEDS_ATTENTION,
+				AgentLifecycleState.DEAD, AgentControlPresentation.StateCue.DEAD,
+				AgentLifecycleState.DISCONNECTED, AgentControlPresentation.StateCue.DISCONNECTED);
+		java.util.Set<AgentControlPresentation.StateCue> seen = java.util.EnumSet.noneOf(AgentControlPresentation.StateCue.class);
+		for (AgentLifecycleState state : AgentLifecycleState.values()) {
+			AgentControlPresentation.StateCue cue = AgentControlPresentation.stateCue(state.name());
+			assertTrue(expected.containsKey(state), state + " has an expected cue (a new lifecycle state needs one)");
+			assertEquals(expected.get(state), cue, state + " maps to its own cue");
+			assertEquals(cue, AgentControlPresentation.stateCue(state.name().toLowerCase(java.util.Locale.ROOT)), state + " maps the same in any case");
+			assertTrue(seen.add(cue), state + " shares its cue with no other state");
+			assertTrue(!"Unknown".equals(AgentControlPresentation.stateLabel(state.name())), state + " has a label");
+			assertions += 5;
+		}
+		for (AgentLifecycleState state : java.util.List.of(AgentLifecycleState.STARTING, AgentLifecycleState.PLANNING,
+				AgentLifecycleState.PAUSED, AgentLifecycleState.COMPLETED, AgentLifecycleState.IDLE, AgentLifecycleState.ACTING)) {
+			assertTrue(AgentControlPresentation.stateCue(state.name()).tone() != AgentControlPresentation.StateTone.PROBLEM,
+					state + " is not drawn as a problem");
+			assertions++;
+		}
+		for (AgentLifecycleState state : java.util.List.of(AgentLifecycleState.ERROR, AgentLifecycleState.DEAD, AgentLifecycleState.DISCONNECTED)) {
+			assertEquals(AgentControlPresentation.StateTone.PROBLEM, AgentControlPresentation.stateCue(state.name()).tone(),
+					state + " is drawn as a problem");
+			assertions++;
+		}
+		assertEquals(AgentControlPresentation.StateCue.UNKNOWN, AgentControlPresentation.stateCue("Dead - ready to respawn"),
+				"a label is not a state: the dead label is not read as ready");
+		assertEquals(AgentControlPresentation.StateCue.UNKNOWN, AgentControlPresentation.stateCue("Thinking..."),
+				"the thinking label is not read as anything");
+		assertEquals(AgentControlPresentation.StateCue.UNKNOWN, AgentControlPresentation.stateCue(null), "no state is unknown");
+		assertEquals(AgentControlPresentation.StateTone.NEUTRAL, AgentControlPresentation.StateCue.UNKNOWN.tone(),
+				"an unknown state is neutral, not an error");
+		return assertions + 4;
 	}
 
 	private static int verifySnapshotOrdering() {
