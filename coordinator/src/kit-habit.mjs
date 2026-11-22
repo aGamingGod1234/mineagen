@@ -109,7 +109,13 @@ export function nextKitStep(o, { reserved = null } = {}) {
 	const wood = count(PLANKS) + 4 * count(LOGS);
 	// The iron pickaxe comes first: its 3 ingots are never spent on the shield (obtain iron_ingot count 3 for it would hand back 2).
 	const pickaxeOwed = soundPickaxe(items) ? 0 : 3;
-	if (shields.length === 0 && ingots >= 1 + pickaxeOwed && wood >= 6 && craftable('minecraft:shield')) return { kind: 'craft', itemId: 'minecraft:shield' };
+	// The shield as soon as its ingot exists: from iron the last obtain handed back too, when what it holds covers the whole
+	// rest of the kit (ironReserved: the pickaxe, this shield, buckets, flint and steel), as the route's one trip for all of
+	// it does. #72 rooms: ingots held at a median 9.4 min, the first shield only at 17.2, after the pickaxe and buckets.
+	const allIngots = count(/^minecraft:iron_ingot$/);
+	const fromTrip = ingots < 1 + pickaxeOwed && kept > 0 && allIngots >= Math.max(1 + pickaxeOwed, ironReserved(items));
+	if (shields.length === 0 && (ingots >= 1 + pickaxeOwed || fromTrip) && wood >= 6
+		&& craftsFromHeld(o, 'minecraft:shield', { reserved: fromTrip ? null : reserved })) return { kind: 'craft', itemId: 'minecraft:shield' };
 	const spare = ingots - ironReserved(items);
 	for (const piece of ARMOUR) {
 		if (worn(piece.slot) || items.some(item => piece.part.test(item.itemId))) continue;

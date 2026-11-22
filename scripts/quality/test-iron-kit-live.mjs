@@ -228,7 +228,7 @@ async function playLane(s, agent, seed, seedIndex, dir) {
 	for (let i = 0; i < 300 && !(agent.latest()?.ready && (agent.latest()?.inventory?.items?.length ?? 0) === 0); i++) await sleep(100);
 	const start = await pos();
 	const startY = start?.[1] ?? 64;
-	const result = { lane, seed, spot: agent.spot, start, kitMinutes: null, climbs: [], descents: 0, deathsAt: [], calls: [] };
+	const result = { lane, seed, spot: agent.spot, start, kitMinutes: null, climbs: [], descents: 0, deathsAt: [], calls: [], firsts: {} };
 	const deathsBefore = await deaths();
 	const t0 = Date.now();
 	const minutes = () => Math.round((Date.now() - t0) / 600) / 100;
@@ -241,6 +241,12 @@ async function playLane(s, agent, seed, seedIndex, dir) {
 		while (sampling) {
 			const o = agent.latest() ? adaptObservation(agent.latest()) : null;
 			const p = o?.player;
+			// Minutes to the first time each kit item is held (and the shield worn), from the same samples.
+			for (const item of o?.inventory?.items ?? []) {
+				const id = String(item?.itemId ?? '').replace(/^minecraft:/, '');
+				if (['iron_ingot', 'iron_pickaxe', 'shield', 'bucket', 'flint_and_steel'].includes(id) && item.count > 0) result.firsts[id] ??= minutes();
+				if (id === 'shield' && item.slot === 'offhand') result.firsts.shieldWorn ??= minutes();
+			}
 			if (p && Number.isFinite(p.y) && !(p.health <= 0)) {
 				const deep = p.y < MINE_Y && p.skyOpen === false;
 				const up = p.skyOpen === true && p.y >= startY - 8;

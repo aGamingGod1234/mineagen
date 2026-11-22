@@ -121,6 +121,11 @@ test('what the obtain just handed back is never spent on kit', () => {
 	assert.deepEqual(nextKitStep(sample(held)), { kind: 'craft', itemId: 'minecraft:shield' });
 	// obtain iron_ingot count 3: the shield would hand back 2.
 	assert.equal(nextKitStep(sample(held), { reserved: { ids: ['iron_ingot'], count: 3 } }), null);
+	// The route's one trip for the whole kit (11 ingots, all handed back): the shield comes from it at once, the rest covered.
+	const trip = [item('iron_ingot', 0, 11), item('oak_planks', 1, 16), item('crafting_table', 2, 1)];
+	assert.deepEqual(nextKitStep(sample(trip), { reserved: { ids: ['iron_ingot'], count: 11 } }), { kind: 'craft', itemId: 'minecraft:shield' });
+	// A trip for fewer than the rest of the kit needs (6 for two buckets, no pickaxe yet): no shield from it.
+	assert.equal(nextKitStep(sample([item('iron_ingot', 0, 6), item('oak_planks', 1, 16), item('crafting_table', 2, 1)]), { reserved: { ids: ['iron_ingot'], count: 6 } }), null);
 	assert.deepEqual(nextKitStep(sample([...held.slice(0, 3), item('iron_ingot', 1, 4)]), { reserved: { ids: ['iron_ingot'], count: 3 } }), { kind: 'craft', itemId: 'minecraft:shield' });
 	// obtain planks count 8: the shield's planks are those planks.
 	assert.equal(nextKitStep(sample(held), { reserved: { ids: ['oak_planks', 'birch_planks'], count: 8 } }), null);
