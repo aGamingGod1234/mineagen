@@ -1240,3 +1240,27 @@ test('a program started while the game is paused is credited only the part of th
 	deadline.callback();
 	assert.equal((await pending).reasonCode, 'PROGRAM_DEADLINE');
 });
+
+test('an urgent answer that arrives during a pause counts the wait only up to the pause, not the paused time twice', async () => {
+	const timers = [];
+	let now = 0, release;
+	const run = setup({ onDecision() {}, executeAction: () => new Promise((resolve) => { release = resolve; }),
+		cancelAction: async () => release({ state: 'CANCELLED', reasonCode: 'INPUT_RELEASED', observation: observation(12), eventSequence: 4 }) },
+		{ now: () => now, setTimeoutFn: (callback, ms) => { const timer = { callback, ms }; timers.push(timer); return timer; }, clearTimeoutFn: (timer) => { if (timer) timer.cleared = true; } });
+	const pending = run.executor.run(record, { programId: 'urgent-pause', source: `${prefix} await player.wait(1000);`, timeoutMs: 10_000 }, run.context);
+	now = 1_000;
+	run.executor.onObservation(record, { observation: observation(9), eventSequence: 2, attention: true, priority: 'urgent', trigger: 'health_changed' });
+	await turn();
+	const decision = run.executor.status(record).decision;
+	now = 3_000;
+	run.executor.serverPaused(true);
+	now = 5_000;
+	await run.executor.respond(record, { programId: 'urgent-pause', decisionId: decision.decisionId, directive: 'continue' });
+	now = 8_000;
+	run.executor.serverPaused(false);
+	const deadline = timers.filter((timer) => !timer.cleared).at(-1);
+	// Started at 0 with 10 s: 2 s of urgent wait (1-3 s) and 5 s of pause (3-8 s) are credited, so 10 + 2 + 5 - 8 = 9 s are left.
+	assert.equal(deadline.ms, 9_000, `remaining after resume: ${deadline.ms} ms`);
+	deadline.callback();
+	await pending;
+});
