@@ -65,3 +65,15 @@ test('an ore a dig sighted through rock is a row with enclosed: true until seen 
 	row = knownResources(memory, at(0.5, 40, 0.5), { ids: ['iron_ore'] })[0];
 	assert.equal(row.enclosed, false);
 });
+
+test('each door is its own row, named with the village it stands in', () => {
+	const memory = newResourceMemory();
+	rememberResources(memory, at(311.5, 77, -241.5, { sighted: {
+		structures: [{ structure: 'village', size: 10, x: 311, y: 78, z: -239 }],
+		resources: [{ blockId: 'minecraft:oak_door', x: 300, y: 77, z: -230, count: 1 }, { blockId: 'minecraft:oak_door', x: 322, y: 77, z: -250, count: 1 },
+			{ blockId: 'minecraft:oak_door', x: 400, y: 70, z: -241, count: 1 }] } }), { now: 1 });
+	const doors = knownResources(memory, at(311.5, 77, -241.5), { ids: ['oak_door'] });
+	assert.equal(doors.length, 3, 'one row per door');
+	assert.deepEqual(doors.slice(0, 2).map((row) => row.structure), ['village', 'village']);
+	assert.equal(doors[2].structure, undefined, 'a door far from any sighted structure names none');
+});

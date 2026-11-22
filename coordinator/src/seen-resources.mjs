@@ -14,6 +14,8 @@ const CONTAINERS = new Set(['minecraft:chest', 'minecraft:trapped_chest', 'minec
 const ORE = /_ore$|^minecraft:ancient_debris$/;
 // Mobs worth a row: anything a plan may kill for a drop. Built mobs (a village's golem) are marked placed.
 const BUILT_MOBS = new Set(['minecraft:iron_golem', 'minecraft:snow_golem']);
+// A placed block this close (horizontally) to a sighted structure's position, or within twice its seen size, belongs to it.
+const STRUCTURE_REACH = 48;
 
 const id = (value) => { const text = String(value ?? '').trim(); return text.includes(':') ? text : `minecraft:${text}`; };
 const bare = (value) => String(value ?? '').replace(/^minecraft:/, '');
@@ -62,6 +64,14 @@ export function observedResources(observation, { now = Date.now() } = {}) {
 	for (const row of list(observation?.world?.landmarks ?? observation?.landmarks)) block(row, 'landmark');
 	const sighted = observation?.sighted ?? {};
 	for (const row of list(sighted.resources)) block(row, 'sighted');
+	// A placed block or container inside a structure the body sees (a village's door, chest or well) names it.
+	const structures = list(sighted.structures).filter((row) => typeof row?.structure === 'string' && finite(row.x, row.z));
+	for (const row of out) {
+		if (!row.placed && row.kind !== 'container') continue;
+		const near = structures.map((one) => ({ one, d: Math.hypot(one.x - row.x, one.z - row.z) }))
+			.filter(({ one, d }) => d <= Math.max(STRUCTURE_REACH, (Number.isFinite(one.size) ? one.size : 0) * 2)).sort((a, b) => a.d - b.d)[0];
+		if (near) row.structure = near.one.structure;
+	}
 	for (const row of list(sighted.blocks)) block(row, 'sighted');
 	for (const row of list(sighted.veins)) block(row, 'vein');
 	for (const row of list(observation?.entities)) {
@@ -110,7 +120,7 @@ export function rememberResources(memory, observation, { now = Date.now() } = {}
 			if (Math.abs(old.x - row.x) > MERGE || Math.abs(old.y - row.y) > MERGE || Math.abs(old.z - row.z) > MERGE) continue;
 			const closer = Math.hypot(row.x + 0.5 - body.x, row.z + 0.5 - body.z) < Math.hypot(old.x + 0.5 - body.x, old.z + 0.5 - body.z);
 			rows.set(key, { ...old, ...(closer ? { x: row.x, y: row.y, z: row.z } : {}), count: Math.max(old.count, row.count), seenAt: now,
-				source: closer ? row.source : old.source, placed: old.placed || row.placed, enclosed: false });
+				source: closer ? row.source : old.source, placed: old.placed || row.placed, enclosed: false, ...(row.structure ? { structure: row.structure } : {}) });
 			merged = true;
 			break;
 		}

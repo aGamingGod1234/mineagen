@@ -1321,7 +1321,7 @@ public final class FarSight {
 	}
 
 	/** Resource rows per pass: distinct placed-block ids and containers, nearest first. */
-	static final int RESOURCE_ROWS = 16;
+	static final int RESOURCE_ROWS = 24;
 
 	/**
 	 * Placed blocks and containers as sources: per block id (and per container), the nearest member the eye sees, with the
@@ -1338,8 +1338,11 @@ public final class FarSight {
 		for (Found found : all) {
 			if (distance.applyAsDouble(found) > RANGE) break;
 			boolean container = NOTABLE_BLOCKS.contains(found.state().getBlock()) && !found.state().is(Blocks.SPAWNER) && !found.state().is(Blocks.TRIAL_SPAWNER);
-			// Each container is its own source; blocks of one id share one row.
-			String key = container ? blockId(found.state()) + "@" + found.position() : blockId(found.state());
+			// A door is a way into a house whose chest no street sight line reaches: each door (its lower half) is its own row.
+			boolean door = found.state().getBlock() instanceof net.minecraft.world.level.block.DoorBlock;
+			if (door && found.state().getValue(net.minecraft.world.level.block.DoorBlock.HALF) != net.minecraft.world.level.block.state.properties.DoubleBlockHalf.LOWER) continue;
+			// Each container and door is its own source; blocks of one id share one row.
+			String key = container || door ? blockId(found.state()) + "@" + found.position() : blockId(found.state());
 			byId.computeIfAbsent(key, ignored -> new ArrayList<>()).add(found);
 		}
 		int tests = 0;
@@ -1355,14 +1358,15 @@ public final class FarSight {
 			}
 			if (seen == null) continue;
 			BlockPos position = BlockPos.of(seen.position());
-			boolean container = entry.getKey().contains("@");
+			boolean container = entry.getKey().contains("@") && NOTABLE_BLOCK_IDS.contains(blockId(seen.state()));
+			boolean single = entry.getKey().contains("@");
 			int count = 0;
 			for (Found member : entry.getValue()) if (BlockPos.of(member.position()).distSqr(position) <= (double) SMALL_SIGHT * SMALL_SIGHT) count++;
 			int opened = 0;
 			if (container && level.getBlockEntity(position) instanceof net.minecraft.world.level.block.entity.RandomizableContainerBlockEntity box) {
 				opened = box.getLootTable() == null ? 1 : 0;
 			}
-			rows.add(new Row(Section.RESOURCES, "res@" + entry.getKey() + "@" + seen.position(), blockId(seen.state()), List.of(), container ? 1 : count,
+			rows.add(new Row(Section.RESOURCES, "res@" + entry.getKey() + "@" + seen.position(), blockId(seen.state()), List.of(), single ? 1 : count,
 					opened, Cell.of(position), distance.applyAsDouble(seen)));
 		}
 		return rows;
