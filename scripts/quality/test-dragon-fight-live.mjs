@@ -58,9 +58,10 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 	try {
 		if (!s) throw bootError;
 		await s.command('time set noon');
-		await s.command('gamerule minecraft:send_command_feedback false');
+		await s.command('forceload add -16 -16 16 16');
+		await sleep(1500);
 		const registered = s.inbox.wait('agent_registered', () => true, 45000);
-		await s.command(`execute positioned 0 0 0 positioned over motion_blocking_no_leaves run mineagen summon gpt-6.1-sol low ${AGENT}`);
+		console.log(`[dragon-fight] summon: ${await s.command(`execute positioned 0 0 0 positioned over motion_blocking_no_leaves run mineagen summon gpt-6.1-sol low ${AGENT}`)}`);
 		const e = await registered;
 		s.record = { ...(e.payload.record ?? e.payload), agentId: e.agentId };
 		await s.bridge.send('agent_ready', s.record.agentId, { goalRevision: s.record.goalRevision, reconciled: false });
