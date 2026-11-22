@@ -146,6 +146,8 @@ try {
 		const blazeReports = [...events(o, 'blaze-shield'), ...(o.reflexes?.firing?.id === 'blaze-shield' ? [o.reflexes.firing] : [])];
 		results.blazeShield.after = events(o, 'blaze-shield');
 		results.blazeShield.pass = blazeReports.some((row) => /blocked [1-9]/.test(row.detail ?? '')) || results.blazeShield.firingNow?.detail?.startsWith('blocked');
+		// No hit blocked and none taken: the blaze never shot at the body in its window, so the room measured nothing.
+		if (!results.blazeShield.pass && tick?.damageTaken === 0) results.blazeShield.notExercised = 'the blaze never hit or was blocked in its 15 s';
 		await command(`effect give ${agent} minecraft:instant_health 1 3 true`); await command('fill -24 80 -24 40 95 40 minecraft:air');
 
 	}
@@ -342,8 +344,10 @@ try {
 	await writeFile(join(out, 'results.json'), JSON.stringify(results, null, 2));
 	await writeFile(join(out, 'timeline.json'), JSON.stringify(timeline, null, 1));
 	console.log(JSON.stringify(Object.fromEntries(Object.entries(results).filter(([key]) => key !== 'status').map(([key, value]) => [key, value.pass]))));
-	const failed = Object.entries(results).filter(([key, value]) => key !== 'status' && !value.pass).map(([key]) => key);
+	const failed = Object.entries(results).filter(([key, value]) => key !== 'status' && !value.pass && !value.notExercised).map(([key]) => key);
+	const unmeasured = Object.entries(results).filter(([key, value]) => key !== 'status' && !value.pass && value.notExercised).map(([key]) => key);
 	if (failed.length > 0) { console.log(JSON.stringify(results, null, 2)); process.exitCode = 1; }
+	else if (unmeasured.length > 0) { console.log(`INVALID (not exercised): ${unmeasured.join(', ')}`); process.exitCode = 2; }
 	else console.log('Reflex core mechanics verified');
 } finally {
 	if (rcon) await command('stop').catch(() => {});
