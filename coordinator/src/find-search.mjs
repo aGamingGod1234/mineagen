@@ -221,6 +221,8 @@ export const UNREACHED_SPOT = 'unreachable spot';
 // Underground, a trip to a remembered place is a dig; past this many blocks it costs more than the search at depth.
 // 4-seed check: trips of 39 and 62 blocks from y24 and y16 dug for 96 s, flooded, and once left the body in an aquifer.
 const UNDERGROUND_TRIP = 32;
+// A search below its ore's depth walks back up its own route first when the way back starts within this many blocks.
+const WALK_BACK_UP = 128;
 // Descent patterns: water stopping one is in the ground under this spot, whatever the heading.
 const DESCENTS = /^dig (steep_down|stairs_down|shaft) /;
 
@@ -1319,6 +1321,7 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 		const tunnelBlocks = () => cap('tunnel').maxBlocks;
 		const descentCap = (pattern) => cap(pattern);
 		// Ores only: lava keeps its own band and rock searches have no depth. Off for the A/B arm.
+		let walkedUp = false;
 		let cavePicked = !caveFirst() || profile.ids.has('minecraft:lava') || rock;
 		// Caves a cave-first walk may go to: seen in this search or remembered, unvisited, within reach and inside within, at
 		// or below the body and not far under the band, not where the body stands, and with no hostile seen near it.
@@ -1520,6 +1523,18 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 			}
 			// Below an ore's band (a start deep in a cave): stairs up to its depth.
 			if (profile.depth !== null && !profile.ids.has('minecraft:lava') && at.y < profile.depth - CAVE_BAND && descentStops < MAX_DESCENT_STOPS) {
+				// The way the body came down passes that depth: walk back up it, watching for the target, before cutting a
+				// new staircase (playtest 22 Nov: 37 blocks of new stairs up for coal wore out two pickaxes, its own stair
+				// and tunnel back up were open).
+				const sky = walkedUp ? null : body.openSky?.() ?? null;
+				if (sky !== null && [sky.x, sky.y, sky.z].every(Number.isFinite) && sky.y >= profile.depth && insideBoundary(sky)
+					&& Math.hypot(sky.x - at.x, sky.z - at.z) <= WALK_BACK_UP) {
+					walkedUp = true;
+					const back = await leg(`back up the way it came toward y${profile.depth}`, 'travel_to', { x: sky.x, y: sky.y, z: sky.z, retrace: true, tolerance: 3, stopWhenSeen: profile.stopId });
+					const ended = await settle(back);
+					if (ended !== null) return ended;
+					continue;
+				}
 				inward();
 				if (stepsLeft(heading) < 1) return handBack('FAILED', 'FIND_NOT_FOUND', `Searched to ${within} blocks from the start`);
 				const outcome = await leg(`climb stairs to y${profile.depth}`, 'dig_to', { pattern: 'stairs_up', y: profile.depth, heading: heading.name, ...descentCap('stairs_up'), stopWhenSeen: profile.stopId, discard: DISCARD });

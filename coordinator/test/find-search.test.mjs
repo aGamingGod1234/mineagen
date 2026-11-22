@@ -1809,3 +1809,21 @@ test('cave first: when no cave walk got in, the body walks back to where the wal
 	assert.deepEqual(order, ['travel_to:walk', 'travel_to:walk', 'dig_to']);
 	assert.deepEqual([body.calls[2].args.x, body.calls[2].args.y, body.calls[2].args.z], [0.5, 70, 0.5]);
 });
+
+test('playtest 22 Nov: below the ore band, find walks back up its own route before cutting new stairs', async () => {
+	const deep = { x: 396.5, y: 11, z: -260.5, yaw: 0, health: 20, skyOpen: false };
+	const body = fakeBody({ start: sample({ player: deep }), frontier: { candidates: [], coverage: { headings: {} } },
+		acts: { travel_to: [{ result: { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', message: 'minecraft:coal_ore seen at 300,40,-240, 3 blocks away' }, move: () => ({ x: 301.5, y: 40, z: -240.5 }) }] } });
+	body.openSky = () => ({ x: 289.5, y: 78, z: -229.5 });
+	const result = await searchFor({ block: 'minecraft:coal_ore' }, body);
+	assert.equal(result.reasonCode, 'FIND_SEEN', result.message);
+	const moves = body.calls.filter((call) => ['travel_to', 'dig_to'].includes(call.actionType));
+	assert.equal(moves[0].actionType, 'travel_to', 'no new staircase first');
+	assert.deepEqual([moves[0].args.retrace, moves[0].args.x, moves[0].args.y], [true, 289.5, 78]);
+	assert.equal(moves[0].args.stopWhenSeen, 'minecraft:coal_ore');
+	// With no way back recorded it digs stairs up, as before.
+	const none = fakeBody({ start: sample({ player: deep }), frontier: { candidates: [], coverage: { headings: {} } },
+		acts: { dig_to: [{ result: { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', message: 'minecraft:coal_ore seen at 396,30,-270, 3 blocks away' } }] } });
+	await searchFor({ block: 'minecraft:coal_ore' }, none);
+	assert.equal(none.calls.find((call) => ['travel_to', 'dig_to'].includes(call.actionType))?.args.pattern, 'stairs_up');
+});
