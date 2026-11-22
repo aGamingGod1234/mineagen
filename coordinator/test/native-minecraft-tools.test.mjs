@@ -1038,6 +1038,14 @@ test('the program tools are offered only with MINEAGEN_PROGRAM_TOOLS=on, and the
 	assert.deepEqual(names({ MINEAGEN_PROGRAM_TOOLS: 'off' }), names({}));
 	assert.deepEqual(names({ MINEAGEN_PROGRAM_TOOLS: ' ON ' }), all.map((tool) => tool.name));
 	assert.ok(names({}).includes('reflexes'), 'rules-only reflexes stay offered without runProgram');
+	// The always-loaded role and skill files rely on no hidden tool: any mention of a program tool, guard or watcher says
+	// it applies when runProgram is offered.
+	for (const file of ['../config/minecraft-agent/AGENTS.md', '../config/minecraft-agent/.codex/skills/minecraft-control/SKILL.md']) {
+		const text = readFileSync(new URL(file, import.meta.url), 'utf8');
+		for (const paragraph of text.split(/\n\s*\n/)) {
+			if (/runProgram|queueProgram|respondProgram|programStatus|cancelProgram|standing guard|program\.watch/i.test(paragraph)) assert.match(paragraph, /when (it|runProgram) is offered/, `${file}: ${paragraph.slice(0, 80)}`);
+		}
+	}
 	assert.equal(programToolsOffered({}), false);
 	assert.equal(programToolsOffered({ MINEAGEN_PROGRAM_TOOLS: 'on' }), true);
 	// The hidden tools stay callable through the normaliser and runtime for the on arm and recorded replays.

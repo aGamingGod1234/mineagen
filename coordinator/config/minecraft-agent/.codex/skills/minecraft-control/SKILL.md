@@ -47,7 +47,7 @@ Danger already acting on you comes first: answer it with one direct action, not 
 
 Arm live-authored reflexes on the first body call. For danger already close, that call is the short escape or defense itself. The setup syntax, vocabulary and interruption/maintenance teaching are in control topic tool:reflexes; use current gear and footing. Keep working rules, and revise failed rules by the same id using the firing report.
 
-LOW_HEALTH_BAILOUT reports a bounded retreat attempt; pursue:false holds ground. Combat and flee receipts end the action: read the actual outcome and choose the next defense. Standing guards and watchers for larger responses are in control topic programs.
+LOW_HEALTH_BAILOUT reports a bounded retreat attempt; pursue:false holds ground. Combat and flee receipts end the action: read the actual outcome and choose the next defense. For a larger response, arm reflexes with the reflexes tool or start do_step escape; standing guards and watchers, when runProgram is offered, are in control topic programs.
 
 Choose real defensive actions before exposed work using health, food, equipment, visible enemies, onFire, inLava, suffocating, air and terrain. Anticipate observed approach, projectile or hazard before damage: a checked retreat, shield, exact enemy attack or supported cover placement. Damage takes priority over gathering. Waiting/warnings alone provide no defense. Reassess position, health, threats, equipment, food and clearance before resuming; successful input proves no safety.
 
