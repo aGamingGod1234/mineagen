@@ -66,7 +66,10 @@ public final class AgentNowCardVerification {
 		AgentNowCard.Live pendingOnly = AgentNowCard.Live.from(JsonParser.parseString(
 				"{\"plan\":{\"steps\":[{\"label\":\"Craft a table\",\"detail\":\"\",\"status\":\"pending\"}]}}").getAsJsonObject());
 		assertEquals("Craft a table", pendingOnly.doing(), "with no active step, doing is the first pending one");
-		assertions += 3;
+		AgentNowCard.Live finished = AgentNowCard.Live.from(JsonParser.parseString(
+				"{\"active\":false,\"plan\":{\"steps\":[{\"label\":\"Mine iron\",\"detail\":\"\",\"status\":\"active\"}]}}").getAsJsonObject());
+		assertEquals("", finished.doing(), "a finished task's leftover plan step is not what the bot is doing");
+		assertions += 4;
 
 		assertEquals("0 s", AgentNowCard.duration(0L), "zero");
 		assertEquals("59 s", AgentNowCard.duration(59_999L), "seconds below a minute");

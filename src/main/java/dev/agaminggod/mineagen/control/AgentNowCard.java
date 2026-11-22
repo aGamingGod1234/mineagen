@@ -42,6 +42,9 @@ public final class AgentNowCard {
 		}
 
 		private static String doing(JsonObject view) {
+			// The coordinator keeps a finished task's plan in the view with active=false: it is not what the bot is doing.
+			JsonElement active = view.get("active");
+			if (active != null && active.isJsonPrimitive() && active.getAsJsonPrimitive().isBoolean() && !active.getAsBoolean()) return "";
 			JsonObject plan = object(view.get("plan"));
 			if (plan == null || !plan.has("steps") || !plan.get("steps").isJsonArray()) return "";
 			JsonObject pending = null;

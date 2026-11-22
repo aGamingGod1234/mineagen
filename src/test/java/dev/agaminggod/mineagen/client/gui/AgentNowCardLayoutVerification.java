@@ -27,7 +27,7 @@ public final class AgentNowCardLayoutVerification {
 				assertTrue(roster.bottom() + AgentControlScreen.NOW_GAP <= now.top(), with + ": the roster ends above the strip");
 				assertTrue(roster.top() == full.top(), with + ": the roster keeps its top under the title and filters");
 				AgentRosterGridLayout grid = AgentRosterGridLayout.calculate(roster.left(), roster.top(), roster.right(), roster.bottom(), agents);
-				assertTrue(grid.tileHeight() >= 24 && grid.rows() >= 1, with + ": the roster still has readable tiles");
+				assertTrue(grid.tileHeight() >= 48 && grid.rows() >= 1, with + ": the roster keeps readable 48 px tiles");
 				if (agents <= 2) assertTrue(AgentControlScreen.nowRowCapacity(now.height()) >= 3,
 						with + ": a small roster leaves the strip room for the state, doing and more");
 				assertions += 8 + (agents <= 2 ? 1 : 0);

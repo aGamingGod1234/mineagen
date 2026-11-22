@@ -76,6 +76,12 @@ public final class AgentControlScreen extends Screen {
 	static final int NOW_PAD = 5;
 	static final int NOW_GAP = 6;
 	static final int NOW_MAX_ROWS = 4;
+	/**
+	 * The narrow overview's Now strip, placed with the roster grid when widgets are built. A snapshot can change the
+	 * filtered count while a rebuild waits for a focused text box; drawn from fresh numbers, the strip would overlap the
+	 * stale grid.
+	 */
+	private AgentControlLayout.Bounds overviewNow;
 	/** How long each agent has been in its state while this client watched, for the Now card's duration. */
 	private static final dev.agaminggod.mineagen.control.AgentStateClock STATE_CLOCK = new dev.agaminggod.mineagen.control.AgentStateClock();
 	private static final String KEY_BILLING_NOTE = "An API key bills per token. Without one, the tool's signed-in plan is used.";
@@ -281,6 +287,7 @@ public final class AgentControlScreen extends Screen {
 	@Override
 	protected void init() {
 		widgetRefreshPending = false;
+		overviewNow = null;
 		nameInput = null;
 		promptInput = null;
 		rosterGrid = null;
@@ -485,7 +492,9 @@ public final class AgentControlScreen extends Screen {
 			addOverviewActions(layout.contextLeft(), top, layout.contextWidth());
 			addOverviewFooter();
 		} else {
-			addRosterGrid(overviewRosterBounds(layout, filtersVisible, rosterState.page(1).totalFiltered()), AgentRosterGrid.Mode.FOCUS_ONLY);
+			int shown = rosterState.page(1).totalFiltered();
+			overviewNow = overviewNowBounds(layout, filtersVisible, shown);
+			addRosterGrid(overviewRosterBounds(layout, filtersVisible, shown), AgentRosterGrid.Mode.FOCUS_ONLY);
 			addCompactOverviewActions(layout.contentLeft(), layout.footerY(), layout.contentWidth());
 		}
 	}
@@ -1287,8 +1296,7 @@ public final class AgentControlScreen extends Screen {
 			renderNowRows(graphics, selected, inner, detailTop + 48, x + width - 12, detailBottom - NOW_PAD, false, true);
 			return;
 		}
-		AgentControlLayout.Bounds now = overviewNowBounds(layout, filtersVisible(), rosterState.page(1).totalFiltered());
-		if (now != null) renderNowCard(graphics, selected, now, true);
+		if (overviewNow != null) renderNowCard(graphics, selected, overviewNow, true);
 	}
 
 	private void renderNowCard(GuiGraphicsExtractor graphics, AgentControlAgent agent, AgentControlLayout.Bounds area, boolean named) {
