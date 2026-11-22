@@ -628,11 +628,15 @@ final class ReflexActions {
 		/** Until this tick the body braces in place without looking again for a stand (the search reads many columns). */
 		private int braceUntil = Integer.MIN_VALUE;
 		private String braceNote;
+		private boolean inlandTouched;
 
 		@Override
 		public Step tick(Context context, Consumer<AgentInputState> input) {
 			braceInPlace = false;
+			inlandTouched = false;
 			Step step = act(context, input);
+			// A step target is only good while the step branch runs each tick: after a fight or back-out it is stale.
+			if (!inlandTouched) inland = null;
 			// Held from this tick's state only, so it never outlives the reason (a leaked holder freezes every walk-off).
 			dev.agaminggod.mineagen.server.runtime.controller.BrinkGuard.keepLevel(context.player(), this, braceInPlace, true);
 			return step;
@@ -644,7 +648,15 @@ final class ReflexActions {
 		 * then walls in there; with none in reach it braces where it stands. Null when the body may wall in where it is.
 		 */
 		private Step offBrink(ServerPlayer player, LivingEntity shooter, Consumer<AgentInputState> input, String done) {
-			if (inland == null && player.tickCount < braceUntil) return bracing(player, shooter, input, done);
+			inlandTouched = true;
+			// In the air (a hit's hop) every shove reads as a survivable drop onto the deck below: judge the brink once landed.
+			if (!player.onGround()) {
+				dev.agaminggod.mineagen.server.runtime.controller.BrinkGuard.braceArmed(player);
+				input.accept(look(player, ReflexSensors.aimPoint(shooter), 0.0F, 0.0F, false, false, player.getInventory().getSelectedSlot(),
+						InteractionHand.MAIN_HAND));
+				return Step.running(done + "; in the air after a hit, waiting to land before walling in from " + type(shooter));
+			}
+			if (inland == null && player.tickCount < braceUntil) return null;
 			if (inland == null) {
 				BlockPos cell = BlockPos.containing(player.getX(), player.getY() + 0.2D, player.getZ());
 				String brink = WallIn.brink(dev.agaminggod.mineagen.server.runtime.controller.BrinkGuard.brinkFrom(player, new Vec3(cell.getX() + 0.5D, player.getY(), cell.getZ() + 0.5D)));
@@ -652,13 +664,15 @@ final class ReflexActions {
 				inland = dev.agaminggod.mineagen.server.runtime.controller.BrinkGuard.inlandStand(player, INLAND_WITHIN);
 				inlandTicks = 0;
 				if (inland == null) {
+					// No stand to wall in from: natural cover if a cell in reach hides, else brace where it stands.
 					braceUntil = player.tickCount + 40;
 					braceNote = "not walling in: " + brink + "; no stand off it in " + INLAND_WITHIN + " blocks";
-					return bracing(player, shooter, input, done);
+					return null;
 				}
 			}
 			double dx = inland.x - player.getX(), dz = inland.z - player.getZ();
 			if (dx * dx + dz * dz <= 0.15D * 0.15D || ++inlandTicks > INLAND_TICKS || Math.abs(player.getY() - inland.y) > 0.6D) {
+				// Arrived, out of time, or off the level: the wall-in judges the cell it stands on now.
 				inland = null;
 				return null;
 			}
@@ -674,7 +688,8 @@ final class ReflexActions {
 			braceInPlace = true;
 			input.accept(look(player, ReflexSensors.aimPoint(shooter), 0.0F, 0.0F, false, false, player.getInventory().getSelectedSlot(),
 					InteractionHand.MAIN_HAND));
-			return Step.running(done + "; " + braceNote + ", bracing against " + type(shooter) + "'s shots where the body stands");
+			return Step.running(done + "; " + braceNote + ", bracing against " + type(shooter) + "'s shots where the body stands"
+					+ (coverNote == null ? "" : "; cover: " + coverNote));
 		}
 
 		private Step act(Context context, Consumer<AgentInputState> input) {
@@ -777,11 +792,12 @@ final class ReflexActions {
 			LivingEntity shooter = shooterBeyondReach(player, context.focus(), player.getInventory().getItem(slot));
 			boolean canWall = PlaceBlock.blockSlot(player, null) >= 0 && nearestChaser(player, PACK_RANGE) >= PACK_RANGE;
 			if (shooter == null || !canWall || walls != null) inland = null;
-			else if (player.tickCount >= coverRetryTick || inland != null) {
+			else if ((player.tickCount >= coverRetryTick || inland != null) && cover == null) {
 				Step stepping = offBrink(player, shooter, input, done);
 				if (stepping != null) return stepping;
 			}
-			if (shooter != null && walls == null && player.tickCount >= coverRetryTick && canWall) walls = new WallIn(shooter);
+			boolean ledged = shooter != null && canWall && walls == null && player.tickCount < braceUntil;
+			if (shooter != null && walls == null && player.tickCount >= coverRetryTick && canWall && !ledged && cover == null) walls = new WallIn(shooter);
 			if (walls != null) {
 				Step built = walls.tick(context, input);
 				if (built.status() == ReflexScheduler.ActionStatus.RUNNING) return Step.running(done + "; " + built.detail());
@@ -792,7 +808,7 @@ final class ReflexActions {
 				if (built.status() == ReflexScheduler.ActionStatus.DONE) return Step.done(done + "; " + built.detail());
 			}
 			// No blocks, or a melee mob too near to stand building: a corner in reach is the cover.
-			if (shooter != null && !canWall && (cover != null || player.tickCount >= coverRetryTick)) {
+			if (shooter != null && (!canWall || ledged || cover != null) && (cover != null || player.tickCount >= coverRetryTick)) {
 				// Natural cover only: building walls is the branch above, which a melee mob this near rules out.
 				if (cover == null) cover = new TakeCover(COVER_WITHIN, false, false, false);
 				Step hidden = cover.tick(new Context(player, shooter, context.stance(), context.memory(), context.point(), context.below(),
@@ -804,6 +820,7 @@ final class ReflexActions {
 				cover = null;
 				coverRetryTick = player.tickCount + (hidden.status() == ReflexScheduler.ActionStatus.DONE ? 20 : 40);
 			}
+			if (ledged) return bracing(player, shooter, input, done);
 			Entity focus = context.focus();
 			Vec3 at = focus != null && focus.isAlive() ? ReflexSensors.aimPoint(focus instanceof Projectile p && p.getOwner() != null ? p.getOwner() : focus) : null;
 			input.accept(look(player, at, 0.0F, 0.0F, false, false, slot, InteractionHand.MAIN_HAND));
@@ -2774,6 +2791,10 @@ final class ReflexActions {
 		Step tick(Context context, Consumer<AgentInputState> input) {
 			ServerPlayer player = context.player();
 			Level level = player.level();
+			if (center == null && !player.onGround()) {
+				input.accept(look(player, null, 0.0F, 0.0F, false, false, player.getInventory().getSelectedSlot(), InteractionHand.MAIN_HAND));
+				return Step.running("waiting to land before walling in from " + type(shooter));
+			}
 			if (center == null) {
 				center = BlockPos.containing(player.getX(), player.getY() + 0.2D, player.getZ());
 				String no = refusal(player, center);

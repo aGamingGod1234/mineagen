@@ -156,6 +156,7 @@ async function trial(s, name, repeat, readDamage) {
 	const lateral = name === 'corridor' ? at => at[0] - start[0] : at => at[2] - start[2];
 	const steps = [], hits = [], track = [];
 	let died = false, fell = null, lava = false, minY = FEET, fireballs = 0, fired = false, wallingSeen = false, refusal = null, stopped = null;
+	let deathY = null;
 	let lastFiring = null, firingAtFall = null, lastHealth = start0, blazeNearest = Infinity, blazeLeft = false, afterFall = null;
 	await s.fastRate();
 	const now = () => s.clock.now();
@@ -167,7 +168,18 @@ async function trial(s, name, repeat, readDamage) {
 		const o = await s.observeOrNull();
 		const h = await health(s).catch(() => null);
 		// Death first: a respawn moves the body, which would read as a fall.
-		if ((await deathCount(s)) > deathsBefore || h === 0) { died = true; break; }
+		if ((await deathCount(s)) > deathsBefore || h === 0) {
+			died = true;
+			// A fall that kills inside one poll reads as a death on the deck unless the death's own spot says otherwise.
+			const where = String(await s.command(`data get entity ${AGENT} LastDeathLocation.pos`).catch(() => ''));
+			const y = Number(/\[I;\s*-?\d+,\s*(-?\d+),/.exec(where)?.[1]);
+			if (Number.isFinite(y)) {
+				deathY = y;
+				if (fell === null && y < FEET - 0.5) { fell = { atS: round((now() - t0) / 1000), lateral: null, firing: lastFiring, fromDeath: true }; firingAtFall = lastFiring; }
+				if (y < LAVA_Y + 2) lava = true;
+			}
+			break;
+		}
 		const at = await pos(s);
 		const firing = o?.reflexes?.firing?.id ? `${o.reflexes.firing.id}: ${String(o.reflexes.firing.detail ?? '').slice(0, 200)}` : null;
 		if (firing) {
@@ -209,7 +221,7 @@ async function trial(s, name, repeat, readDamage) {
 	await s.normalRate();
 	const healthEnd = await health(s).catch(() => null);
 	await s.command(`${NETHER} kill @e[type=minecraft:blaze,x=${X0},y=${FEET},z=${Z0},distance=..48]`);
-	Object.assign(row, { died, fell: fell !== null, fall: fell, lavaContact: lava, minY: round(minY), defendFired: fired, wallingSeen, refusal, stopped, firingAtFall,
+	Object.assign(row, { died, deathY, fell: fell !== null, fall: fell, lavaContact: lava, minY: round(minY), defendFired: fired, wallingSeen, refusal, stopped, firingAtFall,
 		fireballsSeen: fireballs, hits, track, steps, blazeNearest: Number.isFinite(blazeNearest) ? round(blazeNearest) : null, blazeLeftCage: blazeLeft,
 		watchedS: round((now() - t0) / 1000), gameSeconds: Math.round((await timer.elapsed()) / 1000), rates: await timer.rates().catch(() => null), tick: { rate: s.tickRate, held: await s.tickReport() } });
 	Object.assign(row, damageEvidence(damageBefore, await readDamage(), start0, healthEnd));
@@ -217,6 +229,7 @@ async function trial(s, name, repeat, readDamage) {
 	row.pass = !row.fell && !lava;
 	if (!row.pass) row.failReason = lava ? `fell off the deck into the lava at ${fell?.atS ?? '?'} s (firing ${firingAtFall ?? 'none'})` : `fell below the deck at ${fell?.atS ?? '?'} s (firing ${firingAtFall ?? 'none'})`;
 	else if (row.damageTaken === 0) row.notExercised = `the blaze never hit the body (${fireballs} fireball(s) seen)`;
+	else if (!fired) row.notExercised = 'defend never fired: the room tested nothing of the reflex';
 	else row.passReason = `stayed on the deck ${row.watchedS} s${died ? ' (then died on it)' : ''}, ${hits.length} hit(s)`;
 	row.finishedAt = Date.now();
 	return row;

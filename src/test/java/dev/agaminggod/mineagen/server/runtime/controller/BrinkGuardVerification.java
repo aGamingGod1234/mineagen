@@ -234,7 +234,7 @@ public final class BrinkGuardVerification {
 				"from an edge column the inland stand is the bridge's middle, the nearest cell: " + inland);
 		check(BrinkGuard.inlandStand(narrow, 0.5D, 64.0D, 0.5D, 3, at -> brink(narrow, noVoid, at.x, at.z) == null) == null,
 				"a 1-wide bridge has no stand off its brink: the body braces in place");
-		return 9;
+		return 10;
 	}
 
 	/** A deck at floor top y 64 for |z| <= half, a lava sea at y 24 and below; with walls, solid at |z| == half + 1 up to y 66. */
