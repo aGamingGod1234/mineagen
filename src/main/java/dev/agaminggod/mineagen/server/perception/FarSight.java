@@ -1107,11 +1107,14 @@ public final class FarSight {
 		if (request.wants(Section.VEINS)) {
 			sight.release();
 			sight.section(VEIN_SHARE);
+			boolean starved = sight.exhausted();
 			int tests = 0;
 			for (Found found : gathered.ore().stream().sorted(Comparator.comparingDouble(distance)).toList()) {
 				if (tests++ >= SightedFeatures.MAX_VEIN_SEEDS * 2) break;
 				if (sight.sees(found)) seenOre.add(BlockPos.of(found.position()));
 			}
+			// With timing on: how often ore candidates were there but the pass had no sight lines left for them.
+			if (!gathered.ore().isEmpty()) PerceptionTiming.count("far_sight_vein_starved", starved ? 1 : 0);
 		}
 		// Every row is judged by its own distance: a structure or cluster near the edge never reports a block past range.
 		rows.removeIf(row -> row.distance() > range);
