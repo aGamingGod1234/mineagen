@@ -195,6 +195,8 @@ public final class ServerFightUntilController implements ServerController {
 	private final float fleeAtHealth;
 	/** The model's spot; cleared when a roof falls back (K11), since with roof:true it was the shelter site. */
 	private Vec3 spot;
+	/** In forest mode with roof:true, the model's spot: the area's centre while the shelter waits for contact. */
+	private Vec3 forestCenter;
 	private final double radius;
 	private final long timeoutMs;
 	/** Count mode: the model's own fight_target / use_ranged options, kept for every engagement. */
@@ -442,7 +444,8 @@ public final class ServerFightUntilController implements ServerController {
 			forest = new WarpedForestHunt(player.position());
 			forest.mayModify(this::mayModify);
 			roofWanted = roof;
-			if (roof) spot = null;
+			// The model's spot still centres the hunt area; only the shelter waits for contact.
+			if (roof) { forestCenter = spot; spot = null; }
 			roof = false;
 			collectWhenClear = !collect && choices.mayMove();
 		}
@@ -478,7 +481,7 @@ public final class ServerFightUntilController implements ServerController {
 		if (startCount < 0) {
 			startCount = count(player, untilItem);
 			startArrows = arrows(player);
-			center = spot != null ? spot : player.position();
+			center = spot != null ? spot : forestCenter != null ? forestCenter : player.position();
 			hazard.observe(player);
 		}
 		if (!player.isAlive()) return stop(player, TickResult.failed("AGENT_DEAD", "Agent player died during fight_until", progress(player)));
@@ -1503,6 +1506,8 @@ public final class ServerFightUntilController implements ServerController {
 			double distance = player.distanceTo(enderman);
 			if (distance > STARE_RANGE || distance >= bestDistance || staredOut.contains(enderman.getUUID()) || excluded.containsKey(enderman.getUUID())) continue;
 			if (!mayEngage(player, enderman) || !ObservationVisibility.canSeeEntity(player, enderman) || !eyesClear(player, enderman)) continue;
+			// Not one standing in a warped forest: from its edge, staring 64 blocks in provokes the forest's endermen at once.
+			if (WarpedForestHunt.BIOME.equals(WarpedForestHunt.probe.biome(player, enderman.blockPosition()))) continue;
 			best = enderman;
 			bestDistance = distance;
 		}
@@ -1515,6 +1520,17 @@ public final class ServerFightUntilController implements ServerController {
 	 * as a player steps back from the lava, and waits there for it to come across. Null when nothing is to be drawn over.
 	 */
 	private TickResult tickDrawOver(ServerPlayer player, long elapsed, long now, boolean mayStart) {
+		if (drawWalk != null && (drawn != null && drawn.isAlive() && drawnAt != null && drawn.position().distanceTo(drawnAt) >= UnreachableTargets.MOVED
+				&& player.distanceTo(drawn) <= ENDER_HOLD_RANGE
+				|| !player.level().getEntitiesOfClass(McCompat.ENDERMAN, player.getBoundingBox().inflate(ENDER_HOLD_RANGE),
+						e -> e.isAlive() && !e.isDeadOrDying() && attacking(player, e) && !unreachable.marked(e.getUUID())).isEmpty())) {
+			// An angry one teleported into reach while the body backed off: the fight takes it now.
+			drawWalk.cancel(player);
+			drawWalk = null;
+			drawn = null;
+			drawHoldUntilMs = -1L;
+			return null;
+		}
 		if (drawWalk != null) {
 			lastTargetMs = elapsed;
 			long gameTick = player.level().getGameTime();

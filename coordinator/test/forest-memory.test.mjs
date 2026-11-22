@@ -67,3 +67,13 @@ test('a cell the body stood in keeps that verified point over a later far survey
 	assert.equal(rows.length, 1);
 	assert.deepEqual([rows[0].x, rows[0].z, rows[0].standing], [100, 280, true]);
 });
+
+test('a body falling through a warped forest (knocked off a bridge) leaves no standing point', async (t) => {
+	const directory = await mkdtemp(join(tmpdir(), 'forest-memory-'));
+	t.after(() => rm(directory, { recursive: true, force: true }));
+	const store = new ObservedMemoryStore({ directory });
+	store.ingest('a', sample(10, 100, 280, 'minecraft:warped_forest', { player: { onGround: false } }));
+	assert.equal(store.knownSources('a', sample(20, 0, 0, 'minecraft:basalt_deltas')).sightings.filter((row) => row.kind === 'biome' && row.standing).length, 0);
+	store.ingest('a', sample(30, 100, 280, 'minecraft:warped_forest', { player: { onGround: true } }));
+	assert.equal(store.knownSources('a', sample(40, 0, 0, 'minecraft:basalt_deltas')).sightings.filter((row) => row.kind === 'biome' && row.standing).length, 1, 'landed: remembered');
+});

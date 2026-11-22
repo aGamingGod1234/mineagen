@@ -807,7 +807,8 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 	const netherBiome = () => profile.kind === 'biome' && observation?.world?.dimension === 'minecraft:the_nether';
 	const standingIn = (sample) => {
 		const at = bodyAt(sample);
-		return at !== null && profile.ids.has(sample?.world?.biome)
+		// Standing, not passing through: a body knocked off a bridge falls through the biome over lava.
+		return at !== null && sample?.player?.onGround !== false && profile.ids.has(sample?.world?.biome)
 			? { x: Math.floor(at.x), y: Math.floor(at.y), z: Math.floor(at.z), id: sample.world.biome, via: 'standing in it', distance: 0 } : null;
 	};
 	let approaching = false;
@@ -836,7 +837,9 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 				}
 				// The caller's within holds for the approach too: no leg ends beyond it.
 				if (!insideBoundary({ x: goal.x + 0.5, z: goal.z + 0.5 })) return { stuck: `${goal.x},${goal.y},${goal.z} lies beyond within ${within} of the start` };
-				const room = Math.floor(withinReach());
+				// A straight leg to a goal inside the boundary stays inside it (the area is a circle); only a turned leg can leave it.
+				const turned = APPROACH_TURNS[stuck % APPROACH_TURNS.length] !== 0;
+				const room = turned ? Math.floor(withinReach()) : Infinity;
 				if (room < MIN_SURFACE_LEG) return { stuck: `at the edge of within ${within} of the start; ${Math.round(away)} blocks left` };
 				if (stuck >= APPROACH_STUCK) return { stuck: `${stuck} approach legs in a row gained under ${APPROACH_GAIN} blocks; ${Math.round(away)} blocks left` };
 				const yaw = wrap(Math.round(Math.atan2(-(goal.x + 0.5 - at.x), goal.z + 0.5 - at.z) * 180 / Math.PI) + APPROACH_TURNS[stuck % APPROACH_TURNS.length]);

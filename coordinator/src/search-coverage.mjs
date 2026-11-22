@@ -120,7 +120,7 @@ export function observeSearch(search, observation, position, tick, blockAt = () 
 	const sample = classifySample(search, observation, position, tick);
 	search.tick = Math.max(search.tick, tick);
 	// What was seen stays a sighting even when this sample ends a life.
-	recordSightings(search, observation?.sighted && typeof observation.sighted === 'object' ? observation.sighted : {}, tick, sightingAt, { ...seenWith(observation), at: position });
+	recordSightings(search, observation?.sighted && typeof observation.sighted === 'object' ? observation.sighted : {}, tick, sightingAt, { ...seenWith(observation), at: position, onGround: observation?.player?.onGround });
 	if (sample.ended) { search.motion = null; search.odometer.recent = []; return sample; }
 	const odometer = search.odometer;
 	const previous = search.motion;
@@ -253,7 +253,8 @@ export function recordSightings(search, sighted, tick, blockAt = () => undefined
 		const biome = typeof row.biome === 'string' ? (row.biome.includes(':') ? row.biome : `minecraft:${row.biome}`) : null;
 		if (REMEMBERED_BIOMES.has(biome)) keep(row, biome, 'biome', 32);
 	}
-	if (REMEMBERED_BIOMES.has(seen.biome) && seen.at && [seen.at.x, seen.at.y, seen.at.z].every(Number.isFinite))
+	// A standing point only where the body stands: one falling through the biome (knocked off a bridge) is not one.
+	if (REMEMBERED_BIOMES.has(seen.biome) && seen.onGround !== false && seen.at && [seen.at.x, seen.at.y, seen.at.z].every(Number.isFinite))
 		keep({ x: Math.floor(seen.at.x), y: Math.floor(seen.at.y), z: Math.floor(seen.at.z) }, seen.biome, 'biome', 32, { standing: true });
 	for (const row of rows('veins')) if (Number.isFinite(row.visible)) keep(row, row.blockId, 'vein', 8, { visible: row.visible });
 	for (const row of rows('blocks')) {

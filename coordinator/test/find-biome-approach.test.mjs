@@ -11,11 +11,12 @@ const NETHERRACK = { itemId: 'minecraft:netherrack', count: 64 };
  * fail (NO_ROUTE, no movement); the biome follows the position. walls: how many walking legs in a row fail before one
  * gets through; buildWorks: whether a building leg moves.
  */
-function netherBody({ short = 0, sighted = null, dimension = 'minecraft:the_nether', looks = [], walls = () => false, buildWorks = true, known = null, danger = null, dangerCode = 'LAVA_AHEAD', items = [NETHERRACK] } = {}) {
+function netherBody({ forestZ = FOREST_Z, airborneIn = 0, short = 0, sighted = null, dimension = 'minecraft:the_nether', looks = [], walls = () => false, buildWorks = true, known = null, danger = null, dangerCode = 'LAVA_AHEAD', items = [NETHERRACK] } = {}) {
 	let at = { x: 0.5, y: 70, z: 0.5 }, clock = 0, walksTried = 0;
 	const calls = [], missed = [];
-	const biome = () => (at.z >= FOREST_Z ? 'minecraft:warped_forest' : dimension === 'minecraft:the_nether' ? 'minecraft:basalt_deltas' : 'minecraft:plains');
-	const sample = () => ({ player: { ...at, yaw: 0, health: 20 }, world: { dimension, biome: biome() }, inventory: { items: structuredClone(items) }, ...(sighted && calls.length === 0 ? { sighted } : {}) });
+	const biome = () => (at.z >= forestZ ? 'minecraft:warped_forest' : dimension === 'minecraft:the_nether' ? 'minecraft:basalt_deltas' : 'minecraft:plains');
+	let airborne = airborneIn;
+	const sample = () => ({ player: { ...at, yaw: 0, health: 20, ...(at.z >= forestZ && airborne-- > 0 ? { onGround: false } : {}) }, world: { dimension, biome: biome() }, inventory: { items: structuredClone(items) }, ...(sighted && calls.length === 0 ? { sighted } : {}) });
 	return {
 		calls, missed,
 		now: () => clock,
@@ -163,4 +164,22 @@ test('a forest cell seen right at the biome edge is walked through, not given up
 	assert.equal(result.reasonCode, 'FIND_SEEN', result.message);
 	assert.equal(result.find.seen.via, 'standing in it');
 	assert.ok(body.calls.some((call) => call.actionType === 'travel_to' && call.args.distance >= 7), 'one leg aimed past the edge cell');
+});
+
+test('a body falling through the forest biome is not standing in it: the approach goes on until it lands', async () => {
+	// The first three samples in the forest show the body airborne (knocked off a bridge over lava).
+	const body = netherBody({ looks: [seenForest], airborneIn: 3 });
+	const result = await searchFor({ biome: 'minecraft:warped_forest' }, body, { timeoutMs: 540_000 });
+	assert.equal(result.reasonCode, 'FIND_SEEN', result.message);
+	assert.equal(result.find.seen.via, 'standing in it');
+	assert.ok(body.calls.filter((call) => call.actionType === 'travel_to').length > 3, 'the airborne samples did not end the approach (3 legs reach the forest)');
+});
+
+test('near the edge of within, a straight leg to a seen forest inside it is walked, not refused', async () => {
+	// within 70, the forest from z 66, its cell seen at z 68: after two 32-block legs the body stands 6 blocks from the
+	// edge with 4 to go; the straight leg there stays inside the circle.
+	const edge = { state: 'SUCCEEDED', survey: { biomes: [{ biome: 'minecraft:warped_forest', x: 0, y: 70, z: 68 }] } };
+	const body = netherBody({ looks: [edge], forestZ: 66 });
+	const result = await searchFor({ biome: 'minecraft:warped_forest' }, body, { timeoutMs: 540_000, within: 70 });
+	assert.equal(result.reasonCode, 'FIND_SEEN', result.message);
 });
