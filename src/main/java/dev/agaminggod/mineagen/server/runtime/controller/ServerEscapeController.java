@@ -477,6 +477,7 @@ public final class ServerEscapeController implements ServerController {
 			if (near != null && stands < MAX_TRIES) {
 				stands++;
 				stand = new CorneredStand(near, null, player, now);
+				standUntil = now + STAND_MS;
 				standLabel = "stood its ground against " + type(near instanceof Mob mob ? mob : null);
 				return standTick(player, now);
 			}
@@ -493,11 +494,17 @@ public final class ServerEscapeController implements ServerController {
 	/** A hostile this near when a step is refused for it is fought where the body stands, not climbed past. */
 	static final double STAND_RANGE = 6.0D;
 	private CorneredStand stand;
+	private long standUntil;
+	/** A stand inside an escape lasts at most this long before the escape goes back to getting out. */
+	static final long STAND_MS = 10_000L;
 	private String standLabel;
 	private int stands;
 
 	private TickResult standTick(ServerPlayer player, long now) {
 		TickResult result = stand.tick(player, now);
+		// Bounded: a mob the stand cannot reach (on a rim above the hole) is guarded against, never fought, and would
+		// otherwise hold the body there until the escape's deadline instead of climbing on.
+		if (result.state() == State.RUNNING && now >= standUntil) result = TickResult.failed("STAND_BOUNDED", "stood " + STAND_MS / 1000 + " s; climbing on", 0.5D);
 		if (result.state() == State.RUNNING) return TickResult.running(0.5D);
 		stand.cancel(player);
 		stand = null;
@@ -508,9 +515,11 @@ public final class ServerEscapeController implements ServerController {
 
 	private static LivingEntity nearestHostile(ServerPlayer player, double within) {
 		LivingEntity best = null;
+		// A creeper is not stood against (the stand does not fight creepers): the creeper reflex and the agent's rules
+		// answer it once the escape hands back.
 		for (Mob mob : player.level().getEntitiesOfClass(Mob.class, player.getBoundingBox().inflate(within),
-				mob -> mob.isAlive() && dev.agaminggod.mineagen.server.perception.ThreatPerception.isHostileTo(mob, player)
-						&& player.distanceTo(mob) <= within)) {
+				mob -> mob.isAlive() && !(mob instanceof net.minecraft.world.entity.monster.Creeper)
+						&& dev.agaminggod.mineagen.server.perception.ThreatPerception.isHostileTo(mob, player) && player.distanceTo(mob) <= within)) {
 			if (best == null || player.distanceTo(mob) < player.distanceTo(best)) best = mob;
 		}
 		return best;

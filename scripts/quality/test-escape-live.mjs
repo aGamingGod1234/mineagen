@@ -17,6 +17,8 @@
 //            in the hole beside the body. Pass: alive, and out of the hole or the skeleton dead, within 40 s.
 //   pitcreeper the hole 4 deep with a stone pickaxe only (stairs up) and a creeper on the surface 7 blocks away: out
 //            alive within 60 s; damage and deaths are read too (climbing on must not trade a stop for a blast).
+//   pitcreeper-rim the same hole with a still creeper on the rim beside it, out of reach: passes when no escape call
+//            runs to its deadline (a stand guarding an unreachable creeper must not hold the body there).
 // Optional regressions (escape jar): archer-direction puts a nearer zombie west of the body and a skeleton east.
 // archer-resume pauses the run with a reflex while the skeleton is still in range.
 // The arm is read from the jar: a jar with the escape body job plays "escape" (every decision is do_step escape); any
@@ -49,7 +51,7 @@ const rooms = (roomsArg ?? 'deep;stair;pit;pitdig;shaft;lake;skeleton').split(';
 const THINK_MS = Number(process.env.ESCAPE_THINK_MS ?? 6_000);
 const PAD_Y = 150;
 const LEGACY = process.env.ESCAPE_LEGACY === 'wake' ? 'wake' : 'strong';
-const WINDOW_MS = { deep: 60_000, stair: 60_000, pit: 60_000, pitdig: 60_000, shaft: 90_000, lake: 90_000, skeleton: 30_000, pitskel: 40_000, pitcreeper: 60_000,
+const WINDOW_MS = { deep: 60_000, stair: 60_000, pit: 60_000, pitdig: 60_000, shaft: 90_000, lake: 90_000, skeleton: 30_000, pitskel: 40_000, pitcreeper: 60_000, 'pitcreeper-rim': 40_000,
 	'archer-direction': 15_000, 'archer-resume': 15_000 };
 const out = path.resolve(outArg);
 await mkdir(out, { recursive: true });
@@ -119,7 +121,7 @@ try {
 		} else if (room === 'stair') {
 			for (let i = 0; i < 8; i++) await s.command(`fill ${X + i} ${F - 1 - i} ${Z} ${X + i} ${Math.min(F - 1, F + 1 - i)} ${Z} minecraft:water`);
 			start = [X + 7.5, F - 8, Z + 0.5]; drain = 3_000; facing = 90; bank = { x: X - 1.5, z: Z + 0.5 };
-		} else if (room === 'pitcreeper') {
+		} else if (room === 'pitcreeper' || room === 'pitcreeper-rim') {
 			// Climbing a stair out toward a creeper: the hole 4 deep with a stone pickaxe only (stairs up), a creeper on the
 			// surface 7 blocks from the hole that hunts the body once it is out.
 			await s.command(`fill ${X} ${F - 4} ${Z} ${X} ${F - 1} ${Z} minecraft:air`);
@@ -199,9 +201,11 @@ try {
 			continue;
 		}
 		let skeleton = null;
-		if (room === 'pitcreeper') {
+		if (room === 'pitcreeper' || room === 'pitcreeper-rim') {
 			await s.command('difficulty normal');
-			await s.command(`summon minecraft:creeper ${X + 7.5} ${F} ${Z + 0.5} {PersistenceRequired:1b}`);
+			// -rim: a creeper standing still on the rim beside the hole, where nothing in the hole can reach it.
+			await s.command(room === 'pitcreeper' ? `summon minecraft:creeper ${X + 7.5} ${F} ${Z + 0.5} {PersistenceRequired:1b}`
+				: `summon minecraft:creeper ${X + 1.5} ${F} ${Z + 0.5} {PersistenceRequired:1b,NoAI:1b}`);
 			await sleep(500);
 		}
 		if (room === 'pitskel') {
@@ -254,7 +258,7 @@ try {
 				const feet = [Math.floor(p[0]), Math.floor(p[1]), Math.floor(p[2])];
 				return await onGround() && !(await blockAt(...feet, 'minecraft:water')) && p[1] >= F - 0.01;
 			}
-			if (room === 'pit' || room === 'pitdig' || room === 'shaft' || room === 'pitcreeper') return p[1] >= F - 0.01 && await onGround();
+			if (room === 'pit' || room === 'pitdig' || room === 'shaft' || room === 'pitcreeper' || room === 'pitcreeper-rim') return p[1] >= F - 0.01 && await onGround();
 			// Out of the hole, or the skeleton beside it dead.
 			if (room === 'pitskel') return p[1] >= F - 0.01 && await onGround()
 				|| !String(await s.command('execute if entity @e[type=minecraft:skeleton]').catch(() => 'passed')).includes('passed');
@@ -289,7 +293,8 @@ try {
 			else if (room === 'lake') call = ['dig_to', { pattern: 'stairs_up', y: F, heading: 'east', timeoutMs: Math.min(60_000, left) }];
 			else if (room === 'shaft') call = LEGACY === 'wake' ? ['control', { forward: 0, strafe: 0, jump: true, sneak: false, sprint: false, attack: false, use: false, yaw: facing, pitch: -45, selectedSlot: 0, hand: 'main', ticks: 40 }]
 				: ['build', { structure: 'pillar', size: Math.max(1, F - Math.floor(p[1])), timeoutMs: Math.min(30_000, left) }];
-			else if (room === 'pitdig') call = ['dig_to', { pattern: 'stairs_up', y: F, heading: 'east', timeoutMs: Math.min(60_000, left) }];
+			else if (room === 'pitdig' || room === 'pitcreeper' || room === 'pitcreeper-rim') call = ['dig_to', { pattern: 'stairs_up', y: F, heading: 'east', timeoutMs: Math.min(60_000, left) }];
+			else if (room === 'pitskel') call = ['build', { structure: 'pillar', size: Math.max(1, F - Math.floor(p[1])), timeoutMs: Math.min(30_000, left) }];
 			else call = ['flee_from', { targetId: skeleton.uuid, distance: 16, timeoutMs: Math.min(10_000, left) }];
 			calls++;
 			last = await s.act(call[0], call[1], left + 10_000).catch(error => ({ state: 'ERROR', reasonCode: error.message }));
@@ -325,8 +330,10 @@ try {
 		else if (executed === 0 && safeAt !== null) row.notExercised = calls === 0 ? 'safe before the first decision (reflexes alone)' : 'safe with no call the body ran';
 		if (healthSamples === 0) row.error = 'no health sample in the window';
 		if (last?.state === 'ERROR') row.error = `call never returned: ${last.reasonCode}`;
-		row.pass = died === false && (room === 'skeleton' ? (row.damageTaken ?? Infinity) <= 6 && endSafe === true : safeAt !== null && endSafe === true);
-		if (!row.pass) row.failReason = died ? 'died' : room === 'skeleton' ? (endSafe !== true ? 'not in cover at the end' : `took ${row.damageTaken} damage`) : safeAt === null ? 'not safe within the window' : 'safe, then back in danger';
+		// pitcreeper-rim: no escape call may sit out its whole timeout guarding a creeper it cannot reach.
+		if (room === 'pitcreeper-rim') { row.pass = died === false && !results.some(r => r.startsWith('escape:TIMED_OUT')); if (!row.pass) row.failReason = died ? 'died' : 'an escape call ran to its deadline'; }
+		else row.pass = died === false && (room === 'skeleton' ? (row.damageTaken ?? Infinity) <= 6 && endSafe === true : safeAt !== null && endSafe === true);
+		if (!row.pass && room !== 'pitcreeper-rim') row.failReason = died ? 'died' : room === 'skeleton' ? (endSafe !== true ? 'not in cover at the end' : `took ${row.damageTaken} damage`) : safeAt === null ? 'not safe within the window' : 'safe, then back in danger';
 		rows.push(row);
 		console.log(`[${room} ${row.arm} ${run}] ${roomVerdict(row).verdict} calls=${calls} safe=${row.safeSeconds}s hpLost=${row.healthLost}${died ? ' DIED' : ''} air ${airBefore}->${minAir}${row.hiddenShare !== undefined ? ` hidden=${row.hiddenShare}` : ''} | ${results.join(' ')} | ${row.message.slice(0, 160)}`);
 		await s.command(`kill @e[type=minecraft:skeleton]`).catch(() => {});
