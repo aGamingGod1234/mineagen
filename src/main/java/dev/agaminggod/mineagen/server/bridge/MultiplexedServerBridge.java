@@ -190,7 +190,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 	private final int port;
 	private final ServerSocketFactory serverSockets;
 	private final LongSupplier nanoTime;
-	/** When the server thread last began a tick ({@link #nanoTime}); 0 before the first. Read by the reader thread. */
+	/** When the server thread last began a tick (System.nanoTime; fixtures may allocate the bridge without its clock); 0 before the first. */
 	private volatile long lastTickNanos;
 	private final GoalVerificationDedupe goalVerifications;
 	private final BoundedServerTaskQueue serverTasks = new BoundedServerTaskQueue(
@@ -439,7 +439,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 	 * Every callback in this method must run on the server thread.
 	 */
 	public void startTick() {
-		lastTickNanos = nanoTime.getAsLong();
+		lastTickNanos = System.nanoTime();
 		admissionTicks++;
 		flushPublicChat();
 		drainServerTasks();
@@ -1029,7 +1029,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 	/** How long ago the server thread last began a tick, and whether the server is paused (a single-player pause). */
 	JsonObject heartbeatPayload() {
 		long last = lastTickNanos;
-		long ageMs = last == 0L ? 0L : Math.max(0L, (nanoTime.getAsLong() - last) / 1_000_000L);
+		long ageMs = last == 0L ? 0L : Math.max(0L, (System.nanoTime() - last) / 1_000_000L);
 		net.minecraft.server.MinecraftServer server = manager.server();
 		JsonObject payload = new JsonObject();
 		payload.addProperty("tickAgeMs", ageMs);
