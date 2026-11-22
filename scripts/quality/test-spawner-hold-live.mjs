@@ -276,8 +276,11 @@ for (const seed of SEEDS) {
 }
 const summary = Object.fromEntries(VARIANTS.map(variant => {
 	const rows = runs.filter(r => r.variant === variant && !r.error);
-	return [variant, { arm: ARM, runs: rows.length, reachedUntil: rows.filter(r => r.reachedMin !== null && r.reachedMin !== undefined).length, deaths: rows.reduce((a, r) => a + (r.deaths ?? 0), 0),
-		rods: rows.map(r => r.rodsAtEnd), minutesTo: rows.map(r => r.reachedMin), passBar: rows.filter(r => r.bar).length >= 3 && rows.reduce((a, r) => a + (r.deaths ?? 0), 0) <= 1 }];
+	// A run whose death count is unknown makes the group's deaths unknown, and the bar unmet (never a pass on missing evidence).
+	const known = rows.every(r => Number.isSafeInteger(r.deaths) && !(r.integrity?.length));
+	const deaths = known ? rows.reduce((a, r) => a + r.deaths, 0) : null;
+	return [variant, { arm: ARM, runs: rows.length, reachedUntil: rows.filter(r => r.reachedMin !== null && r.reachedMin !== undefined).length, deaths,
+		rods: rows.map(r => r.rodsAtEnd), minutesTo: rows.map(r => r.reachedMin), passBar: known && rows.filter(r => r.bar).length >= 3 && deaths <= 1 }];
 }));
 await writeFile(path.join(out, 'summary.json'), JSON.stringify(summary, null, 2));
 console.log(JSON.stringify(summary));

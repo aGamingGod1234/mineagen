@@ -276,6 +276,8 @@ public final class ServerSpawnerHoldController implements ServerController {
 			fallbackWhy = "no fortress spawner seen after looking round";
 			// The ordinary fight gets the time left, not a fresh timeout.
 			JsonObject left = model.deepCopy();
+			// roof is the hold's own option; the ordinary blaze fight refuses it.
+			left.remove("roof");
 			left.addProperty("timeoutMs", Math.max(1_000L, timeoutMs - elapsed));
 			fallback = new ServerFightUntilController(player, left, protection, now, "fight_until", null, roofing);
 			return fallback.tick(player, now);
@@ -334,7 +336,9 @@ public final class ServerSpawnerHoldController implements ServerController {
 			if (!player.level().getBlockState(doorway).getCollisionShape(player.level(), doorway).isEmpty()
 					|| !player.level().getBlockState(doorway.above()).getCollisionShape(player.level(), doorway.above()).isEmpty()) {
 				sealed = true;
-				reopening = true;
+				// Walled in and still hurt: heal on before opening (the last call ended mid-heal).
+				if (player.getHealth() < SpawnerHold.TURTLE_DONE) turtleSinceMs = Math.max(0L, lastElapsed);
+				else reopening = true;
 			}
 			note("resumed the hold in its cell " + cell.toShortString() + (reopening ? ", doorway walled up" : ""));
 			return enterHold(player);
@@ -371,6 +375,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 				cancelParts(player);
 				fallbackWhy = "no seen cell 6-12 blocks from the spawner";
 				JsonObject left = model.deepCopy();
+				left.remove("roof");
 				left.addProperty("timeoutMs", Math.max(1_000L, timeoutMs - lastElapsed));
 				fallback = new ServerFightUntilController(player, left, protection, now, "fight_until", null, roofing);
 				return fallback.tick(player, now);
