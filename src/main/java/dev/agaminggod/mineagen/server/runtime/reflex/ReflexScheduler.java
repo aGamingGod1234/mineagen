@@ -106,6 +106,8 @@ public final class ReflexScheduler {
 		int failuresInARow;
 		String lastFailure;
 		String disabledReason;
+		/** A finishing stance disabled by the loop limits comes back at this tick (see {@link #FINISHING_REARM_TICKS}). */
+		long rearmAt = Long.MAX_VALUE;
 		int heldSpans;
 		/** First tick of the current false run of the condition (for a held action's release grace). */
 		long falseSince = Long.MIN_VALUE;
@@ -150,6 +152,7 @@ public final class ReflexScheduler {
 			state.cornerFailures = cornerFailures;
 			state.lastFailure = lastFailure;
 			state.disabledReason = disabledReason;
+			state.rearmAt = rearmAt;
 			state.heldSpans = heldSpans;
 			state.falseSince = falseSince;
 			state.heldBack = heldBack;
@@ -331,6 +334,14 @@ public final class ReflexScheduler {
 			addEvent(state.rule.id(), Outcome.EXPIRED, wasFiring ? now - ended.startTick() : 0L, why, false, now, wasFiring);
 		}
 		for (State state : states.values()) {
+			if (state.disabledReason != null && now >= state.rearmAt) {
+				// A bot that can never eat again starves: a meal blocked once (facing a table) is tried again later.
+				addEvent(state.rule.id(), Outcome.DONE, 0L, "re-armed after " + (FINISHING_REARM_TICKS / TICKS_PER_SECOND) + " s disabled", false, now, false);
+				state.disabledReason = null;
+				state.rearmAt = Long.MAX_VALUE;
+				state.failuresInARow = 0;
+				state.recentFirings.clear();
+			}
 			if (state.disabledReason != null) continue;
 			boolean truth = senses.getOrDefault(state.rule.id(), Sense.FALSE).truth();
 			if (state.rule.kind() == ReflexSpec.Kind.TRIGGER && truth && !state.lastTruth) {
@@ -669,12 +680,18 @@ public final class ReflexScheduler {
 		}
 		if (disabled != null) {
 			state.disabledReason = disabled;
+			if (finishes(state.rule)) {
+				state.rearmAt = now + FINISHING_REARM_TICKS;
+				disabled += "; tried again in " + (FINISHING_REARM_TICKS / TICKS_PER_SECOND) + " s";
+			}
 			addEvent(state.rule.id(), Outcome.DISABLED, 0L, disabled, true, now, false);
 		}
 	}
 
 	/** Stance actions that end when done (one meal), so running out of maxS is a failure, not a hold. */
 	public static final Set<String> FINISHING_STANCE_ACTIONS = Set.of("eat");
+	/** A finishing stance the loop limits disabled is armed again after this long, so a blocked meal never means starving. */
+	public static final long FINISHING_REARM_TICKS = 60L * TICKS_PER_SECOND;
 
 	/** A stance whose action finishes, see {@link #FINISHING_STANCE_ACTIONS}. */
 	public static boolean finishes(ReflexSpec.Rule rule) {

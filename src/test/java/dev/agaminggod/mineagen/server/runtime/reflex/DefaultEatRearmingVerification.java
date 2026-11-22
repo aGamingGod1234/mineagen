@@ -122,6 +122,16 @@ public final class DefaultEatRearmingVerification {
 		check(timeouts == ReflexScheduler.MAX_FAILURES_IN_A_ROW && disabled && wokeOnDisable,
 				"four stuck meals in a row disable the rule and wake the model: disabled=" + disabled + ", wake=" + wokeOnDisable);
 		check(step(scheduler, tick + 1, 1, 10, false, RUNNING).started() == null, "a disabled eat no longer takes the body");
+		// A starving bot is worse than a stuck one: the disabled meal is tried again after a minute, and a real meal then
+		// counts as progress so the next stuck one does not disable it at once.
+		long disabledAt = tick - cooldown;
+		for (long at = tick + 2; at < disabledAt + ReflexScheduler.FINISHING_REARM_TICKS; at += 20L) {
+			check(step(scheduler, at, 1, 10, false, RUNNING).started() == null, "still resting at tick " + at);
+		}
+		long rearm = disabledAt + ReflexScheduler.FINISHING_REARM_TICKS;
+		check(EAT.equals(step(scheduler, rearm, 1, 10, false, RUNNING).started()), "the eat rule comes back after its rest");
+		check(step(scheduler, rearm + 33L, 4, 9, false, DONE).endOutcome() == ReflexScheduler.Outcome.DONE, "and eats");
+		check(scheduler.statuses(rearm + 34L).stream().anyMatch(row -> EAT.equals(row.id()) && row.disabledReason() == null), "it is armed again");
 		check(ReflexScheduler.finishes(eat) && !ReflexScheduler.FINISHING_STANCE_ACTIONS.contains("defend"),
 				"eat finishes, defend holds");
 		return 6;
