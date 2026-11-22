@@ -401,10 +401,12 @@ public final class PovClient {
 	 * target's HUD mixin inside the part of the HUD that F1 hides; the corner is free of chat (bottom left), effects (top
 	 * right) and the action bar and hotbar (bottom centre), and the F3 screen there hides the label.
 	 */
-	public static void extractCornerLabel(GuiGraphicsExtractor graphics, Minecraft client, boolean debugScreenShown) {
+	public static void extractCornerLabel(GuiGraphicsExtractor graphics, Minecraft client) {
 		PovClientSession current = TRACKER.session().orElse(null);
+		// Only the F3 text screen covers this corner. Hitboxes (F3+B) and chunk borders (F3+G) also count as "debug
+		// shown", yet draw nothing here, so they must not hide the way out.
 		java.util.List<String> keys = PovCornerLabel.lines(current != null, current != null && current.takeover(),
-				EXIT_VIEW.isUnbound(), debugScreenShown);
+				EXIT_VIEW.isUnbound(), client.debugEntries.isOverlayVisible());
 		if (keys.isEmpty()) return;
 		Component[] lines = new Component[keys.size()];
 		int width = 0;

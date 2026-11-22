@@ -11,7 +11,6 @@ import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Gui;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
-import net.minecraft.client.gui.components.DebugScreenOverlay;
 import net.minecraft.client.multiplayer.MultiPlayerGameMode;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.player.RemotePlayer;
@@ -44,14 +43,10 @@ abstract class GuiPovMixin {
 	@Final
 	private Minecraft minecraft;
 
-	@Shadow
-	@Final
-	private DebugScreenOverlay debugOverlay;
-
 	// The tab list is drawn only while F1 has not hidden the HUD, so the label hides with the rest of it.
 	@Inject(method = "extractTabList", at = @At("HEAD"))
 	private void mineagen$povCornerLabel(GuiGraphicsExtractor graphics, DeltaTracker deltaTracker, CallbackInfo ci) {
-		PovClient.extractCornerLabel(graphics, minecraft, debugOverlay.showDebugScreen());
+		PovClient.extractCornerLabel(graphics, minecraft);
 	}
 
 	@ModifyReturnValue(method = "getCameraPlayer", at = @At("RETURN"))
