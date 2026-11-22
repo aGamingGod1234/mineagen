@@ -429,8 +429,12 @@ function normalizeProtocolV2Payload(type, value) {
 				goalRevision: revision(value.goalRevision, 'goalRevision'),
 			};
 		case 'request_observation':
-			exactKeys(value, ['goalRevision'], ['goalRevision'], type);
-			return { goalRevision: revision(value.goalRevision, 'goalRevision') };
+			// fullInventory goes only to a server that sent an inventory marker; an older server rejects the key.
+			exactKeys(value, ['goalRevision', 'fullInventory'], ['goalRevision'], type);
+			return {
+				goalRevision: revision(value.goalRevision, 'goalRevision'),
+				...(value.fullInventory === undefined ? {} : { fullInventory: boolean(value.fullInventory, 'fullInventory') }),
+			};
 		case 'inspection_request':
 			exactKeys(value, ['goalRevision', 'requestId', 'query'], ['goalRevision', 'requestId', 'query'], type);
 			return { goalRevision: revision(value.goalRevision, 'goalRevision'), requestId: requireIdentifier(value.requestId, 'requestId'), query: normalizeInspectionQuery(value.query) };
@@ -949,7 +953,7 @@ export class MultiplexedServerBridge extends EventEmitter {
 		}
 		if (!this.#inventoryResendRequested.has(value.agentId)) {
 			this.#inventoryResendRequested.add(value.agentId);
-			Promise.resolve().then(() => this.send('request_observation', value.agentId, { goalRevision: value.payload.goalRevision }, { connectionEpoch }))
+			Promise.resolve().then(() => this.send('request_observation', value.agentId, { goalRevision: value.payload.goalRevision, fullInventory: true }, { connectionEpoch }))
 				.catch(() => this.#inventoryResendRequested.delete(value.agentId));
 		}
 		return false;

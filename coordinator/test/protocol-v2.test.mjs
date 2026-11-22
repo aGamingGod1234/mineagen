@@ -1968,6 +1968,12 @@ test('post-action observation requests carry only the active goal revision', () 
 		() => validateProtocolV2Payload('request_observation', { goalRevision: 4, actionId: 'action-9' }),
 		(error) => error.code === 'INVALID_PAYLOAD_FIELD',
 	);
+	assert.deepEqual(
+		validateProtocolV2Payload('request_observation', { goalRevision: 4, fullInventory: true }),
+		{ goalRevision: 4, fullInventory: true },
+		'a request after an unresolved inventory marker asks for the inventory in full',
+	);
+	assert.throws(() => validateProtocolV2Payload('request_observation', { goalRevision: 4, fullInventory: 'yes' }));
 });
 
 test('event inspection uses bounded pages and an explicit event sequence cursor', () => {
@@ -3691,7 +3697,7 @@ test('a marker with no full inventory on this connection is dropped, reported an
 	assert.deepEqual(fixture.rejections.map((rejection) => rejection.count), [1, 2], 'reported on the 1st, 2nd, 4th... miss');
 	assert.match(fixture.rejections[0].error.message, /INVENTORY_BASELINE_UNKNOWN/);
 	assert.equal(requests().length, 1, 'one request per agent until a full inventory arrives');
-	assert.deepEqual(requests()[0].payload, { goalRevision: 4 });
+	assert.deepEqual(requests()[0].payload, { goalRevision: 4, fullInventory: true }, 'only this request asks the server to drop its stored inventory');
 	assert.equal(requests()[0].agentId, 'agent-a');
 	fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('observation', 'agent-a', 'server-resent', { ...full, inventoryHash: 'h2' }))}\n`);
 	fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('observation', 'agent-a', 'server-after', { ...full, inventory: { unchanged: 'h2' } }))}\n`);
@@ -3710,15 +3716,22 @@ test('a full inventory in an observation dropped for other drift still resolves 
 	assert.deepEqual(fixture.observations[0].payload.inventory, validateProtocolV2Payload('observation', readyServerObservation(4)).inventory);
 });
 
-test('an agent removed and registered again needs a new full inventory (PERF-ARCH-8)', async (t) => {
+test('an agent registered again resolves markers only from the full inventory sent after it (PERF-ARCH-8)', async (t) => {
+	// The server forgets its stored inventory whenever it sends agent_registered (a new agent, or the revised record
+	// after a stop or steer while dead), so the coordinator dropping its copy then leaves both sides in step.
 	const fixture = await readyBridgeFixture(t);
 	const full = readyServerObservation(4);
 	fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('observation', 'agent-a', 'server-full', { ...full, inventoryHash: 'h1' }))}\n`);
-	fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('agent_removed', 'agent-a', 'server-removed', { goalRevision: 4 }))}\n`);
+	fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('agent_registered', 'agent-a', 'server-registered', { ...registeredRecord(), goalRevision: 4 }))}\n`);
+	fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('observation', 'agent-a', 'server-full-again', { ...full, observedAtEpochMs: 21, inventoryHash: 'h1' }))}\n`);
+	fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('observation', 'agent-a', 'server-marker', { ...full, observedAtEpochMs: 22, inventory: { unchanged: 'h1' } }))}\n`);
 	await new Promise((resolve) => setImmediate(resolve));
-	fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('agent_registered', 'agent-a', 'server-registered', registeredRecord()))}\n`);
-	fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('observation', 'agent-a', 'server-marker', { ...full, inventory: { unchanged: 'h1' } }))}\n`);
+	assert.deepEqual(fixture.rejections, [], 'the full inventory after re-registration resolves the marker that follows it');
+	assert.deepEqual(fixture.observations.map((envelope) => envelope.messageId), ['server-full', 'server-full-again', 'server-marker']);
+	assert.deepEqual(fixture.observations.at(-1).payload.inventory, validateProtocolV2Payload('observation', full).inventory);
+	fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('agent_registered', 'agent-a', 'server-registered-again', { ...registeredRecord(), goalRevision: 4 }))}\n`);
+	fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('observation', 'agent-a', 'server-stale-marker', { ...full, observedAtEpochMs: 23, inventory: { unchanged: 'h1' } }))}\n`);
 	await new Promise((resolve) => setImmediate(resolve));
-	assert.deepEqual(fixture.observations.map((envelope) => envelope.messageId), ['server-full']);
+	assert.equal(fixture.observations.at(-1).messageId, 'server-marker', 'a marker for an inventory sent before registration is never delivered');
 	assert.match(fixture.rejections.at(-1)?.error.message ?? '', /INVENTORY_BASELINE_UNKNOWN/);
 });

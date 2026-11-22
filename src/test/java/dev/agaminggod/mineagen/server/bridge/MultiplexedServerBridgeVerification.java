@@ -5048,7 +5048,13 @@ public final class MultiplexedServerBridgeVerification {
 		assertTrue(delivered.containsKey(agent), "and keeps the inventory baseline");
 		delivered.remove(agent);
 		assertTrue(ObservationInventoryMarker.prepare(delivered.get(agent), observation).payload().getAsJsonObject("inventory").has("items"),
-				"a forgotten baseline (new connection, removal, coordinator request) sends the full inventory");
+				"a forgotten baseline (new connection, registration, removal, coordinator request after a miss) sends the full inventory");
+		JsonObject request = com.google.gson.JsonParser.parseString("{\"goalRevision\":4}").getAsJsonObject();
+		assertEquals(false, MultiplexedServerBridge.requestsFullInventory(request), "a routine observation request keeps the stored inventory");
+		request.addProperty("fullInventory", true);
+		assertEquals(true, MultiplexedServerBridge.requestsFullInventory(request), "a request after a marker miss asks for the inventory in full");
+		request.addProperty("fullInventory", "yes");
+		assertThrowsBridgeCode(() -> MultiplexedServerBridge.requestsFullInventory(request), "INVALID_FIELD", "fullInventory must be a boolean");
 	}
 
 	private static void verifyExactTargetObservationLedger(AgentId agent) {
