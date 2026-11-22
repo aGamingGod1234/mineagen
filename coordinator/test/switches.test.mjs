@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import {
 	SIDES, STATUSES, SWITCHES, SwitchValueError, describeSwitches, flag, getSwitch, integer, list, listHas, number, oneOf,
@@ -220,4 +223,86 @@ test('the Java Switches mirror has the same server entries, sources, defaults, p
 	assert.equal((java.match(/new Switch\(/g) ?? []).length, expected.length, 'every Java entry parsed');
 	// The Java describe() writes the same `switches name=value@source` line.
 	assert.ok(java.includes('new StringBuilder("switches")'));
+});
+
+// Runs the Java mirror itself: compiles Switches.java with a small harness and feeds the same typed values to Java
+// resolve()/describe() and to the coordinator's describe line. Skips when this machine has no JDK. ASCII values only:
+// the two languages trim and fold case differently for some non-ASCII text (see coordinator/src/switches.mjs).
+const HARNESS = `import dev.agaminggod.mineagen.server.Switches;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
+import java.util.HashMap;
+import java.util.Map;
+
+public class SwitchesParity {
+	public static void main(String[] args) throws Exception {
+		BufferedReader in = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
+		Base64.Decoder decoder = Base64.getDecoder();
+		StringBuilder out = new StringBuilder();
+		for (String line; (line = in.readLine()) != null; ) {
+			Map<String, String> env = new HashMap<>();
+			Map<String, String> properties = new HashMap<>();
+			for (String token : line.isEmpty() ? new String[0] : line.split(" ")) {
+				String[] parts = token.split(",", -1);
+				String key = new String(decoder.decode(parts[1]), StandardCharsets.UTF_8);
+				String value = new String(decoder.decode(parts[2]), StandardCharsets.UTF_8);
+				(parts[0].equals("E") ? env : properties).put(key, value);
+			}
+			out.append(Switches.describe(Switches.resolve(env, properties))).append('\\n');
+		}
+		System.out.print(out);
+	}
+}
+`;
+
+function jdkTool(name) {
+	const home = process.env.JAVA_HOME;
+	const candidates = [...(home ? [join(home, 'bin', name)] : []), name];
+	return candidates.find((command) => spawnSync(command, ['-version'], { stdio: 'ignore' }).status === 0) ?? null;
+}
+
+test('the Java Switches mirror resolves and describes the same values as the coordinator registry', (t) => {
+	const javac = jdkTool('javac');
+	const java = jdkTool('java');
+	if (!javac || !java) return t.skip('no JDK on this machine');
+	const server = SWITCHES.filter((item) => item.side !== 'coordinator');
+	const typed = VALUES.filter((value) => value !== undefined);
+	const cases = [{ env: {}, properties: {} }];
+	for (const item of server) {
+		for (const value of typed) {
+			if (item.env) cases.push({ env: { [item.env]: value }, properties: {} });
+			if (item.property) cases.push({ env: {}, properties: { [item.property]: value } });
+			if (item.env && item.property) for (const other of typed) cases.push({ env: { [item.env]: value }, properties: { [item.property]: other } });
+		}
+	}
+	for (const value of typed) {
+		cases.push({
+			env: Object.fromEntries(server.filter((item) => item.env).map((item) => [item.env, value])),
+			properties: Object.fromEntries(server.filter((item) => item.property).map((item) => [item.property, value])),
+		});
+	}
+	const b64 = (text) => Buffer.from(text, 'utf8').toString('base64');
+	const input = cases.map(({ env, properties }) => [
+		...Object.entries(env).map(([key, value]) => `E,${b64(key)},${b64(value)}`),
+		...Object.entries(properties).map(([key, value]) => `P,${b64(key)},${b64(value)}`),
+	].join(' ')).join('\n');
+	const work = mkdtempSync(join(tmpdir(), 'switches-parity-'));
+	try {
+		writeFileSync(join(work, 'SwitchesParity.java'), HARNESS);
+		const switchesJava = fileURLToPath(new URL('src/main/java/dev/agaminggod/mineagen/server/Switches.java', ROOT));
+		const compiled = spawnSync(javac, ['-d', join(work, 'classes'), switchesJava, join(work, 'SwitchesParity.java')], { encoding: 'utf8' });
+		assert.equal(compiled.status, 0, compiled.stderr);
+		const ran = spawnSync(java, ['-cp', join(work, 'classes'), 'SwitchesParity'], { input: `${input}\n`, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
+		assert.equal(ran.status, 0, ran.stderr);
+		const lines = ran.stdout.split(/\r?\n/).filter(Boolean);
+		assert.equal(lines.length, cases.length, 'one Java line per case');
+		cases.forEach(({ env, properties }, index) => {
+			const expected = describeSwitches(resolveSwitches(env, { properties, sides: ['server', 'both'] })).line;
+			assert.equal(lines[index], expected, `env ${JSON.stringify(env)} -D ${JSON.stringify(properties)}`);
+		});
+	} finally {
+		rmSync(work, { recursive: true, force: true });
+	}
 });

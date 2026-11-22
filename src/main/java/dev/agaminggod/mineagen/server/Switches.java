@@ -11,7 +11,9 @@ import java.util.Properties;
  * Each parser copies its reader's current semantics (exact or any case, trimmed or not), so moving a reader here changes
  * nothing. Nothing calls this yet: the readers move over in a later sweep. coordinator/test/switches.test.mjs reads this
  * source and checks names, sources, defaults, parsers and statuses match the coordinator registry, so keep one entry per
- * line in {@link #ALL} and one {@link Flag} per line.
+ * line in {@link #ALL} and one {@link Flag} per line. The same test compiles this file with a small harness and checks
+ * {@link #describe(Map)} against the coordinator's line for the same values. The two agree on ASCII values only: Java's
+ * trim and equalsIgnoreCase treat some non-ASCII whitespace and letters differently from JS's trim and toLowerCase.
  */
 public final class Switches {
 	private Switches() {

@@ -3,6 +3,10 @@
 // ignore case, some compare exactly), so moving a reader onto the registry changes nothing. Nothing calls it yet: the
 // readers move over in a later sweep. The server-side mirror is src/main/java/dev/agaminggod/mineagen/server/Switches.java,
 // and coordinator/test/switches.test.mjs checks the two agree.
+// The two languages agree on ASCII values only. Java's String.trim drops every character up to U+0020 and its
+// equalsIgnoreCase folds a few non-ASCII letters (U+017F long s to s); JS trim drops Unicode spaces (NBSP, U+2028,
+// U+FEFF) and toLowerCase leaves U+017F alone. Each mirror copies the readers in its own language, so a server-read env
+// switch (travel.walkAround, instincts) set to such a value can describe differently here than the mod reads it.
 
 export const SIDES = Object.freeze(['coordinator', 'server', 'both']);
 /** default-on: shipped, with an off arm kept for A/Bs; default-off: held off after a measured loss or until measured; experimental: an arm still being built or tried; diagnostic: measurement only; deprecated: kept for a rollback. */
@@ -112,10 +116,10 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'kit.habit', env: 'MINEAGEN_KIT_HABIT', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
 		reason: 'Keeps a shield, iron armour and food in reach after each obtain; off is the A/B off arm (#32).',
 		readers: ['coordinator/src/kit-habit.mjs:123 kitHabitEnabled (per call)'] }),
-	// coordinator/src/night-cover.mjs:72 nightMoveStop(..., { environment }): per call.
+	// coordinator/src/night-cover.mjs:78 nightMoveStop(..., { environment }): per call.
 	entry({ name: 'night.cover', env: 'MINEAGEN_NIGHT_COVER', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
 		reason: 'Keeps an unarmoured bot under cover on its first night; off restores the old climb-out for room A/Bs (#117).',
-		readers: ['coordinator/src/night-cover.mjs:72 nightMoveStop (per call)'] }),
+		readers: ['coordinator/src/night-cover.mjs:78 nightMoveStop (per call)'] }),
 	// coordinator/src/native-minecraft-tools.mjs:285 programToolsOffered(environment): per call.
 	entry({ name: 'tools.program', env: 'MINEAGEN_PROGRAM_TOOLS', side: 'coordinator', default: false, parser: ON_WORD, status: 'default-off',
 		reason: 'Rounds 4-6 called runProgram 21 times in 7,653 calls and the 22 Nov checkpoint round made 27 program-tool calls in 25,038, so the six program tools leave the tool list unless on (#145).',
@@ -237,7 +241,7 @@ function shown(value) {
 /**
  * The resolved set for a startup log line and a result record. `line` is `switches name=value ...` with `@env` or
  * `@property` after a value that was set and `?` after one the process could not see; `record` is JSON-safe
- * { name: { value, source } }. The Java mirror's describe() writes the same line for its switches.
+ * { name: { value, source } }. The Java mirror's describe() writes the same line for its switches (for ASCII values).
  */
 export function describeSwitches(resolved) {
 	const words = [];
