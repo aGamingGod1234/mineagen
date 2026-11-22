@@ -145,7 +145,7 @@ test('targets and guards: the target rooms are tested for a gain, every other ro
 	assert.match(formatComparison(compareScores(none, huge)), /p\(better\) < 1e-11/);
 	// The verdict reads the unrounded adjusted p: 2/4 against 2/33 is p .04998, worse, though it rounds to .05.
 	const edge = compareScores({ rooms: { e: tally(2, 2) } }, { rooms: { e: tally(2, 31) } });
-	assert.equal(edge[0].p, 0.05);
+	assert.equal(edge[0].p, 0.04998, 'printed with the digits that put it under .05');
 	assert.equal(edge[0].change, 'worse');
 	// Without targets the one pooled line covers every room.
 	assert.match(formatComparison(rows), /^all rooms: 17\/40 -> 22\/40 over 4 rooms/m);

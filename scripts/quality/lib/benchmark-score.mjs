@@ -298,8 +298,9 @@ export function pooledTest(rows, rooms = null) {
 	const total = side => used.reduce((sum, row) => ({ pass: sum.pass + row[side].pass, valid: sum.valid + row[side].pass + row[side].fail }), { pass: 0, valid: 0 });
 	return { rooms: used.map(row => row.room), before: total('before'), after: total('after'), pBetter: pValue(test.pUpper), pWorse: pValue(test.pLower) };
 }
-// Four decimals, or two significant digits below 0.0001, so a very small p never reads as 0.
-const pValue = p => p >= 0.0001 ? +p.toFixed(4) : +p.toPrecision(2);
+// Four decimals, or two significant digits below 0.0001, so a very small p never reads as 0; a p just under 0.05 keeps
+// enough digits that it never prints as 0.05 beside a verdict that it cleared 0.05.
+const pValue = p => p < 0.0001 ? +p.toPrecision(2) : p < 0.05 && +p.toFixed(4) >= 0.05 ? +p.toPrecision(4) : +p.toFixed(4);
 // For print: stratifiedExactTest adds a 1e-12 tolerance to its tails, so anything that small is only "under 1e-11".
 const showP = p => p < 1e-11 ? '< 1e-11' : String(p);
 
