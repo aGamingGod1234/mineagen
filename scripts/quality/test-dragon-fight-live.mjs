@@ -109,7 +109,8 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 			return Math.floor(number(await end(s, 'data get entity @e[type=minecraft:marker,tag=qo_ground,limit=1] Pos[1]')));
 		};
 		const dragonHealth = async () => number(await end(s, 'data get entity @e[type=minecraft:ender_dragon,limit=1] Health'));
-		const crystalsLeft = async () => number(await end(s, 'execute store result score #qo qo_crystals if entity @e[type=minecraft:end_crystal]').then(() => s.command('scoreboard players get #qo qo_crystals')));
+		// "Test passed, count: N" or "Test failed" from execute if entity.
+		const crystalsLeft = async () => { const text = String(await end(s, 'execute if entity @e[type=minecraft:end_crystal]')); return /count:?\s*(\d+)/i.test(text) ? Number(/count:?\s*(\d+)/i.exec(text)[1]) : /failed/i.test(text) ? 0 : NaN; };
 		await s.command('scoreboard objectives add qo_crystals dummy');
 		// The End: load the island so the fight starts (the dragon spawns once a player is in the End).
 		await end(s, 'forceload add -64 -64 112 64'); await sleep(2000);
@@ -158,11 +159,14 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 				let dead = false, killed = false, minY = place.y, shots = 0, crystalBreaks = 0, meleeHits = 0, flyingShots = 0;
 				const note = (what, r) => { log.push([Math.round((now() - t0) / 1000), what, r?.state, r?.reasonCode, r?.message?.slice(0, 120)]); };
 				while (now() - t0 < limit) {
-					const o = await view().catch(() => null);
-					if (o) {
-						minY = Math.min(minY, o.player?.y ?? minY);
-						if (o.player?.dead === true || o.world?.dimension !== 'minecraft:the_end') { dead = true; break; }
-					}
+					// The raw sample decides death: a dead body's sample may not adapt, and it respawns in the Overworld.
+					const raw = await s.observe().catch(() => null);
+					if (raw && (raw.player?.dead === true || raw.status === 'PLAYER_DEAD' || (raw.world?.dimension && raw.world.dimension !== 'minecraft:the_end'))) { dead = true; break; }
+					const deathsNow = await readDeaths().catch(() => null);
+					if (Number.isInteger(deathsNow) && Number.isInteger(deathsBefore) && deathsNow > deathsBefore) { dead = true; break; }
+					let o = null;
+					try { o = raw ? adaptObservation(raw) : null; } catch { o = null; }
+					if (o) minY = Math.min(minY, o.player?.y ?? minY);
 					if (!SURVIVE) {
 						const health = await dragonHealth();
 						if (!Number.isFinite(health) || health <= 0) { killed = Number.isFinite(dragon); break; }
