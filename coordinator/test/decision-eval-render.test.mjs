@@ -148,10 +148,13 @@ test('a plan the build rejects is reported as invalid case state', async () => {
 
 test('the rendered prefix is the production instructions and tool definitions', async () => {
 	const claude = await renderPrefix({ provider: 'claude' });
+	// Production offers the program tools only with MINEAGEN_PROGRAM_TOOLS=on; the full list stays the contract source.
+	const { offeredMinecraftTools } = await import('../src/native-minecraft-tools.mjs');
+	assert.ok(offeredMinecraftTools().every((tool) => MINECRAFT_DYNAMIC_TOOLS.includes(tool)));
 	assert.match(claude.instructions.systemPrompt, /mcp__minecraft__observe/);
-	assert.deepEqual(claude.tools, MINECRAFT_DYNAMIC_TOOLS.map(({ name, description, inputSchema }) => ({ name, description, inputSchema })));
+	assert.deepEqual(claude.tools, offeredMinecraftTools().map(({ name, description, inputSchema }) => ({ name, description, inputSchema })));
 	const codex = await renderPrefix({ provider: 'codex', model: 'gpt-6.1-sol' });
-	assert.deepEqual(codex.tools, JSON.parse(JSON.stringify(MINECRAFT_DYNAMIC_TOOLS)));
+	assert.deepEqual(codex.tools, JSON.parse(JSON.stringify(offeredMinecraftTools())));
 	assert.ok(codex.instructions.baseInstructions.length > 1_000);
 	assert.notEqual(claude.prefixSha256, codex.prefixSha256);
 	assert.equal((await renderPrefix({ provider: 'claude' })).prefixSha256, claude.prefixSha256, 'prefix renders are stable');

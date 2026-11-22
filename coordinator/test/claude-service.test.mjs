@@ -7,7 +7,7 @@ import test from 'node:test';
 
 import { CLAUDE_REASONING_EFFORTS, ClaudeProviderService, buildClaudeLaunch } from '../src/claude-service.mjs';
 import { ClaudeToolServer } from '../src/claude-tool-server.mjs';
-import { MINECRAFT_DYNAMIC_TOOLS, NATIVE_AGENT_INSTRUCTIONS } from '../src/native-minecraft-tools.mjs';
+import { NATIVE_AGENT_INSTRUCTIONS, offeredMinecraftTools } from '../src/native-minecraft-tools.mjs';
 import { coordinatorWithProviderAgent, emitLavaObservation, returnLavaResult } from './fixtures/hazard-provider-fixture.mjs';
 
 import { harness, profile, AGENTS_TEXT, SKILL_TEXT } from './fixtures/claude-service-fixture.mjs';
@@ -57,7 +57,7 @@ test('Claude launches in the shared Minecraft workspace with the same instructio
 		assert.ok(systemPrompt.includes(`Workspace instructions for this Minecraft body (authoritative):\n${AGENTS_TEXT}`));
 		assert.ok(systemPrompt.includes(`Bundled minecraft-control skill (already loaded; no filesystem read needed):\n${SKILL_TEXT}`));
 		assert.ok(systemPrompt.includes('mcp__minecraft__observe'));
-		assert.deepEqual(child.tools.map((tool) => tool.name), MINECRAFT_DYNAMIC_TOOLS.map((tool) => tool.name));
+		assert.deepEqual(child.tools.map((tool) => tool.name), offeredMinecraftTools().map((tool) => tool.name));
 		assert.equal(agent.executionSettings.effective.model, 'claude-sonnet-5-5');
 		assert.equal(agent.executionSettings.evidence.model, 'provider_reported');
 	} finally { await close(); }

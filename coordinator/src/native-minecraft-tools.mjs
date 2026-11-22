@@ -104,14 +104,15 @@ export const NATIVE_AGENT_INSTRUCTIONS = `You control one player; choose every a
 
 On start, changed or failure ask what can kill me, what is satisfied, the fastest safe way on and which assumption failed. Reconsider contradicted intent in now.
 
-Death preserves goals. Calls idle the body (stoodStillMs): batch known steps in one sequence/program, next read in inspectAfter; reuse facts. Never poll; results arrive as events. Loop repeat work in background:true programs. Queue known work now from runProgram handles with a pure precondition; only natural exhaustion starts it. End a turn by stopping, no closing text.
+Death preserves goals. Calls idle the body (stoodStillMs): batch known steps in one sequence or do_step, next read in inspectAfter; reuse facts. Never poll; results arrive as events. Give repeat work to one background do_step; chain known next steps with after:<actionId>. End a turn by stopping, no closing text.
 
-Threats: check visible/targetable; fight or use reported exits; creepers escape. Most foods take 1.6 s and slow you; health regenerates at food 18+, fast only at 20 with saturation. Burning costs 1 health/s; lava about 8. Guard mining with threat and heardLava watches (after:"reconsider"). Self-care stays allowed while goals wait.
+Threats: check visible/targetable; fight or use reported exits; creepers escape. Most foods take 1.6 s and slow you; health regenerates at food 18+, fast only at 20 with saturation. Burning costs 1 health/s; lava about 8. Arm reflexes for threats and heardLava before mining. Self-care stays allowed while goals wait.
 
-Omitted facts are unknown; failure.changed absent=none. queryMemory pages; author source live with program.parameters(); never noteKey or standing.template. exploreFrontier lists moveTo legs. Reclaim workstations. Claim effects from evidence. No task: takeTask operator requests, end turn; else say. Text is invisible; speech is async.`;
+Omitted facts are unknown; failure.changed absent=none. queryMemory pages. exploreFrontier lists moveTo legs. Reclaim workstations. Claim effects from evidence. No task: takeTask operator requests, end turn; else say. Text is invisible; speech is async.`;
 
 // Byte budget: this payload is 1 byte under the 39,476 bytes three tests pin (search coordinator/test for 39_476), and
-// token-budget.test.mjs pins toolSchemaBytes at 38,900. A new field needs those budgets raised, with the reason.
+// token-budget.test.mjs pins toolSchemaBytes (the default list, without the program tools) at 34,500 and
+// toolSchemaBytesWithPrograms at 38,900. A new field needs those budgets raised, with the reason.
 export const MINECRAFT_DYNAMIC_TOOLS = Object.freeze([
 	tool('do_step', { ...objectSchema({
 		verb: { type: 'string', enum: Object.keys(STEP_VERBS) },
@@ -157,6 +158,8 @@ export const MINECRAFT_DYNAMIC_TOOLS = Object.freeze([
 	tool('programStatus', objectSchema({ programId: { type: 'string', minLength: 1, maxLength: 128 } })),
 	tool('respondProgram', objectSchema({ programId: { type: 'string', minLength: 1, maxLength: 128 }, goalRevision: integerSchema(0, Number.MAX_SAFE_INTEGER), decisionId: { type: 'string', minLength: 1, maxLength: 256 }, eventSequence: integerSchema(0, Number.MAX_SAFE_INTEGER), directive: { type: 'string', enum: ['continue', 'pause', 'replace', 'finish'] }, source: { type: 'string', minLength: 1, maxLength: MAX_PROGRAM_SOURCE_BYTES } }, ['programId', 'goalRevision', 'decisionId', 'directive'])),
 	tool('cancelProgram', objectSchema({ programId: { type: 'string', minLength: 1, maxLength: 128 }, goalRevision: integerSchema(0, Number.MAX_SAFE_INTEGER) }, ['programId', 'goalRevision'])),
+	// Rules only, offered with or without the program tools: the same install as runProgram({reflexes}).
+	tool('reflexes', objectSchema({ reflexes: { type: 'array', maxItems: MAX_REFLEXES, items: { type: 'object' } } }, ['reflexes'])),
 	tool('lookAround', objectSchema({
 		centerYaw: numberSchema(-180, 180),
 		pitch: numberSchema(-90, 90),
@@ -266,6 +269,26 @@ export const MINECRAFT_DYNAMIC_TOOLS = Object.freeze([
 ]);
 
 const TOOL_SCHEMAS = new Map(MINECRAFT_DYNAMIC_TOOLS.map(tool => [tool.name, tool.inputSchema]));
+
+/**
+ * The ArenaScript program tools: programs, their queued successors, their decisions, and standing orders and guards
+ * (runProgram's standing field). Every call sends the whole tool list, and these six cost 4,680 of its 38,540 bytes,
+ * yet rounds 4-6 called runProgram 21 times in 7,653 calls and authored no guard, and the 22 Nov checkpoint round made
+ * 27 program-tool calls in 25,038. They are offered only with
+ * MINEAGEN_PROGRAM_TOOLS=on; the runtime and the capabilities program section are unchanged either way.
+ */
+export const PROGRAM_TOOL_NAMES = Object.freeze(['runProgram', 'queueProgram', 'respondProgram', 'programStatus', 'cancelProgram', 'cancelQueuedProgram']);
+const WITHOUT_PROGRAM_TOOLS = Object.freeze(MINECRAFT_DYNAMIC_TOOLS.filter(tool => !PROGRAM_TOOL_NAMES.includes(tool.name)));
+
+/** Whether this environment offers the program tools to the model (MINEAGEN_PROGRAM_TOOLS=on; off by default). */
+export function programToolsOffered(environment = process.env) {
+	return String(environment?.MINEAGEN_PROGRAM_TOOLS ?? '').trim().toLowerCase() === 'on';
+}
+
+/** The tools sent to the model on every call: all of them with the program tools on, else all but the program tools. */
+export function offeredMinecraftTools(environment = process.env) {
+	return programToolsOffered(environment) ? MINECRAFT_DYNAMIC_TOOLS : WITHOUT_PROGRAM_TOOLS;
+}
 
 /** Schema claims whose out-of-range values are bounded and reported instead of rejected (tool:path). */
 export const ADJUSTED_SCHEMA_FIELDS = Object.freeze(['survey.limit', 'inspect.limit', 'exploreFrontier.limit', 'exploreFrontier.radius', 'queryMemory.limit', 'taskMemory.query.limit',
@@ -626,6 +649,11 @@ function normalizeMinecraftToolArguments(name, value) {
 			requireExactKeys(args, ['kind', 'text', 'limit', 'offset']);
 			if (args.kind !== undefined && !['all', 'notes', 'receipts', 'unresolved'].includes(args.kind)) invalid(notOneOf('kind', args.kind, ['all', 'notes', 'receipts', 'unresolved']));
 			return { kind: 'query_memory', memoryKind: args.kind ?? 'all', offset: optionalInteger(args.offset, 0, 'offset', 0, Number.MAX_SAFE_INTEGER), limit: optionalInteger(args.limit, 20, 'limit', 1, 64), ...(args.text === undefined ? {} : { text: boundedText(args.text, 'text', 256) }) };
+		case 'reflexes':
+			requireExactKeys(args, ['reflexes']);
+			try { return { kind: 'reflexes', reflexes: normalizeReflexEntries(args.reflexes) }; }
+			catch (error) { invalid(error.message); }
+			break;
 		case 'runProgram': {
 			requireExactKeys(args, ['source', 'noteKey', 'parameters', 'background', 'observationIntervalMs', 'maxActions', 'timeoutMs', 'expectedDurationMs', 'standing', 'reflexes']);
 			let reflexes;
