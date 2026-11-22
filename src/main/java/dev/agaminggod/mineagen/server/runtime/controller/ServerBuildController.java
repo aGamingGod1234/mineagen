@@ -2670,10 +2670,13 @@ public final class ServerBuildController implements ServerController {
 		// Any phase of a cast (clearing, casting, lighting): the frame and mould hide the way round from travel's planner.
 		// Not a step back from an inflow or a walk to open the pool: those go the short way travel finds.
 		// A way walked before that the last walk could not take a step along (the cast's own blocks or flow changed the
-		// ground: away-pair-7 tried the same dead way 10 times and ended NO_STAND_SPOT at cell 8): travel plans this one.
+		// ground: away-pair-7 tried the same dead way 10 times and ended NO_STAND_SPOT at cell 8): travel plans the next one.
 		List<BlockPos> way = casting && phase != Phase.PLUG && phase != Phase.UNCOVER && !wayStale ? wayWalked(player, spot) : null;
 		viaWay = way != null && way.size() > 3;
 		walkFrom = player.position();
+		// One walk by travel, then the way walked before again: travel plans only through what is in sight, and round the
+		// frame it is not (cast-obi-4: 12 travel walks in a row stopped at the seen edge, 0 of 10 runs).
+		wayStale = false;
 		LOGGER.info("[build] {} walk {} to {} in {} ({})", player.getGameProfile().name(), walks, xyz(spot), phase, way != null && way.size() > 3 ? way.size() + " steps walked before" : "travel");
 		if (way != null && way.size() > 3) {
 			// Cell by cell along steps it took: travel plans only through what is in sight, and a way round the frame is not.
