@@ -255,9 +255,9 @@
    "fill {x} {y-2} {z+1} {x} {y+6} {z+18} minecraft:stone",
    "fill {x} {y-2} {z} {x} {y-1} {z} minecraft:stone",
    "fill {x} {y+2} {z} {x} {y+6} {z} minecraft:stone",
-   "fill {x+3} {y+1} {z+4} {x+7} {y+5} {z+7} minecraft:air",
-   "fill {x+3} {y+1} {z+3} {x+7} {y+5} {z+3} minecraft:glass",
-   "summon minecraft:zombie {x+5} {y+2} {z+6} {PersistenceRequired:1b}"
+   "fill {x+3} {y+1} {z+2} {x+7} {y+5} {z+5} minecraft:air",
+   "fill {x+3} {y+1} {z+1} {x+7} {y+5} {z+1} minecraft:glass",
+   "summon minecraft:zombie {x+5} {y+3} {z+5} {PersistenceRequired:1b,NoAI:1b}"
   ],
   "travelTo": {
    "dx": 12,
@@ -301,9 +301,9 @@
    "fill {x} {y-2} {z+1} {x} {y+6} {z+18} minecraft:stone",
    "fill {x} {y-2} {z} {x} {y-1} {z} minecraft:stone",
    "fill {x} {y+2} {z} {x} {y+6} {z} minecraft:stone",
-   "fill {x+3} {y+1} {z+4} {x+7} {y+5} {z+7} minecraft:air",
-   "fill {x+3} {y+1} {z+3} {x+7} {y+5} {z+3} minecraft:glass",
-   "summon minecraft:skeleton {x+5} {y+2} {z+6} {PersistenceRequired:1b,equipment:{mainhand:{id:\"minecraft:bow\",count:1}}}"
+   "fill {x+3} {y+1} {z+2} {x+7} {y+5} {z+5} minecraft:air",
+   "fill {x+3} {y+1} {z+1} {x+7} {y+5} {z+1} minecraft:glass",
+   "summon minecraft:skeleton {x+5} {y+3} {z+5} {PersistenceRequired:1b,NoAI:1b}"
   ],
   "travelTo": {
    "dx": 12,
