@@ -3623,3 +3623,19 @@ test('entity_killed carries an optional strict at behind the killFacts hello cap
 	socket.emit('connect');
 	assert.equal(JSON.parse(socket.writes[0]).payload.killFacts, true, 'our hello announces killFacts');
 });
+
+// Iron-kit room: a reflex detail over 240 characters made the coordinator refuse the observation and drop the bridge,
+// stranding both agents of the server. The free text is trimmed; the observation and the bridge stay.
+test('an over-long reflex detail is trimmed instead of refusing the observation', () => {
+	const observation = readyServerObservation();
+	const long = `fled the creeper ${'and kept running '.repeat(30)}`;
+	observation.reflexes = { revision: 1, rules: [], events: [{ seq: 1, id: 'flee', outcome: 'done', ms: 500, detail: long }], firing: { id: 'flee', ms: 100, detail: long }, error: long };
+	const valid = validateProtocolV2Payload('observation', observation).reflexes;
+	for (const text of [valid.events[0].detail, valid.firing.detail, valid.error]) {
+		assert.equal(text.length, 240);
+		assert.ok(text.startsWith('fled the creeper') && text.endsWith('…'));
+	}
+	const bad = structuredClone(observation);
+	bad.reflexes.events[0].detail = 42;
+	assert.throws(() => validateProtocolV2Payload('observation', bad), 'a detail that is not text is still refused');
+});
