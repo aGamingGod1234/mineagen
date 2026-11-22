@@ -200,7 +200,20 @@ try {
 			await armDefaults();
 			continue;
 		}
-		let skeleton = null;
+		let skeleton = null, skeletonOnServer = false, exposedAtStart = false;
+		// The room's line of sight past its one wall, as hidden() below, for the check right after the summon.
+		const hiddenNow = async () => {
+			const text = String(await s.command('data get entity @e[type=minecraft:skeleton,limit=1,sort=nearest] Pos').catch(() => ''));
+			const e = text.match(/\[\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?\]/)?.slice(1).map(Number);
+			const body = await pos();
+			if (!e || !body || !wall) return false;
+			const from = [e[0], e[1] + 1.74, e[2]], to = [body[0], body[1] + 1.62, body[2]];
+			for (let t = 0; t <= 1; t += 0.02) {
+				const [px, py, pz] = from.map((value, i) => value + (to[i] - value) * t);
+				if (px >= wall.x0 && px < wall.x1 && py >= wall.y0 && py < wall.y1 && pz >= wall.z0 && pz < wall.z1) return true;
+			}
+			return false;
+		};
 		if (room === 'pitcreeper' || room === 'pitcreeper-rim') {
 			await s.command('difficulty normal');
 			// -rim: a creeper standing still on the rim beside the hole, where nothing in the hole can reach it.
@@ -215,12 +228,16 @@ try {
 			await sleep(500);
 		}
 		if (room === 'skeleton') {
-			// A leather helmet keeps the skeleton out of the sun's fire: burning, it walked into the only shade on the pad,
-			// behind the wall, so the body counted as already hidden and the trial was INVALID (48 of 188 on 22 Nov).
+			// A leather helmet keeps the skeleton from burning in daylight.
 			await s.command('difficulty normal');
 			await s.command(`summon minecraft:skeleton ${X + 10.5} ${F} ${Z + 0.5} {PersistenceRequired:1b,equipment:{mainhand:{id:"minecraft:bow",count:1},head:{id:"minecraft:leather_helmet",count:1}}}`);
 			await sleep(1500);
 			skeleton = (await s.observe()).entities?.find(entity => entity.type === 'minecraft:skeleton' && entity.alive !== false) ?? null;
+			// The skeleton is behind the body (it faces the wall), so it is often not in the body's view: confirm it on the
+			// server. Exposure is judged now, before the default reflexes armed above can take cover on their own during the
+			// settle below (that read as "no skeleton in sight at the start": 48 of 188 trials INVALID on 22 Nov).
+			skeletonOnServer = /passed/i.test(String(await s.command('execute if entity @e[type=minecraft:skeleton]').catch(() => '')));
+			exposedAtStart = skeletonOnServer && !(await hiddenNow());
 		}
 		await sleep(1000 + drain);
 		const before = await health(), airBefore = await airLeft();
@@ -269,7 +286,7 @@ try {
 		};
 		const live = await pos();
 		const exposed = live === null ? false : room === 'deep' || room === 'stair' ? await blockAt(Math.floor(live[0]), Math.floor(live[1] + 1.62), Math.floor(live[2]), 'minecraft:water')
-			: room === 'skeleton' ? skeleton !== null && !(await hidden())
+			: room === 'skeleton' ? exposedAtStart
 			: room === 'shaft' || room === 'lake' ? await blockAt(Math.floor(live[0]), Math.floor(live[1]), Math.floor(live[2]), 'minecraft:water')
 			: room === 'pitskel' ? live[1] < F - 1 : live[1] < F - 2;
 		// pitcreeper judges the climb on survival and damage too: climbing on must not trade a stop for a blast.
@@ -277,7 +294,7 @@ try {
 		let calls = 0, executed = 0, last = null, safeAt = null;
 		const results = [];
 		while (Date.now() - t0 < window) {
-			if (await safe()) { safeAt ??= Date.now() - t0; if (room !== 'skeleton' || calls === 0) break; await sleep(500); continue; }
+			if (await safe()) { safeAt ??= Date.now() - t0; if (room !== 'skeleton') break; await sleep(500); continue; }
 			safeAt = room === 'skeleton' ? null : safeAt;
 			await sleep(THINK_MS);
 			if (Date.now() - t0 >= window) break;
@@ -297,7 +314,7 @@ try {
 				: ['build', { structure: 'pillar', size: Math.max(1, F - Math.floor(p[1])), timeoutMs: Math.min(30_000, left) }];
 			else if (room === 'pitdig' || room === 'pitcreeper' || room === 'pitcreeper-rim') call = ['dig_to', { pattern: 'stairs_up', y: F, heading: 'east', timeoutMs: Math.min(60_000, left) }];
 			else if (room === 'pitskel') call = ['build', { structure: 'pillar', size: Math.max(1, F - Math.floor(p[1])), timeoutMs: Math.min(30_000, left) }];
-			else call = ['flee_from', { targetId: skeleton.uuid, distance: 16, timeoutMs: Math.min(10_000, left) }];
+			else call = ['flee_from', { targetId: skeleton?.uuid ?? '', distance: 16, timeoutMs: Math.min(10_000, left) }];
 			calls++;
 			last = await s.act(call[0], call[1], left + 10_000).catch(error => ({ state: 'ERROR', reasonCode: error.message }));
 			results.push(`${call[0]}:${last.state}:${last.reasonCode}`);
@@ -306,7 +323,7 @@ try {
 			if (last.state === 'ERROR') break;
 			if ((await health().catch(() => NaN)) <= 0) break;
 		}
-		if (room === 'skeleton' && calls > 0) await sleep(Math.max(0, window - (Date.now() - t0)));
+		if (room === 'skeleton') await sleep(Math.max(0, window - (Date.now() - t0)));
 		// Safe has to hold: two seconds on, the body is still out (not slid back into the water or the hole).
 		let endSafe = null;
 		if (room !== 'skeleton' && safeAt !== null) { endSafe = true; for (let i = 0; i < 4 && endSafe; i++) { await sleep(500); endSafe = await safe(); } }
@@ -330,7 +347,9 @@ try {
 		const died = row.died = sawDeath ? true : row.deathEvidence.valid ? false : null;
 		if (room === 'skeleton') row.start = { body: live, skeletonEye: await skeletonEye().catch(() => null), skeletonSeen: skeleton !== null, wall };
 		if (!exposed) row.notExercised = room === 'skeleton' ? 'no skeleton in sight at the start' : 'the live body did not start in danger';
-		else if (executed === 0 && safeAt !== null) row.notExercised = calls === 0 ? 'safe before the first decision (reflexes alone)' : 'safe with no call the body ran';
+		// The skeleton room's verdict is cover at the end, however the body got there: reflexes taking cover before the
+		// first decision is the bot doing right, not missing evidence.
+		else if (executed === 0 && safeAt !== null && room !== 'skeleton') row.notExercised = calls === 0 ? 'safe before the first decision (reflexes alone)' : 'safe with no call the body ran';
 		if (healthSamples === 0) row.error = 'no health sample in the window';
 		if (last?.state === 'ERROR') row.error = `call never returned: ${last.reasonCode}`;
 		// pitcreeper-rim: no escape call may sit out its whole timeout guarding a creeper it cannot reach.
