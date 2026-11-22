@@ -82,6 +82,8 @@ public final class ForestHuntTickVerification {
 		long savedSweptAt = sweptAtField.getLong(null);
 		WarpedForestHunt.Probe savedProbe = WarpedForestHunt.probe;
 		WarpedForestHunt.Walks savedWalks = WarpedForestHunt.walks;
+		boolean savedEnabled = WarpedForestHunt.enabled;
+		WarpedForestHunt.enabled = true;
 		ServerFightUntilController.DrawWalks savedDraw = ServerFightUntilController.drawWalks;
 		seenPlayers.clear();
 		try {
@@ -107,6 +109,7 @@ public final class ForestHuntTickVerification {
 		} finally {
 			WarpedForestHunt.probe = savedProbe;
 			WarpedForestHunt.walks = savedWalks;
+			WarpedForestHunt.enabled = savedEnabled;
 			ServerFightUntilController.drawWalks = savedDraw;
 			seenPlayers.clear();
 			seenPlayers.putAll(savedPlayers);

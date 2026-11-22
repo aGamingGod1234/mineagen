@@ -139,9 +139,17 @@ final class WarpedForestHunt {
 		this.lastInForest = start;
 	}
 
+	static final String PROPERTY = "mineagen.fight.forestHunt";
+	/**
+	 * Off unless -Dmineagen.fight.forestHunt=true: in practice rooms with default reflexes it ended 22 of 40 forest hunts
+	 * with a pearl against main's 13, but died in 9 against 4 (walking meets lava, fortress mobs and more endermen), so
+	 * it waits behind the switch until its deaths are no higher.
+	 */
+	static boolean enabled = Boolean.getBoolean(PROPERTY);
+
 	/** Forest mode: an enderman pearl hunt, a body free to move, standing in a warped forest when the call starts. */
 	static boolean applies(boolean enderman, boolean pearls, boolean mayMove, boolean sneak, String biomeAtFeet) {
-		return enderman && pearls && mayMove && !sneak && BIOME.equals(biomeAtFeet);
+		return enabled && enderman && pearls && mayMove && !sneak && BIOME.equals(biomeAtFeet);
 	}
 
 	static String biomeAt(ServerPlayer player) {

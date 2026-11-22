@@ -17,6 +17,19 @@ public final class ForestHuntVerification {
 
 	public static int verify() {
 		assertions = 0;
+		boolean savedEnabled = WarpedForestHunt.enabled;
+		WarpedForestHunt.enabled = false;
+		check(!WarpedForestHunt.applies(true, true, true, false, WarpedForestHunt.BIOME), "off by default: a forest pearl hunt is main's hunt unless -D" + WarpedForestHunt.PROPERTY + "=true");
+		WarpedForestHunt.enabled = true;
+		try {
+			verifyAll();
+		} finally {
+			WarpedForestHunt.enabled = savedEnabled;
+		}
+		return assertions;
+	}
+
+	private static void verifyAll() {
 		verifyAppliesOnlyToForestPearlHunts();
 		verifyQuietRelocates();
 		verifyRoofOnContact();
@@ -28,7 +41,6 @@ public final class ForestHuntVerification {
 		verifyWalkBackGoal();
 		verifyDangerKept();
 		verifyLavaShoreKept();
-		return assertions;
 	}
 
 	private static void verifyAppliesOnlyToForestPearlHunts() {
