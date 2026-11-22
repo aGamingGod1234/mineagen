@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promis
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { armTotals, formatSummary, mergeArms, parseCommands, plannedOf, runQueue, splitWords, stageRoom } from '../../scripts/quality/lib/room-batch-core.mjs';
+import { armTotals, formatSummary, mergeArms, parseCommands, plannedOf, repeatGroup, runQueue, splitWords, stageRoom, topUp } from '../../scripts/quality/lib/room-batch-core.mjs';
 import { runBatch } from '../../scripts/quality/lib/room-batch-run.mjs';
 import { cutoffTime, nextClockTime, nextSlot, parseWindowsHosts, pastCutoff, portClashes, slotPortBase, windowsBatchDir, windowsPath, windowsPool } from '../../scripts/quality/lib/windows-pool.mjs';
 import { BUNDLE_PATHS, buildBundle, hasZstd, launchScript, prepareScript, readWait, waitAndPackScript } from '../../scripts/quality/lib/boat-pool.mjs';
@@ -185,6 +185,70 @@ test('a batch over a fake pool re-queues the room of a machine that dies, delete
 		assert.deepEqual(job.env, { TMP: '/tmp2' });
 		assert.equal([...machines.get('vm1').jobs.values()][0].portBase, 28000, 'boat machines keep 28000');
 	} finally { await rm(out, { recursive: true, force: true }); }
+});
+
+// A fake pool whose fixture writes, per room start, the rows play(roomName, arm, start) returns; every machine stays up.
+function scriptedPool(out, play) {
+	let made = 0, starts = 0;
+	const jobs = [];
+	return { jobs, pool: {
+		async create() { return { id: `vm${++made}` }; },
+		async prepare() { return { code: '/c', out: '/o', jars: { new: '/j/new.jar', old: '/j/old.jar' }, inputs: {}, javaHome: '/jdk', template: '/t' }; },
+		async start(vm, job) { jobs.push({ room: job.room, arms: job.lines.map(line => line.arm), start: ++starts }); },
+		async poll() { return 'done'; },
+		async alive() { return true; },
+		async fetch(vm, roomName) {
+			const start = jobs.find(job => job.room === roomName).start;
+			for (const arm of ['new', 'old']) await writeRoom(out, roomName, arm, play(roomName, arm, start));
+			return { seconds: 5, arms: { new: { exit: 0, seconds: 5 }, old: { exit: 0, seconds: 5 } }, machine: {} };
+		},
+		async keepAlive() {}, async usage() { return {}; }, async destroy() {},
+	} };
+}
+
+test('--valid N replays INVALID copies with both arms until each arm has N valid runs, and stops at 2N', async () => {
+	const out = await mkdtemp(path.join(os.tmpdir(), 'room-batch-valid-'));
+	try {
+		// Room a: copies 1 and 2 start badly on the new arm only (an INVALID row); room b never starts well; room c is fine.
+		const bad = row('x', { notExercised: 'mob never in range' });
+		const play = (roomName, arm) => roomName.startsWith('b.') ? [bad] : ['a.c1', 'a.c2'].includes(roomName) && arm === 'new' ? [bad] : [row(`spot-${roomName}`)];
+		const { pool, jobs } = scriptedPool(out, play);
+		const lines = ['a', 'b', 'c'].flatMap(name => [1, 2, 3].map(copy => `@${name}.c${copy} BUILD_ONLY=${name} ${LINE}`)).join('\n');
+		const rooms = parseCommands(lines, ['new', 'old']);
+		const result = await runBatch({ batch: { name: 't', code: 'abc12345' }, rooms, arms: [{ name: 'new' }, { name: 'old' }], pool, vms: 1, out, pollMs: 1, log: () => {}, valid: 3 });
+		const played = jobs.map(job => job.room);
+		// a: 1 valid new run of 3 after its copies, so 2 more, both arms each time (paired); old reaches 5.
+		assert.deepEqual(played.filter(name => name.startsWith('a.')), ['a.c1', 'a.c2', 'a.c3', 'a.c4', 'a.c5']);
+		assert.ok(jobs.every(job => job.arms.join() === 'new,old'), 'a top-up plays every arm');
+		// b: never valid, stops at 2N = 6 copies. c: valid from the start, no top-up.
+		assert.deepEqual(played.filter(name => name.startsWith('b.')), ['b.c1', 'b.c2', 'b.c3', 'b.c4', 'b.c5', 'b.c6']);
+		assert.deepEqual(played.filter(name => name.startsWith('c.')), ['c.c1', 'c.c2', 'c.c3']);
+		const groups = Object.fromEntries(result.topUps.map(group => [group.group, group]));
+		assert.deepEqual(groups.a.valid, { new: 3, old: 5 });
+		assert.deepEqual(groups.b.short, ['new', 'old']);
+		assert.equal(groups.c.planned, 3);
+		assert.match(result.text, /--valid 3: 5 top-up copies; short at the 6-run cap: b \(new 0, old 0\)/);
+		// The merge counts every copy: the top-ups' rows are in the arm's result.
+		assert.equal(result.merged.new.rows.filter(item => item.room.startsWith('a.')).length, 5);
+		assert.equal(armTotals(result.merged.new).pass, 6, 'a: 3 valid, c: 3');
+	} finally { await rm(out, { recursive: true, force: true }); }
+});
+
+test('top-up groups: repeat labels fold, a lost copy counts no valid run, and copies still playing count toward N', async () => {
+	assert.equal(repeatGroup('skel.c10'), 'skel');
+	assert.equal(repeatGroup('tr-wastes-987-w300-r2'), 'tr-wastes-987-w300');
+	assert.equal(repeatGroup('lava-gate-1'), 'lava-gate-1');
+	const rooms = parseCommands([1, 2].map(copy => `@r.c${copy} ${LINE}`).join('\n'), ['new']);
+	const counts = { 'r.c1': 1, 'r.c2': 0 };
+	const plan = topUp({ rooms, arms: ['new'], valid: 2, out: '/nowhere', countValid: async dir => counts[path.basename(path.dirname(dir))] ?? 0 });
+	// r.c2 still playing: r.c1's one valid run plus one pending reaches N, so nothing is added yet.
+	assert.deepEqual(await plan.more(rooms[0], { lost: false, arms: {} }), []);
+	// r.c2 lost: short by one, one copy.
+	const extra = await plan.more(rooms[1], { lost: true, reason: 'machine gone' });
+	assert.deepEqual(extra.map(copy => copy.room), ['r.c3']);
+	assert.deepEqual(extra[0].lines, rooms[1].lines);
+	assert.notEqual(extra[0].lines[0].args, rooms[1].lines[0].args, 'a copy owns its lines');
+	assert.throws(() => topUp({ rooms, arms: ['new'], valid: 0, out: '/x' }), /whole number/);
 });
 
 test('the machine helper plays every arm side by side under the wrapper, each in its own folder and port range from the job port base', async () => {

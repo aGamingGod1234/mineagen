@@ -84,8 +84,16 @@ export function plannedOf(env) {
  * workers still coming up (null for one that never did): each starts pulling rooms the moment it resolves, so no room
  * waits for the slowest machine.
  */
-export async function runQueue({ rooms, workers, arrivals = [], attempt, maxAttempts = 2, replace = null, release = null, log = () => {} }) {
+export async function runQueue({ rooms, workers, arrivals = [], attempt, maxAttempts = 2, replace = null, release = null, more = null, log = () => {} }) {
 	const queue = rooms.map(room => ({ room, tries: 0, triedOn: new Set() }));
+	const all = [...rooms];
+	// more(room, outcome) -> rooms to add (top-ups): they join the queue before this worker looks for its next room.
+	const settle = async (room, outcome) => {
+		if (!more) return;
+		const extra = await Promise.resolve().then(() => more(room, outcome)).catch(error => { log(`top-up after ${room.room} failed: ${error.message}`); return []; });
+		for (const added of extra ?? []) { all.push(added); queue.push({ room: added, tries: 0, triedOn: new Set() }); }
+		if (extra?.length) wake();
+	};
 	const results = new Map(), live = new Set(), running = [];
 	let waiting = [];
 	const wake = () => { const list = waiting; waiting = []; for (const done of list) done(); };
@@ -112,13 +120,13 @@ export async function runQueue({ rooms, workers, arrivals = [], attempt, maxAtte
 				try { outcome = await attempt(worker, item.room, item.tries); }
 				catch (error) { outcome = { lost: true, reason: String(error?.message ?? error) }; }
 				worker.busy = false;
-				if (!outcome?.lost) { results.set(item.room.room, { ...outcome, lost: false, room: item.room.room, worker: worker.id, attempts: item.tries }); wake(); continue; }
+				if (!outcome?.lost) { results.set(item.room.room, { ...outcome, lost: false, room: item.room.room, worker: worker.id, attempts: item.tries }); await settle(item.room, results.get(item.room.room)); wake(); continue; }
 				// requeue: the machine stopped the room for a planned reason (its cutoff), so the try does not count.
 				if (outcome.requeue) { item.tries--; log(`room ${item.room.room} back in the queue from ${worker.id}: ${outcome.reason}`); queue.unshift(item); }
 				else {
 					log(`room ${item.room.room} lost on ${worker.id} (try ${item.tries}): ${outcome.reason}`);
 					if (item.tries < maxAttempts) queue.unshift(item);
-					else results.set(item.room.room, { lost: true, reason: outcome.reason, room: item.room.room, worker: worker.id, attempts: item.tries });
+					else { results.set(item.room.room, { lost: true, reason: outcome.reason, room: item.room.room, worker: worker.id, attempts: item.tries }); await settle(item.room, results.get(item.room.room)); }
 				}
 				live.delete(worker);
 				wake();
@@ -135,7 +143,7 @@ export async function runQueue({ rooms, workers, arrivals = [], attempt, maxAtte
 	for (let i = 0; i < running.length; i++) await running[i];
 	// Rooms no worker could take (every machine that could was lost) are reported lost, never silently dropped.
 	for (const item of queue) results.set(item.room.room, { lost: true, reason: item.tries ? 'no other machine left' : 'no machine left', room: item.room.room, attempts: item.tries });
-	return rooms.map(room => results.get(room.room));
+	return all.map(room => results.get(room.room));
 }
 
 /**
@@ -274,4 +282,56 @@ export function formatSummary({ batch, merged, arms, wallSeconds, vms, rooms }) 
 		lines.push(`${room.room}: ${cells.join(' | ')}`);
 	}
 	return lines.join('\n');
+}
+
+/** A room's repeat group: its name without a trailing repeat label (.c3 or -r4), so ROOM.c1..c10 top up together. */
+export const repeatGroup = name => String(name).replace(/(?:\.c\d+|-r\d+)$/, '');
+
+/**
+ * Valid runs (PASS or FAIL rows) of one arm of a fetched room, counted as the merge counts them: none when the arm was
+ * killed, its rows file is ambiguous or its summary is missing or corrupt.
+ */
+export async function armValidRuns(dir, run = {}) {
+	if (run.timedOut || run.signal || run.error) return 0;
+	const found = await armRows(dir);
+	if (found.problem || !found.summary || !Number.isInteger(found.summary.planned)) return 0;
+	return found.rows.filter(row => row && typeof row === 'object' && ['PASS', 'FAIL'].includes(roomVerdict(row).verdict)).length;
+}
+
+/**
+ * --valid N: plays more copies of a repeat group (both arms side by side, so the arms stay paired) until every arm has N
+ * valid runs, never past 2N planned runs an arm. Copies still queued or playing count toward N, so a group never asks
+ * for more than its shortfall at once. more(room, outcome) is runQueue's hook; added lists the copies it made.
+ */
+export function topUp({ rooms, arms, valid, out, countValid = armValidRuns }) {
+	if (!Number.isInteger(valid) || valid < 1) throw new Error('--valid wants a whole number of 1 or more');
+	const groups = new Map(), names = new Set(rooms.map(room => room.room)), added = [];
+	for (const room of rooms) {
+		const group = groups.get(repeatGroup(room.room)) ?? { template: room, planned: 0, pending: 0, valid: Object.fromEntries(arms.map(arm => [arm, 0])), next: 1 };
+		const rows = Math.max(1, room.planned ?? 1);
+		group.planned += rows; group.pending += rows;
+		groups.set(repeatGroup(room.room), group);
+	}
+	const more = async (room, outcome) => {
+		const group = groups.get(repeatGroup(room.room));
+		if (!group) return [];
+		const rows = Math.max(1, room.planned ?? 1);
+		group.pending -= rows;
+		if (!outcome?.lost) for (const arm of arms) group.valid[arm] += await countValid(path.join(out, 'rooms', room.room, arm), outcome.arms?.[arm] ?? {});
+		const extra = [];
+		const each = Math.max(1, group.template.planned ?? 1);
+		let short = Math.max(...arms.map(arm => valid - group.valid[arm])) - group.pending;
+		while (short > 0 && group.planned + each <= 2 * valid) {
+			let name;
+			// Copies go on numbering ROOM.cN, so the benchmark scorer folds them into their room.
+			do name = `${repeatGroup(room.room)}.c${group.next++}`; while (names.has(name));
+			names.add(name);
+			const copy = { ...group.template, room: name, lines: group.template.lines.map(line => ({ ...line, env: { ...line.env }, args: [...line.args] })), topUpOf: repeatGroup(room.room) };
+			group.planned += each; group.pending += each; short -= each;
+			extra.push(copy); added.push(copy);
+		}
+		return extra;
+	};
+	const report = () => [...groups].map(([name, group]) => ({ group: name, planned: group.planned, valid: { ...group.valid }, short: arms.filter(arm => group.valid[arm] < valid) }));
+	return { more, added, report };
 }

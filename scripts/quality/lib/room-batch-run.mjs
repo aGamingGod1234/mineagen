@@ -17,7 +17,7 @@
 // one that does not. Without release() every machine is destroyed.
 import { mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
-import { formatSummary, mergeArms, runQueue } from './room-batch-core.mjs';
+import { formatSummary, mergeArms, runQueue, topUp } from './room-batch-core.mjs';
 
 const sleep = ms => new Promise(done => setTimeout(done, ms));
 
@@ -35,7 +35,7 @@ function raceAbort(promise, signal) {
 }
 
 export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeoutMs = 40 * 60_000, pollMs = 0, retryMs = 15_000, lostAfterMs = 5 * 60_000,
-	keepAliveMs = 15 * 60_000, prepareGraceMs = 120_000, replacements = vms, log = console.log, rewrite = (value) => value, signal = null }) {
+	keepAliveMs = 15 * 60_000, prepareGraceMs = 120_000, replacements = vms, log = console.log, rewrite = (value) => value, signal = null, valid = null }) {
 	await mkdir(path.join(out, 'rooms'), { recursive: true });
 	if ((await readdir(path.join(out, 'rooms'))).length) throw new Error(`${out} already holds rooms: use a fresh output folder`);
 	const began = Date.now(), machines = [], layouts = new Map();
@@ -92,6 +92,8 @@ export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeout
 		catch (error) { vm.destroyError = error.message; log(`could not delete ${vm.id} (${why}): ${error.message}`); }
 	};
 	let outcomes = [];
+	// --valid N: an INVALID or lost copy is replayed (both arms together) until each arm has N valid runs, at most 2N.
+	const topUps = valid ? topUp({ rooms, arms: arms.map(arm => arm.name), valid, out }) : null;
 	try {
 		// Each machine joins the queue as soon as it is ready; a late one no longer holds the others' rooms back.
 		const arrivals = Array.from({ length: vms }, () => bringUp().catch(error => { log(`a machine did not come up: ${error.message}`); return null; }));
@@ -153,7 +155,8 @@ export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeout
 			log(`bringing up a machine in place of ${lostVm.id}`);
 			return bringUp();
 		};
-		outcomes = await runQueue({ rooms, workers: [], arrivals, attempt, replace, release: vm => retire(vm, 'no rooms left'), log });
+		outcomes = await runQueue({ rooms, workers: [], arrivals, attempt, replace, release: vm => retire(vm, 'no rooms left'), log,
+			more: topUps ? async (room, outcome) => { const extra = await topUps.more(room, outcome); for (const copy of extra) log(`top-up ${copy.room}: ${copy.topUpOf} is short of ${valid} valid runs`); return extra; } : null });
 		if (!layouts.size && !signal?.aborted) throw new Error('no machine came up');
 		// A stopped batch leaves its unfinished rooms lost for that reason, not for want of a machine.
 		if (signal?.aborted) outcomes = outcomes.map(outcome => outcome?.lost ? { ...outcome, reason: 'batch stopped' } : outcome);
@@ -163,7 +166,10 @@ export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeout
 	}
 	const wallSeconds = Math.round((Date.now() - began) / 1000);
 	const armNames = arms.map(arm => arm.name);
-	const merged = await mergeArms({ out, rooms, arms: armNames, outcomes });
-	const text = formatSummary({ batch, merged, arms: armNames, wallSeconds, vms: machines.length, rooms });
-	return { outcomes, merged, wallSeconds, text, machines: machines.map(vm => ({ id: vm.id, reused: !!vm.reused, returned: !!vm.returned, destroyed: !!vm.destroyed, destroyError: vm.destroyError ?? null, usage: vm.usage ?? null })) };
+	const played = [...rooms, ...(topUps?.added ?? [])];
+	const merged = await mergeArms({ out, rooms: played, arms: armNames, outcomes });
+	let text = formatSummary({ batch, merged, arms: armNames, wallSeconds, vms: machines.length, rooms: played });
+	const short = topUps?.report().filter(group => group.short.length) ?? [];
+	if (topUps) text += `\n--valid ${valid}: ${topUps.added.length} top-up copies; ${short.length ? `short at the ${2 * valid}-run cap: ${short.map(group => `${group.group} (${Object.entries(group.valid).map(([arm, n]) => `${arm} ${n}`).join(', ')})`).join('; ')}` : 'every group reached it'}`;
+	return { outcomes, topUps: topUps?.report() ?? null, merged, wallSeconds, text, machines: machines.map(vm => ({ id: vm.id, reused: !!vm.reused, returned: !!vm.returned, destroyed: !!vm.destroyed, destroyError: vm.destroyError ?? null, usage: vm.usage ?? null })) };
 }
