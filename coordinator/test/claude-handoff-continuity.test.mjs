@@ -216,3 +216,23 @@ for (const envelope of ['sequence', 'program']) test(`${envelope} nested failure
     }
   } finally { await h.close(); }
 });
+
+test('a rotated Claude session keeps the newest step\'s whole reason', async () => {
+  const why = 'Return to the dry tunnel by the audible lava with water, then open the east wall to cast.';
+  const target = { x: 87, y: -54, z: 9, tolerance: 3, throughCaves: 'small', sealFluids: true, minHealth: 7, retrace: true, build: true, timeoutMs: 90_000 };
+  const h = await harness({ async onUser(child, content) {
+    child.received = [...(child.received ?? []), content];
+    if (h.children.indexOf(child) > 0) { done(child); return; }
+    usage(child, 'step', 70_000);
+    await child.rpc('tools/call', { name: 'do_step', arguments: { verb: 'travel_to', target, why } });
+    done(child);
+  } }, { contextRotationTokens: 64_000 });
+  try {
+    const a = await h.service.createAgent(profile(), { controlProtocol: 'native_tools' });
+    const executeTool = async () => ({ state: 'RUNNING', reasonCode: 'ACTION_STARTED', actionId: 'native:long-step' });
+    await a.act(event, { goalRevision: 0, executeTool });
+    await a.act(event, { goalRevision: 0, executeTool });
+    assert.equal(h.children.length, 2, 'the second turn starts a fresh session');
+    assert.ok(h.children[1].received[0].includes(`why=${JSON.stringify(why)}`), h.children[1].received[0]);
+  } finally { await h.close(); }
+});

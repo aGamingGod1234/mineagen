@@ -22,6 +22,9 @@ const POLICIES = {
 	'd40 + mid-turn at 200k': { minTurns: 1, midTurn: 200_000 },
 	'd40 + mid-turn at 128k': { minTurns: 1, midTurn: 128_000 },
 	'mid-turn at 64k (Oct 9 setting, lost a fact)': { minTurns: 1, midTurn: 64_000 },
+	'd40 default, rotate past 96k': { minTurns: 1, threshold: 96_000 },
+	'd40 default, rotate past 128k': { minTurns: 1, threshold: 128_000 },
+	'd40 default, rotate past 200k': { minTurns: 1, threshold: 200_000 },
 };
 
 function parseArgs(argv) {
@@ -59,7 +62,7 @@ async function readCalls(dir) {
 	return calls;
 }
 
-function simulate(calls, { minTurns, midTurn = 0 }, { deltaScale, prefixSaved }) {
+function simulate(calls, { minTurns, midTurn = 0, threshold = THRESHOLD }, { deltaScale, prefixSaved }) {
 	const totals = { calls: 0, input: 0, cached: 0, uncached: 0, output: 0, rotations: 0 };
 	let context = null, floor = 0, turnsSince = 0, due = false, previous = null;
 	for (const call of calls) {
@@ -73,7 +76,7 @@ function simulate(calls, { minTurns, midTurn = 0 }, { deltaScale, prefixSaved })
 			const sameSession = call.session === previous.session;
 			const delta = Math.max(0, sameSession ? call.input - previous.input : call.input - FRESH_SESSION) * deltaScale;
 			if (newTurn) turnsSince++;
-			const grown = context - floor >= THRESHOLD * GROWTH_SHARE;
+			const grown = context - floor >= threshold * GROWTH_SHARE;
 			const rotate = grown && (newTurn && due && turnsSince >= minTurns || midTurn > 0 && !newTurn && context >= midTurn);
 			if (rotate) {
 				totals.rotations++;
@@ -86,7 +89,7 @@ function simulate(calls, { minTurns, midTurn = 0 }, { deltaScale, prefixSaved })
 				uncached = Math.min(context, Math.max(delta, recordedMiss));
 			}
 		}
-		if (context >= THRESHOLD) due = true;
+		if (context >= threshold) due = true;
 		totals.calls++; totals.input += context; totals.cached += context - uncached; totals.uncached += uncached; totals.output += call.output;
 		previous = call;
 	}

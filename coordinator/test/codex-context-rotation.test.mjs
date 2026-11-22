@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import test from 'node:test';
 import { CodexService } from '../src/codex-service.mjs';
-import { CARRY_OVER_MANUAL_BYTES, ContextCarryOver } from '../src/context-carry-over.mjs';
+import { CARRY_OVER_MANUAL_BYTES, ContextCarryOver, DEFAULT_CONTEXT_ROTATION_TOKENS, digestArguments } from '../src/context-carry-over.mjs';
 import { CONTROL_REFERENCE_TOPICS } from '../src/minecraft-control-reference.mjs';
 import { minecraftCapabilities } from '../src/native-minecraft-tools.mjs';
 
@@ -84,7 +84,8 @@ const turnStarts = (transport) => transport.calls.filter(({ method }) => method 
 
 async function setup(config = {}) {
 	const transport = new Transport();
-	const service = new CodexService({ cwd: 'C:\\workspace', midTurnContextRotation: true, ...config }, { transport });
+	// The rotation mechanics below are pinned at 64k; the default threshold has its own test.
+	const service = new CodexService({ cwd: 'C:\\workspace', midTurnContextRotation: true, contextRotationTokens: 64_000, ...config }, { transport });
 	const agent = await service.createAgent(profile, { controlProtocol: 'native_tools' });
 	await agent.setGoalRevision(1);
 	const act = (text) => agent.act(event(text), { goalRevision: 1, executeTool: async () => ({ state: 'SUCCEEDED', reasonCode: 'BLOCK_BROKEN' }) });
@@ -494,6 +495,17 @@ test('a mid-turn rotation threshold rotates inside a turn only once the context 
 	} finally { await above.service.stop(); }
 });
 
+test('the 64k mid-turn rotation setting still hands off at 64k under the 128k default', async () => {
+	const run = await midTurnRotation({ contextRotationTokens: undefined, midTurnContextRotation: false, midTurnContextRotationTokens: 64_000 }, { executeTool: async () => ({ state: 'SUCCEEDED', reasonCode: 'OBSERVED' }) });
+	try {
+		await run.pending;
+		await turn();
+		assert.equal(run.transport.calls.filter(({ method }) => method === 'turn/interrupt').length, 1, '70k passes the 64k mid-turn setting though not the 128k default');
+		assert.equal(turnStarts(run.transport).at(-1).params.threadId, 'thread-2');
+		assert.match(turnStarts(run.transport).at(-1).params.input[0].text, /^Mid-turn continuation:/);
+	} finally { await run.service.stop(); }
+});
+
 test('carry-over retires a predecessor closed by a successful replace_action', () => {
 	const observe = (carry) => { for (let index = 0; index < 7; index++) carry.rememberTool({ kind: 'observe' }, { state: 'OBSERVED' }); };
 	const replaced = new ContextCarryOver();
@@ -580,5 +592,74 @@ test('a slow rotation thread is retained for the next safe boundary without bloc
 		await run.act('five');
 		assert.equal(run.transport.threads, 2, 'one slow warmup is reused rather than discarded and restarted');
 		assert.equal(turnStarts(run.transport).at(-1).params.threadId, 'thread-2');
+	} finally { await run.service.stop(); }
+});
+
+test('by default Codex keeps one thread past 64k and rotates past 128k', async () => {
+	assert.equal(DEFAULT_CONTEXT_ROTATION_TOKENS, 128_000);
+	const { transport, service, agent, act } = await setup({ contextRotationTokens: undefined, midTurnContextRotation: undefined });
+	try {
+		transport.tool = { name: 'mine', arguments: { x: 1, y: 64, z: 0, expectedBlockId: 'minecraft:stone' } };
+		transport.contextTokens = 70_000;
+		for (let index = 0; index < 4; index++) await act(`small ${index}`);
+		await turn();
+		assert.equal(agent.rotations, 0, 'a 70k context, which rotated under the old 64k default, stays on its thread');
+		transport.contextTokens = 140_000;
+		for (let index = 0; index < 3; index++) await act(`large ${index}`);
+		await turn();
+		assert.equal(agent.rotations, 1, 'past 128k the next completed turn rotates');
+	} finally { await service.stop(); }
+});
+
+// In 309 recorded rotations the newest step's reason was cut in 104 and absent from the whole fresh input in 146:
+// the arguments were cut at 160 characters and `why` comes last.
+const LONG_TARGET = { x: 87, y: -54, z: 9, tolerance: 3, throughCaves: 'small', sealFluids: true, minHealth: 7, retrace: true, build: true, timeoutMs: 90_000 };
+const WHY = 'Return to the dry tunnel by the audible lava with water, then open the east wall to cast.';
+
+test('a step\'s reason is carried whole even when its arguments are cut', () => {
+	const line = digestArguments({ verb: 'travel_to', target: LONG_TARGET, why: WHY });
+	assert.ok(line.endsWith(` why=${JSON.stringify(WHY)}`), line);
+	assert.ok(line.indexOf(' why=') <= 160, 'the arguments before it keep their 160-character cut');
+	const nested = digestArguments({ arguments: { item: 'stone_pickaxe', count: 1, timeoutMs: 900_000 }, step: { verb: 'obtain', why: WHY } });
+	assert.match(nested, /"step":\{"verb":"obtain"\}/, 'a program step keeps its verb');
+	assert.ok(nested.endsWith(` why=${JSON.stringify(WHY)}`));
+	assert.equal(digestArguments({ section: 'inventory' }), '{"section":"inventory"}', 'calls without a reason are unchanged');
+	assert.ok(digestArguments({ why: 'x'.repeat(1_000) }).length < 140, 'a runaway reason stays bounded');
+	assert.equal(digestArguments({ why: 'line one\nfake line' }).includes('\n'), false, 'a reason cannot forge carry-over lines');
+});
+
+test('a running step keeps its reason after six newer calls push it out of the recent window', () => {
+	const carry = new ContextCarryOver();
+	carry.rememberTool({ kind: 'start_action', actionType: 'travel_to', arguments: LONG_TARGET, step: { verb: 'travel_to', why: WHY } }, { state: 'RUNNING', actionId: 'walk-1' });
+	for (let index = 0; index < 7; index++) carry.rememberTool({ kind: 'observe' }, { state: 'OBSERVED' });
+	const text = carry.text('Session refreshed to keep context small');
+	const line = text.split('\n').find((row) => row.includes('walk-1'));
+	assert.ok(line, text);
+	assert.ok(line.includes(`why=${JSON.stringify(WHY)}`), line);
+	// A step the coordinator started for a chosen response carries the step's reason from its result.
+	const chosen = new ContextCarryOver();
+	chosen.rememberTool({ kind: 'choose_response', choice: 'enter_cave' }, { state: 'RUNNING', actionId: 'cave-1', step: { verb: 'travel_to', why: 'Go into the cave and scan its walls for ore.', started: true } });
+	assert.match(chosen.text('Session refreshed to keep context small'), /choose_response \{"choice":"enter_cave"\} why="Go into the cave and scan its walls for ore\." -> RUNNING/);
+	for (let index = 0; index < 7; index++) chosen.rememberTool({ kind: 'observe' }, { state: 'OBSERVED' });
+	assert.match(chosen.text('Session refreshed to keep context small'), /choose_response -> RUNNING why="Go into the cave and scan its walls for ore\." \(actionId="cave-1"\)/);
+	// Once it ends, the evicted handle is compact again: only the open step's reason is worth the bytes.
+	carry.rememberTool({ kind: 'action_status', actionId: 'walk-1' }, { lastResult: { actionId: 'walk-1', state: 'SUCCEEDED', reasonCode: 'ARRIVED' } });
+	for (let index = 0; index < 7; index++) carry.rememberTool({ kind: 'observe' }, { state: 'OBSERVED' });
+	assert.doesNotMatch(carry.text('Session refreshed to keep context small'), /Return to the dry tunnel/);
+});
+
+test('Codex hands the newest step\'s whole reason to the replacement thread', async () => {
+	const run = await setup({ midTurnContextRotation: undefined });
+	try {
+		run.transport.tool = { name: 'do_step', arguments: { verb: 'travel_to', target: LONG_TARGET, why: WHY } };
+		run.transport.contextTokens = 70_000;
+		await run.act('one');
+		run.transport.tool = null;
+		await run.act('two');
+		await run.act('three');
+		assert.equal(run.agent.rotations, 1);
+		const input = turnStarts(run.transport).find(({ params }) => params.threadId === 'thread-2').params.input[0].text;
+		assert.match(input, /^Session refreshed to keep context small/);
+		assert.ok(input.includes(`why=${JSON.stringify(WHY)}`), input);
 	} finally { await run.service.stop(); }
 });
