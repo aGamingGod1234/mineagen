@@ -52,6 +52,11 @@ public final class LocalizationVerification {
 		exactCopy.put("screen.mineagen.navigation.agents", "Agent roster");
 		exactCopy.put("screen.mineagen.roster.model_speed", "Model and speed");
 		exactCopy.put("screen.mineagen.roster.identity_game", "Identity and game");
+		// The agent view's lasting corner label and its pause-menu button.
+		exactCopy.put(dev.agaminggod.mineagen.client.pov.PovCornerLabel.LEAVE_KEY, "%s: leave agent view");
+		exactCopy.put(dev.agaminggod.mineagen.client.pov.PovCornerLabel.LEAVE_COMMAND, "Type /mineagen %s exit to leave agent view");
+		exactCopy.put(dev.agaminggod.mineagen.client.pov.PovCornerLabel.LOOK_AROUND, "Hold %s: look around");
+		exactCopy.put("menu.mineagen.leave_agent_view", "Leave agent view");
 		for (Map.Entry<String, String> entry : exactCopy.entrySet()) {
 			assertTrue(language.has(entry.getKey()), "missing English copy for " + entry.getKey());
 			String actual = language.get(entry.getKey()).getAsString();
