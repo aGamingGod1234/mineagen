@@ -61,14 +61,15 @@ test('readStart reads the start with commands anchored at the body, and an unrea
 		'execute at Probe if block ~ ~0 ~ #minecraft:leaves': 'Test failed', 'execute at Probe if block ~ ~1 ~ #minecraft:leaves': 'Test passed',
 		'execute at Probe if block ~ ~0 ~ minecraft:water': 'Test failed', 'execute at Probe if block ~ ~0 ~ minecraft:lava': 'Test failed',
 		'execute at Probe if block ~ ~1 ~ minecraft:water': 'Test failed', 'execute at Probe if block ~ ~1 ~ minecraft:lava': 'Test failed',
-		'execute at Probe if block ~ ~-1 ~ #minecraft:replaceable': 'Test failed',
+		'execute if entity @a[name=Probe,nbt={OnGround:1b}]': 'Test passed',
 		'execute at Probe if entity @e[type=minecraft:skeleton,distance=..16]': 'Test passed, count: 2',
 		'execute at Probe run data get entity @e[type=minecraft:skeleton,limit=1,sort=nearest] Pos': 'Skeleton has the following entity data: [203.5d, 150.0d, 196.5d]',
 		'data get entity Probe Health': 'Probe has the following entity data: 18.5f',
 		'clear Probe minecraft:shield 0': 'Found 1 matching items on player Probe', 'clear Probe minecraft:water_bucket 0': 'No items were found on player Probe',
 		'time query daytime': 'The time is 6000',
 	};
-	const command = async text => { sent.push(text); return world[text] ?? 'Unknown or incomplete command'; };
+	// Every other fluid test (plants, bubble columns, waterlogged blocks) finds nothing here.
+	const command = async text => { sent.push(text); return world[text] ?? (/^execute at Probe if block /.test(text) ? 'Test failed' : 'Unknown or incomplete command'); };
 	const SPEC = { footing: { notIn: ['leaves', 'fluid'], solidBelow: true }, mobs: [{ type: 'minecraft:skeleton', within: 16, inSight: true }], health: { min: 20 },
 		inventory: { has: { 'minecraft:shield': 1 }, lacks: ['minecraft:water_bucket'] }, time: { from: 0, to: 12000 } };
 	const start = await readStart(command, 'Probe', SPEC, { sight: async mob => mob.distance < 10 });
@@ -80,6 +81,14 @@ test('readStart reads the start with commands anchored at the body, and an unrea
 	assert.deepEqual([start.health, start.inventory, start.timeOfDay], [18.5, { 'minecraft:shield': 1, 'minecraft:water_bucket': 0 }, 6000]);
 	assert.deepEqual(checkStart(SPEC, start).failures.map(failure => failure.reason), ["leaves in the body's head cell", 'health 18.5, wants at least 20']);
 	assert.ok(sent.filter(text => /@e|if block/.test(text)).every(text => text.startsWith('execute at Probe ')), 'every world test is anchored at the body');
+	// Standing in seagrass, or in a waterlogged slab, is a start in water.
+	for (const wet of ['execute at Probe if block ~ ~0 ~ minecraft:seagrass', 'execute at Probe if block ~ ~0 ~ #minecraft:slabs[waterlogged=true]']) {
+		const soaked = await readStart(async text => text === wet ? 'Test passed' : world[text] ?? (/if block/.test(text) ? 'Test failed' : ''), 'Probe', { footing: { notIn: ['fluid'] } });
+		assert.equal(soaked.feet.fluid, 'water', wet);
+	}
+	// Off the ground (a torch or a flower below, or mid-fall): no support.
+	const floating = await readStart(async text => text === 'execute if entity @a[name=Probe,nbt={OnGround:1b}]' ? 'Test failed' : world[text] ?? 'Test failed', 'Probe', { footing: { solidBelow: true } });
+	assert.deepEqual(checkStart({ footing: { solidBelow: true } }, floating).failures.map(failure => failure.reason), ['no solid block under the body']);
 	// A server that answers nothing readable: every fact is unknown, so the start is not counted.
 	const blank = await readStart(async () => '', 'Probe', SPEC, { sight: async () => true });
 	assert.equal(checkStart(SPEC, blank).ok, false);

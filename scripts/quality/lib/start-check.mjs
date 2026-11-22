@@ -8,7 +8,7 @@
 
 /**
  * spec:
- *   footing   { notIn: ['leaves', 'fluid'], solidBelow: true }   no leaves or fluid in the feet or head cell; ground under it
+ *   footing   { notIn: ['leaves', 'fluid'], solidBelow: true }   no leaves or water/lava in the feet or head cell; the body on the ground
  *   mobs      [{ type: 'minecraft:skeleton', min: 1, within: 16, inSight: true }]   at least min of type within that many blocks
  *             of the body (and, with inSight, the nearest one in the body's line of sight, as the room's sight() judges)
  *   health    { min: 20, max: 20 }
@@ -85,6 +85,8 @@ const passed = reply => /test passed/i.test(String(reply));
 const count = reply => { const text = String(reply); return /count: (\d+)/i.test(text) ? Number(/count: (\d+)/i.exec(text)[1]) : /test passed/i.test(text) ? 1 : /test failed/i.test(text) ? 0 : null; };
 const vector = reply => String(reply).match(/\[\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?\]/)?.slice(1).map(Number) ?? null;
 const number = reply => { const match = /(-?\d+(?:\.\d+)?)[a-z]?\s*$/i.exec(String(reply).trim()); return match ? Number(match[1]) : null; };
+const FLUID_TESTS = [['minecraft:water', 'water'], ['minecraft:lava', 'lava'], ['minecraft:bubble_column', 'water'], ['minecraft:seagrass', 'water'], ['minecraft:tall_seagrass', 'water'],
+	['minecraft:kelp', 'water'], ['minecraft:kelp_plant', 'water'], ...['slabs', 'stairs', 'fences', 'walls', 'trapdoors', 'leaves', 'all_signs', 'candles'].map(tag => [`#minecraft:${tag}[waterlogged=true]`, 'water'])];
 const SELECTOR = /^[A-Za-z0-9_]{1,16}$/, ID = /^#?[a-z0-9_.-]+:[a-z0-9_/.-]+$/;
 
 /**
@@ -102,12 +104,23 @@ export async function readStart(command, agent, spec, { sight = null } = {}) {
 			const facts = {};
 			for (const bad of spec.footing.notIn ?? []) {
 				if (bad === 'leaves') facts.leaves = await at('#minecraft:leaves', dy);
-				else if (bad === 'fluid') { const water = await at('minecraft:water', dy), lava = await at('minecraft:lava', dy); facts.fluid = water === null || lava === null ? null : water ? 'water' : lava ? 'lava' : false; }
+				else if (bad === 'fluid') {
+					// Water also fills underwater plants, bubble columns and waterlogged blocks; a block with a waterlogged state
+					// outside these tags is not seen.
+					let found = false, unknown = false;
+					for (const [test, name] of FLUID_TESTS) {
+						const hit = await at(test, dy);
+						if (hit === null) unknown = true;
+						else if (hit) { found = name; break; }
+					}
+					facts.fluid = found || (unknown ? null : false);
+				}
 				else throw new Error(`readStart cannot test ${bad} (leaves or fluid)`);
 			}
 			start[cell] = facts;
 		}
-		if (spec.footing.solidBelow) { const open = await at('#minecraft:replaceable', -1); start.below = { solid: open === null ? null : !open }; }
+		// Ground support from the body itself: vanilla's OnGround, so a torch or flower below never reads as ground.
+		if (spec.footing.solidBelow) { const reply = await run(`execute if entity @a[name=${agent},nbt={OnGround:1b}]`); start.below = { solid: /test (passed|failed)/i.test(reply) ? passed(reply) : null }; }
 	}
 	if (spec.mobs) {
 		start.mobs = [];
