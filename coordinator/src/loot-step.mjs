@@ -48,7 +48,7 @@ export async function lootChest(body, cell, { wanted = [], heldItem = 'minecraft
 		let page;
 		try { page = await body.menu(); } catch (error) { stuck = `menu unreadable: ${String(error?.message ?? error).slice(0, 80)}`; break; }
 		menu = page?.menu ?? null;
-		if (!menu || !/chest|generic_9x|barrel/.test(String(menu.type ?? ''))) { stuck = `no chest menu open (${menu?.type ?? 'none'})`; menu = null; break; }
+		if (!menu || !/chest|generic_9x|barrel/.test(String(menu.type ?? ''))) { stuck = `no chest menu open (${menu?.type ?? 'none'}; page ${Object.keys(page ?? {}).slice(0, 8).join(',')}${page?.state ? ` ${page.state}` : ''})`; menu = null; break; }
 		read = true;
 		const chestSlots = Math.max(0, (menu.slotCount ?? 0) - PLAYER_SLOTS);
 		const next = pageRows(page).find((row) => Number.isSafeInteger(row.slot) && row.slot < chestSlots && row.count > 0
