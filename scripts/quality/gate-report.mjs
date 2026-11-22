@@ -305,31 +305,33 @@ export function mergeDamage(breakdowns) {
 		for (const [action, bucket] of Object.entries(one.byAction)) addBucket(byAction[action] ??= hitBucket(), bucket);
 	}
 	return { games: list.length, ...roundBucket(total), byShield: Object.fromEntries(SHIELD_STATES.map((state) => [state, roundBucket(byShield[state])])),
-		byAction: sortedActions(byAction), malformedRows: list.reduce((sum, one) => sum + (one.malformedRows ?? 0), 0) };
+		byAction: sortedActions(byAction) };
 }
 
 /**
- * The game's damage rows from its Watcher danger files, inside [start, end] and for its agent: { damage } or, with no
- * danger file (watch off, older run), nothing, so the key reads as not measured. The same file can be kept both under
- * raw/arena-watch and still under raw/server/arena-watch, so a line seen twice counts once.
+ * The game's damage rows from its Watcher danger files, inside [start, end] and for its agent: { damage }; with no
+ * danger file (watch off, older run), nothing, so the key reads as not measured. A file that cannot be read, or a line
+ * that does not parse, makes the game's hits unknown evidence: { damageUnmeasured: reason }, never 0 hits. The same file
+ * can be kept both under raw/arena-watch and still under raw/server/arena-watch: only the first copy of each is read.
  */
 function damageOf(raw, agentId, start, end) {
-	const files = dangerFiles(raw, agentId);
-	if (!files.length) return {};
-	const seen = new Set(), rows = [];
+	const byName = new Map();
+	for (const file of dangerFiles(raw, agentId)) if (!byName.has(path.basename(file))) byName.set(path.basename(file), file);
+	if (!byName.size) return {};
+	const rows = [];
 	let malformed = 0;
-	for (const file of files) {
-		let text; try { text = readFileSync(file, 'utf8'); } catch { continue; }
+	for (const file of byName.values()) {
+		let text; try { text = readFileSync(file, 'utf8'); } catch (error) { return { damageUnmeasured: `${path.basename(file)} unreadable: ${error.code ?? error.message}` }; }
 		for (const line of text.split('\n')) {
-			if (!line.includes('"damage"') || seen.has(line)) continue;
-			seen.add(line);
+			if (!line.trim()) continue;
 			let row; try { row = JSON.parse(line); } catch { malformed++; continue; }
 			if (row?.type !== 'damage' || agentId && row.agentId && row.agentId !== agentId) continue;
 			if (!Number.isFinite(row.atMs) || row.atMs < start || row.atMs > end) continue;
 			rows.push(row);
 		}
 	}
-	return { damage: { ...damageBreakdown(rows), ...(malformed ? { malformedRows: malformed } : {}) } };
+	if (malformed) return { damageUnmeasured: `${malformed} danger row(s) do not parse` };
+	return { damage: damageBreakdown(rows) };
 }
 
 export function readRun(dir) {
@@ -491,7 +493,8 @@ export function buildGate({ gate, title, cohorts, allowModelMismatch = false }) 
 			stops: Object.fromEntries([...new Set(runs.map((run) => run.stopKind ?? 'unrecorded'))].sort().map((kind) => [kind, runs.filter((run) => (run.stopKind ?? 'unrecorded') === kind).length])),
 			windowMin: one(runs.map((run) => run.windowMin)), ranAt: runs.map((run) => run.ranAt).filter(Boolean).sort()[0] ?? null, seeds: [...new Set(runs.map((run) => run.seed))], runs,
 			funnel: funnel(runs), deaths: runs.reduce((sum, run) => sum + run.deaths, 0), deathCauses: sumCauses(runs.map((run) => run.deathCauses)), nether: netherTotals(runs),
-			damage: mergeDamage(runs.map((run) => run.damage)),
+			// Games whose danger capture is corrupt or unreadable stay out of the sums: unknown, not unhurt.
+			damage: mergeDamage(runs.map((run) => run.damage)), damageUnmeasuredGames: runs.filter((run) => run.damageUnmeasured).length,
 			costUsd: Math.round(runs.reduce((sum, run) => sum + run.costUsd, 0) * 100) / 100, repeats: repeatsOf(runs) };
 	});
 	const notes = [];
@@ -548,6 +551,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 		}
 		const n = cohort.nether;
 		const d = cohort.damage;
+		if (cohort.damageUnmeasuredGames) console.error(`  Hits unknown in ${cohort.damageUnmeasuredGames} games (danger capture corrupt or unreadable)`);
 		if (d) {
 			const part = (b) => `${b.hits} hits (${b.blocked} blocked), ${b.damage} HP${b.damageUnknown ? ` + ${b.damageUnknown} unknown` : ''}`;
 			console.error(`  Hits in ${d.games} games: ${part(d)}`);

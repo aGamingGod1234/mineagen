@@ -43,6 +43,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.tags.DamageTypeTags;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.damagesource.DamageTypes;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.boss.enderdragon.EnderDragon;
 import net.minecraft.world.entity.monster.Ghast;
@@ -719,10 +720,15 @@ public final class Watcher {
 		if (watch != null) watch.danger.beforeDamage(server.getTickCount(), player.getHealth(), player.getAbsorptionAmount(), amount, guard(player));
 	}
 
-	/** The hand holding a shield (the off hand first, as the reflexes raise it) and whether a shield is raised now. */
+	/**
+	 * The hand holding a shield and whether a shield is raised now. A raised shield names the hand in use; otherwise the
+	 * off hand first, as the reflexes raise it.
+	 */
 	private static DangerLog.Guard guard(ServerPlayer player) {
-		String hand = player.getOffhandItem().is(Items.SHIELD) ? "off" : player.getMainHandItem().is(Items.SHIELD) ? "main" : null;
-		return new DangerLog.Guard(hand, player.isBlocking());
+		boolean blocking = player.isBlocking();
+		String hand = blocking ? player.getUsedItemHand() == InteractionHand.MAIN_HAND ? "main" : "off"
+				: player.getOffhandItem().is(Items.SHIELD) ? "off" : player.getMainHandItem().is(Items.SHIELD) ? "main" : null;
+		return new DangerLog.Guard(hand, blocking);
 	}
 
 	/**
@@ -733,12 +739,14 @@ public final class Watcher {
 	private static DangerLog.Exposure exposure(ServerPlayer player, DamageSource source) {
 		Entity cause = source.getEntity() == player ? null : source.getEntity();
 		Entity direct = source.getDirectEntity() == player ? null : source.getDirectEntity();
-		Entity attacker = cause != null ? cause : direct;
+		// A projectile with no other owner (a dispenser arrow, the body's own pearl) has no attacker to measure to.
+		Entity attacker = cause != null ? cause : direct instanceof Projectile ? null : direct;
 		Entity from = direct != null ? direct : cause;
 		Double facing = null;
 		if (from != null && from.level() == player.level()) {
-			// The body's yaw, not its view vector: looking straight down (digging, pillaring) still faces a direction.
-			double yaw = Math.toRadians(player.getYRot());
+			// The body's head yaw, as vanilla's shield check reads it, not its view vector: looking straight down (digging,
+			// pillaring) still faces a direction.
+			double yaw = Math.toRadians(player.getYHeadRot());
 			Vec3 offset = from.position().subtract(player.position());
 			facing = DangerLog.facingErrorDeg(-Math.sin(yaw), Math.cos(yaw), offset.x, offset.z);
 		}
@@ -763,8 +771,24 @@ public final class Watcher {
 		long offset = player.level().getGameTime() - server.getTickCount();
 		watch.danger.damage(server.getTickCount(), who.kind(), source.typeHolder().getRegisteredName(), who.key() == null ? null : who.sourceType(),
 				who.entityId(), who.key(), baseDamage, taken, blocked, player.getHealth(), player.getAbsorptionAmount(), lethal,
-				player.level().getGameTime(), epochMs, reflexes == null ? null : firingNow(reflexes.view(watch.id), offset), exposure(player, source));
+				player.level().getGameTime(), epochMs, reflexes == null ? null : firingNow(reflexes.view(watch.id), offset), exposure(player, source),
+				BridgeTap.executor(server) != null, runningAtHit(watch));
 		writeDanger(watch);
+	}
+
+	/**
+	 * The action running when a hit lands. The danger log's own copy is refreshed at a tick's end, so a command started
+	 * or replaced in this tick would be missed. Its issuer may still sit in the accepted queue, not yet polled.
+	 */
+	private DangerLog.Command runningAtHit(AgentWatch watch) {
+		ServerActionExecutor executor = BridgeTap.executor(server);
+		ServerActionRequest active = executor == null ? null : executor.activeRequest(watch.id);
+		if (active == null) return null;
+		String issuer = watch.issuers.get(active.actionId());
+		ConcurrentLinkedQueue<DangerLog.Command> accepted = ACCEPTED.get(watch.id);
+		if (issuer == null && accepted != null) for (DangerLog.Command command : accepted) if (active.actionId().equals(command.actionId())) issuer = command.issuer();
+		return new DangerLog.Command(active.actionId(), active.type().wireName(), active.provenance() == null ? null : active.provenance().programId(),
+				active.provenance() == null ? null : active.provenance().sourceStepId(), issuer);
 	}
 
 	private void damagedEpisode(AgentWatch watch, ServerPlayer player, Attribution who, float amount, long epochMs) {

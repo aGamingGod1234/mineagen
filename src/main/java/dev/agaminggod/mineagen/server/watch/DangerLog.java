@@ -207,11 +207,22 @@ public final class DangerLog {
 	/** {@link #damage} with the hit's exposure (null: not read, written as unknown). */
 	public void damage(long serverTick, String kind, String damageType, String attacker, String attackerId, String sourceKey, Float amount, Float taken,
 			boolean blocked, float healthAfter, float absorptionAfter, boolean lethal, long gameTime, long epochMs, FiringNow firing, Exposure exposure) {
+		damage(serverTick, kind, damageType, attacker, attackerId, sourceKey, amount, taken, blocked, healthAfter, absorptionAfter, lethal, gameTime,
+				epochMs, firing, exposure, false, null);
+	}
+
+	/**
+	 * {@link #damage} with the action running when the hit landed, read by the caller at the hit ({@code actionRead}:
+	 * null then means nothing ran). Without that read the row names the action this log last saw at a tick's end.
+	 */
+	public void damage(long serverTick, String kind, String damageType, String attacker, String attackerId, String sourceKey, Float amount, Float taken,
+			boolean blocked, float healthAfter, float absorptionAfter, boolean lethal, long gameTime, long epochMs, FiringNow firing, Exposure exposure,
+			boolean actionRead, Command actionAtHit) {
 		boolean paired = beforeTick == serverTick;
 		beforeTick = Long.MIN_VALUE;
 		Float base = amount != null ? amount : paired ? Float.valueOf(beforeAmount) : null;
 		Hit hit = new Hit(kind, damageType, attacker, attackerId, sourceKey, base, taken, blocked, paired ? beforeHealth : null,
-				paired ? beforeAbsorption : null, lethal ? 0.0F : healthAfter, absorptionAfter, lethal, active, firing == null ? null : firing.ruleId(),
+				paired ? beforeAbsorption : null, lethal ? 0.0F : healthAfter, absorptionAfter, lethal, actionRead ? actionAtHit : active, firing == null ? null : firing.ruleId(),
 				paired ? beforeGuard : null, exposure);
 		beforeGuard = null;
 		rows.add(damageRow(hit, gameTime, epochMs));
@@ -409,8 +420,9 @@ public final class DangerLog {
 		row.addProperty("absorbed", paired ? round(Math.max(0.0D, hit.absorptionBefore() - hit.absorptionAfter())) : null);
 		row.addProperty("healthDrop", paired ? round(Math.max(0.0D, hit.healthBefore() - hit.healthAfter())) : null);
 		row.addProperty("lethal", hit.lethal());
-		// Schema 2: what the body was doing and how it stood when hit. The action is the one onset rows name (the last
-		// accepted or running command); null fields are unknown, never "none".
+		// Schema 2: what the body was doing and how it stood when hit. The action is the one running when the hit landed (or,
+		// without that read, the last one this log saw); a null action means none ran. Null guard and exposure fields are
+		// unknown, never "none".
 		Command action = hit.action();
 		row.addProperty("action", action == null ? null : action.actionType());
 		row.addProperty("actionId", action == null ? null : action.actionId());

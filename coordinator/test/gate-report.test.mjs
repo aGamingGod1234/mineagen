@@ -514,8 +514,17 @@ test('hits split by shield state and running action; schema 1 rows are unknown, 
 		assert.deepEqual(Object.keys(first.damage.byAction), ['fight_target', 'mine_block', '(none)', '(unknown)'], 'actions by hits, most first');
 		assert.equal('damage' in second, false, 'no danger file: not measured, not zero hits');
 		const [cohort] = buildGate({ gate: 'r9', title: 'round 9', cohorts: [{ name: 'r9', label: 'round 9', dirs: [dir] }] }).cohorts;
-		assert.deepEqual(cohort.damage, { games: 1, ...bucket(7, 1, 18, 1), byShield, byAction, malformedRows: 0 });
+		assert.deepEqual(cohort.damage, { games: 1, ...bucket(7, 1, 18, 1), byShield, byAction });
+		assert.equal(cohort.damageUnmeasuredGames, 0);
 		assert.ok('deaths' in cohort && 'deathCauses' in cohort && 'nether' in cohort, 'existing cohort keys stay');
+		// A danger file with a row that does not parse is unknown evidence: no breakdown, kept out of the cohort's sums.
+		await mkdir(path.join(dir, 'game-2', 'raw', 'arena-watch'), { recursive: true });
+		await writeFile(path.join(dir, 'game-2', 'raw', 'arena-watch', 'x-danger.jsonl'), JSON.stringify(hit(5, { taken: 1 })) + '\n{"type":"damage","atMs":');
+		const [, corrupt] = readRun(dir);
+		assert.equal('damage' in corrupt, false);
+		assert.match(corrupt.damageUnmeasured, /1 danger row\(s\) do not parse/);
+		const [again] = buildGate({ gate: 'r9', title: 'round 9', cohorts: [{ name: 'r9', label: 'round 9', dirs: [dir] }] }).cohorts;
+		assert.deepEqual([again.damage.games, again.damage.hits, again.damageUnmeasuredGames], [1, 7, 1]);
 	} finally { await rm(root, { recursive: true, force: true }); }
 });
 
