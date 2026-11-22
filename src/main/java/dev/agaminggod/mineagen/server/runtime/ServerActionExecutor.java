@@ -126,6 +126,12 @@ public final class ServerActionExecutor {
 			Direction.NORTH, Direction.EAST, Direction.SOUTH, Direction.WEST
 	};
 	private static final long DEFAULT_TIMEOUT_MS = 60_000L;
+	/**
+	 * Longest a reflex may hold a running action paused without a single tick of it (game time). A paused action's own
+	 * timeout is frozen, so without this a reflex that never finishes held it for good with the model's wakes folded under
+	 * the step (playtest: an eat stance at a crafting table kept a bread craft paused for over 5 minutes).
+	 */
+	static final long REFLEX_HOLD_LIMIT_MS = 120_000L;
 	private static final long MOVEMENT_STALL_TIMEOUT_MS = 4_000L;
 	private static final long PLACE_TIMEOUT_MS = 5_000L;
 	/** A 180 degree turn takes about 6 ticks; past this something is fighting the view and the frame starts anyway. */
@@ -435,6 +441,12 @@ public final class ServerActionExecutor {
 				if (paused.contains(action.request().agentId())) {
 					action.pausedMs += sinceLastLoop;
 					action.pauseUnder(firingRule.apply(action.request().agentId()));
+					action.pausedSpanMs += sinceLastLoop;
+					// Reflexes may hold the body, never forever: the action's result is what brings the model back.
+					if (action.pausedSpanMs >= REFLEX_HOLD_LIMIT_MS) {
+						finish(action, action.result(ServerActionState.FAILED, "HELD_BY_REFLEX", String.format(java.util.Locale.ROOT,
+								"Reflexes held the body for %d s in a row and this action could not run", action.pausedSpanMs / 1000L), now));
+					}
 					continue;
 				}
 				if (held.contains(action.request().agentId())) continue;
@@ -3283,6 +3295,8 @@ public final class ServerActionExecutor {
 		/** Reflex firings that paused this action (rule id -> times), whether one holds it now, and how often it resumed. */
 		private final java.util.LinkedHashMap<String, Integer> pausedBy = new java.util.LinkedHashMap<>();
 		private boolean pausedNow;
+		/** Game time paused since the action last ticked; reset on every resume. */
+		private long pausedSpanMs;
 		private int resumes;
 		private long lastLoopMs;
 		private long startedAtEpochMs;
@@ -4554,6 +4568,7 @@ public final class ServerActionExecutor {
 		void resumeAfterPause() {
 			if (!pausedNow) return;
 			pausedNow = false;
+			pausedSpanMs = 0L;
 			resumes++;
 			if (controller != null && player != null) controller.resumed(player);
 		}

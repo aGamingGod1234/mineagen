@@ -92,7 +92,39 @@ public final class DefaultEatRearmingVerification {
 		for (long tick = 34; tick <= 1000; tick++) {
 			check(scheduler.step(tick, Map.of("own-eat", sense(true)), RUNNING, "", false).started() == null, "generic trigger remains one-shot");
 		}
-		return 5;
+		// Playtest: every press went to the crafting table in front of the body, so no meal ever started. A meal that runs out
+		// of maxS has failed: it waits its cooldown (the paused craft runs) instead of refiring the same tick forever.
+		scheduler = new ReflexScheduler();
+		scheduler.replace(rules, 0L);
+		long maxTicks = eat.maxMs() / 50L;
+		long tick = 0L;
+		int timeouts = 0;
+		boolean disabled = false;
+		boolean wokeOnDisable = false;
+		for (int meal = 0; meal < ReflexScheduler.MAX_FAILURES_IN_A_ROW; meal++) {
+			check(EAT.equals(step(scheduler, tick, 1, 10, false, RUNNING).started()), "stuck meal " + meal + " starts");
+			ReflexScheduler.Decision end = ReflexScheduler.Decision.NONE;
+			for (long at = tick + 1; at <= tick + maxTicks && end.ended() == null; at++) end = step(scheduler, at, 1, 10, false, RUNNING);
+			check(end.endOutcome() == ReflexScheduler.Outcome.TIMEOUT && end.started() == null, "stuck meal " + meal + " ends at maxS without refiring at once");
+			timeouts++;
+			long ended = tick + maxTicks;
+			for (long at = ended + 1; at < ended + cooldown; at++) {
+				check(step(scheduler, at, 1, 10, false, RUNNING).started() == null, "a stuck meal frees the body for its cooldown");
+			}
+			tick = ended + cooldown;
+		}
+		for (ReflexScheduler.Event event : scheduler.events()) {
+			if (EAT.equals(event.ruleId()) && event.outcome() == ReflexScheduler.Outcome.DISABLED) {
+				disabled = true;
+				wokeOnDisable = event.wake();
+			}
+		}
+		check(timeouts == ReflexScheduler.MAX_FAILURES_IN_A_ROW && disabled && wokeOnDisable,
+				"four stuck meals in a row disable the rule and wake the model: disabled=" + disabled + ", wake=" + wokeOnDisable);
+		check(step(scheduler, tick + 1, 1, 10, false, RUNNING).started() == null, "a disabled eat no longer takes the body");
+		check(ReflexScheduler.finishes(eat) && !ReflexScheduler.FINISHING_STANCE_ACTIONS.contains("defend"),
+				"eat finishes, defend holds");
+		return 6;
 	}
 
 	private static ReflexScheduler.Decision step(ReflexScheduler scheduler, long tick, int hunger, int food, boolean hostile,

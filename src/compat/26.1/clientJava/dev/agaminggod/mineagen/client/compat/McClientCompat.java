@@ -56,6 +56,11 @@ public final class McClientCompat {
 		return client.screen;
 	}
 
+	/** Opens chat as the chat key does, or as the command key does (a leading slash). */
+	public static void openChat(net.minecraft.client.Minecraft client, boolean command) {
+		client.openChatScreen(command ? net.minecraft.client.gui.components.ChatComponent.ChatMethod.COMMAND : net.minecraft.client.gui.components.ChatComponent.ChatMethod.MESSAGE);
+	}
+
 	public static void setScreen(net.minecraft.client.Minecraft client, net.minecraft.client.gui.screens.Screen screen) {
 		client.setScreen(screen);
 	}

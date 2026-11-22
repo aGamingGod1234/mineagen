@@ -18,6 +18,8 @@ export const FAILURE_CODES = Object.freeze({
 	ESCAPE_EXPOSED: ['body', null],
 	ESCAPE_TIMEOUT: ['body', null],
 	ESCAPE_STEP_REFUSED: ['body', null],
+	// ServerActionExecutor: a reflex held the running action paused past REFLEX_HOLD_LIMIT_MS.
+	HELD_BY_REFLEX: ['body', null],
 	UNDERGROUND: ['ok'],
 	STOOD_GROUND: ['ok'],
 	WALLED_IN: ['ok'],
