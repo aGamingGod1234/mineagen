@@ -39,6 +39,8 @@ function rowOf(kind, blockId, x, y, z, { count = 1, source, seenAt, dimension, p
 	const row = { id: id(blockId), kind, x: Math.floor(x), y: Math.floor(y), z: Math.floor(z), count: Math.max(1, Math.round(count)), distance: Infinity,
 		seenAt, source, dimension, placed };
 	if (kind === 'container') row.opened = opened === true;
+	// Seen along an open sight line (scan, landmark, far sight, entity): not enclosed. rememberKnownBlocks marks the rest.
+	row.enclosed = false;
 	if (kind === 'mob') { if (stableId !== undefined) row.stableId = stableId; if (Number.isFinite(health)) row.health = health; }
 	return row;
 }
@@ -99,6 +101,8 @@ export function rememberResources(memory, observation, { now = Date.now() } = {}
 	for (const row of observedResources(observation, { now })) {
 		const exact = keyOf(row);
 		if (exact !== null) { rows.set(exact, { ...rows.get(exact), ...row }); continue; }
+		const known = rows.get(`${row.dimension}|${row.id}@${row.x},${row.y},${row.z}`);
+		if (known?.enclosed) known.enclosed = false;
 		// A block: one row per id and neighbourhood, at the nearest member seen.
 		let merged = false;
 		for (const [key, old] of rows) {
@@ -106,7 +110,7 @@ export function rememberResources(memory, observation, { now = Date.now() } = {}
 			if (Math.abs(old.x - row.x) > MERGE || Math.abs(old.y - row.y) > MERGE || Math.abs(old.z - row.z) > MERGE) continue;
 			const closer = Math.hypot(row.x + 0.5 - body.x, row.z + 0.5 - body.z) < Math.hypot(old.x + 0.5 - body.x, old.z + 0.5 - body.z);
 			rows.set(key, { ...old, ...(closer ? { x: row.x, y: row.y, z: row.z } : {}), count: Math.max(old.count, row.count), seenAt: now,
-				source: closer ? row.source : old.source, placed: old.placed || row.placed });
+				source: closer ? row.source : old.source, placed: old.placed || row.placed, enclosed: false });
 			merged = true;
 			break;
 		}
@@ -115,6 +119,26 @@ export function rememberResources(memory, observation, { now = Date.now() } = {}
 	for (const [key, row] of rows) {
 		const far = row.dimension === body.dimension && Math.hypot(row.x + 0.5 - body.x, row.z + 0.5 - body.z) > RESOURCE_KEEP_RADIUS;
 		if (now - row.seenAt > RESOURCE_TTL_MS || far) rows.delete(key);
+	}
+	return memory;
+}
+
+/**
+ * Merges blocks the body knows of without a sight line now (an ore a dig sighted through rock, kept in the observed-
+ * memory store) as rows with `enclosed: true`. A row also seen along a sight line keeps `enclosed: false`.
+ */
+export function rememberKnownBlocks(memory, observation, blocks, { now = Date.now(), source = 'vein' } = {}) {
+	const body = bodyOf(observation);
+	if (body === null || !Array.isArray(blocks)) return memory;
+	for (const block of blocks) {
+		const blockId = id(block?.blockId);
+		if (!finite(block?.x, block?.y, block?.z) || TERRAIN.test(blockId)) continue;
+		const key = `${body.dimension}|${blockId}@${Math.floor(block.x)},${Math.floor(block.y)},${Math.floor(block.z)}`;
+		const old = memory.rows.get(key);
+		if (old) { memory.rows.set(key, { ...old, seenAt: Math.max(old.seenAt, now) }); continue; }
+		const row = rowOf(CONTAINERS.has(blockId) ? 'container' : 'block', blockId, block.x, block.y, block.z, { source, seenAt: now, dimension: body.dimension });
+		row.enclosed = true;
+		memory.rows.set(key, row);
 	}
 	return memory;
 }

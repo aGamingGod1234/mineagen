@@ -1,4 +1,4 @@
-import { knownResources, newResourceMemory, rememberResources } from './seen-resources.mjs';
+import { knownResources, newResourceMemory, rememberKnownBlocks, rememberResources } from './seen-resources.mjs';
 import { createHash, randomUUID } from 'node:crypto';
 import { validateTraceId } from './control-latency-registry.mjs';
 import { ExplorationOccupancy, extractPosition as observationPosition, observationWorldId } from './explore-frontier.mjs';
@@ -343,7 +343,12 @@ export class NativeToolRuntime {
 
 	#rememberResources(agentId, observation) {
 		if (!this.#resources.has(agentId)) this.#resources.set(agentId, newResourceMemory());
-		try { rememberResources(this.#resources.get(agentId), observation, { now: Date.now() }); } catch { /* a malformed sample adds nothing */ }
+		try {
+			rememberResources(this.#resources.get(agentId), observation, { now: Date.now() });
+			// Ores a dig sighted through rock live in the observed-memory store: rows with enclosed: true.
+			const known = this.#occupancy?.knownSources?.(agentId, observation, /_ore$|^minecraft:ancient_debris$/);
+			if (known?.blocks?.length) rememberKnownBlocks(this.#resources.get(agentId), observation, known.blocks, { now: Date.now() });
+		} catch { /* a malformed sample adds nothing */ }
 	}
 
 	/** The observation a helper reads, with the sources seen so far (seenResources, nearest first) attached. */

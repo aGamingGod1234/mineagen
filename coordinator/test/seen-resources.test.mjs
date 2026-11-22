@@ -53,3 +53,15 @@ test('reads filter by kind, distance and opened containers', () => {
 	assert.deepEqual(knownResources(memory, at(0.5, 64, 0.5), { kinds: ['container'], includeOpened: false }).map((row) => row.id), ['minecraft:barrel']);
 	assert.deepEqual(knownResources(memory, at(0.5, 64, 0.5), { maxDistance: 10 }).map((row) => row.id), ['minecraft:chest']);
 });
+
+test('an ore a dig sighted through rock is a row with enclosed: true until seen along a sight line', async () => {
+	const { rememberKnownBlocks } = await import('../src/seen-resources.mjs');
+	const memory = newResourceMemory();
+	rememberKnownBlocks(memory, at(0.5, 40, 0.5), [{ blockId: 'minecraft:iron_ore', x: 5, y: 38, z: 2 }], { now: 1 });
+	let row = knownResources(memory, at(0.5, 40, 0.5), { ids: ['iron_ore'] })[0];
+	assert.equal(row.enclosed, true);
+	assert.equal(row.source, 'vein');
+	rememberResources(memory, at(0.5, 40, 0.5, { blocks: [{ blockId: 'minecraft:iron_ore', x: 5, y: 38, z: 2 }] }), { now: 2 });
+	row = knownResources(memory, at(0.5, 40, 0.5), { ids: ['iron_ore'] })[0];
+	assert.equal(row.enclosed, false);
+});
