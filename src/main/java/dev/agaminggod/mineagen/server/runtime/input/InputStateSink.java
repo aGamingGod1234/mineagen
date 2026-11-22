@@ -10,6 +10,9 @@ public interface InputStateSink {
 
 	default long acceptedUses(AgentId agentId) { return 0L; }
 
+	/** The block or entity that took the last accepted use click, or null when the held item itself acted. */
+	default String lastAcceptedUseTarget(AgentId agentId) { return null; }
+
 	/** Full lifecycle revocation, including after the last lease has already released. */
 	default void revoke(AgentId agentId) { }
 

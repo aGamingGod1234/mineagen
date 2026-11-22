@@ -2,167 +2,114 @@
 name: Mineagen control center
 description: A readable in-world control center for configuring and directing Minecraft agents.
 colors:
-  obsidian-panel: "#18202B"
-  slate-surface: "#27313E"
-  selected-surface: "#35465A"
-  cloud-text: "#F2F5F8"
-  mist-text: "#AEB8C4"
-  signal-amber: "#F2BD58"
-  success-mint: "#66D9A3"
-  fault-coral: "#FF737A"
+  ink-panel: "#11151C"
+  surface: "#1A2029"
+  surface-raised: "#2A3340"
+  selected-surface: "#15303A"
+  inset-field: "#0B0F14"
+  text: "#EEF1F5"
+  label: "#8F99A8"
+  subtle: "#6A7484"
+  diamond: "#5FD4F4"
+  diamond-ink: "#04212B"
+  success-mint: "#5EE0A0"
+  warning-gold: "#F5C451"
+  fault-coral: "#FF6B7A"
 typography:
   title:
-    fontFamily: "Roboto, sans-serif"
-    fontSize: "18px"
-    fontWeight: 700
-    lineHeight: 1.25
+    fontFamily: "Roboto Medium"
+    fontSize: "1.5x"
   body:
-    fontFamily: "Roboto, sans-serif"
-    fontSize: "12px"
-    fontWeight: 400
-    lineHeight: 1.4
+    fontFamily: "Roboto Regular"
+    fontSize: "1x (10 px TTF)"
+  value:
+    fontFamily: "Roboto Medium"
+    fontSize: "1x"
   label:
-    fontFamily: "Roboto, sans-serif"
-    fontSize: "10px"
-    fontWeight: 600
-    lineHeight: 1.2
+    fontFamily: "Roboto Regular"
+    fontSize: "0.78x"
 rounded:
-  control: "2px"
-  panel: "3px"
+  small: "3px"
+  control: "4px"
+  card: "6px"
+  panel: "8px"
 spacing:
-  xs: "4px"
-  sm: "6px"
-  md: "12px"
-  lg: "18px"
-components:
-  action-primary:
-    backgroundColor: "{colors.signal-amber}"
-    textColor: "{colors.obsidian-panel}"
-    typography: "{typography.label}"
-    rounded: "{rounded.control}"
-    padding: "6px 12px"
-  roster-selected:
-    backgroundColor: "{colors.selected-surface}"
-    textColor: "{colors.cloud-text}"
-    typography: "{typography.body}"
-    rounded: "{rounded.control}"
-    padding: "6px 8px"
+  grid: "4px"
+  gutter: "16px"
+  field-gap: "10px"
+  label-to-field: "12px"
 ---
 
-# Design System: Mineagen control center
+# Design System: Mineagen control center ("Diamond")
 
-This is the visual direction. `ConsoleTheme.java`, `ConsoleFont.java` and the widgets under `src/client/java/dev/agaminggod/mineagen/client/gui/` define the rendered values.
+This is the visual direction. `ConsoleTheme.java` (colors), `ConsoleDraw.java` (shapes, icons, type scale),
+`ConsoleMotion.java` (easing) and the widgets under `src/client/java/dev/agaminggod/mineagen/client/gui/` define
+the rendered values.
 
 ## Overview
 
-**Creative North Star: "The Field Command Table"**
+The control center opens over a live world, usually at GUI scale 3 on a 1080p screen: a 640x360 canvas with 9 px text.
+Quality at that size comes from spacing rhythm, two font weights, alignment and restraint, not from effects. Grouping
+comes from space and tone. There are no outlines around everything.
 
-The player opens the control center while standing in an active world, often under a bright sky with visual noise behind the interface. It is a dark, opaque-enough map table layered above that world, with strong text contrast, deliberate sections, and one signal color reserved for current selection and primary action.
+**Key characteristics:**
 
-It must feel native to Minecraft without looking like a vanilla settings menu. Custom-rendered navigation, roster rows, status timelines, segmented controls, and agent controls provide identity. Default buttons are implementation primitives, not the visual system.
-
-**Key Characteristics:**
-
-- Strong full-row selected states with explicit Selected text.
-- A stable three-region shell: navigation, working canvas, live activity rail.
-- Progressive disclosure between setup and individual tasks.
-- Dense but readable information with no nested card grid.
+- One floating ink panel with a single soft shadow, capped at 760x440 and centered on large GUIs.
+- A header row: the diamond mark, "Mineagen", a breadcrumb back, and one live status on the right.
+- Each page has a title and one line of help when the panel is tall enough, then labelled fields.
+- One cyan accent marks the current choice, keyboard focus and the one main action.
 
 ## Colors
 
-The palette is restrained: tinted charcoal surfaces and one amber signal, with semantic mint and coral reserved for runtime truth.
-
-### Primary
-
-- **Signal Amber:** Current selection, primary action, and active progress only.
-
-### Secondary
-
-- **Success Mint:** Confirmed readiness or completed work.
-- **Fault Coral:** Blocking errors and destructive confirmations.
-
-### Neutral
-
-- **Obsidian Panel:** Main control center shell.
-- **Slate Surface:** Controls, rows, and secondary regions.
-- **Selected Surface:** Full-row selection reinforcement beneath amber details.
-- **Cloud Text:** Primary readable copy.
-- **Mist Text:** Supporting metadata that remains legible.
-
-**The Signal Rarity Rule.** Amber marks what is current or actionable. It is never decorative.
+- **Diamond cyan:** Selected choice, focus and the primary button (dark ink text on cyan). Never decorative.
+- **Mint, gold, coral:** Ready, waiting and blocked states, shown as a small dot beside the words.
+- **Ink, surface, raised, inset:** Depth by tone. Cards sit on surface, controls lift on hover, fields sink.
+- **Provider colors:** Codex green and Claude orange, used only for each tool's small mark.
 
 ## Typography
 
-**Display Font:** Roboto with Minecraft fallback
-**Body Font:** Roboto with Minecraft fallback
-**Label Font:** Roboto with Minecraft fallback
+Roboto Regular for body text and Roboto Medium for titles, values and buttons (`console` and `console_medium` font
+definitions). Labels draw at 0.78x and titles at 1.5x through the pose stack, so text stays crisp at every GUI scale.
 
-**Implementation:** `ConsoleFont` selects the mod-local `mineagen:console` font and falls back to Minecraft if it is unavailable. The font resource loads Roboto Regular with a Unifont fallback.
+**The human copy rule.** Write in the player's words ("Ready · Max plan", "Not signed in. Run the tool's login there").
+Never show account names, protocol slugs or raw limit kinds.
 
-### Hierarchy
+## Shape and depth
 
-- **Title** (700, 18px, 1.25): Current workspace and selected subject.
-- **Body** (400, 12px, 1.4): Agent names, tasks, status explanations.
-- **Label** (600, 10px, 1.2): Navigation, field names, chips, and compact metadata.
+Rounded shapes, the panel shadow and icons are GUI sprites under `textures/gui/sprites/console/`. Each one is
+generated once per GUI scale (`scripts/generate-console-sprites.py`) and drawn at one texel per screen pixel, because
+GUI sprites are point-sampled and one hi-res texture scaled by 3 gets uneven corners. Shapes are white and tinted at
+draw time.
 
-**The Human Copy Rule.** Provider and model metadata may be precise, but lifecycle and error text must be phrased for a player, not a protocol engineer.
+## Motion
 
-## Elevation
-
-Depth uses tonal layering and one-pixel keylines, not decorative shadows or glass blur. The world remains context, while the control center stays readable across snow, desert, caves, and night.
-
-**The Flat Console Rule.** Surfaces are flat at rest. Focus and selection change fill and keyline contrast, never add ornamental glow.
+Motion answers input. Hover eases over about 120 ms, the segmented highlight slides over about 160 ms, and a picked
+tool card fades its accent in. Nothing loops for decoration. A rebuilt widget starts settled, so redrawing a page never
+replays an animation.
 
 ## Components
 
-### Buttons
-
-- **Shape:** Pixel-tight corners (2px visual radius or squared stepped corners).
-- **Primary:** Amber fill with dark text, used once per workspace.
-- **Hover / Focus:** Brighter keyline and a small tonal lift.
-- **Secondary:** Slate fill with cloud text.
-- **Disabled:** Reduced contrast plus explanatory status nearby.
-
-### Chips
-
-- **Style:** Compact provider, model, effort, and speed labels.
-- **State:** Selected chips use both fill and a checkmark or Selected label.
-
-### Cards / Containers
-
-- **Corner Style:** Tight panel corners (3px).
-- **Background:** Obsidian shell with slate working surfaces.
-- **Shadow Strategy:** None.
-- **Border:** One-pixel cool-gray keyline.
-- **Internal Padding:** 12px working regions, 6px dense rows.
-
-### Inputs / Fields
-
-- **Style:** Slate-black field, full-width label above, visible caret.
-- **Focus:** Amber one-pixel keyline and retained label.
-- **Error / Disabled:** Coral explanation or muted field with reason.
-
-### Navigation
-
-The agent workflow uses Agents navigation, with a side rail when wide and a top row when compact. The active destination has a filled background, amber marker, and text label. Never use icons alone.
-
-### Agent Roster Row
-
-The entire row is the target. It shows a friendly name, readable model label, current state, and provider color as secondary metadata. Selection changes the full background, adds an amber outline, and prints Selected.
+- **Buttons:** primary (cyan fill), secondary (raised fill), ghost (text only, gains a surface on hover, lines up with
+  content edges) and danger (coral text on a dark red surface). They take an optional 12 px icon and have no outline
+  at rest. Keyboard focus draws a ring.
+- **Choice cards:** pick a model tool. Each has a mark, the tool's name and one status line with a state dot, its
+  sign-in and its version.
+- **Segmented control:** short ranked lists (thinking, speed, game mode) with every option visible.
+- **Select:** a field that opens a popup list with a check on the current value.
+- **Fields:** sunken fill, quiet ring, cyan ring when focused.
+- **Roster tiles:** rounded cards with the agent's face, starting under the page title.
 
 ## Do's and Don'ts
 
 ### Do:
 
-- **Do** reserve amber for current selection, active progress, and the primary action.
-- **Do** keep agent setup and individual tasks clear and easy to reach.
-- **Do** expose a readable failure with a recovery action when planning stalls.
+- **Do** align every text edge to the content gutter, ghost actions included.
+- **Do** give each page one primary action, bottom right.
+- **Do** keep destructive actions apart from routine ones, in the footer or a confirmation page.
 
 ### Don't:
 
-- **Don't** build a pile of default Minecraft buttons with no hierarchy.
-- **Don't** use tiny glyphs as the only selection signal.
-- **Don't** bundle configuration and tasks into one crowded surface.
-- **Don't** present technical slugs, IDs, revisions, and internal state names as primary copy.
-- **Don't** report progress that does not correspond to visible or measurable world changes.
-- **Don't** use glassmorphism, gradient text, colored side stripes, or identical card grids.
+- **Don't** outline every control. Use tone and space.
+- **Don't** use glass blur, gradients, glows or decorative motion.
+- **Don't** repeat in a status line what a control above already shows.
+- **Don't** show account names anywhere, including tooltips.

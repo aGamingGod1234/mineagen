@@ -113,6 +113,84 @@ test('a crossing that leads nowhere is dropped: the next find climbs and throws 
 	assert.ok(after.length >= 0);
 });
 
+// A villager or a door at eye level takes the use click: the receipt says the use was accepted, yet no eye leaves the hand
+// and no flight follows. `taken` decides which use_item calls that happens to.
+function takenBody(taken, options = {}) {
+	let uses = 0, blockedNow = false;
+	return body({ ...options, onAct: (type, args, o, calls) => {
+		if (type === 'use_item') {
+			blockedNow = taken(++uses);
+			if (blockedNow) return { state: 'SUCCEEDED', reasonCode: 'USE_INPUT_CONFIRMED', message: 'Held use for 1 server ticks; accepted interactions=1' };
+		}
+		// No eye was thrown, so no flight is ever published.
+		if (type === 'wait' && blockedNow) return { state: 'SUCCEEDED', reasonCode: 'WAITED' };
+		return options.onAct?.(type, args, o, calls) ?? null;
+	} });
+}
+const uses = b => b.calls.filter(c => c.type === 'use_item').length;
+
+test('a throw whose use click a villager took is not a throw: it looks up past it and throws again', async () => {
+	const b = takenBody(n => n === 1);
+	const r = await searchFor({ structure: 'stronghold', throwCap: 1 }, b);
+	assert.equal(uses(b), 2, 'throws again in the same find');
+	const between = b.calls.slice(b.calls.findIndex(c => c.type === 'use_item') + 1, b.calls.findLastIndex(c => c.type === 'use_item'));
+	assert.ok(between.some(c => c.type === 'control' && c.args.pitch <= -60), 'looks well up before the second try');
+	assert.equal(r.find.eyes.throwsMade, 1, 'the taken click is not counted as a throw');
+	assert.equal(r.find.eyes.throws[0].eyesAfter, 15);
+	assert.equal(Number.isFinite(r.find.eyes.throws[0].yaw), true, 'the real throw has its heading');
+	assert.doesNotMatch(r.message, /Eye flight not observed/);
+});
+
+test('a throw taken every time hands back in the throw phase, and the next find throws', async () => {
+	let blocking = true;
+	const b = takenBody(() => blocking);
+	const first = await searchFor({ structure: 'stronghold', throwCap: 1 }, b);
+	assert.equal(first.reasonCode, 'FIND_BLOCKED');
+	assert.match(first.message, /Eye not thrown/);
+	assert.equal(b.eyeSearchState.phase, 'throw');
+	assert.equal(b.eyeSearchState.throws.length, 0);
+	assert.equal(uses(b), 3);
+	assert.ok(b.calls.some(c => c.type === 'travel_to' && c.args.build === false), 'steps back from what took the click');
+	assert.equal(eyesHeld(b), 16);
+	blocking = false;
+	const second = await searchFor({ structure: 'stronghold', throwCap: 1 }, b);
+	assert.equal(uses(b), 4, 'a later find throws');
+	assert.equal(eyesHeld(b), 15);
+	assert.equal(second.find.eyes.throwsMade, 1);
+	assert.doesNotMatch(second.message, /Eye flight not observed/);
+});
+
+test('the turn aside after a taken click stays a valid heading when the last eye flew past 90 degrees', async () => {
+	const b = takenBody(n => n === 2, { flight: () => ({ yaw: 135 }) });
+	const r = await searchFor({ structure: 'stronghold', throwCap: 2 }, b);
+	assert.equal(uses(b), 3, 'the taken second throw is tried again');
+	const turn = b.calls.find(c => c.type === 'control' && c.args.pitch <= -60);
+	assert.equal(turn.args.yaw, -135);
+	assert.equal(r.find.eyes.throwsMade, 2);
+});
+
+test('a use refused outright throws no eye and is tried again', async () => {
+	let refused = 0;
+	const b = body({ onAct: type => type === 'use_item' && ++refused === 1 ? { state: 'FAILED', reasonCode: 'USE_NOT_ACCEPTED' } : null });
+	const r = await searchFor({ structure: 'stronghold', throwCap: 1 }, b);
+	assert.equal(uses(b), 2);
+	assert.equal(r.find.eyes.throwsMade, 1);
+	assert.equal(eyesHeld(b), 15);
+});
+
+test('an eye that left the hand but was never seen in flight does not stop later finds from throwing', async () => {
+	let unseen = true;
+	const b = body({ onAct: type => type === 'wait' && unseen ? { state: 'SUCCEEDED', reasonCode: 'WAITED' } : null });
+	const first = await searchFor({ structure: 'stronghold', throwCap: 2 }, b);
+	assert.equal(first.reasonCode, 'FIND_BLOCKED');
+	assert.match(first.message, /Eye flight not observed/);
+	assert.equal(b.eyeSearchState.phase, 'throw');
+	assert.equal(first.find.eyes.throwsMade, 1, 'the eye did leave the hand');
+	unseen = false;
+	await searchFor({ structure: 'stronghold', throwCap: 2 }, b);
+	assert.equal(uses(b), 2, 'the next find throws again');
+});
+
 test('an eye that dropped out of view nearby is searched for once and picked up', async () => {
 	const b = body({ flight: () => ({ outcome: 'dropped', droppedAt: { x: -12, y: 70, z: 0 } }), onAct: (type, args, o) => {
 		if (type === 'travel_to' && args.x === -12 && args.y === undefined) { o.player.x = -12; o.player.z = 0; o.items = [{ itemId: 'minecraft:ender_eye', stableId: EYE_ID, x: -12.3, y: 64, z: 0.2 }]; return { state: 'SUCCEEDED', reasonCode: 'ARRIVED' }; }

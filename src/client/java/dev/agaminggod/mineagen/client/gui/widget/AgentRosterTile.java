@@ -86,12 +86,15 @@ public final class AgentRosterTile extends AbstractWidget implements ConsoleFocu
 	) {
 		ContentMetrics metrics = contentMetrics(getX(), getY(), getWidth(), getHeight(), selected);
 		int surface = surfaceColor(selected, entry.selectable(), isHovered());
-		graphics.fill(getX(), getY(), getRight(), getBottom(), surface);
-		graphics.outline(
-				getX(), getY(), getWidth(), getHeight(),
-				focusVisible(isFocused(), contextFocused.getAsBoolean())
-						? ConsoleTheme.ROSTER_FOCUS : ConsoleTheme.BORDER
-		);
+		dev.agaminggod.mineagen.client.gui.ConsoleDraw.surface(graphics, getX(), getY(), getWidth(), getHeight(),
+				dev.agaminggod.mineagen.client.gui.ConsoleDraw.RADIUS_CARD, surface);
+		if (focusVisible(isFocused(), contextFocused.getAsBoolean())) {
+			dev.agaminggod.mineagen.client.gui.ConsoleDraw.ring(graphics, getX(), getY(), getWidth(), getHeight(),
+					dev.agaminggod.mineagen.client.gui.ConsoleDraw.RADIUS_CARD, ConsoleTheme.FOCUS);
+		} else if (selected) {
+			dev.agaminggod.mineagen.client.gui.ConsoleDraw.ring(graphics, getX(), getY(), getWidth(), getHeight(),
+					dev.agaminggod.mineagen.client.gui.ConsoleDraw.RADIUS_CARD, ConsoleTheme.ACCENT);
+		}
 
 		Bounds portrait = metrics.portraitBounds();
 		PlayerFaceExtractor.extractRenderState(
@@ -108,8 +111,8 @@ public final class AgentRosterTile extends AbstractWidget implements ConsoleFocu
 		if (metrics.showPrimaryText()) {
 			Bounds primary = metrics.primaryTextBounds();
 			String fittedName = ellipsize(
-					entry.name(), primary.width(), value -> ConsoleText.width(font, value));
-			ConsoleText.text(graphics, font, fittedName, primary.left(), primary.top(), ConsoleTheme.TEXT);
+					entry.name(), primary.width(), value -> ConsoleText.strongWidth(font, value));
+			graphics.text(font, ConsoleText.strong(fittedName), primary.left(), primary.top(), ConsoleTheme.TEXT, false);
 		}
 		if (metrics.showSecondaryText()) {
 			Bounds secondary = metrics.secondaryTextBounds();

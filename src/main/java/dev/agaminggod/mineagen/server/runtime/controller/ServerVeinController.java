@@ -16,6 +16,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.tags.BlockTags;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Mob;
@@ -298,6 +299,10 @@ public final class ServerVeinController implements ServerController {
 	}
 
 	private TickResult startBreak(ServerPlayer player, BlockPos at, boolean leaf, long now) {
+		if (!leaf) {
+			TickResult guarded = piglinGuard(player, at, now);
+			if (guarded != null) return guarded;
+		}
 		try {
 			breaking = environment.breakBlock(player, at, Math.max(1L, Math.min(BLOCK_TIMEOUT_MS, deadline - now)));
 		} catch (AgentDomainException refused) {
@@ -324,7 +329,42 @@ public final class ServerVeinController implements ServerController {
 		return breakTick(player, now);
 	}
 
+	/**
+	 * Vanilla (PiglinAi.angerNearbyPiglins): breaking a block tagged guarded_by_piglins angers every idle piglin whose
+	 * box touches the player's box grown by 16 on each axis, seen or not. A piglin 12 east and 12 south (17 straight-line)
+	 * is inside it.
+	 */
+	public static final double PIGLIN_GUARD_RANGE = 16.0D;
+
+	public static boolean angersPiglins(boolean guardedBlock, net.minecraft.world.phys.AABB body, net.minecraft.world.phys.AABB piglin) {
+		return guardedBlock && body.inflate(PIGLIN_GUARD_RANGE).intersects(piglin);
+	}
+
+	/**
+	 * The calm piglin, seen or heard (piglins grunt; vanilla angers them unseen), that breaking this gold would turn on
+	 * the body, as a stop naming it; null when the block is not guarded or no piglin is inside the guard box. A player
+	 * listens and glances round before mining gold, and stops mid-swing when one walks up.
+	 */
+	private TickResult piglinGuard(ServerPlayer player, BlockPos at, long now) {
+		BlockState state = player.level().getBlockState(at);
+		if (!state.is(BlockTags.GUARDED_BY_PIGLINS)) return null;
+		net.minecraft.world.phys.AABB body = player.getBoundingBox();
+		for (var piglin : player.level().getEntitiesOfClass(net.minecraft.world.entity.monster.piglin.Piglin.class, body.inflate(PIGLIN_GUARD_RANGE + 1.0D),
+				// Vanilla angers only idle piglins (PiglinAi.isIdle): one fleeing, fighting or admiring is left out.
+				p -> p.isAlive() && p.getTarget() != player && p.getBrain().isActive(net.minecraft.world.entity.schedule.Activity.IDLE))) {
+			if (!angersPiglins(true, body, piglin.getBoundingBox())) continue;
+			return stop(player, "PIGLINS_NEAR_GOLD", String.format(Locale.ROOT,
+					"a calm piglin is %.1f blocks away (seen or heard): breaking %s with a piglin within %d blocks on each axis turns them on you (vanilla), gold armour or not; mine it once they are further off",
+					player.distanceTo(piglin), blockId(state), (int) PIGLIN_GUARD_RANGE), false, now);
+		}
+		return null;
+	}
+
 	private TickResult breakTick(ServerPlayer player, long now) {
+		if (!breakingLeaves && breakingAt != null) {
+			TickResult guarded = piglinGuard(player, breakingAt, now);
+			if (guarded != null) return guarded;
+		}
 		TickResult result = breaking.tick(player, now);
 		if (result.state() == State.RUNNING) return TickResult.running(progress());
 		BlockPos at = breakingAt;

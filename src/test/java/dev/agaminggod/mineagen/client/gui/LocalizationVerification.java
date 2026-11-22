@@ -83,6 +83,8 @@ public final class LocalizationVerification {
 		}
 		assertResource("/assets/mineagen/font/console.json", "custom console font definition");
 		assertResource("/assets/mineagen/font/roboto_regular.ttf", "custom console font asset");
+		assertResource("/assets/mineagen/font/console_medium.json", "medium console font definition");
+		assertResource("/assets/mineagen/font/roboto_medium.ttf", "medium console font asset");
 		verifyFontProviderAssets();
 		verifyNarrationOverrides();
 		verifyControlPresentation();
@@ -120,22 +122,18 @@ public final class LocalizationVerification {
 					true, false, false, false, ConsoleTheme.ACCENT);
 			Object disabled = buttonPresentation.invoke(null, ConsoleButton.Tone.PRIMARY,
 					false, false, true, true, ConsoleTheme.ACCENT);
-			assertInt(quiet, "border", ConsoleTheme.BORDER, "secondary button uses the quiet boundary");
-			assertInt(quiet, "fill", ConsoleTheme.SURFACE, "secondary button uses the quiet surface");
-			assertInt(selected, "border", ConsoleTheme.ACCENT, "selection keeps the amber outline");
-			assertInt(selectedCustomAccent, "border", ConsoleTheme.ACCENT,
-					"selection remains amber instead of inheriting decorative identity color");
-			assertInt(selected, "fill", ConsoleTheme.ROSTER_SELECTED_SURFACE,
-					"selection uses a quiet selected surface");
-			assertInt(focused, "border", ConsoleTheme.FOCUS,
-					"keyboard focus stays neutral when selected");
-			assertInt(primary, "fill", ConsoleTheme.ROSTER_SELECTED_SURFACE,
-					"primary action avoids a bright amber slab");
-			assertInt(primary, "text", ConsoleTheme.ACCENT, "primary action uses amber text");
-			assertInt(primary, "inset", 1, "button always has one one-pixel boundary");
-			assertInt(disabled, "border", ConsoleTheme.BORDER, "disabled button uses a quiet boundary");
-			assertInt(disabled, "fill", ConsoleTheme.TRACK, "disabled button uses the track surface");
-			assertInt(disabled, "text", ConsoleTheme.MUTED, "disabled button uses muted text");
+			assertInt(quiet, "border", 0, "secondary button has no outline at rest");
+			assertInt(quiet, "fill", ConsoleTheme.SURFACE_HOVER, "secondary button rests on a raised surface");
+			assertInt(selected, "fill", ConsoleTheme.SURFACE_SELECTED, "a selected toggle uses the quiet selected surface");
+			assertInt(selected, "text", ConsoleTheme.ACCENT, "a selected toggle names its state in the accent");
+			assertInt(selectedCustomAccent, "text", ConsoleTheme.ACCENT,
+					"selection stays in the product accent instead of inheriting decorative identity color");
+			assertInt(focused, "border", ConsoleTheme.FOCUS, "keyboard focus draws the dedicated focus ring");
+			assertInt(primary, "fill", ConsoleTheme.ACCENT, "the primary action is the one accent-filled control");
+			assertInt(primary, "text", ConsoleTheme.ACCENT_INK, "primary text is dark ink on the accent");
+			assertInt(disabled, "border", 0, "disabled button draws no focus ring");
+			assertInt(disabled, "fill", ConsoleTheme.ROSTER_UNAVAILABLE_SURFACE, "disabled button sinks to the unavailable surface");
+			assertInt(disabled, "text", ConsoleTheme.SUBTLE, "disabled button uses subtle text");
 			Method selectionKey = ConsoleButton.class.getDeclaredMethod("selectionNarrationKey", boolean.class);
 			assertTrue(selectionKey.invoke(null, true).equals("screen.mineagen.control.selected"),
 					"selected button narration uses the localized hint");
@@ -148,15 +146,13 @@ public final class LocalizationVerification {
 			Object cycleHover = cyclePresentation.invoke(null, true, false, true);
 			Object cycleFocus = cyclePresentation.invoke(null, true, true, false);
 			Object cycleDisabled = cyclePresentation.invoke(null, false, true, true);
-			assertInt(cycleQuiet, "border", ConsoleTheme.BORDER, "cycle rests on a quiet boundary");
-			assertInt(cycleQuiet, "arrow", ConsoleTheme.MUTED, "cycle arrows are muted at rest");
-			assertInt(cycleHover, "border", ConsoleTheme.ROSTER_FOCUS, "cycle hover uses a neutral outline");
-			assertInt(cycleHover, "arrow", ConsoleTheme.TEXT, "cycle arrows brighten on hover");
-			assertInt(cycleFocus, "border", ConsoleTheme.FOCUS, "cycle focus uses the neutral focus token");
-			assertInt(cycleFocus, "inset", 1, "cycle always has one one-pixel boundary");
-			assertInt(cycleDisabled, "border", ConsoleTheme.BORDER,
-					"disabled cycle ignores hover and focus decoration");
-			assertInt(cycleDisabled, "fill", ConsoleTheme.TRACK, "disabled cycle uses the track surface");
+			assertInt(cycleQuiet, "border", 0, "cycle rests without an outline");
+			assertInt(cycleQuiet, "arrow", ConsoleTheme.SUBTLE, "cycle chevrons are subtle at rest");
+			assertInt(cycleHover, "fill", ConsoleTheme.SURFACE_HOVER, "cycle hover lifts its surface");
+			assertInt(cycleHover, "arrow", ConsoleTheme.TEXT, "cycle chevrons brighten on hover");
+			assertInt(cycleFocus, "border", ConsoleTheme.FOCUS, "cycle focus uses the focus ring");
+			assertInt(cycleDisabled, "fill", ConsoleTheme.ROSTER_UNAVAILABLE_SURFACE, "disabled cycle sinks to the unavailable surface");
+			assertInt(cycleDisabled, "text", ConsoleTheme.SUBTLE, "disabled cycle uses subtle text");
 			Method cycleKey = ConsoleCycleButton.class.getDeclaredMethod("cycleNarrationKey");
 			assertTrue(cycleKey.invoke(null).equals("screen.mineagen.control.cycle_hint"),
 					"cycle narration uses the localized input hint");

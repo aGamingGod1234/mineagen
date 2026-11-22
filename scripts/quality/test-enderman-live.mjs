@@ -231,8 +231,14 @@ try {
 			await command('summon minecraft:enderman 0.5 80 6.5'); await rate.idleSleep(1500);
 			if (rules.length) o = await setReflexes(rules);
 			const play = await playStart();
-			await (await startAction('look_at', { x: 0.5, y: 82.55, z: 6.5 })).result;
-			const provoked = await until(6000, angry);
+			// The stare is the room's setup: the enderman may have stepped off its summon cell, so look at its head where it
+			// stands now, up to three times, before the trial counts.
+			let provoked = false;
+			for (let attempt = 0; attempt < 3 && !provoked; attempt++) {
+				const seen = endermen(await observe()).find((row) => [row.x, row.y, row.z].every(Number.isFinite));
+				await (await startAction('look_at', seen ? { x: seen.x, y: seen.y + 2.55, z: seen.z } : { x: 0.5, y: 82.55, z: 6.5 })).result;
+				provoked = await until(attempt === 0 ? 6000 : 3000, angry);
+			}
 			// Then look away, as the agents did: a provoked enderman freezes while stared at and attacks once you look off.
 			await (await startAction('look_at', { x: 0.5, y: 80, z: -6 })).result;
 			const rows = []; const before = health(o); const started = rate.clock.now();
