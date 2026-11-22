@@ -1,5 +1,7 @@
 package dev.agaminggod.mineagen.client.gui.widget;
 
+import dev.agaminggod.mineagen.client.gui.ConsoleDraw;
+import dev.agaminggod.mineagen.client.gui.ConsoleMotion;
 import dev.agaminggod.mineagen.client.gui.ConsoleTheme;
 import dev.agaminggod.mineagen.client.gui.ConsoleFocusTarget;
 import dev.agaminggod.mineagen.client.gui.ConsoleText;
@@ -18,7 +20,8 @@ import net.minecraft.network.chat.Component;
 import com.mojang.blaze3d.platform.InputConstants;
 
 public final class ConsoleCycleButton<T> extends AbstractWidget implements ConsoleFocusTarget {
-	private static final int LABEL = 0xFF9DA9B6;
+	private static final int LABEL = ConsoleTheme.MUTED;
+	private final ConsoleMotion hover = new ConsoleMotion();
 	private final Font font;
 	private final Component label;
 	private final List<T> values;
@@ -90,33 +93,31 @@ public final class ConsoleCycleButton<T> extends AbstractWidget implements Conso
 
 	@Override
 	protected void extractWidgetRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
+		float lift = ConsoleMotion.smooth(hover.toward(active && (isHovered() || isFocused()) ? 1F : 0F, 120));
 		Presentation style = presentation(active, isFocused(), isHovered());
-		graphics.fill(getX(), getY(), getRight(), getBottom(), style.border());
-		graphics.fill(getX() + style.inset(), getY() + style.inset(),
-				getRight() - style.inset(), getBottom() - style.inset(), style.fill());
-		int textY = getY() + (getHeight() - 9) / 2;
-		// Ranked selectors stop at either end, so the dead arrow is muted instead of promising a change.
-		int leftArrow = !wrap && index == 0 ? ConsoleTheme.MUTED : style.arrow();
-		int rightArrow = !wrap && index == values.size() - 1 ? ConsoleTheme.MUTED : style.arrow();
-		ConsoleText.text(graphics, font, "<", getX() + 7, textY, leftArrow);
-		ConsoleText.text(graphics, font, label, getX() + 19, textY, LABEL);
+		ConsoleDraw.surface(graphics, getX(), getY(), getWidth(), getHeight(), ConsoleDraw.RADIUS_CONTROL,
+				ConsoleDraw.mix(ConsoleTheme.SURFACE, ConsoleTheme.SURFACE_HOVER, lift));
+		if (isFocused() && active) ConsoleDraw.ring(graphics, getX(), getY(), getWidth(), getHeight(), ConsoleDraw.RADIUS_CONTROL, style.border());
+		int textY = getY() + (getHeight() - 8) / 2;
+		int iconY = getY() + (getHeight() - 12) / 2;
+		// Ranked selectors stop at either end, so the dead chevron fades instead of promising a change.
+		int leftArrow = !wrap && index == 0 ? 0x40FFFFFF & style.arrow() : style.arrow();
+		int rightArrow = !wrap && index == values.size() - 1 ? 0x40FFFFFF & style.arrow() : style.arrow();
+		ConsoleDraw.icon(graphics, ConsoleDraw.Icon.CHEVRON_LEFT, getX() + 3, iconY, leftArrow);
+		ConsoleDraw.label(graphics, font, label.getString(), getX() + 17, textY + 1, LABEL);
 		Component value = fittedValue();
-		int rightReserve = 20;
-		int valueX = Math.max(getX() + 19 + ConsoleText.width(font, label) + 8,
-				getRight() - rightReserve - ConsoleText.width(font, value));
-		ConsoleText.text(graphics, font, value, valueX, textY, style.text());
-		ConsoleText.text(graphics, font, ">", getRight() - 8, textY, rightArrow);
+		int valueWidth = ConsoleText.strongWidth(font, value.getString());
+		graphics.text(font, ConsoleText.strong(value.getString()), getRight() - 17 - valueWidth, textY, style.text(), false);
+		ConsoleDraw.icon(graphics, ConsoleDraw.Icon.CHEVRON_RIGHT, getRight() - 15, iconY, rightArrow);
 	}
 
 	public static Presentation presentation(boolean active, boolean focused, boolean hovered) {
-		int border = !active ? ConsoleTheme.BORDER
-				: focused ? ConsoleTheme.FOCUS
-				: hovered ? ConsoleTheme.ROSTER_FOCUS : ConsoleTheme.BORDER;
-		int fill = !active ? ConsoleTheme.TRACK
+		int border = focused ? ConsoleTheme.FOCUS : 0;
+		int fill = !active ? ConsoleTheme.ROSTER_UNAVAILABLE_SURFACE
 				: hovered || focused ? ConsoleTheme.SURFACE_HOVER : ConsoleTheme.SURFACE;
-		int text = active ? ConsoleTheme.TEXT : ConsoleTheme.MUTED;
-		int arrow = active && (hovered || focused) ? ConsoleTheme.TEXT : ConsoleTheme.MUTED;
-		return new Presentation(border, fill, text, arrow, 1);
+		int text = active ? ConsoleTheme.TEXT : ConsoleTheme.SUBTLE;
+		int arrow = active && (hovered || focused) ? ConsoleTheme.TEXT : ConsoleTheme.SUBTLE;
+		return new Presentation(border, fill, text, arrow, 0);
 	}
 
 	public static String cycleNarrationKey() {
@@ -125,15 +126,15 @@ public final class ConsoleCycleButton<T> extends AbstractWidget implements Conso
 
 	private Component fittedValue() {
 		String full = formatter.apply(values.get(index)).getString();
-		int available = Math.max(12, getWidth() - ConsoleText.width(font, label) - 48);
-		if (ConsoleText.width(font, full) <= available) return Component.literal(full);
+		int available = Math.max(12, getWidth() - ConsoleDraw.labelWidth(font, label.getString()) - 44);
+		if (ConsoleText.strongWidth(font, full) <= available) return Component.literal(full);
 		String suffix = "...";
-		return Component.literal(fit(full, Math.max(1, available - ConsoleText.width(font, suffix))) + suffix);
+		return Component.literal(fit(full, Math.max(1, available - ConsoleText.strongWidth(font, suffix))) + suffix);
 	}
 
 	private String fit(String value, int available) {
 		int end = value.length();
-		while (end > 0 && ConsoleText.width(font, value.substring(0, end)) > available) end--;
+		while (end > 0 && ConsoleText.strongWidth(font, value.substring(0, end)) > available) end--;
 		return value.substring(0, end);
 	}
 

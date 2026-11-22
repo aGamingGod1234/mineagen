@@ -66,9 +66,13 @@ public final class ReflexEngine {
 		return weaker;
 	}
 
-	/** Keep a moving retreat through a melee chase. Hunger and low-health cover can turn the body back into the pack. */
+	/**
+	 * Keep a moving retreat through a melee chase. Hunger and low-health cover can turn the body back into the pack, and the
+	 * default arrow shield would take the whole firing for a drawn bow: the body stops to block while the pack closes.
+	 */
 	static boolean chaseGate(ReflexScheduler scheduler, ReflexSpec.Rule rule, boolean truth, boolean fleeingWithChaser) {
-		if (!fleeingWithChaser || !rule.coordinatorDefault() || !(backsOffWhenWeaker(rule) || "eat".equals(rule.action().type()))) return truth;
+		String type = rule.action().type();
+		if (!fleeingWithChaser || !rule.coordinatorDefault() || !(backsOffWhenWeaker(rule) || "eat".equals(type) || "shield".equals(type))) return truth;
 		scheduler.discardPendingStart(rule.id());
 		return false;
 	}
@@ -110,7 +114,16 @@ public final class ReflexEngine {
 
 	/** A rule's sensed truth after the engine's gates: defend reads false while the body's own fight or flight runs. */
 	static boolean gatedTruth(ReflexSpec.Rule rule, boolean truth, ActionType activeType) {
-		return truth && !("defend".equals(rule.action().type()) && defendStandsAside(activeType));
+		return gatedTruth(rule, truth, activeType, false);
+	}
+
+	/**
+	 * As above; {@code escapingShooter}: the body's escape step runs with a shooter in sight. Defend stands aside as it
+	 * does for a flee: its melee stance held the body in the open behind a shield while the escape's own walk to cover
+	 * (which blocks with the shield itself) waited (skeleton escape room: paused 7 to 30 s of a 30 s window).
+	 */
+	static boolean gatedTruth(ReflexSpec.Rule rule, boolean truth, ActionType activeType, boolean escapingShooter) {
+		return truth && !("defend".equals(rule.action().type()) && (defendStandsAside(activeType) || escapingShooter));
 	}
 
 	/**
@@ -508,6 +521,7 @@ public final class ReflexEngine {
 				|| agent.behaviour instanceof ReflexActions.Defend defend && defend.backingOutOfPack();
 		boolean fleeingWithChaser = fleeing && ReflexActions.Defend.nearestChaser(player, ReflexActions.PACK_RANGE) < ReflexActions.PACK_RANGE;
 		boolean firingBlocksShots = agent.scheduler.current() != null && agent.behaviour != null && agent.behaviour.blocksShots();
+		boolean escapingShooter = activeType == ActionType.ESCAPE && !EscapeMoves.shooters(player).isEmpty();
 		Map<String, ReflexScheduler.Sense> senses = new HashMap<>();
 		Map<String, Entity> focus = new HashMap<>();
 		Map<String, Vec3> points = new HashMap<>();
@@ -516,7 +530,7 @@ public final class ReflexEngine {
 			Entity found = null;
 			Vec3 point = null;
 			boolean defend = "defend".equals(rule.action().type());
-			boolean guards = defend && !defendStandsAside(activeType);
+			boolean guards = defend && !defendStandsAside(activeType) && !escapingShooter;
 			for (ReflexSpec.Condition condition : rule.when()) {
 				ReflexSensors.Reading reading = ReflexSensors.sense(player, condition, frame, agent.memory, now);
 				// For defend, "attacked" also reads a melee hit about to land, as it does a shot about to land.
@@ -541,7 +555,7 @@ public final class ReflexEngine {
 				if (!until) break;
 				until = ReflexSensors.sense(player, condition, frame, agent.memory, now).truth();
 			}
-			truth = gatedTruth(rule, truth, activeType);
+			truth = gatedTruth(rule, truth, activeType, escapingShooter);
 			if (!inEnd && endOnly(rule)) truth = false;
 			truth = shieldGate(agent.scheduler, rule, truth, firingBlocksShots);
 			truth = chaseGate(agent.scheduler, rule, truth, fleeingWithChaser);
@@ -715,6 +729,25 @@ public final class ReflexEngine {
 
 	/** One rule as an audit sees it: its state label and the condition types of its {@code when}. */
 	public record RuleView(String id, String state, Set<String> when) {
+	}
+
+	/** Reflex actions that hold the body on purpose for as long as their danger lasts (a fight, a raised shield, a brace). */
+	public static final java.util.Set<String> HOLDING_ACTIONS = java.util.Set.of("defend", "shield", "brace");
+
+	/**
+	 * Whether the firing that holds the agent now is a hold the reflex-hold limit leaves alone: a hazard floor or a fight,
+	 * shield or brace, which hold for as long as their danger lasts. Anything else (a meal, a pickup) that keeps the body
+	 * for minutes is stuck.
+	 */
+	public synchronized boolean firingHoldsOnPurpose(AgentId agentId) {
+		AgentReflexes agent = agents.get(agentId);
+		ReflexScheduler.Firing firing = agent == null ? null : agent.scheduler.current();
+		if (firing == null) return false;
+		for (ReflexSpec.Rule rule : agent.scheduler.activeRules()) {
+			if (!rule.id().equals(firing.ruleId())) continue;
+			return ReflexScheduler.floor(rule) || HOLDING_ACTIONS.contains(rule.action().type());
+		}
+		return false;
 	}
 
 	/** The id of the rule whose firing holds the agent's body now, or null. */

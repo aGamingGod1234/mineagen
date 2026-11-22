@@ -16,6 +16,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.tags.BlockTags;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Mob;
@@ -47,8 +48,16 @@ public final class ServerVeinController implements ServerController {
 	static final double HOSTILE_RANGE = 12.0D;
 	static final long BLOCK_TIMEOUT_MS = 15_000L;
 	static final int ENTER_TICKS = 40;
+	/** Stances a vein may step to for blocks under the body; each needs a new block broken since the last. */
+	static final int STEP_OFFS = 3;
+	/**
+	 * Ticks the head rests on the last opened face before a vein is called done: a cell the eye could not see from an
+	 * unchanged pose is re-tested only once a second ({@link SeenTerrain}), so the block behind the one just broken can
+	 * still read unknown on the tick after the break.
+	 */
+	static final int RELOOK_TICKS = 24;
 
-	private enum Phase { PLAN, APPROACH, OPEN_COLUMN, ENTER, CUT }
+	private enum Phase { PLAN, APPROACH, OPEN_COLUMN, ENTER, CUT, RELOOK }
 
 	private final BlockPos target;
 	private final int maxBlocks;
@@ -74,6 +83,8 @@ public final class ServerVeinController implements ServerController {
 	private final Set<BlockPos> skipped = new HashSet<>();
 	private final java.util.Map<BlockPos, String> skipWhy = new java.util.LinkedHashMap<>();
 	private int leaves, planned = 1;
+	private int stepOffs, steppedAt = -1, relookedAt = -1, relookTicks;
+	private boolean underOnly;
 
 	public ServerVeinController(BlockPos target, int maxBlocks, long timeoutMs, long now, Environment environment) {
 		if (maxBlocks < 1 || maxBlocks > VeinPlan.MAX_BLOCKS) throw new IllegalArgumentException("maxBlocks must be 1.." + VeinPlan.MAX_BLOCKS);
@@ -99,6 +110,7 @@ public final class ServerVeinController implements ServerController {
 			case OPEN_COLUMN -> openColumn(player, now);
 			case ENTER -> enter(player, now);
 			case CUT -> cut(player, now);
+			case RELOOK -> relook(player, now);
 		};
 	}
 
@@ -157,6 +169,13 @@ public final class ServerVeinController implements ServerController {
 		if (result.state() == State.RUNNING) return TickResult.running(progress());
 		approach.cancel(player);
 		approach = null;
+		if (kind == VeinPlan.Kind.VEIN) {
+			// A step off the ore: whatever happened, cut what is in reach from where the body is now.
+			skipped.removeIf(at -> "under the body".equals(skipWhy.get(at)));
+			skipWhy.values().removeIf("under the body"::equals);
+			phase = Phase.CUT;
+			return TickResult.running(progress());
+		}
 		if (result.state() != State.SUCCEEDED) return fail(player, result.reasonCode(), "Could not reach the standing cell " + cell(stance)
 				+ " beside the trunk: " + result.message(), now);
 		phase = Phase.OPEN_COLUMN;
@@ -228,10 +247,62 @@ public final class ServerVeinController implements ServerController {
 			if (leaf != null && !skipped.contains(leaf)) return startBreak(player, leaf, true, now);
 			skip(at, "not in sight");
 		}
+		return noneInReach(player, now);
+	}
+
+	/**
+	 * Nothing left in reach and sight. A vein is not done yet while a block just broken may have opened one the eye has
+	 * not re-tested, or while vein blocks lie under the body: look at the opened face once, then step off onto a seen
+	 * cell beside and mine them from there, as a player does with an ore in the floor.
+	 */
+	private TickResult noneInReach(ServerPlayer player, long now) {
+		if (kind != VeinPlan.Kind.VEIN) return done(player, null, now);
+		if (!broken.isEmpty() && relookedAt != broken.size() && broken.size() < maxBlocks) {
+			relookedAt = broken.size();
+			relookTicks = 0;
+			phase = Phase.RELOOK;
+			return TickResult.running(progress());
+		}
+		List<BlockPos> under = new ArrayList<>();
+		for (BlockPos at : component(player)) if (!broken.contains(at) && "under the body".equals(skipWhy.get(at))) under.add(at);
+		if (!under.isEmpty() && stepOffs < STEP_OFFS && steppedAt != broken.size() && broken.size() < maxBlocks) {
+			BlockPos to = VeinPlan.stepOff(player.blockPosition(), player.position(), under, at -> open(player, at), at -> floor(player, at),
+					player.blockInteractionRange());
+			if (to != null) {
+				stepOffs++;
+				steppedAt = broken.size();
+				stance = to;
+				phase = Phase.APPROACH;
+				return TickResult.running(progress());
+			}
+		}
+		underOnly = broken.isEmpty() && !under.isEmpty();
 		return done(player, null, now);
 	}
 
+	/** The head rests on the last opened face so the cells it uncovered are seen (or seen to be stone) before deciding. */
+	private TickResult relook(ServerPlayer player, long now) {
+		BlockPos last = broken.get(broken.size() - 1);
+		Vec3 eye = player.getEyePosition();
+		double dx = last.getX() + 0.5D - eye.x, dy = last.getY() + 0.5D - eye.y, dz = last.getZ() + 0.5D - eye.z;
+		float yaw = (float) (Math.toDegrees(Math.atan2(-dx, dz)));
+		float pitch = (float) (-Math.toDegrees(Math.atan2(dy, Math.sqrt(dx * dx + dz * dz))));
+		input.apply(player, new AgentInputState(0.0F, 0.0F, false, false, false, false, false,
+				yaw, pitch, player.getInventory().getSelectedSlot(), InteractionHand.MAIN_HAND));
+		if (++relookTicks < RELOOK_TICKS) return TickResult.running(progress());
+		input.release();
+		// Blocks skipped as unseen before may show now.
+		skipped.removeIf(at -> "not in sight".equals(skipWhy.get(at)));
+		skipWhy.values().removeIf("not in sight"::equals);
+		phase = Phase.CUT;
+		return TickResult.running(progress());
+	}
+
 	private TickResult startBreak(ServerPlayer player, BlockPos at, boolean leaf, long now) {
+		if (!leaf) {
+			TickResult guarded = piglinGuard(player, at, now);
+			if (guarded != null) return guarded;
+		}
 		try {
 			breaking = environment.breakBlock(player, at, Math.max(1L, Math.min(BLOCK_TIMEOUT_MS, deadline - now)));
 		} catch (AgentDomainException refused) {
@@ -258,7 +329,42 @@ public final class ServerVeinController implements ServerController {
 		return breakTick(player, now);
 	}
 
+	/**
+	 * Vanilla (PiglinAi.angerNearbyPiglins): breaking a block tagged guarded_by_piglins angers every idle piglin whose
+	 * box touches the player's box grown by 16 on each axis, seen or not. A piglin 12 east and 12 south (17 straight-line)
+	 * is inside it.
+	 */
+	public static final double PIGLIN_GUARD_RANGE = 16.0D;
+
+	public static boolean angersPiglins(boolean guardedBlock, net.minecraft.world.phys.AABB body, net.minecraft.world.phys.AABB piglin) {
+		return guardedBlock && body.inflate(PIGLIN_GUARD_RANGE).intersects(piglin);
+	}
+
+	/**
+	 * The calm piglin, seen or heard (piglins grunt; vanilla angers them unseen), that breaking this gold would turn on
+	 * the body, as a stop naming it; null when the block is not guarded or no piglin is inside the guard box. A player
+	 * listens and glances round before mining gold, and stops mid-swing when one walks up.
+	 */
+	private TickResult piglinGuard(ServerPlayer player, BlockPos at, long now) {
+		BlockState state = player.level().getBlockState(at);
+		if (!state.is(BlockTags.GUARDED_BY_PIGLINS)) return null;
+		net.minecraft.world.phys.AABB body = player.getBoundingBox();
+		for (var piglin : player.level().getEntitiesOfClass(net.minecraft.world.entity.monster.piglin.Piglin.class, body.inflate(PIGLIN_GUARD_RANGE + 1.0D),
+				// Vanilla angers only idle piglins (PiglinAi.isIdle): one fleeing, fighting or admiring is left out.
+				p -> p.isAlive() && p.getTarget() != player && p.getBrain().isActive(net.minecraft.world.entity.schedule.Activity.IDLE))) {
+			if (!angersPiglins(true, body, piglin.getBoundingBox())) continue;
+			return stop(player, "PIGLINS_NEAR_GOLD", String.format(Locale.ROOT,
+					"a calm piglin is %.1f blocks away (seen or heard): breaking %s with a piglin within %d blocks on each axis turns them on you (vanilla), gold armour or not; mine it once they are further off",
+					player.distanceTo(piglin), blockId(state), (int) PIGLIN_GUARD_RANGE), false, now);
+		}
+		return null;
+	}
+
 	private TickResult breakTick(ServerPlayer player, long now) {
+		if (!breakingLeaves && breakingAt != null) {
+			TickResult guarded = piglinGuard(player, breakingAt, now);
+			if (guarded != null) return guarded;
+		}
 		TickResult result = breaking.tick(player, now);
 		if (result.state() == State.RUNNING) return TickResult.running(progress());
 		BlockPos at = breakingAt;
@@ -341,6 +447,8 @@ public final class ServerVeinController implements ServerController {
 
 	private TickResult done(ServerPlayer player, String why, long now) {
 		cancel(player);
+		if (broken.isEmpty() && underOnly) return TickResult.failed("VEIN_UNDER_BODY", "Every seen block of the vein at " + cell(target)
+				+ " in reach lies under the body and no seen standing cell beside it reaches one; step off it and call again" + left(player), 0.0D);
 		if (broken.isEmpty()) return TickResult.failed("NOTHING_MINED", "No block of the " + noun() + " at " + cell(target)
 				+ " was in reach and sight" + left(player), 0.0D);
 		return TickResult.succeeded(kind == VeinPlan.Kind.TREE ? "TREE_FELLED" : "VEIN_MINED", facts(now) + (why == null ? "" : "; " + why) + left(player));

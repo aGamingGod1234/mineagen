@@ -770,6 +770,30 @@ test('scripted gate seed 1: soil deeper than one dig down: dig on down until sto
 	assert.equal(body.calls.some(([type, args]) => type === 'travel_to' && args.distance === 24), false, 'no walk off to look for stone');
 });
 
+test('a placed cobblestone block seen earlier (seen-resource model) is the stone source: no dig down (the 22 Nov village playtest)', async () => {
+	const body = simulatedBody({ start: { wooden_pickaxe: 1, crafting_table: 1, stick: 4, oak_planks: 4 } });
+	const observe = body.observe, mine = body.mine;
+	const well = new Set(['6,64,2', '7,64,2', '6,64,3', '7,64,3']);
+	body.observe = async () => {
+		const o = await observe();
+		const left = [...well].map((key) => { const [x, y, z] = key.split(',').map(Number); return { id: 'minecraft:cobblestone', kind: 'block', x, y, z, count: well.size, distance: 6,
+			seenAt: 1, source: 'sighted', dimension: 'minecraft:overworld', placed: true }; });
+		return { ...o, seenResources: left };
+	};
+	body.mine = async (args) => {
+		const key = `${args.x},${args.y},${args.z}`;
+		if (well.has(key)) { well.delete(key); body.inv.set('cobblestone', (body.inv.get('cobblestone') ?? 0) + 1); body.calls.push(['mine', args]); return { state: 'SUCCEEDED' }; }
+		if (args.vein) { for (const cell of [...well]) { well.delete(cell); body.inv.set('cobblestone', (body.inv.get('cobblestone') ?? 0) + 1); } body.calls.push(['mine', args]); return { state: 'SUCCEEDED' }; }
+		return mine(args);
+	};
+	const result = await runObtain({ item: 'stone_pickaxe', count: 1 }, body, { now: ticking() });
+	assert.equal(result.state, 'SUCCEEDED', result.message);
+	assert.equal(body.calls.some(([type, args]) => type === 'dig_to' && args.pattern === 'stairs_down'), false, 'no dig down for stone');
+	const walk = body.calls.findIndex(([type, args]) => type === 'travel_to' && Math.floor(args.x) === 6 && Math.floor(args.z) === 2);
+	assert.ok(walk >= 0, 'walked to the seen cobblestone');
+	assert.equal(body.calls[walk + 1]?.[0], 'gather', 'and took it there');
+});
+
 test('scripted gate seed 8: drops out of view after a vein: look at where the ore was, then pick them up, not a search for another vein', async () => {
 	const body = simulatedBody({ start: { stone_pickaxe: 1, furnace: 1, crafting_table: 1, stick: 2, oak_planks: 8 } });
 	let drop = null, lookedAt = null;

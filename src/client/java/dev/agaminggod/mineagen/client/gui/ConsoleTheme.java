@@ -4,23 +4,33 @@ import java.util.Locale;
 
 /** Shared, contrast-auditable visual language for every Mineagen screen and HUD. */
 public final class ConsoleTheme {
-	public static final int BACKDROP = 0xB80C1117;
-	public static final int PANEL = 0xFF18202B;
-	public static final int NAVIGATION = 0xFF111820;
-	public static final int TRACK = 0xFF0D1319;
-	public static final int SURFACE = 0xFF222B36;
-	public static final int SURFACE_HOVER = 0xFF2D3947;
-	public static final int SURFACE_SELECTED = 0xFF35465A;
-	public static final int BORDER = 0xFF46515F;
-	public static final int FOCUS = 0xFFFFFFFF;
-	public static final int TEXT = 0xFFF2F5F8;
-	public static final int MUTED = 0xFFAEB8C4;
-	public static final int ACCENT = 0xFFF2BD58;
+	// Diamond: deep ink surfaces separated by tone, not outlines; one cyan accent for the current choice and the
+	// main action. Every token is audited for contrast in ConsoleThemeVerification.
+	public static final int BACKDROP = 0xA6070A0F;
+	public static final int PANEL = 0xFA11151C;
+	public static final int NAVIGATION = 0xFF0E1218;
+	public static final int TRACK = 0xFF0B0F14;
+	public static final int SURFACE = 0xFF1A2029;
+	public static final int SURFACE_HOVER = 0xFF232B36;
+	public static final int SURFACE_RAISED = 0xFF2A3340;
+	public static final int SURFACE_SELECTED = 0xFF15303A;
+	public static final int POPUP = 0xFF1D242E;
+	public static final int BORDER = 0xFF2B3440;
+	public static final int FOCUS = 0xFFD8F5FF;
+	public static final int TEXT = 0xFFEEF1F5;
+	public static final int MUTED = 0xFF8F99A8;
+	public static final int SUBTLE = 0xFF6A7484;
+	public static final int ACCENT = 0xFF5FD4F4;
+	public static final int ACCENT_HOVER = 0xFF8BE2F8;
+	public static final int ACCENT_INK = 0xFF04212B;
 	public static final int ROSTER_FOCUS = 0xFFCAD2DC;
-	public static final int ROSTER_SELECTED_SURFACE = 0xFF332F28;
-	public static final int ROSTER_UNAVAILABLE_SURFACE = 0xFF1B222B;
-	public static final int SUCCESS = 0xFF66D9A3;
-	public static final int ERROR = 0xFFFF737A;
+	public static final int ROSTER_SELECTED_SURFACE = 0xFF15303A;
+	public static final int ROSTER_UNAVAILABLE_SURFACE = 0xFF151A21;
+	public static final int SUCCESS = 0xFF5EE0A0;
+	public static final int WARNING = 0xFFF5C451;
+	public static final int ERROR = 0xFFFF6B7A;
+	public static final int DANGER_SURFACE = 0xFF3A1E25;
+	public static final int DANGER_HOVER = 0xFF4B2630;
 	public static final int CODEX = 0xFF42D39B;
 	public static final int CLAUDE = 0xFFD97757;
 	// Slightly lighter Claude orange so roster text clears 4.5:1 on the selected surface.

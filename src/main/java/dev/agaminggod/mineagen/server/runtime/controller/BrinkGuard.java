@@ -99,7 +99,12 @@ public final class BrinkGuard {
 		/** The lava cell the guard last refused a step into, and when (see lavaRefusal). */
 		private BlockPos lavaCell;
 		private int lavaTick = -1000;
+		/** The body's position on the last guard tick: a jump far past any move is a teleport (see TELEPORT_BLOCKS). */
+		private Vec3 lastPosition;
 	}
+
+	/** Horizontal distance in one tick past any walk, sprint or shove: the body was teleported (a pearl, a command). */
+	static final double TELEPORT_BLOCKS = 2.0D;
 
 	/**
 	 * The lava cell this body's keys were last refused a step into, within {@link LavaStep#REFUSAL_TICKS}, or null: the
@@ -285,6 +290,16 @@ public final class BrinkGuard {
 			memory.ownJump = 0;
 			return release(player, memory, forward, strafe, sneak);
 		}
+		// A teleported body keeps no spot from before it: walking back there crossed the open lip of a bridge it had been
+		// moved off (knockback-edge: stepped off a 22-block drop on the way back to the bridge's end).
+		Vec3 position = player.position();
+		if (memory.lastPosition != null && horizontal(position, memory.lastPosition) > TELEPORT_BLOCKS) {
+			memory.anchor = null;
+			memory.bracePoint = null;
+			memory.footing = null;
+			memory.shoved = false;
+		}
+		memory.lastPosition = position;
 		boolean keepLevel = !memory.levelHolders.isEmpty();
 		boolean brace = !memory.bracingHolders.isEmpty();
 		memory.needsFooting = false;
@@ -410,6 +425,9 @@ public final class BrinkGuard {
 		// Moving (on the input's keys, walking back or still sliding): the whole body would be over a lethal column
 		// within two ticks.
 		boolean moving = keysForward != 0.0F || keysStrafe != 0.0F || !settled;
+		// The guard's own walk back to its spot is never a reason to go over an edge: any drop that hurts stops it, not
+		// only one that kills at this health.
+		boolean guardKeys = keysForward != forward || keysStrafe != strafe;
 		if (!hold && moving && memory.ownJump == 0 && player.onGround()) {
 			double[] heading = worldHeading(player.getYRot(), keysForward, keysStrafe);
 			double dx = (motion.x + heading[0] * INPUT_ACCELERATION) * 2.0D, dz = (motion.z + heading[1] * INPUT_ACCELERATION) * 2.0D;
@@ -417,6 +435,7 @@ public final class BrinkGuard {
 				if (world == null) world = ObservedTerrain.of(player);
 				AABB over = player.getBoundingBox().move(dx, 0.0D, dz);
 				Fall drop = fall(player, world, over);
+				if (drop == null && guardKeys) drop = hurtingFall(player, world, over);
 				hold = keepLevel || drop != null && (!drop.unknown() || !destinationBelow(player, memory));
 			}
 		}
@@ -721,6 +740,12 @@ public final class BrinkGuard {
 	static Fall fall(ServerPlayer player, WalkabilityView world, AABB box) {
 		return fall(world, box, player.level().getMinY(), (x, y, z) -> VoidColumn.below(player.level(), x, y, z),
 				player.fallDistance, player.getHealth() + player.getAbsorptionAmount());
+	}
+
+	/** As {@link #fall}, but any landing that does fall damage counts, whatever the body's health. */
+	static Fall hurtingFall(ServerPlayer player, WalkabilityView world, AABB box) {
+		return fall(world, box, player.level().getMinY(), (x, y, z) -> VoidColumn.below(player.level(), x, y, z),
+				player.fallDistance, Double.MIN_VALUE);
 	}
 
 	@FunctionalInterface

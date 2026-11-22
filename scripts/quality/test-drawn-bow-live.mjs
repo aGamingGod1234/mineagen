@@ -4,7 +4,9 @@
 // (drawn:true, which also reads a bow drawn at the body; RULE_ARMS=drawn plays only this one). A live skeleton at 4, 7 and 10 blocks
 // shoots at an idle body with a shield in the off hand. Vanilla's damage_blocked_by_shield and damage_taken counters
 // (tenths of HP) give the share of arrow damage the shield stopped in each arm. Pass: the drawn arm blocks at least
-// DRAWN_MIN_SHARE of the damage and more than the arrow-only arm. CP2r baseline with a shield in hand: 41 of 77 hits blocked.
+// DRAWN_MIN_SHARE of the damage and more than the arrow-only arm. The benchmark plays RULE_ARMS=drawn, judged on that floor alone:
+// since #59 the shipped rule blocks 95-100% at every distance, and at 10 blocks the arrow-only rule ties it, so "more than" failed
+// rooms the bot played well. CP2r baseline with a shield in hand: 41 of 77 hits blocked.
 // Always launch under slot.sh live; ports come from SLOT_PORT_BASE. Operator commands build the fixture and spawn mobs only.
 import { readFile, writeFile, mkdir, cp, readdir, unlink, open } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
@@ -158,11 +160,15 @@ try {
 				// /summon gives a skeleton no bow (it then walks up and punches): hand it one, as a natural spawn has.
 				await command(`summon minecraft:skeleton 0.5 80 ${0.5 + distance} {PersistenceRequired:1b,equipment:{mainhand:{id:"minecraft:bow",count:1}}}`);
 				const seenEvents = new Map();
-				for (const end = rate.clock.now() + seconds * 1000; rate.clock.now() < end; await rate.clock.sleep(1000)) {
+				// DRAWN_TRACE=1: sample every 50 ms of game time (firing, shield in use, health, arrows due) into the case.
+				const trace = process.env.DRAWN_TRACE === '1' ? [] : null;
+				for (const end = rate.clock.now() + seconds * 1000; rate.clock.now() < end; await rate.clock.sleep(trace ? 50 : 1000)) {
 					// Observations come on request: read a fresh one, and top health up so no case ends in a death
 					// (damage_taken still counts every hit).
 					o = await observe();
 					for (const row of events(o, 'arrow-test')) seenEvents.set(row.seq, row);
+					if (trace) trace.push({ at: Math.round(rate.clock.now()), firing: o.reflexes?.firing?.detail ?? null, using: o.interaction?.usingItem ?? null, health: health(o),
+						incoming: (o.incomingProjectiles ?? []).map((row) => row.etaSeconds), yaw: o.view?.yaw });
 					if (process.env.DRAWN_DEBUG) console.log(`[tick] health ${health(o)} firing ${o.reflexes?.firing?.id ?? '-'} incoming ${JSON.stringify(o.incomingProjectiles ?? null)?.slice(0, 120)} mode ${o.player?.gameMode ?? o.gameMode ?? '?'}`);
 					if ((health(o) ?? 20) < 12) await command(`effect give ${agent} minecraft:instant_health 1 3 true`);
 				}
@@ -171,7 +177,7 @@ try {
 				await rate.normalRate();
 				const blocked1 = await score.blk(), taken1 = await score.dmg();
 				o = await observe();
-				cases.push({ arm, repeat, distance, blocked0, blocked1, taken0, taken1, events: [...seenEvents.values()], tick });
+				cases.push({ arm, repeat, distance, blocked0, blocked1, taken0, taken1, events: [...seenEvents.values()], tick, ...(trace ? { trace } : {}) });
 				const counter = (before, after) => before === null || after === null ? 'unreadable' : `${(after - before) / 10} HP`;
 				console.log(`[case] ${arm} ${distance} blocks: blocked ${counter(blocked0, blocked1)}, taken ${counter(taken0, taken1)}; firings ${seenEvents.size}: ${[...seenEvents.values()].slice(0, 4).map(row => `${row.outcome} ${row.detail}`).join(' | ')}`);
 				await setReflexes([]);

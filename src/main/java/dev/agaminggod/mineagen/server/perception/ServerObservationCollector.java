@@ -1038,6 +1038,14 @@ public final class ServerObservationCollector {
 	 * {@code coverTop} is the column's MOTION_BLOCKING_NO_LEAVES height, so above it there is only air; scanning down from
 	 * it stops at the first roof, which is the top block itself except under water.
 	 */
+	/** {@link #skyOpen(int, int, IntFunction)} for the head cell {@code head}: the observation's player.skyOpen there. */
+	public static boolean skyOpenAt(net.minecraft.world.level.Level level, BlockPos head) {
+		if (!level.dimensionType().hasSkyLight()) return false;
+		int coverTop = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, head.getX(), head.getZ());
+		BlockPos.MutableBlockPos cursor = head.mutable();
+		return skyOpen(head.getY(), coverTop, y -> level.getBlockState(cursor.setY(y)));
+	}
+
 	static boolean skyOpen(int headY, int coverTop, IntFunction<BlockState> column) {
 		for (int y = coverTop - 1; y >= headY; y--) {
 			BlockState state = column.apply(y);

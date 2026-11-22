@@ -17,6 +17,13 @@
 // (scoreboard stats, inventory); callFinish: the same after every call. A call with wait: true (a background do_step)
 // holds the next call until its body actions end. Every spot reports lavaSamples: trail samples with lava at the body's
 // feet or head.
+// reachBiome (e.g. "minecraft:warped_forest"): the spot passes when the body itself stands in that biome (its own sampled
+// biome, timed in game ticks from the start: row.reachedTicks) within reachTicks (default 12000), not on FIND_SEEN; a
+// FIND_SEEN from afar is followed by travel_to the seen cell and the call again, as a model does with a far sighting.
+// row.reachedDuring names the call that was running ("find" or the fallback "travel_to"); row.passFind needs "find".
+// locateDimension: run the ground-truth locate in that dimension (a Nether biome is located in the Nether).
+// killMob (e.g. "minecraft:enderman"): the spot passes when the body kills one (the server's entity_killed) and does
+// not die; repeats stop at the kill. row.kills counts kills by type, row.pearlsHeld the ender pearls held at the end.
 // Production steering lives in run-incident.mjs; this body-only fixture cannot accept steer:true.
 // FIXTURE_TICK_RATE runs play faster: setup stays at 20 TPS and every deadline and wait during play is game time on the
 // fixture clock (s.clock), as is the runtime it drives, so a raised rate plays the same game. row.seconds is game
@@ -26,6 +33,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { applyQualitySetup, activateQualitySetup } from '../../coordinator/src/benchmark/quality-scenarios.mjs';
 import { NativeToolRuntime } from '../../coordinator/src/native-tool-runtime.mjs';
+import { kitHabitEnabled } from '../../coordinator/src/kit-habit.mjs';
 import { normalizeMinecraftToolCall } from '../../coordinator/src/native-minecraft-tools.mjs';
 import { adaptObservation } from '../../coordinator/src/observation-adapter.mjs';
 import { InspectionClient } from '../../coordinator/src/inspection-client.mjs';
@@ -102,7 +110,9 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		s.record.goalRevision = (await started).payload.goalRevision;
 		await s.bridge.send('agent_ready', s.record.agentId, { goalRevision: s.record.goalRevision, reconciled: false });
 		const command = async text => ({ text: await s.command(text) });
-		const setup = { dimension: 'minecraft:overworld', startAt: 'world_spawn', inventory: spot.inventory ?? [{ item: 'minecraft:bread', count: 8 }], mobs: [], commands: [], freezeUntilGoalStart: true };
+		// position: [x, y, z] starts the body there (on the surface) instead of at the world spawn: a playtest's own start.
+		const setup = { dimension: 'minecraft:overworld', ...(Array.isArray(spot.position) ? { position: spot.position, surface: true } : { startAt: 'world_spawn' }),
+			inventory: spot.inventory ?? [{ item: 'minecraft:bread', count: 8 }], mobs: [], commands: [], freezeUntilGoalStart: true };
 		const receipt = await applyQualitySetup(setup, command, AGENT);
 		await activateQualitySetup(receipt, command, { stage: 'goal-start' });
 		await activateQualitySetup(receipt, command, { stage: 'first-decision' });
@@ -130,12 +140,28 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 			reflexBook: new ReflexBook({ defaults: DEFAULT_REFLEXES, ...(s.clock.rate === 20 ? {} : { now: () => s.clock.now() }) }),
 			// At a raised rate the runtime times find, gather, obtain and wait in game time too (it feeds the clock its samples).
 			...(s.clock.rate === 20 ? {} : { clock: gameClockFromObservations({ tickRate: s.clock.rate }) }),
+			// The kit habit as dynamic-main arms it: on unless MINEAGEN_KIT_HABIT=off.
+			kitHabit: kitHabitEnabled(process.env),
 		});
 		const record = liveRecord(s, { provider: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'low', serviceTier: 'default' });
 		s.bridge.on('observation', ev => {
 			if (ev.agentId !== record.agentId || !ev.payload.ready) return;
 			const observation = adaptObservation(ev.payload);
 			runtime.updateObservation(record, observation, { eventSequence: ev.payload.eventSequence });
+			// Standing in the biome, not passing through it: a body knocked or falling through it has not reached it.
+			if (spot.reachBiome && row.t0 && row.reachedAtS === undefined && observation.world?.biome === spot.reachBiome && observation.player?.onGround !== false) {
+				row.reachedAtS = Math.round((s.clock.now() - row.t0) / 1000);
+				row.reachedDuring = row.currentCall ?? null;
+				if (Number.isFinite(observation.world?.gameTime) && Number.isFinite(row.startTicks)) row.reachedTicks = observation.world.gameTime - row.startTicks;
+				row.reachedAt = [observation.player?.x, observation.player?.y, observation.player?.z].map(n => Math.round(n));
+				if (row.reachedTicks === undefined) s.command('time query gametime').then(text => { row.reachedTicks = Number(/time is (\d+)/i.exec(String(text))?.[1]) - row.startTicks; }).catch(() => {});
+				console.log(`[${spot.name}] in ${spot.reachBiome} at +${row.reachedAtS}s ${row.reachedAt.join(',')}`);
+			}
+		});
+		s.bridge.on('entity_killed', ev => {
+			if (ev.agentId !== record.agentId || !row.t0) return;
+			const type = ev.payload?.entityType;
+			if (typeof type === 'string') row.kills = { ...(row.kills ?? {}), [type]: (row.kills?.[type] ?? 0) + 1 };
 		});
 		s.bridge.on('action_result', ev => {
 			if (ev.agentId !== record.agentId || !commands.has(ev.payload.actionId)) return;
@@ -146,7 +172,7 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 				if (action) Object.assign(action, { state: ev.payload.state, reasonCode: ev.payload.reasonCode,
 					...(typeof ev.payload.executionStarted === 'boolean' ? { executionStarted: ev.payload.executionStarted } : {}),
 					...(typeof ev.payload.physicalAttempted === 'boolean' ? { physicalAttempted: ev.payload.physicalAttempted } : {}),
-					message: String(ev.payload.message ?? '').slice(0, 400) });
+					message: String(ev.payload.message ?? '').slice(0, 2000) });
 				console.log(`  [${spot.name}]   -> ${ev.payload.state} ${ev.payload.reasonCode ?? ''} ${String(ev.payload.message ?? '').slice(0, 220)}`);
 			}
 			s.bridge.send('action_result_ack', record.agentId, { goalRevision: record.goalRevision, actionId: ev.payload.actionId }).catch(() => {});
@@ -174,7 +200,7 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		row.kit = (runtime.latestObservation?.(record)?.inventory?.items ?? adaptObservation(await s.observe()).inventory?.items ?? []).map(item => `${item.itemId.replace('minecraft:', '')}x${item.count}@${item.slot}`);
 		console.log(`[${spot.name}] kit ${row.kit.join(' ')}`);
 		// Ground truth for the report only (vanilla locate from the start; the search never sees it).
-		if (spot.locate) row.located = String(await s.command(`execute positioned ${row.start.map(Math.floor).join(' ')} run locate ${spot.locate}`)).slice(0, 300);
+		if (spot.locate) row.located = String(await s.command(`execute ${spot.locateDimension ? `in ${spot.locateDimension} ` : ''}positioned ${row.start.map(Math.floor).join(' ')} run locate ${spot.locate}`)).slice(0, 300);
 		// skipBeyond: a target vanilla puts farther than this from the start is out of the search's reach; no search runs.
 		const locatedAt = Number(/\((\d+) blocks? away\)/.exec(row.located ?? '')?.[1]);
 		if (spot.skipBeyond !== undefined && !(locatedAt <= spot.skipBeyond)) {
@@ -190,6 +216,8 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		const now = () => s.clock.now();
 		const healthBefore = await health(), deathsBefore = await deaths(), t0 = now(), wall0 = Date.now(), timer = await s.gameTimer();
 		row.playStartedAt = wall0;
+		const gameTime = async () => Number(/time is (\d+)/i.exec(String(await s.command('time query gametime')))?.[1]);
+		row.startTicks = await gameTime();
 		row.t0 = t0;
 		const trail = [];
 		sampling = true;
@@ -208,6 +236,11 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		const budgetMs = spot.budgetMs ?? 900_000;
 		for (const [callIndex, call] of (spot.calls ?? []).entries()) {
 			for (let attempt = 0; ; attempt++) {
+				// A call with its own target timeoutMs (obtain) is not asked again with less than its 60 s minimum left of the
+				// budget (normalizeObtain refuses shorter): the last answer stands.
+				if (attempt > 0 && !isFindCall(call) && Number.isFinite(call.arguments?.target?.timeoutMs) && budgetMs - (now() - t0) < 60_000) {
+					row.ended = 'under 60 s of the budget left for another ask'; break;
+				}
 				const callStarted = now();
 				// "{item}": the UUID of the dropped item nearest the body now (pick_up_item takes a canonical UUID).
 				const itemUuid = JSON.stringify(call.arguments).includes('"{item}"') ? uuidOf(await s.command(`data get entity @e[type=item,sort=nearest,limit=1] UUID`)) : null;
@@ -219,8 +252,14 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 						// A call argument that is exactly "{x+n}" (y, z) is the fixture's cell at spawn plus n, as a number.
 						: row.fixtureAt ? JSON.parse(JSON.stringify(call.arguments).replace(/"(\{[xyz](?:[+-][\d.]+)?\})"/g, (_, text) => atBody(text, row.fixtureAt))
 							.replace(/"\{item\}"/g, () => JSON.stringify(itemUuid))) : call.arguments;
+					// Another call with its own target timeoutMs (an obtain asked again after danger) gets at most what is left of the
+					// spot's budget too, so a room never passes on time an interruption added.
+					const left = Math.max(60_000, budgetMs - (now() - t0));
+					const bounded = !isFindCall(call) && Number.isFinite(args?.target?.timeoutMs) && args.target.timeoutMs > left
+						? { ...args, target: { ...args.target, timeoutMs: left } } : args;
+					row.currentCall = call.name === 'do_step' ? call.arguments.verb : call.name;
 					result = await runtime.execute({ agentId: record.agentId, goalRevision: record.goalRevision, turnId: `find-live-${callIndex}-${attempt}`, callId: `find-${callIndex}-${attempt}`,
-						tool: normalizeMinecraftToolCall(call.name, args) }, record);
+						tool: normalizeMinecraftToolCall(call.name, bounded) }, record);
 				} catch (error) {
 					result = { state: 'ERROR', reasonCode: error?.code ?? 'ERROR', message: String(error?.message ?? error).slice(0, 600) };
 				}
@@ -237,7 +276,28 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 				console.log(`[${spot.name}] +${entry.atS}s ${call.name}#${attempt} ${entry.state} ${entry.reasonCode} ${entry.seconds}s :: ${entry.message.slice(0, 300)}`);
 				// A dead body, or one the server no longer samples, ends the spot.
 				if ((await deaths()) > deathsBefore || /TIMEOUT observation/.test(entry.message)) { row.ended = 'death or lost observations'; break; }
-				if (!shouldRepeat(call, result, spot, { budgetLeftMs: budgetMs - (now() - t0) })) break;
+				const found = result?.state === 'SUCCEEDED' && result?.reasonCode === 'FIND_SEEN';
+				if (spot.reachBiome && row.reachedAtS !== undefined) break;
+				if (spot.killMob && (row.kills?.[spot.killMob] ?? 0) >= 1) break;
+				const seen = result?.find?.seen;
+				if (spot.reachBiome && found && seen && seen.via !== 'standing in it' && now() - t0 < budgetMs - 10_000) {
+					// A far sighting: the model's next call walks there (travel_to with its defaults), then finds again.
+					const walkStarted = now();
+					let walked;
+					try {
+						row.currentCall = 'travel_to';
+						walked = await runtime.execute({ agentId: record.agentId, goalRevision: record.goalRevision, turnId: `find-live-go-${callIndex}-${attempt}`, callId: `go-${callIndex}-${attempt}`,
+							tool: normalizeMinecraftToolCall('act', { actionType: 'travel_to', arguments: { x: seen.x + 0.5, y: seen.y + 1, z: seen.z + 0.5, tolerance: 3,
+								timeoutMs: Math.max(10_000, Math.min(300_000, budgetMs - (now() - t0))) } }) }, record);
+					} catch (error) { walked = { state: 'ERROR', reasonCode: error?.code ?? 'ERROR', message: String(error?.message ?? error).slice(0, 300) }; }
+					row.calls.push({ call: 'travel_to', attempt, atS: Math.round((walkStarted - t0) / 1000), seconds: Math.round((now() - walkStarted) / 1000), state: walked?.state, reasonCode: walked?.reasonCode, message: String(walked?.message ?? '').slice(0, 400) });
+					if (row.reachedAtS !== undefined) break;
+					continue;
+				}
+				// repeatBlocked: a model re-asks after FIND_BLOCKED too (seven-rods: 2-6 find calls a run); otherwise it stops there.
+				const budgetLeftMs = budgetMs - (now() - t0);
+				const blockedReask = spot.repeat && spot.repeatBlocked && result?.reasonCode === 'FIND_BLOCKED' && budgetLeftMs >= 10_000;
+				if (!blockedReask && !shouldRepeat(call, result, spot, { budgetLeftMs })) break;
 				// The provider-free stand-in for a model: give the reflexes a moment with danger, then ask again.
 				if (['RUNNING', 'PREPARING'].includes(result?.state) && typeof result?.actionId === 'string') {
 					await runtime.execute({ agentId: record.agentId, goalRevision: record.goalRevision, turnId: `find-live-cancel-${callIndex}-${attempt}`, callId: `cancel-${callIndex}-${attempt}`,
@@ -269,6 +329,12 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		row.path = { walked: Math.round(walked), net: Math.round(Math.hypot(end[0] - row.start[0], end[2] - row.start[2])), farthest: Math.round(farthest),
 			descended: Math.round(row.start[1] - Math.min(...trail.map(p => p[1]), row.start[1])), samples: trail.length };
 		row.end = await pos();
+		// finalProbe: ground-truth commands after the calls (eyes still lying in the world), {x},{y},{z} at the body's end.
+		if (Array.isArray(spot.finalProbe)) {
+			const at = { x: Math.floor(row.end[0]), y: Math.floor(row.end[1]), z: Math.floor(row.end[2]) };
+			row.finalProbe = [];
+			for (const text of spot.finalProbe) row.finalProbe.push(String(await s.command(atBody(text, at))).slice(0, 300));
+		}
 		if (Array.isArray(spot.finish)) { row.finish = []; for (const text of spot.finish) row.finish.push({ command: text, reply: String(await s.command(text)).slice(0, 4000) }); }
 		const healthAfter = await health();
 		Object.assign(row, damageEvidence(damageBefore, await readDamage(), healthBefore, healthAfter));
@@ -281,6 +347,28 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		// found is null for a room with no find call; its verdict is then no death and no damage (lib/find-spot.mjs).
 		// foundAtS comes from the same find entry that decides found.
 		Object.assign(row, findSpotVerdict(spot, row));
+		if (spot.killMob) {
+			// A kill room is judged on the kill and no death; a pearl drop is vanilla's coin flip, reported, not judged.
+			await sleep(1500);
+			row.pearlsHeld = (adaptObservation(await s.observe()).inventory?.items ?? []).filter(item => item.itemId === 'minecraft:ender_pearl').reduce((n, item) => n + item.count, 0);
+			const killed = (row.kills?.[spot.killMob] ?? 0) >= 1;
+			row.pass = killed && row.deaths === 0;
+			delete row.passReason; delete row.failReason;
+			if (row.pass) { delete row.notExercised; row.passReason = `killed ${spot.killMob}, no death`; }
+			else row.failReason = [killed ? null : `no ${spot.killMob} killed`, row.deaths !== 0 ? `${row.deaths} deaths` : null].filter(Boolean).join('; ');
+		}
+		if (spot.reachBiome) {
+			// A crossing room is judged on the body standing in the biome in time, not on a sighting.
+			const reachTicks = spot.reachTicks ?? 12_000;
+			const reached = row.reachedTicks !== undefined && row.reachedTicks <= reachTicks;
+			row.passAny = reached && row.deaths === 0;
+			row.passFind = row.passAny && row.reachedDuring === 'find';
+			row.travelFallbacks = row.calls.filter((entry) => entry.call === 'travel_to').length;
+			row.pass = row.passAny;
+			delete row.passReason; delete row.failReason;
+			if (row.pass) { delete row.notExercised; row.passReason = `stood in ${spot.reachBiome} within ${reachTicks} ticks`; }
+			else row.failReason = [reached ? null : `not in ${spot.reachBiome} within ${reachTicks} ticks`, row.deaths !== 0 ? `${row.deaths} deaths` : null].filter(Boolean).join('; ');
+		}
 		await writeFile(path.join(dir, 'trail.json'), JSON.stringify(trail));
 		console.log(`[${spot.name}] ${findSpotLabel(row)} in ${row.foundAtS ?? row.seconds}s walked=${row.path.walked} net=${row.path.net} farthest=${row.path.farthest} descended=${row.path.descended} damageTaken=${row.damageTaken ?? "unknown"} deaths=${row.deaths} handBacks=${row.handBacks} lavaSamples=${row.lavaSamples}`);
 	} catch (error) {
