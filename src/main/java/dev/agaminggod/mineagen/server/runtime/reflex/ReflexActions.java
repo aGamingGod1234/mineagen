@@ -2840,8 +2840,9 @@ final class ReflexActions {
 			for (Creeper creeper : level.getEntitiesOfClass(Creeper.class, player.getBoundingBox().inflate(CREEPER_RANGE), Creeper::isAlive)) {
 				if (player.distanceTo(creeper) <= CREEPER_RANGE) return stop(level, "a creeper came within " + (int) CREEPER_RANGE + " blocks");
 			}
-			// A shove while centring or placing is walked back (the guard's walk-back runs in an armed stance). No level
-			// hold: it counts every drop off the deck, so beside a 1-block step it crouched and stood on alternate ticks.
+			// A shove while centring or placing is walked back (the guard's walk-back runs in an armed stance). The level
+			// hold below is taken only on an exposed deck: it counts every drop off the deck, so on ordinary ground beside a
+			// 1-block step it crouched and stood on alternate ticks.
 			dev.agaminggod.mineagen.server.runtime.controller.BrinkGuard.braceArmed(player);
 			if (!centred) {
 				// Off centre the 0.6-wide body overlaps a wall cell; a player steps to the middle first.
