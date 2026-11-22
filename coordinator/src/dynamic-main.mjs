@@ -68,7 +68,8 @@ import { dragonPerchEdge, noteCombatDispatch, rememberEndCrystals, settleCombatR
 import { heldToolBreak } from './held-tool-break.mjs';
 import { SituationChangeTracker } from './situation-changes.mjs';
 import { ContextEntryTracker, uncoveredDangers } from './danger-contexts.mjs';
-import { WakeFilter, countSkillKinds, stepFolds } from './wake-filter.mjs';
+import { STALL_STOP_CODE, STALL_STOP_STEPS, WakeFilter, countSkillKinds, stepFolds } from './wake-filter.mjs';
+import { normalizeMinecraftToolCall } from './native-minecraft-tools.mjs';
 import { searchHoldsSteer } from './search-danger.mjs';
 import { carriedFoodToEat, naturalRegeneration } from './fork-rule.mjs';
 // Danger triggers a running count skill handles itself when they come from its own mob (see countSkillKinds).
@@ -103,6 +104,8 @@ const GENERIC_WAKE_TRIGGERS = new Set(['attention', 'observation']);
 // Folded by a running step yet still named on the wake its end brings: what was seen, not how the body moved.
 // A running step's until "seen:<block>" came into view (a verb whose body does not stop itself on it).
 const STEP_UNTIL_TRIGGER = 'step_until_seen';
+// A running step's search has made no progress for minutes (wake-filter.mjs STEP_STALL_WAKE_MS).
+const STEP_STALLED_TRIGGER = 'step_stalled';
 const STEP_NAMED_TRIGGERS = new Set(['resource_discovery', 'structure_sighted', 'lava_heard', 'furnace_ready', 'heal_opportunity']);
 // Ordinary perception a running program already receives and answers through its own decisions (onObservation).
 const PROGRAM_OWNED_PERCEPTION_TRIGGERS = new Set(['attention', 'observation', 'resource_discovery', 'structure_sighted', 'lava_heard', 'heal_opportunity', 'projectile']);
@@ -239,7 +242,7 @@ export class DynamicCoordinator extends EventEmitter {
 	#lastCatalog = null;
 	#lastRosterTraceAt = 0;
 
-	constructor({ registry, scheduler, codexService, planner, bridge, healthRegistry, latencyRegistry, goalSupervisor, codexControlProtocol = 'native_tools', memoryDirectory = null, experience = null, runtimeSessionId, traceWriter = null, providerTurnRecorder = null, decisionLog = null, bodyPace = null, runtimeGeneration = null, runtimeHooks = {}, benchmarkRecorder = null, providerCliHealth = null, providerDiscovery = null, controlNow = () => performance.now(), epochNow = Date.now, setStatusInterval = defaultStatusInterval, clearStatusInterval = clearInterval, healthSampler = undefined, setGoalSpecTimeout = defaultGoalSpecTimeout, clearGoalSpecTimeout = clearTimeout, setSteerTimeout = setTimeout, clearSteerTimeout = clearTimeout, setWakeHoldTimeout = defaultGoalSpecTimeout, clearWakeHoldTimeout = clearTimeout, reflexDefaults = DEFAULT_REFLEXES, reflexInstincts = false, kitHabit = false, taskRequestTimeoutMs = DEFAULT_TASK_REQUEST_TIMEOUT_MS, connectionOperationCap = DEFAULT_CONNECTION_OPERATION_CAP, agentOperationCap = DEFAULT_AGENT_OPERATION_CAP, goalSpecRequestCap = connectionOperationCap, maxPendingAgentOperations = DEFAULT_MAX_PENDING_AGENT_OPERATIONS, maxPendingAgentTransactions = DEFAULT_MAX_PENDING_AGENT_TRANSACTIONS }) {
+	constructor({ registry, scheduler, codexService, planner, bridge, healthRegistry, latencyRegistry, goalSupervisor, codexControlProtocol = 'native_tools', memoryDirectory = null, experience = null, runtimeSessionId, traceWriter = null, providerTurnRecorder = null, decisionLog = null, bodyPace = null, runtimeGeneration = null, runtimeHooks = {}, benchmarkRecorder = null, providerCliHealth = null, providerDiscovery = null, controlNow = () => performance.now(), epochNow = Date.now, setStatusInterval = defaultStatusInterval, clearStatusInterval = clearInterval, healthSampler = undefined, setGoalSpecTimeout = defaultGoalSpecTimeout, clearGoalSpecTimeout = clearTimeout, setSteerTimeout = setTimeout, clearSteerTimeout = clearTimeout, setWakeHoldTimeout = defaultGoalSpecTimeout, clearWakeHoldTimeout = clearTimeout, reflexDefaults = DEFAULT_REFLEXES, reflexInstincts = false, kitHabit = false, taskRequestTimeoutMs = DEFAULT_TASK_REQUEST_TIMEOUT_MS, connectionOperationCap = DEFAULT_CONNECTION_OPERATION_CAP, agentOperationCap = DEFAULT_AGENT_OPERATION_CAP, goalSpecRequestCap = connectionOperationCap, maxPendingAgentOperations = DEFAULT_MAX_PENDING_AGENT_OPERATIONS, maxPendingAgentTransactions = DEFAULT_MAX_PENDING_AGENT_TRANSACTIONS, nativeClock = undefined }) {
 		super();
 		this.#memoryDirectory = memoryDirectory;
 		this.#decisionLog = decisionLog;
@@ -333,6 +336,8 @@ export class DynamicCoordinator extends EventEmitter {
 			benchmarkRecorder,
 		});
 		this.#nativeRuntime = new NativeToolRuntime({
+			// A test's virtual clock (game-clock.mjs shape) for program deadlines and step budgets; production keeps wall time.
+			...(nativeClock === undefined ? {} : { clock: nativeClock }),
 			// The game's rule book arms the default survival rules (ruling 16); a bare runtime has the model's rules only.
 			// The End's own defaults arm whenever the coordinator arms defaults at all (late-game wall, order 12).
 			reflexBook: new ReflexBook({ defaults: reflexDefaults, dimensionDefaults: reflexDefaults.length > 0 ? DIMENSION_REFLEXES : {}, instincts: reflexInstincts }),
@@ -1150,8 +1155,8 @@ export class DynamicCoordinator extends EventEmitter {
 						failureSteered: !failureSteerOwed,
 					};
 					// A step owns ordinary progress (wake-filter.mjs stepFolds): sightings, routine updates and the coordinator's
-					// loop and stall notes are folded into the wake its end brings, with no deadline. A major discovery and a failure
-					// still owed to the model wake as before.
+					// loop and stall notes are folded into the wake its end brings. A major discovery and a failure still owed to the
+					// model wake as before, and so does a search whose stall notes have run for minutes.
 					const step = forcedContinuation ? null : this.#nativeRuntime.runningStep(record);
 					// The step's own until "seen:<block>" sighting is the step's news, not ordinary: it wakes the model at once.
 					const untilSeen = step === null ? null : this.#nativeRuntime.stepSighting(record, observation);
@@ -1163,6 +1168,30 @@ export class DynamicCoordinator extends EventEmitter {
 					}
 					if (stepFolds(step, attention, observation) && !failureSteerOwed && this.#wakeFilter.discovery(record.agentId, { attention, observation, goalText: record.currentGoal }) === null) {
 						this.#wakeFilter.fold(record.agentId, attention.trigger, observation, this.#nativeRuntime.reflexEvents(record));
+						// A search stuck for minutes (its loop and stall notes keep coming, no item gained) is handed back to the model
+						// (wake-filter.mjs stalled): a background step wakes it while the step runs on; obtain, which runs inside the
+						// model's own call, is stopped with its own code so its result reaches the model now.
+						// obtain is judged only while its own find drives the body: walking to a seen block, gathering and crafting are progress.
+						// A background step is judged only while the model's turn is closed: a blocking walk (travelTo, act) runs
+						// inside the model's own call, where a wake could only arrive when the call ends.
+						const judged = STALL_STOP_STEPS.has(step) ? (this.#nativeRuntime.searching?.(record) === true ? step : null)
+							: this.#providerWork.has(record.agentId) ? null : step;
+						const stall = this.#wakeFilter.stalled(record.agentId, judged, attention.trigger, observation, this.#nativeRuntime.reflexEvents(record));
+						if (stall !== null) {
+							const minutes = Math.max(1, Math.round(stall.stalledMs / 60_000));
+							if (stall.stop) {
+								const stopped = this.#nativeRuntime.interruptBlockingTool(record.agentId, { forkStop: { reasonCode: STALL_STOP_CODE,
+									message: `Searched ${minutes} min without progress (no item gained; ${stall.notes} loop or stall notes)` } });
+								this.#writeTrace('native_wake_filtered', { agentId: record.agentId, goalRevision: record.goalRevision, trigger: attention.trigger, verdict: stopped ? 'stop' : 'fold', reason: `step ${step} stalled ${Math.round(stall.stalledMs / 1_000)} s` });
+								this.#holdWakeForModelAction(record, wakeRequest, { step: true });
+								return;
+							}
+							this.#wakeFilter.noteStall(record.agentId, stall.stalledMs, observation);
+							this.#writeTrace('native_wake_filtered', { agentId: record.agentId, goalRevision: record.goalRevision, trigger: attention.trigger, verdict: 'wake', reason: `step ${step} stalled ${Math.round(stall.stalledMs / 1_000)} s` });
+							this.#resumeDeferredWake(record, attention);
+							this.#scheduleNativeTurn(record, { ...wakeRequest, priority: 'urgent', trigger: STEP_STALLED_TRIGGER, nativeEvent: { ...wakeRequest.nativeEvent, trigger: STEP_STALLED_TRIGGER } });
+							return;
+						}
 						this.#writeTrace('native_wake_filtered', { agentId: record.agentId, goalRevision: record.goalRevision, trigger: attention.trigger, verdict: 'fold', reason: `step ${step} running` });
 						this.#holdWakeForModelAction(record, wakeRequest, { step: true });
 						return;
@@ -2676,8 +2705,24 @@ export class DynamicCoordinator extends EventEmitter {
 		return result;
 	}
 
+	/** Cancels the walk a stalled obtain left running; the model gets obtain's result without the hand-back of that leg. */
+	async #cancelStalledLeg(work, toolRequest, record, result) {
+		const { running, ...rest } = result;
+		let cancelled;
+		try {
+			cancelled = await this.#nativeRuntime.execute({ ...toolRequest, callId: `${String(toolRequest.callId).slice(0, 100)}:stalled-leg`,
+				tool: normalizeMinecraftToolCall('cancelAction', { actionId: running.actionId, goalRevision: record.goalRevision }) }, record, { lifecycleGeneration: work.lifecycleGeneration });
+		} catch (error) { cancelled = { state: 'FAILED', reasonCode: error?.code ?? 'ACTION_ERROR' }; }
+		this.#writeTrace('native_stalled_leg_cancelled', { agentId: record.agentId, goalRevision: record.goalRevision, actionId: running.actionId, state: cancelled?.state ?? null, reasonCode: cancelled?.reasonCode ?? null });
+		// A cancel that did not land (no acknowledgement in time) leaves the walk running: the model still gets it to handle.
+		return cancelled?.state === 'CANCELLED' ? { ...rest, stoppedLeg: { actionId: running.actionId, cancel: 'CANCELLED' } }
+			: { ...result, stoppedLeg: { actionId: running.actionId, cancel: cancelled?.state ?? null } };
+	}
+
 	async #executeNativeToolCall(work, toolRequest) {
 		const record = this.#registry.get(work.agentId);
+		// Each model call is a fresh choice (a new step included), so a step's stall clock starts over from it.
+		this.#wakeFilter.resetStall(work.agentId);
 		if (work.expired === true || (work.survivalReissued === true && !isSurvivalReissueTool(toolRequest.tool)) || record === null || record.goalRevision !== work.goalRevision
 				|| !this.#isConnectionEpochCurrent(work.connectionEpoch)
 				|| !this.#isLifecycleGenerationCurrent(work.agentId, work.lifecycleGeneration)) {
@@ -2764,6 +2809,9 @@ export class DynamicCoordinator extends EventEmitter {
 			const announceStep = () => this.#publishVerbose(record.agentId, record.goalRevision, 'decision', sanitizePublicNarrative(`${toolRequest.tool.step.verb.replace(/_/g, ' ')}: ${toolRequest.tool.step.why}`), work.connectionEpoch);
 			if (toolRequest.tool.step !== undefined && toolRequest.tool.kind !== 'start_action') announceStep();
 			result = await this.#nativeRuntime.execute(toolRequest, record, { lifecycleGeneration: work.lifecycleGeneration });
+			// A stalled obtain hands back with its looping walk still running (a fork stop keeps the leg): that walk is the
+			// stuck part, so it is cancelled first, as the model would, and obtain can be called again at once.
+			if (result?.reasonCode === STALL_STOP_CODE && typeof result.running?.actionId === 'string') result = await this.#cancelStalledLeg(work, toolRequest, record, result);
 			if (toolRequest.tool.step !== undefined && toolRequest.tool.kind === 'start_action' && result?.step?.started === true) announceStep();
 			// A greeting/read/reply does not grant later messages authority over finished work.
 			if (deliveredConfirmationAuthority && !isConfirmationContextTool(toolRequest.tool)
@@ -4750,6 +4798,7 @@ export function createDynamicCoordinator(configValue, dependencies = {}) {
 		taskRequestTimeoutMs: dependencies.taskRequestTimeoutMs,
 		maxPendingAgentOperations: dependencies.maxPendingAgentOperations,
 		maxPendingAgentTransactions: dependencies.maxPendingAgentTransactions,
+		...(dependencies.nativeClock === undefined ? {} : { nativeClock: dependencies.nativeClock }),
 		connectionOperationCap: dependencies.connectionOperationCap,
 		agentOperationCap: dependencies.agentOperationCap,
 		goalSpecRequestCap: dependencies.goalSpecRequestCap,

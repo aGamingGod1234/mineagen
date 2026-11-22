@@ -1,10 +1,11 @@
-import { privateInputUrl } from '../scripts/private-inputs.mjs';
+import { privateInputUrl, privateModule } from '../scripts/private-inputs.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { observationSha256 } from '../src/decision-eval/capture.mjs';
 import { validateCaseFile } from '../src/decision-eval/schema.mjs';
 import { renderWake } from '../src/decision-eval/render.mjs';
+await privateModule(import.meta.url);
 
 // Recorded d13/d14 iron games: the wake before a detour off the Nether route (drift-0x) and 10+ minutes into one
 // (drift-1x). drift.json carries the recorded plan; drift-fine.json the same moments with a translator stage plan.

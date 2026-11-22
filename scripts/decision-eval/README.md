@@ -18,7 +18,7 @@ Train cases: `coordinator/test/fixtures/decision-eval/train/<family>.json`. Test
 
 Recorded game moments live outside the checkout. Set `ARENA_PRIVATE_INPUTS` to the private archive root, which preserves repository-relative paths such as `coordinator/test/fixtures/decision-eval/train/`. The decision-eval scripts use that root for their default corpus; explicit `--cases` paths still work. Without the variable, tools that default to archived cases print a named `SKIP` and write no verdict. Corpus contents, grading and judges are unchanged.
 
-`cd coordinator && npm test` uses the same private-input manifest and runner in both trees. With `ARENA_PRIVATE_INPUTS` set, it runs every archive-backed test and missing or corrupt recordings fail normally; the few selections marked `"source": "checkout"` in `coordinator/test/private-inputs.json` read files that only the private checkout holds and stay omitted where those are absent. Without it, only selections with unavailable private inputs are omitted; each printed `SKIP` names the file, exact test or whole module, missing input, and environment variable. Module selections are needed where recordings load before test discovery. Direct `node --test` bypasses this selection, so set the variable for direct recording tests too.
+`cd coordinator && npm test` uses the same private-input manifest and runner in both trees. With `ARENA_PRIVATE_INPUTS` set, it runs every archive-backed test and missing or corrupt recordings fail normally; the few selections marked `"source": "checkout"` in `coordinator/test/private-inputs.json` read files that only the private checkout holds and stay omitted where those are absent. Without it, only selections with unavailable private inputs are omitted; each printed `SKIP` names the file, exact test or whole module, missing input, and environment variable. Module selections are needed where recordings load before test discovery. Direct `node --test` applies the same selection (`privateTest` and `privateModule` in `coordinator/scripts/private-inputs.mjs`): without the variable a recording test reports a skip, not a pass, so set the variable when a direct run is your check.
 
 Keep new recordings and evaluation outputs in the private archive, and link them from PRs.
 
@@ -309,7 +309,8 @@ copied moment. The aim is to be good at the class, not the scenario.
 5. Mark three cases `"quick": true` and add their ids to `quick.json`.
 6. Check: `node scripts/decision-eval/run.mjs --cases <your file> --dry-run` (every case renders on this build),
    `node scripts/decision-eval/verify-provenance.mjs --root <Projects dir> <your file>`, and
-   `node --test test/decision-eval-corpus.test.mjs test/decision-eval-fixtures.test.mjs` in `coordinator/`.
+   `node --test test/decision-eval-corpus.test.mjs test/decision-eval-fixtures.test.mjs` in `coordinator/`, with
+   `ARENA_PRIVATE_INPUTS` set (or `DECISION_EVAL_FIXTURE_DIR` pointing at your corpus): without them these skip.
 7. Run the family live against the build that showed the failure and a build that should not:
    `npm run eval:decisions -- --baseline <good build> --candidate <bad build> --ids <family ids>`. A family that
    cannot tell them apart needs better predicates or more variants.

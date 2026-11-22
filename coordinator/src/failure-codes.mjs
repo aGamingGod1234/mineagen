@@ -44,6 +44,8 @@ export const FAILURE_CODES = Object.freeze({
 	// find (find-search.mjs): its own ends; a leg's body failure keeps that leg's code in the message.
 	FIND_SEEN: ['ok'],
 	FIND_BUDGET: ['body', null],
+	// The coordinator stops an obtain whose search made no progress for 3 min (wake-filter.mjs STALL_STOP_CODE).
+	SEARCH_STALLED: ['body', null],
 	FIND_NOT_FOUND: ['body', null],
 	SEARCH_BOUNDARY: ['body', 'body stays inside search circle with braking room', ['searchBoundaryReached(']],
 	FIND_DANGER: ['threat', null],

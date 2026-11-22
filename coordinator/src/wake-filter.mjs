@@ -48,6 +48,32 @@ export function stepFolds(step, attention, observation = null) {
 export const ESCAPE_FOLDED_TRIGGERS = new Set(['drowning']);
 export const ESCAPE_FOLD_MIN_AIR_S = 4;
 
+// A step's stall notes: the plan clock's no-progress fact and the walk's movement loop. They are folded like other step
+// news, but a search stuck this long is handed back to the model (fresh r5: obtain looked for wood 13.7 min and folded 852
+// loop notes; the model was not woken from 0.8 to 14.6 min). A player checks a search going nowhere after a few minutes.
+export const STEP_STALL_TRIGGERS = new Set(['no_progress', 'movement_loop']);
+export const STEP_STALL_WAKE_MS = 180_000;
+// No stall note for this long: the step is moving again, so the next note starts a new clock (r5's longest quiet gap
+// inside its stalled search was about 1 min).
+export const STEP_STALL_QUIET_MS = 120_000;
+// Background steps that search or travel: a stall wakes the model while the step runs on. Fights, rest, casting, building
+// and bartering loop or gain nothing for minutes while working, so they are never judged stalled.
+export const STALL_WAKE_STEPS = new Set(['travel_to', 'dig_to', 'mine', 'mine_vein']);
+// obtain runs inside the model's own call, so a wake could only reach the model when obtain ends: a stall stops it.
+export const STALL_STOP_STEPS = new Set(['obtain']);
+export const STALL_STOP_CODE = 'SEARCH_STALLED';
+// Reflex firings that held the body (native-tool-runtime.mjs REFLEX_HELD_OUTCOMES): that time is the reflex's, not the step's.
+const REFLEX_HELD = new Set(['done', 'timeout', 'failed', 'preempted', 'yielded']);
+const GAME_MS_PER_TICK = 50;
+
+/** A sample's stall-clock time: game ticks (they stop while the game is paused or the server stalls), else its own clock. */
+function stallClock(observation) {
+	const tick = observation?.world?.gameTime;
+	if (Number.isSafeInteger(tick)) return { base: 'game', at: tick * GAME_MS_PER_TICK };
+	const at = observation?.observedAtEpochMs;
+	return Number.isFinite(at) ? { base: 'wall', at } : null;
+}
+
 const typeOf = (value) => (typeof value === 'string' && value.length > 0 ? (value.includes(':') ? value : `minecraft:${value}`) : null);
 const short = (id) => String(id).replace(/^minecraft:/u, '');
 const rowsOf = (value) => (Array.isArray(value) ? value : []);
@@ -167,7 +193,7 @@ export class WakeFilter {
 	#agent(agentId) {
 		let agent = this.#agents.get(agentId);
 		if (agent === undefined) {
-			agent = { known: null, held: null, health: null, dimension: null };
+			agent = { known: null, held: null, health: null, dimension: null, stall: null };
 			this.#agents.set(agentId, agent);
 		}
 		return agent;
@@ -259,6 +285,53 @@ export class WakeFilter {
 		else held.folded.set(trigger, (held.folded.get(trigger) ?? 0) + 1);
 	}
 
+	/**
+	 * Called for every sample a running step folds. step: the step being judged, or null while it does something other
+	 * than search (the caller passes null for an obtain whose inner find is not driving the body).
+	 * Whether a folded stall note ends the step's patience: { stalledMs, notes, stop } once the running step (a
+	 * STALL_WAKE_STEPS or STALL_STOP_STEPS verb) has gone STEP_STALL_WAKE_MS since its first stall note, not counting
+	 * reflex-held time, with no item gained and no quiet gap; else null. stop: the step is to be stopped (obtain) rather
+	 * than the model woken. A new step, a model wake (take) or a model tool call (resetStall) starts the clock over, and
+	 * so does firing, so a step still stuck is judged again 3 min later.
+	 */
+	stalled(agentId, step, trigger, observation, reflexEvents = []) {
+		const agent = this.#agent(agentId);
+		// Any folded sample while no judged step searches (obtain walking to a seen block, gathering or crafting; or a
+		// step that is never judged) is progress or someone else's time: a later stall starts its own clock.
+		if (!(STALL_WAKE_STEPS.has(step) || STALL_STOP_STEPS.has(step))) { agent.stall = null; return null; }
+		if (!STEP_STALL_TRIGGERS.has(trigger)) return null;
+		const clock = stallClock(observation);
+		if (clock === null) return null;
+		const items = itemCounts(observation), stall = agent.stall, events = rowsOf(reflexEvents);
+		const reflexSeq = Math.max(0, ...events.map((event) => event?.seq ?? 0));
+		const gained = stall !== null && [...items].some(([item, count]) => count > (stall.items.get(item) ?? 0));
+		if (stall === null || stall.step !== step || stall.base !== clock.base || gained || clock.at < stall.last || clock.at - stall.last > STEP_STALL_QUIET_MS) {
+			agent.stall = { step, base: clock.base, since: clock.at, last: clock.at, items, reflexSeq, heldMs: 0, notes: 1 };
+			return null;
+		}
+		for (const event of events) if ((event?.seq ?? 0) > stall.reflexSeq && REFLEX_HELD.has(event.outcome) && Number.isFinite(event.ms) && event.ms > 0) stall.heldMs += event.ms;
+		stall.reflexSeq = Math.max(stall.reflexSeq, reflexSeq);
+		// Items spent or placed lower the baseline: a gain is judged against the lowest count since the clock started.
+		for (const [item, count] of stall.items) stall.items.set(item, Math.min(count, items.get(item) ?? 0));
+		stall.last = clock.at;
+		stall.notes += 1;
+		const stalledMs = clock.at - stall.since - stall.heldMs;
+		if (stalledMs < STEP_STALL_WAKE_MS) return null;
+		agent.stall = null;
+		return { stalledMs, notes: stall.notes, stop: STALL_STOP_STEPS.has(step) };
+	}
+
+	/** A stall the model is woken for: the next whileActing line starts with it. */
+	noteStall(agentId, stalledMs, observation) {
+		this.#held(this.#agent(agentId), observation, []).stalledMs = stalledMs;
+	}
+
+	/** The model acted (a tool call): whatever runs next is its fresh choice, so the stall clock starts over. */
+	resetStall(agentId) {
+		const agent = this.#agents.get(agentId);
+		if (agent !== undefined) agent.stall = null;
+	}
+
 	/** Burning is held only while an armed fire rule handles it and none of its firings failed since the hold began. */
 	#fireVerdict(agent, observation, held, reflexRules, reflexEvents) {
 		const fireRules = rowsOf(reflexRules).filter((rule) => FIRE_ACTIONS.has(rule?.do?.type) && rule.state !== 'disabled');
@@ -284,6 +357,8 @@ export class WakeFilter {
 		const agent = this.#agent(agentId);
 		const held = agent.held;
 		agent.held = null;
+		// The model hears of the stall in this wake, so a stall clock starts over.
+		agent.stall = null;
 		// Kinds stay known across wakes in one dimension (the model has fought them); a new dimension starts over.
 		const dimension = observation?.world?.dimension ?? null;
 		agent.known = new Set([...(dimension === agent.dimension ? agent.known ?? [] : []), ...shownKinds(observation)]);
@@ -291,6 +366,7 @@ export class WakeFilter {
 		agent.health = Number.isFinite(observation?.player?.health) ? observation.player.health : null;
 		if (held === null) return null;
 		const parts = [];
+		if (Number.isFinite(held.stalledMs)) parts.push(`the step made no progress for ${Math.max(1, Math.round(held.stalledMs / 60_000))} min (no item gained)`);
 		if (held.hits > 0) {
 			const by = [...held.by].map(([kind, count]) => `${kind === 'unknown' ? 'unseen attacker' : short(kind)} ${count}`).join(', ');
 			const health = Number.isFinite(held.healthFrom) && Number.isFinite(held.healthTo) ? `, health ${held.healthFrom} -> ${held.healthTo}` : '';

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import test from 'node:test';
+import { privateTest } from '../scripts/private-inputs.mjs';
 import * as benchmark from '../scripts/live-body-benchmark.mjs';
 
 // Exercise the actual reset entry point without launching a server. The block model
@@ -88,7 +89,7 @@ test('failed supported-position check aborts reset instead of accepting a measur
 });
 
 
-test('historical paired summaries carry terrain invalidation without claiming new measurements', async () => {
+privateTest('historical paired summaries carry terrain invalidation without claiming new measurements', async () => {
 	const report = JSON.parse(await readFile(new URL('../../reports/live-body-benchmark-26.3-2026-11-01.json', import.meta.url)));
 	assert.equal(report.validity.status, 'invalid-for-arm-comparisons');
 	assert.equal(report.validity.terrainReset.freshTrialsRun, false);

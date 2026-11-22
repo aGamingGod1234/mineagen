@@ -1,4 +1,4 @@
-import { privateInputUrl } from '../scripts/private-inputs.mjs';
+import { privateInputUrl, privateModule } from '../scripts/private-inputs.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -8,6 +8,7 @@ import { observationSha256 } from '../src/decision-eval/capture.mjs';
 import { renderWake } from '../src/decision-eval/render.mjs';
 import { howtoIndex } from '../src/howto.mjs';
 import { gradeSample } from '../src/decision-eval/grade.mjs';
+await privateModule(import.meta.url);
 
 const { cases } = JSON.parse(fs.readFileSync(privateInputUrl('coordinator/test/fixtures/decision-eval/extra/n18-ironpick.json')));
 const count = (c, id) => c.state.observation.inventory.items.filter(i => i.itemId === `minecraft:${id}`).reduce((n, i) => n + i.count, 0);

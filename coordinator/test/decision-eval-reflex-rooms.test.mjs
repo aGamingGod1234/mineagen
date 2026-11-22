@@ -1,10 +1,11 @@
-import { privateInputUrl } from '../scripts/private-inputs.mjs';
+import { privateInputUrl, privateModule } from '../scripts/private-inputs.mjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { renderWake } from '../src/decision-eval/render.mjs';
 import { validateCaseFile } from '../src/decision-eval/schema.mjs';
 import { observationSha256, sha256 } from '../src/decision-eval/capture.mjs';
+await privateModule(import.meta.url);
 
 const cases = validateCaseFile(JSON.parse(await readFile(privateInputUrl('coordinator/test/fixtures/decision-eval/extra/rx-teach2.json'))));
 

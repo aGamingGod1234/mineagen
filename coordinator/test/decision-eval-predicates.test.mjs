@@ -1,4 +1,4 @@
-import { privateInputUrl } from '../scripts/private-inputs.mjs';
+import { privateInputUrl, privateTest } from '../scripts/private-inputs.mjs';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -303,7 +303,7 @@ const committedCase = async (family, id) => {
 	return cases.find(c => c.id === id);
 };
 
-test('committed hazard cases send unproven water-bucket and ranged answers to the rubric', async () => {
+privateTest('committed hazard cases send unproven water-bucket and ranged answers to the rubric', async () => {
 	const bucket = { name: 'sequence', args: { actions: [{ actionType: 'select_item', arguments: { itemId: 'minecraft:water_bucket' } }, { actionType: 'use_item', arguments: { durationMs: 200 } }] } };
 	const selectOnly = act('select_item', { itemId: 'minecraft:water_bucket' });
 	const useExpected = act('use_item', { durationMs: 200, expectedItemId: 'minecraft:water_bucket' });
@@ -323,7 +323,7 @@ test('committed hazard cases send unproven water-bucket and ranged answers to th
 	}
 });
 
-test('a prerequisite-gap plan that names a keyword but skips the prerequisite is not graded good', async () => {
+privateTest('a prerequisite-gap plan that names a keyword but skips the prerequisite is not graded good', async () => {
 	const step = (id, label, detail) => ({ id, label, kind: 'manual', status: 'pending', dependsOn: [], detail, check: null, evidence: null });
 	const skip = { name: 'taskPlan', args: { operation: 'replace', plan: { steps: [step('stronghold', 'Go straight to stronghold without blaze rods or pearls', 'Skip the nether entirely')] } } };
 	for (let n = 1; n <= 6; n++) {
