@@ -145,8 +145,12 @@ test('targets and guards: the target rooms are tested for a gain, every other ro
 	assert.match(formatComparison(compareScores(none, huge)), /p\(better\) < 1e-11/);
 	// The verdict reads the unrounded adjusted p: 2/4 against 2/33 is p .04998, worse, though it rounds to .05.
 	const edge = compareScores({ rooms: { e: tally(2, 2) } }, { rooms: { e: tally(2, 31) } });
-	assert.equal(edge[0].p, 0.04998, 'printed with the digits that put it under .05');
+	assert.equal(edge[0].p, 0.049981, 'printed with the digits that put it under .05');
 	assert.equal(edge[0].change, 'worse');
+	// An exact p of .05 (0/2 against 12/14: 91/1820) that floating point puts a hair under .05 is not past the bar.
+	const exact = compareScores({ rooms: { e: tally(0, 2) } }, { rooms: { e: tally(12, 2) } });
+	assert.equal(exact[0].change, 'within noise');
+	assert.equal(exact[0].p, 0.05);
 	// Without targets the one pooled line covers every room.
 	assert.match(formatComparison(rows), /^all rooms: 17\/40 -> 22\/40 over 4 rooms/m);
 });
