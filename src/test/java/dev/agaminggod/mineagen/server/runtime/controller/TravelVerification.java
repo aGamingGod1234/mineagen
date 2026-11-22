@@ -93,7 +93,8 @@ public final class TravelVerification {
 				"a trip aimed at a cell (tolerance 2 or less) ends within its own tolerance of the target y, at least a block; looser trips keep 3");
 		check(ServerTravelController.digsDown(64.0D, 62.0D, ServerTravelController.heightTolerance(false, 1.0D)) && !ServerTravelController.digsDown(64.0D, 63.0D, ServerTravelController.heightTolerance(false, 1.0D))
 				&& ServerTravelController.digsDown(64.0D, 61.0D, ServerTravelController.heightTolerance(false, 2.0D)) && !ServerTravelController.digsDown(64.0D, 62.0D, ServerTravelController.heightTolerance(false, 2.0D))
-				&& !ServerTravelController.digsDown(64.0D, 60.0D, 3.0D) && ServerTravelController.digsDown(64.0D, 59.0D, 3.0D),
+				&& !ServerTravelController.digsDown(64.0D, 60.0D, 3.0D) && ServerTravelController.digsDown(64.0D, 59.0D, 3.0D)
+				&& !ServerTravelController.digsDown(64.0D, 63.0D, 0.6D),
 				"a cell-aimed trip digs down once the target is past its own band (2 below at tolerance 1, 3 below at 2); the loose band keeps its extra block");
 		TravelCheckpoints.Checkpoint refused = TravelCheckpoints.pick(flat, 0.5, 64, 0.5, 200.5, Double.NaN, 0.5, 26,
 				cell -> cell.x() >= 20 && Math.abs(cell.z()) <= 8);
