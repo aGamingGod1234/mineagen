@@ -984,9 +984,13 @@ public final class ServerSpawnerHoldController implements ServerController {
 
 	private TickResult emergency(ServerPlayer player, long now, long elapsed) {
 		if (emergency == null) {
-			// The same margin rule as the hold's turn-back, with the cell where the body stands (round 2220d78: a fixed
-			// "below 12" began heals at 2.4-8.3 under blaze volleys and fire; the margin began them at a median 16.1).
-			if (phase == Phase.HOLD || phase == Phase.SCAN || !marginGone(player, 0.0D) || !canWallIn(player)) return null;
+			// fight_target form (no cell walk): the same margin rule as the hold's turn-back, with the cell where the body
+			// stands (round 2220d78: a fixed "below 12" began heals at 2.4-8.3 under blaze volleys and fire; the margin began
+			// them at a median 16.1). fight_until form, walking to or building its planned cell: only below TURTLE_HEALTH,
+			// since the margin there fired at 14-19 health on the spawner deck and the wall-in at a brink killed it (real
+			// fortress room, 9fd4736: deaths 3 -> 6 of 10).
+			boolean wallInNow = target != null ? marginGone(player, 0.0D) : player.getHealth() < SpawnerHold.TURTLE_HEALTH;
+			if (phase == Phase.HOLD || phase == Phase.SCAN || !wallInNow || !canWallIn(player)) return null;
 			String item = roofing.blockItem(player);
 			cancelParts(player);
 			blockItem = item;
