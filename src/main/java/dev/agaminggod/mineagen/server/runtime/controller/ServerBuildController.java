@@ -1982,7 +1982,7 @@ public final class ServerBuildController implements ServerController {
 			BlockPos partnerAvoid = paired && !crossAllowed ? target : null;
 			BlockPos spot = partner == null ? null : standFor(player, eye -> reaches.test(eye) && pourClick(player, eye, partner, false, partnerAvoid) != null);
 			// Water poured across the lava's cell stands behind the obsidian it casts, out of the scoop's reach until the body
-			// walks round (one stood 211 ticks): only where its 8-cell run meets no lava, so it cannot crust the pool.
+			// walks round (one stood 211 ticks): only where its whole run-off meets no lava, so it cannot crust the pool.
 			if (spot == null && paired && !crossAllowed && !runOffMeetsLava && standFor(player, eye -> pourClick(player, eye, target, false) != null && pourClick(player, eye, partner, false) != null) != null) {
 				// No spot's water line misses the lava's cell (a frame's top cell under a low roof, cast-obi-1: 9 of 10 runs
 				// pillared into the rock over the head): pour this cell from a spot whose line crosses it, as main did.
