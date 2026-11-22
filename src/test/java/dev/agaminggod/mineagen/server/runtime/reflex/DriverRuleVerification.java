@@ -41,6 +41,7 @@ public final class DriverRuleVerification {
 		floorStaysArmedAtTheFailureLimit(defaults);
 		floorStaysArmedAtTheRateLimit(defaults);
 		yieldableHazardsStillYield(defaults);
+		creeperRunKeepsACommandUntilItEnds(defaults);
 		replacementGapKeepsDefendDown();
 		handOffCodesAreKeyedByActionType();
 		stoppedTravelAndFailedDefenceHandOff();
@@ -160,13 +161,16 @@ public final class DriverRuleVerification {
 		return rules.stream().filter(rule -> rule.id().equals(id)).findFirst().orElseThrow();
 	}
 
-	/** The floor is exactly default-lava, default-fire, default-air and default-suffocate; the model's own rules never are. */
+	/**
+	 * The floor is exactly default-lava, default-fire, default-air, default-suffocate and default-creeper (COMBAT-9: a command
+	 * that ended the creeper run left the body in the blast); the model's own rules never are.
+	 */
 	private static void floorIsTheFourHazardDefaults(List<ReflexSpec.Rule> defaults) {
 		Set<String> floor = new java.util.TreeSet<>();
 		for (ReflexSpec.Rule rule : defaults) if (ReflexScheduler.floor(rule)) floor.add(rule.id());
-		check(floor.equals(new java.util.TreeSet<>(List.of("default-air", "default-fire", "default-lava", "default-suffocate"))),
-				"the floor is the lava, fire, air and suffocation defaults: " + floor);
-		for (String id : List.of("default-lava-flow", "default-creeper", "default-fireball", "default-edge")) {
+		check(floor.equals(new java.util.TreeSet<>(List.of("default-air", "default-creeper", "default-fire", "default-lava", "default-suffocate"))),
+				"the floor is the lava, fire, air, suffocation and creeper defaults: " + floor);
+		for (String id : List.of("default-lava-flow", "default-fireball", "default-edge")) {
 			check(ReflexEngine.HAZARDS.stream().anyMatch(type -> named(defaults, id).when().stream().anyMatch(c -> c.type().equals(type))),
 					id + " stays a hazard rule");
 			check(!ReflexScheduler.floor(named(defaults, id)), id + " is not floor: it still yields to a command");
@@ -409,9 +413,9 @@ public final class DriverRuleVerification {
 		return scheduler.events().stream().filter(ReflexScheduler.Event::wake).count();
 	}
 
-	/** lava_flowing, creeper_fusing and fireball_incoming defaults still yield to a command while their danger holds. */
+	/** lava_flowing and fireball_incoming defaults still yield to a command while their danger holds. */
 	private static void yieldableHazardsStillYield(List<ReflexSpec.Rule> defaults) {
-		for (String id : List.of("default-lava-flow", "default-creeper", "default-fireball")) {
+		for (String id : List.of("default-lava-flow", "default-fireball")) {
 			ReflexScheduler scheduler = new ReflexScheduler();
 			scheduler.replace(List.of(named(defaults, id)), 0L);
 			check(id.equals(step(scheduler, 1L, id, true, RUNNING).started()), id + " fires");
@@ -420,6 +424,48 @@ public final class DriverRuleVerification {
 		}
 		// default-edge is a brace stance: it never takes the body (the engine senses it false), so it has no firing to yield.
 		check("brace".equals(named(defaults, "default-edge").action().type()), "default-edge braces and never fires");
+	}
+
+	/**
+	 * COMBAT-9: over all checkpoint games, 7 of 65 creeper runs a model command took over were followed by a blast within 3 s,
+	 * against 4 of 128 runs that finished. A command now waits under the run, and past the 5-block sense line too: the run
+	 * goes on to 6+ blocks with the fuse out (a blast reaches about 6), and the command takes the body when the run ends.
+	 */
+	private static void creeperRunKeepsACommandUntilItEnds(List<ReflexSpec.Rule> defaults) {
+		String id = "default-creeper";
+		check(ReflexScheduler.RUN_KEEPS_COMMAND.contains("creeper_fusing") && !ReflexScheduler.CORNERED_RELEASE.contains("creeper_fusing"),
+				"a creeper run keeps a waiting command to its end and is never cornered: its fuse ends it within 1.5 s");
+		ReflexScheduler scheduler = new ReflexScheduler();
+		scheduler.replace(List.of(named(defaults, id)), 0L);
+		check(id.equals(step(scheduler, 1L, id, true, RUNNING).started()), id + " fires on a fusing creeper");
+		check(scheduler.yield(2L).ended() == null && scheduler.current() != null, "a command waits under the run while the creeper fuses near");
+		for (long tick = 3L; tick < 10L; tick++) check(!step(scheduler, tick, id, false, RUNNING).changed(), "the run keeps the body past the 5-block sense line");
+		ReflexScheduler.Decision end = step(scheduler, 10L, id, false, ReflexScheduler.ActionStatus.DONE);
+		check(end.endOutcome() == ReflexScheduler.Outcome.DONE && scheduler.deferredYielded(), "the waiting command takes the body when the run ends");
+		for (long tick = 11L; tick < 40L; tick++) check(step(scheduler, tick, id, false, RUNNING).started() == null, "no refire without a fusing creeper");
+		check(id.equals(step(scheduler, 40L, id, true, RUNNING).started()), "a fresh fuse fires it again");
+
+		// A run that fails in the blast's reach (no footing to run on) fires again and still keeps the command waiting.
+		ReflexScheduler failing = new ReflexScheduler();
+		failing.replace(List.of(named(defaults, id)), 0L);
+		step(failing, 1L, id, true, RUNNING);
+		check(failing.yield(2L).ended() == null, "kept while fusing");
+		check(step(failing, 3L, id, true, ReflexScheduler.ActionStatus.FAILED).endOutcome() == ReflexScheduler.Outcome.FAILED, "the run fails");
+		long refire = -1L;
+		for (long tick = 4L; tick < 30L && refire < 0L; tick++) if (id.equals(step(failing, tick, id, true, RUNNING).started())) refire = tick;
+		check(refire > 0L, "the failed run fires again while the creeper fuses");
+		ReflexScheduler.Decision out = step(failing, refire + 1L, id, false, ReflexScheduler.ActionStatus.DONE);
+		check(out.endOutcome() == ReflexScheduler.Outcome.DONE && failing.deferredYielded(), "the command it kept takes the body once a run ends out of reach");
+
+		// A command that comes once the fuse is out of reach, the run still going, waits for the run's end too.
+		ReflexScheduler late = new ReflexScheduler();
+		late.replace(List.of(named(defaults, id)), 0L);
+		step(late, 1L, id, true, RUNNING);
+		step(late, 2L, id, false, RUNNING);
+		check(late.yield(3L).ended() == null && late.current() != null, "a command after the sense line still waits for the run");
+		check(!step(late, 4L, id, false, RUNNING).changed(), "the run keeps going");
+		check(step(late, 5L, id, false, ReflexScheduler.ActionStatus.DONE).endOutcome() == ReflexScheduler.Outcome.DONE && late.deferredYielded(),
+				"and hands the body over when it ends");
 	}
 
 	private static ReflexScheduler.Decision step(ReflexScheduler scheduler, long now, String id, boolean truth, ReflexScheduler.ActionStatus status) {

@@ -1,6 +1,6 @@
 import { buildNativeEventInput } from '../dynamic-main.mjs';
 import { ModelObservationViews, encodeNativeEventInput } from '../model-fact-encoding.mjs';
-import { MINECRAFT_DYNAMIC_TOOLS, NATIVE_AGENT_INSTRUCTIONS, minecraftCapabilities } from '../native-minecraft-tools.mjs';
+import { MINECRAFT_DYNAMIC_TOOLS, NATIVE_AGENT_INSTRUCTIONS, minecraftCapabilities, offeredMinecraftTools } from '../native-minecraft-tools.mjs';
 
 /**
  * Offline token-budget model for one native agent. Byte sizes come from the real builders and
@@ -133,10 +133,13 @@ export function measureTokenBudget({ agentsMarkdown = '', skillMarkdown = '' } =
 	const views = new ModelObservationViews();
 	const first = encodeNativeEventInput(raw, views);
 	const second = encodeNativeEventInput(buildNativeEventInput(record, representativeProgramWake(2)), views);
-	const tools = MINECRAFT_DYNAMIC_TOOLS.map(({ name, description, inputSchema }) => ({ name, description, inputSchema }));
+	// What every call sends by default (no MINEAGEN_PROGRAM_TOOLS), and the whole list for that switch's on arm.
+	const listed = (list) => list.map(({ name, description, inputSchema }) => ({ name, description, inputSchema }));
+	const tools = listed(offeredMinecraftTools({}));
 	return {
 		instructionsBytes: bytes(NATIVE_AGENT_INSTRUCTIONS) + bytes(agentsMarkdown) + bytes(skillMarkdown),
 		toolSchemaBytes: bytes(tools),
+		toolSchemaBytesWithPrograms: bytes(listed(MINECRAFT_DYNAMIC_TOOLS)),
 		capabilitiesAllBytes: bytes(minecraftCapabilities({ section: 'all' })),
 		eventRawBytes: bytes(raw),
 		eventEncodedFirstBytes: bytes(first),

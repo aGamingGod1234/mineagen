@@ -60,20 +60,60 @@ export function baseState(report) {
 	return report.baseComparable === false || report.comparisonError ? 'not comparable' : 'compared';
 }
 
+/**
+ * What the stake can speak for in this diff. It replays recorded episodes through the coordinator's decision code
+ * (coordinator/src), never Java, scripts, instructions or a model, so a diff with no coordinator/src change is "not
+ * covered" (the green it posts says only that nothing it replays changed), and a mixed diff is "partly covered".
+ * changed: the diff's file paths, or null when the diff could not be read.
+ */
+/**
+ * The coordinator code a stake replay can reach: coordinator/src, without the parts it never loads (traced 23 Nov:
+ * benchmark harnesses, the decision-eval tooling, the simulator, voice, headless launchers, process helpers, scripts)
+ * and the model providers the replay swaps for stubs (it injects an idle provider and a replay planner, so the Codex and
+ * Claude services, their tool server, app server and the provider plumbing never run).
+ */
+export const decisionCode = file => /^coordinator\/src\//.test(file) && !/\.ps1$/.test(file)
+	&& !/^coordinator\/src\/(benchmark|decision-eval|simulator|voice)\//.test(file)
+	&& !/^coordinator\/src\/(headless-[^/]*|posix-process-[^/]*|codex-[^/]*|claude-[^/]*|provider-[^/]*)$/.test(file);
+
+export function stakeCoverage(changed) {
+	if (!Array.isArray(changed)) return { state: 'unknown', short: 'coverage unknown', line: 'Coverage unknown: the changed files could not be listed.' };
+	// Tests and docs change no behaviour. The in-game agent's instructions (coordinator/config: AGENTS.md, SKILL.md,
+	// references) are Markdown that changes how the bot plays, so they count as code.
+	const neutral = file => /^(coordinator\/test|src\/test|src\/compat\/[^/]+\/test)\//.test(file) || /^docs\//.test(file) || (/\.md$/i.test(file) && !/^coordinator\/config\//.test(file));
+	const code = changed.filter(file => !neutral(file));
+	const covered = code.filter(decisionCode);
+	const java = code.filter(file => /\.java$/.test(file));
+	const count = (n, what) => `${n} ${what}${n === 1 ? '' : 's'}`;
+	if (!code.length) return { state: 'no code change', covered: 0, code: 0, java: 0, short: 'no code change', line: `Coverage: no code change (${count(changed.length, 'file')}: tests and docs only).` };
+	if (!covered.length) {
+		const javaOnly = java.length === code.length;
+		return { state: 'not covered', covered: 0, code: code.length, java: java.length, short: `not covered (${javaOnly ? 'Java-only diff' : 'no decision-code change'})`,
+			line: `Coverage: **not covered**. ${count(code.length, 'changed code file')}${java.length ? ` (${java.length} Java)` : ''}, none in the coordinator decision code, which is all the stake replays. A pass here says nothing about this change.` };
+	}
+	if (covered.length < code.length) return { state: 'partly covered', covered: covered.length, code: code.length, java: java.length, short: `partly covered (${covered.length} of ${code.length} code files)`,
+		line: `Coverage: **partly covered**. ${covered.length} of ${count(code.length, 'changed code file')} ${covered.length === 1 ? 'is' : 'are'} coordinator decision code, which the stake replays; ${code.length - covered.length === 1 ? 'the other is' : `the other ${code.length - covered.length} are`} not exercised${java.length ? ` (${java.length} Java)` : ''}.` };
+	return { state: 'covered', covered: covered.length, code: code.length, java: 0, short: `covers ${count(covered.length, 'decision-code file')}`, line: `Coverage: every changed code file (${covered.length}) is coordinator decision code, which the stake replays.` };
+}
+
 export function stakeHeadline(report) {
 	const accepted = report.results.filter(row => row.matches && row.invariant && !row.error).length;
 	const state = baseState(report), compared = state === 'compared';
 	const same = compared ? report.results.filter(row => row.baseSame).length : accepted;
 	const diffs = compared ? report.results.length - same : null;
-	return { accepted, same, diffs, headPasses: report.pass === true, baseState: state,
-		description: `${report.pass ? 'head passes' : 'head fails'} · ${same}/${report.results.length} ${compared ? 'same' : 'accepted'} · ${compared ? `${diffs} diffs` : `base ${state}`} · ${Math.round(report.wallMs)} ms` };
+	// Coverage leads, so a green status on a change the stake never runs reads "not covered" in the checks list. An
+	// unknown coverage (git could not list the diff) makes no claim there and is said in the comment.
+	const coverage = report.changedFiles === undefined ? null : stakeCoverage(report.changedFiles);
+	return { accepted, same, diffs, headPasses: report.pass === true, baseState: state, coverage,
+		description: `${coverage && coverage.state !== 'unknown' ? `${coverage.short} · ` : ''}${report.pass ? 'head passes' : 'head fails'} · ${same}/${report.results.length} ${compared ? 'same' : 'accepted'} · ${compared ? `${diffs} diffs` : `base ${state}`} · ${Math.round(report.wallMs)} ms` };
 }
 
 export function formatStake(report, { summaryUrl = report.summaryUrl } = {}) {
-	const { accepted, same, description } = stakeHeadline(report);
+	const { accepted, same, description, coverage } = stakeHeadline(report);
 	const metric = (row, key) => `${row.baseMetrics?.[key] ?? '?'} → ${row.metrics?.[key] ?? '?'}`;
 	return [STAKE_MARKER, '## Gameplay stake', '', `${report.pass ? '✅' : '❌'} **Stake ${bar(same, report.results.length)} ${description}**`,
 		`Expected: ${accepted}/${report.results.length} accepted · ${report.coverageGaps?.length ?? 0} coverage gap(s) · 0 Minecraft boots / model calls`, '',
+		...(coverage ? [coverage.line, ''] : []),
 		...formatFunnel(report.product, report.base), '', ...formatReplays(report.replays), ...(report.replays === undefined ? [] : ['']),
 		...(Number.isFinite(report.checkMs) ? [`Whole check: ${(report.checkMs / 1000).toFixed(1)} s (stake, base checkout, both replays, funnel).`, ''] : []),
 		...(report.base ? [`Base: \`${report.base.sha.slice(0, 8)}\` · head: \`${report.head?.slice(0, 8) ?? 'working tree'}\``

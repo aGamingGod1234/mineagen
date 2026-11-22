@@ -84,8 +84,21 @@ export function plannedOf(env) {
  * workers still coming up (null for one that never did): each starts pulling rooms the moment it resolves, so no room
  * waits for the slowest machine.
  */
-export async function runQueue({ rooms, workers, arrivals = [], attempt, maxAttempts = 2, replace = null, release = null, log = () => {} }) {
+export async function runQueue({ rooms, workers, arrivals = [], attempt, maxAttempts = 2, replace = null, release = null, more = null, log = () => {} }) {
 	const queue = rooms.map(room => ({ room, tries: 0, triedOn: new Set() }));
+	const all = [...rooms];
+	// more(room, outcome) -> rooms to add (top-ups): they join the queue before this worker looks for its next room.
+	let settling = 0;
+	const settle = async (room, outcome) => {
+		if (!more) return;
+		settling++;
+		try {
+			const extra = await Promise.resolve().then(() => more(room, outcome)).catch(error => { log(`top-up after ${room.room} failed: ${error.message}`); return []; });
+			for (const added of extra ?? []) { all.push(added); queue.push({ room: added, tries: 0, triedOn: new Set() }); }
+		} finally { settling--; wake(); }
+	};
+	// With top-ups on, a room still playing or being counted may add rooms, so an idle machine is kept until none is.
+	const mayAddRooms = worker => Boolean(more) && (settling > 0 || [...live].some(other => other !== worker && other.busy));
 	const results = new Map(), live = new Set(), running = [];
 	let waiting = [];
 	const wake = () => { const list = waiting; waiting = []; for (const done of list) done(); };
@@ -101,9 +114,9 @@ export async function runQueue({ rooms, workers, arrivals = [], attempt, maxAtte
 				if (!item) {
 					// With nothing left to queue, release() lets the machine go now instead of idling to the end; a room
 					// re-queued later goes to a replacement.
-					if (release && !queue.length) { await Promise.resolve().then(() => release(worker)).catch(error => log(`release of ${worker.id} failed: ${error.message}`)); return; }
+					if (release && !queue.length && !mayAddRooms(worker)) { await Promise.resolve().then(() => release(worker)).catch(error => log(`release of ${worker.id} failed: ${error.message}`)); return; }
 					// A busy worker may still lose its room back to the queue; otherwise nothing is left for this one.
-					if (![...live].some(other => other !== worker && other.busy)) return;
+					if (![...live].some(other => other !== worker && other.busy) && !mayAddRooms(worker)) return;
 					await new Promise(done => waiting.push(done));
 					continue;
 				}
@@ -111,14 +124,14 @@ export async function runQueue({ rooms, workers, arrivals = [], attempt, maxAtte
 				let outcome;
 				try { outcome = await attempt(worker, item.room, item.tries); }
 				catch (error) { outcome = { lost: true, reason: String(error?.message ?? error) }; }
+				if (!outcome?.lost) { results.set(item.room.room, { ...outcome, lost: false, room: item.room.room, worker: worker.id, attempts: item.tries }); await settle(item.room, results.get(item.room.room)); worker.busy = false; wake(); continue; }
 				worker.busy = false;
-				if (!outcome?.lost) { results.set(item.room.room, { ...outcome, lost: false, room: item.room.room, worker: worker.id, attempts: item.tries }); wake(); continue; }
 				// requeue: the machine stopped the room for a planned reason (its cutoff), so the try does not count.
 				if (outcome.requeue) { item.tries--; log(`room ${item.room.room} back in the queue from ${worker.id}: ${outcome.reason}`); queue.unshift(item); }
 				else {
 					log(`room ${item.room.room} lost on ${worker.id} (try ${item.tries}): ${outcome.reason}`);
 					if (item.tries < maxAttempts) queue.unshift(item);
-					else results.set(item.room.room, { lost: true, reason: outcome.reason, room: item.room.room, worker: worker.id, attempts: item.tries });
+					else { results.set(item.room.room, { lost: true, reason: outcome.reason, room: item.room.room, worker: worker.id, attempts: item.tries }); await settle(item.room, results.get(item.room.room)); }
 				}
 				live.delete(worker);
 				wake();
@@ -135,7 +148,7 @@ export async function runQueue({ rooms, workers, arrivals = [], attempt, maxAtte
 	for (let i = 0; i < running.length; i++) await running[i];
 	// Rooms no worker could take (every machine that could was lost) are reported lost, never silently dropped.
 	for (const item of queue) results.set(item.room.room, { lost: true, reason: item.tries ? 'no other machine left' : 'no machine left', room: item.room.room, attempts: item.tries });
-	return rooms.map(room => results.get(room.room));
+	return all.map(room => results.get(room.room));
 }
 
 /**
@@ -190,7 +203,8 @@ export async function armRows(dir) {
 
 /**
  * Per arm, the rows of every room folder (OUT/rooms/ROOM/ARM/result.json) go through finishRun into OUT/ARM/result.json.
- * planned counts every room's rows, so a lost or crashed room shows as notStarted and the arm reads INVALID, not short.
+ * planned counts every room's rows, and each row a lost or crashed room did not bring back is an INVALID row of that
+ * room that never started (so it shows in invalid and in notStarted): the arm reads INVALID, never short.
  */
 export async function mergeArms({ out, rooms, arms, outcomes }) {
 	const byRoom = new Map(outcomes.map(outcome => [outcome.room, outcome]));
@@ -206,10 +220,13 @@ export async function mergeArms({ out, rooms, arms, outcomes }) {
 			const found = outcome.lost ? { rows: [], summary: null, problem: null } : await armRows(dir);
 			const own = found.summary;
 			const ownValid = Boolean(own && typeof own === 'object' && Number.isInteger(own.planned));
+			// A room whose summary is INVALID but that wrote rows needs no room-wide verdict: its invalid rows read INVALID
+			// themselves and its missing ones count as notStarted, so one errored course never voids the courses beside it
+			// (as collectRuns in benchmark-score.mjs reads it). With no rows at all the summary's INVALID is the only evidence.
 			const roomInvalid = outcome.lost ? null
 				: found.problem ? found.problem
 				: !ownValid ? 'missing or corrupt room summary'
-				: own.status === 'INVALID' ? 'room summary INVALID'
+				: own.status === 'INVALID' && !found.rows.length ? 'room summary INVALID'
 				: own.planned <= 0 ? 'room planned 0 rows'
 				: null;
 			const basePlanned = ownValid ? own.planned : (room.plannedByArm?.[arm] ?? room.planned);
@@ -223,9 +240,14 @@ export async function mergeArms({ out, rooms, arms, outcomes }) {
 			const roomFlags = [...(killed ? [`arm killed (${killed})`] : []), ...(roomInvalid ? [roomInvalid] : [])];
 			for (const row of roomRows) rows.push({ ...row, ...(roomFlags.length ? { integrity: [...(Array.isArray(row.integrity) ? row.integrity : []), ...roomFlags] } : {}),
 				room: room.room, host: outcome.worker ?? null, attempts: outcome.attempts ?? 0, cantKeepUp: run.cantKeepUp ?? null });
-			if (roomInvalid && !roomRows.length) {
-				rows.push({ name: room.room, room: room.room, host: outcome.worker ?? null, attempts: outcome.attempts ?? 0, cantKeepUp: run.cantKeepUp ?? null,
-					pass: false, error: roomInvalid, integrity: roomFlags, startedAt: null, finishedAt: null, deaths: null, damageTaken: null });
+			// Every row a room planned but did not bring back is an INVALID row of that room (a lost room's rows too), so no
+			// other room's extra rows can make up for them in the arm's count. Such a row never started, so it counts in
+			// notStarted as well as invalid: notStarted is the part of invalid that never ran. (collectRuns, which scores
+			// benchmarks, counts a lost room as one LOST run per arm instead.)
+			for (let i = roomRows.length; i < roomPlanned; i++) {
+				const why = outcome.lost ? `room lost: ${outcome.reason ?? 'unknown'}` : roomInvalid && !roomRows.length ? roomInvalid : `planned row ${i + 1} of ${roomPlanned} never written`;
+				rows.push({ name: roomPlanned > 1 ? `${room.room} row ${i + 1}` : room.room, room: room.room, host: outcome.worker ?? null, attempts: outcome.attempts ?? 0, cantKeepUp: run.cantKeepUp ?? null,
+					pass: false, error: why, integrity: roomFlags, startedAt: null, finishedAt: null, deaths: null, damageTaken: null, ...(outcome.lost ? { lost: true } : {}) });
 			}
 			perRoom.push({ room: room.room, lost: !!outcome.lost, reason: outcome.reason ?? null, rows: roomRows.length, planned: roomPlanned, exit: run.exit ?? null, seconds: run.seconds ?? null, timedOut: !!run.timedOut, cantKeepUp: run.cantKeepUp ?? null });
 		}
@@ -274,4 +296,66 @@ export function formatSummary({ batch, merged, arms, wallSeconds, vms, rooms }) 
 		lines.push(`${room.room}: ${cells.join(' | ')}`);
 	}
 	return lines.join('\n');
+}
+
+/** A room's repeat group: its name without a trailing repeat label (.c3 or -r4), so ROOM.c1..c10 top up together. */
+export const repeatGroup = name => String(name).replace(/(?:\.c\d+|-r\d+)$/, '');
+
+/**
+ * One arm of a fetched room: { valid, rows }. valid counts its PASS or FAIL rows, as the merge counts them (none when the
+ * arm was killed, its rows file is ambiguous, or its summary is missing, corrupt or plans no rows); rows is how many runs
+ * a copy of the room plays (its summary's planned), or null when that is unknown.
+ */
+export async function armValidRuns(dir, run = {}) {
+	const found = await armRows(dir);
+	const planned = Number.isInteger(found.summary?.planned) && found.summary.planned > 0 ? found.summary.planned : null;
+	// A killed arm counts no valid run, but the runs its summary planned still size the copies.
+	if (run.timedOut || run.signal || run.error) return { valid: 0, rows: planned };
+	if (found.problem || planned === null) return { valid: 0, rows: null };
+	return { valid: found.rows.filter(row => row && typeof row === 'object' && ['PASS', 'FAIL'].includes(roomVerdict(row).verdict)).length, rows: found.summary.planned };
+}
+
+/**
+ * --valid N: plays more copies of a repeat group (both arms side by side, so the arms stay paired) until every arm has N
+ * valid runs, never past 2N planned runs an arm. Runs a copy plays are the line's selector count until a copy's own
+ * summary says how many it planned. Copies still queued or playing count toward N, so a group never asks for more than
+ * its shortfall at once. more(room, outcome) is runQueue's hook; added lists the copies it made.
+ */
+export function topUp({ rooms, arms, valid, out, countValid = armValidRuns }) {
+	if (!Number.isInteger(valid) || valid < 1) throw new Error('--valid wants a whole number of 1 or more');
+	const groups = new Map(), names = new Set(rooms.map(room => room.room)), added = [];
+	for (const room of rooms) {
+		const key = repeatGroup(room.room);
+		// Runs a copy plays: the most any arm's line selects (an arm's own line can select more cases than the first arm's).
+		const lineRows = Math.max(1, room.planned ?? 1, ...Object.values(room.plannedByArm ?? {}).filter(Number.isFinite));
+		const group = groups.get(key) ?? { template: room, copies: 0, pending: 0, perCopy: lineRows, valid: Object.fromEntries(arms.map(arm => [arm, 0])),
+			next: 1, style: /-r\d+$/.test(room.room) ? '-r' : '.c' };
+		group.copies++; group.pending++;
+		groups.set(key, group);
+	}
+	const more = async (room, outcome) => {
+		const key = repeatGroup(room.room), group = groups.get(key);
+		if (!group) return [];
+		// Every count is read before the group changes, so two copies finishing together never lose one another's runs.
+		const counts = outcome?.lost ? arms.map(() => ({ valid: 0, rows: null }))
+			: await Promise.all(arms.map(arm => countValid(path.join(out, 'rooms', room.room, arm), outcome.arms?.[arm] ?? {})));
+		group.pending--;
+		arms.forEach((arm, i) => { group.valid[arm] += counts[i].valid; });
+		const seen = Math.max(0, ...counts.map(count => count.rows ?? 0));
+		if (seen) group.perCopy = Math.max(group.perCopy, seen);
+		const extra = [];
+		let short = Math.max(...arms.map(arm => valid - group.valid[arm])) - group.pending * group.perCopy;
+		while (short > 0 && (group.copies + 1) * group.perCopy <= 2 * valid) {
+			let name;
+			// Copies go on numbering the group's own way (ROOM.cK or ROOM-rK), so the benchmark scorer folds ROOM.cK into its room.
+			do name = `${key}${group.style}${group.next++}`; while (names.has(name));
+			names.add(name);
+			const copy = { ...group.template, room: name, lines: group.template.lines.map(line => ({ ...line, env: { ...line.env }, args: [...line.args] })), topUpOf: key };
+			group.copies++; group.pending++; short -= group.perCopy;
+			extra.push(copy); added.push(copy);
+		}
+		return extra;
+	};
+	const report = () => [...groups].map(([name, group]) => ({ group: name, copies: group.copies, perCopy: group.perCopy, planned: group.copies * group.perCopy, valid: { ...group.valid }, short: arms.filter(arm => group.valid[arm] < valid) }));
+	return { more, added, report };
 }

@@ -27,6 +27,7 @@ public final class PovClientStateVerification {
 		verifyBodyMonitor();
 		verifyBodyPosition();
 		verifyLatencyProbe();
+		verifyCornerLabel();
 		return checks;
 	}
 
@@ -371,6 +372,29 @@ public final class PovClientStateVerification {
 
 	private static boolean near(float actual, float expected) {
 		return Math.abs(actual - expected) < 1.0E-4F;
+	}
+
+	private static void verifyCornerLabel() {
+		check(PovCornerLabel.lines(false, false, false, false).isEmpty(), "no agent view draws no corner label");
+		check(PovCornerLabel.lines(false, true, true, false).isEmpty(), "an ended takeover draws no corner label");
+		check(PovCornerLabel.lines(true, false, false, false)
+				.equals(java.util.List.of(PovCornerLabel.LEAVE_KEY, PovCornerLabel.LOOK_AROUND)), "spectate names the exit key and free look");
+		check(PovCornerLabel.lines(true, true, false, false).equals(java.util.List.of(PovCornerLabel.LEAVE_KEY)),
+				"takeover names only the exit key, since the mouse drives the body");
+		check(PovCornerLabel.lines(true, false, true, false).get(0).equals(PovCornerLabel.LEAVE_COMMAND),
+				"an unbound exit key falls back to the chat command");
+		check(PovCornerLabel.lines(true, true, true, false).equals(java.util.List.of(PovCornerLabel.LEAVE_COMMAND)),
+				"an unbound exit key in takeover still shows the command");
+		check(PovCornerLabel.lines(true, false, false, true).isEmpty() && PovCornerLabel.lines(true, true, true, true).isEmpty(),
+				"the F3 screen in the same corner hides the label");
+		check(PovCornerLabel.commandMode(false).equals("spectate") && PovCornerLabel.commandMode(true).equals("takeover"),
+				"the command fallback names the view's own exit command");
+		// A 427 px GUI (854x480, or 1280x720 at scale 3): boss bars start at 122. The way out always shows; a 145 px
+		// look-around line would cover the dragon's health bar, so it is dropped there and kept on a 640 px GUI.
+		check(PovCornerLabel.keep(0, 300, 427), "the way out always shows");
+		check(!PovCornerLabel.keep(1, 145, 427), "a look-around line reaching a boss bar is dropped on a 427 px GUI");
+		check(PovCornerLabel.keep(1, 145, 640), "and kept where it clears the bar");
+		check(PovCornerLabel.keep(1, 120, 427) && !PovCornerLabel.keep(1, 121, 427), "the line may end 2 px short of the bar's left end");
 	}
 
 	private static void check(boolean condition, String label) {

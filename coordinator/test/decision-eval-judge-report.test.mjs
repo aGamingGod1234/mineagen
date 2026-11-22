@@ -1,4 +1,4 @@
-import { privateInputUrl } from '../scripts/private-inputs.mjs';
+import { privateInputUrl, privateTest } from '../scripts/private-inputs.mjs';
 import assert from 'node:assert/strict';
 import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -216,7 +216,7 @@ test('judge verdicts are keyed by case, accepted trajectory, rubric and judge mo
 	assert.equal(trajectoryHash({ calls: [] }), trajectoryHash({ calls: [rejected] }));
 });
 
-test('the judge sees the night clock, the bed and the ray target: a night bed and a day grass block give different prompts', async () => {
+privateTest('the judge sees the night clock, the bed and the ray target: a night bed and a day grass block give different prompts', async () => {
 	const { buildJudgePrompt, entityLabels, judgeCacheKey, projectAnswer, projectSituation, JUDGE_PROJECTION_VERSION } = await import('../src/decision-eval/judge.mjs');
 	const caseDef = JSON.parse(await readFile(privateInputUrl('coordinator/test/fixtures/decision-eval/train/plan-prerequisite-gap.json'), 'utf8')).cases.find((c) => c.id === 'plan-prerequisite-gap-04');
 	// Review r3 audit row 34: the accepted answer replaces the running wait with using the bed at night.
@@ -246,7 +246,7 @@ test('the judge sees the night clock, the bed and the ray target: a night bed an
 	assert.notEqual(judgeCacheKey(config, caseDef, caseDef.expect.judge.rubric, sample), judgeCacheKey(config, day, caseDef.expect.judge.rubric, sample));
 });
 
-test('a multi-step answer shows the judge the recorded reply it actually received', async () => {
+privateTest('a multi-step answer shows the judge the recorded reply it actually received', async () => {
 	const { projectAnswer } = await import('../src/decision-eval/judge.mjs');
 	const caseDef = JSON.parse(await readFile(privateInputUrl('coordinator/test/fixtures/decision-eval/train/failed-interaction-retry.json'), 'utf8')).cases.find((c) => c.steps?.length);
 	const recorded = caseDef.steps[0].canned[0];
@@ -315,7 +315,7 @@ test('a launched judge attempt with unknown cost keeps its reservation and stops
 	assert.equal(prelaunch.judge.ledger.unknownCostReservedUsd, 0);
 });
 
-test('maintenance judge sees prior authored rule definitions, live state and firing failures', async () => {
+privateTest('maintenance judge sees prior authored rule definitions, live state and firing failures', async () => {
  const { cases } = JSON.parse(await readFile(privateInputUrl('coordinator/test/fixtures/decision-eval/extra/rx-teach2.json'), 'utf8'));
  const c = cases.find(c => c.id === 'rx-adjust');
  const situation = projectSituation(c);

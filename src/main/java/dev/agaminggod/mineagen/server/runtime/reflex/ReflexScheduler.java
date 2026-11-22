@@ -38,10 +38,19 @@ public final class ReflexScheduler {
 	public static final int MAX_EVENTS = 16;
 	/** Consecutive maxS spans a stance may hold, its condition never clearing, before the model is told. */
 	public static final int HELD_SPANS_BEFORE_WAKE = 3;
-	/** Conditions whose coordinator default is the hazard floor: the body must leave them whatever it was told. */
-	public static final Set<String> FLOOR_HAZARDS = Set.of("in_lava", "in_fire", "air_below", "suffocating", "cloud_near");
+	/**
+	 * Conditions whose coordinator default is the hazard floor: the body must leave them whatever it was told. A fusing
+	 * creeper is one: a command that took the body from the run left it standing in the blast (COMBAT-9).
+	 */
+	public static final Set<String> FLOOR_HAZARDS = Set.of("in_lava", "in_fire", "air_below", "suffocating", "cloud_near", "creeper_fusing");
 	/** Floor hazards whose firing gives way to a model command once it is cornered (see {@link State#cornered}). */
 	public static final Set<String> CORNERED_RELEASE = Set.of("cloud_near");
+	/**
+	 * Floor hazards whose run keeps a waiting command until the run ends, not only until the condition clears: the body is
+	 * past the condition's line before it is safe. A breath run clears the cloud's reach; a creeper run (sense line 5 blocks)
+	 * runs on to 6+ blocks with the fuse out, as a blast reaches about 6 blocks (one released at 5 still takes about 4 HP).
+	 */
+	public static final Set<String> RUN_KEEPS_COMMAND = Set.of("cloud_near", "creeper_fusing");
 
 	/**
 	 * A hazard-floor rule: a coordinator default with a non-negated lava, fire, air or suffocation condition. A model-written
@@ -118,6 +127,8 @@ public final class ReflexScheduler {
 		final Deque<Long> recentFirings = new ArrayDeque<>();
 		/** A floor rule that gives way to a model command once cornered ({@link #CORNERED_RELEASE}). */
 		final boolean releasesCornered;
+		/** A floor rule whose run keeps a waiting command until it ends ({@link #RUN_KEEPS_COMMAND}). */
+		final boolean keepsCommandToRunEnd;
 		/** Runs in a row that failed still in the hazard (a timeout is not one: the run was still moving). */
 		int cornerFailures;
 
@@ -125,9 +136,14 @@ public final class ReflexScheduler {
 			this.rule = rule;
 			this.installedTick = installedTick;
 			this.floor = ReflexScheduler.floor(rule);
-			boolean release = false;
-			if (floor) for (ReflexSpec.Condition condition : rule.when()) if (!condition.negated() && CORNERED_RELEASE.contains(condition.type())) release = true;
+			boolean release = false, keeps = false;
+			if (floor) for (ReflexSpec.Condition condition : rule.when()) {
+				if (condition.negated()) continue;
+				release |= CORNERED_RELEASE.contains(condition.type());
+				keeps |= RUN_KEEPS_COMMAND.contains(condition.type());
+			}
 			this.releasesCornered = release;
+			this.keepsCommandToRunEnd = keeps;
 		}
 
 		/** Out of options in its hazard: failed this many times in a row, so the model's command may try instead. */
@@ -383,7 +399,7 @@ public final class ReflexScheduler {
 			String held = heldBack.get(current.ruleId());
 			// A breath floor keeps a waiting command until its run ends, not the first tick out: released 1 block clear, the
 			// command sprinted straight back into the cloud before the reflex could turn the body (live breath room).
-			if (current.ruleId().equals(deferredYield) && (!state.lastTruth && !state.releasesCornered || settledHold) && status == ActionStatus.RUNNING) {
+			if (current.ruleId().equals(deferredYield) && (!state.lastTruth && !state.keepsCommandToRunEnd || settledHold) && status == ActionStatus.RUNNING) {
 				outcome = Outcome.YIELDED;
 				reason = "model command";
 				if (state.rule.kind() == ReflexSpec.Kind.STANCE) state.suppressed = true;
@@ -414,12 +430,12 @@ public final class ReflexScheduler {
 				// A floor firing that ran out, failed or was preempted in its hazard fires again: the command still waits for its yield.
 				// A breath run that ends done still in reach of the cloud (no safe heading further) has not got the body out either.
 				boolean refires = state.lastTruth && (outcome == Outcome.TIMEOUT || outcome == Outcome.FAILED || outcome == Outcome.PREEMPTED
-						|| outcome == Outcome.DONE && state.releasesCornered);
+						|| outcome == Outcome.DONE && state.keepsCommandToRunEnd);
 				boolean kept = ended.ruleId().equals(deferredYield);
 				if (kept && !refires) deferredYield = null;
 				recordEnd(state, outcome, now, reason);
-				if (kept && state.releasesCornered && !state.lastTruth && outcome != Outcome.YIELDED) {
-					// The breath run ended out of the cloud: the command it kept waiting takes the body now.
+				if (kept && state.keepsCommandToRunEnd && !state.lastTruth && outcome != Outcome.YIELDED) {
+					// The breath (or creeper) run ended out of its hazard: the command it kept waiting takes the body now.
 					deferredYield = null;
 					deferredYielded = true;
 					state.yieldedTrigger = true;
@@ -489,7 +505,7 @@ public final class ReflexScheduler {
 		State state = states.get(ended.ruleId());
 		// A breath run keeps a new command waiting until the run ends, also once the body is just out of the cloud and still
 		// sprinting: released then, the command walked straight back in (council R3).
-		if (state.floor && (state.lastTruth || state.releasesCornered) && !settledHold && !state.cornered()) {
+		if (state.floor && (state.lastTruth || state.keepsCommandToRunEnd) && !settledHold && !state.cornered()) {
 			deferredYield = current.ruleId();
 			return Decision.NONE;
 		}
@@ -635,7 +651,7 @@ public final class ReflexScheduler {
 		// A breath floor that times out or ends done still in reach of the cloud runs again in the same tick: in its cooldown
 		// the paused command resumed and walked back into the cloud (live breath room, a run timed out at a small island's
 		// rim). A failed run waits the rule's own cooldown (the engine keeps a waiting command paused through it).
-		if (state.releasesCornered && state.lastTruth && outcome != Outcome.YIELDED && outcome != Outcome.FAILED) state.cooldownUntil = now;
+		if (state.keepsCommandToRunEnd && state.lastTruth && outcome != Outcome.YIELDED && outcome != Outcome.FAILED) state.cooldownUntil = now;
 		boolean harmedHold = stance && outcome == Outcome.TIMEOUT && harmed;
 		boolean failure = outcome == Outcome.FAILED || outcome == Outcome.TIMEOUT && !stance || harmedHold;
 		boolean progress = !failure && (outcome == Outcome.DONE || outcome == Outcome.TIMEOUT && stance);

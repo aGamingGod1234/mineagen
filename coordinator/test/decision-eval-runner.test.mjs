@@ -1,4 +1,4 @@
-import { privateInputUrl } from '../scripts/private-inputs.mjs';
+import { privateInputUrl, privateModule } from '../scripts/private-inputs.mjs';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { readFileSync } from 'node:fs';
@@ -12,6 +12,7 @@ import { callMatches } from '../src/decision-eval/match.mjs';
 import { renderPrefix, renderWake, sha256 } from '../src/decision-eval/render.mjs';
 import { buildFingerprint, createClaudeAdapter, runPool, runSample } from '../src/decision-eval/runner.mjs';
 import { validateSampleResult } from '../src/decision-eval/schema.mjs';
+await privateModule(import.meta.url);
 
 const replay = JSON.parse(await readFile(privateInputUrl('coordinator/test/fixtures/decision-eval/g1-replay-sample.json'), 'utf8'));
 const baseCase = (extra = {}) => ({

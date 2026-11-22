@@ -3,7 +3,9 @@
 // margin set in advance. Rows are the Watcher's arena-watch/<agent>-danger.jsonl rows (schema DANGER_SCHEMA).
 import { damageEvidence } from './damage-counter.mjs';
 
-export const DANGER_SCHEMA = 1;
+export const DANGER_SCHEMA = 2;
+/** Schema 2 only adds fields to damage rows (the action, firing, guard and exposure at the hit), so schema 1 rows still score. */
+export const DANGER_SCHEMAS = Object.freeze([1, DANGER_SCHEMA]);
 /** Each room is scored over its own window from goal start, whatever the run's budget was. */
 export const ROOM_WINDOWS_MS = Object.freeze({ 'R-FLOOD': 360000, 'R-TOOLBREAK': 180000 });
 export const DEFAULT_ROOM_WINDOW_MS = 300000;
@@ -28,10 +30,10 @@ export const roomWindowMs = scenario => ROOM_WINDOWS_MS[scenario] ?? DEFAULT_ROO
 const round = (value, places = 2) => value === null || value === undefined ? null : Math.round(value * 10 ** places) / 10 ** places;
 const finite = Number.isFinite;
 
-/** Danger rows of the current schema only; older or unknown schemas are counted, never mixed in. */
+/** Danger rows of a schema this scorer reads (DANGER_SCHEMAS); unknown schemas are counted, never mixed in. */
 export function splitDangerRows(rows) {
 	const current = [], other = [];
-	for (const row of rows ?? []) (row?.schema === DANGER_SCHEMA ? current : other).push(row);
+	for (const row of rows ?? []) (DANGER_SCHEMAS.includes(row?.schema) ? current : other).push(row);
 	return { rows: current, otherSchema: other.length };
 }
 

@@ -1,4 +1,4 @@
-import { privateInputUrl } from '../scripts/private-inputs.mjs';
+import { privateInputUrl, privateModule } from '../scripts/private-inputs.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import fs from 'node:fs';
@@ -7,6 +7,7 @@ import { buildNativeEventInput } from '../src/dynamic-main.mjs';
 import { observationSha256 } from '../src/decision-eval/capture.mjs';
 import { renderWake } from '../src/decision-eval/render.mjs';
 import { validateCaseFile } from '../src/decision-eval/schema.mjs';
+await privateModule(import.meta.url);
 
 const fixture = JSON.parse(fs.readFileSync(privateInputUrl('coordinator/test/fixtures/decision-eval/fullgame-deaths.json')));
 const cases = fixture.cases;

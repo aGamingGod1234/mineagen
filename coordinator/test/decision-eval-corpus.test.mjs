@@ -1,4 +1,4 @@
-import { privateInput } from '../scripts/private-inputs.mjs';
+import { privateInput, privateModule } from '../scripts/private-inputs.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { validateCaseFile } from '../src/decision-eval/schema.mjs';
 import { observationSha256 } from '../src/decision-eval/capture.mjs';
 import { loadCases, verifyProvenance } from '../../scripts/decision-eval/verify-provenance.mjs';
+await privateModule(import.meta.url);
 
 const fixtures = privateInput('coordinator/test/fixtures/decision-eval');
 const trainDir = path.join(fixtures, 'train');

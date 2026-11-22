@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { privateModule } from '../scripts/private-inputs.mjs';
 import { createHash } from 'node:crypto';
 import { extractQualityMetrics, parseEntitySample, itemCount, compareQualityReports } from '../src/benchmark/quality-metrics.mjs';
 import { applyQualitySetup, normalizeQualitySetup } from '../src/benchmark/quality-scenarios.mjs';
 import { parseArgs } from '../../scripts/quality/run-scenarios.mjs';
 import { normalizeHeadlessMatrix } from '../src/headless-matrix.mjs';
+await privateModule(import.meta.url);
 
 const scenarios = JSON.parse(await readFile(new URL('../../scripts/quality/scenarios.json', import.meta.url))).scenarios;
 const fixtureBytes = await readFile(new URL('./fixtures/quality-owner-nether.json', import.meta.url));

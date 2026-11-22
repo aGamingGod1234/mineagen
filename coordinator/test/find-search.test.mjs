@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DESCENT_RESERVE, stepRow, UNREACHED, UNREACHED_SPOT, chooseHeading, pickaxeUses, stairBudget, findProfile, oreRockShare, rememberedPlaces, sameVein, searchFor, seenAtOf, sightingOf } from '../src/find-search.mjs';
+import { DESCENT_RESERVE, stepRow, UNREACHED, UNREACHED_SPOT, chooseHeading, pickaxeUses, stairBudget, findProfile, oreRockShare, rememberedPlaces, sameVein, seenAtOf, sightingOf } from '../src/find-search.mjs';
 import { normalizeMinecraftToolCall } from '../src/native-minecraft-tools.mjs';
 import { isNativeBodyTool } from '../src/codex-service.mjs';
+import { checkedSearchBody, searchFor } from './helpers/checked-body.mjs';
 
 const sample = (extra = {}) => ({ player: { x: 0.5, y: 70, z: 0.5, yaw: 0, health: 20 }, world: { dimension: 'minecraft:overworld', biome: 'minecraft:plains' },
 	inventory: { items: [{ itemId: 'minecraft:stone_sword', count: 1 }] }, ...extra });
@@ -11,7 +12,7 @@ const sample = (extra = {}) => ({ player: { x: 0.5, y: 70, z: 0.5, yaw: 0, healt
 function fakeBody({ start = sample(), acts = {}, looks = [], frontier = null, known = null, places = [] } = {}) {
 	let observation = structuredClone(start), clock = 0;
 	const calls = [];
-	return {
+	return checkedSearchBody({
 		calls,
 		now: () => clock,
 		progress: () => {},
@@ -28,7 +29,7 @@ function fakeBody({ start = sample(), acts = {}, looks = [], frontier = null, kn
 		frontier: () => frontier,
 		known: () => known,
 		places: async () => places,
-	};
+	});
 }
 
 test('find normalizes as a do_step verb that holds the body until it ends', () => {
@@ -694,10 +695,10 @@ test('a danger hand-back underground walls the body in first, and fights there d
 	const body = fakeBody({
 		start: sample({ player: { x: 0.5, y: 50, z: 0.5, yaw: 0, health: 20, skyOpen: false },
 			inventory: { items: [{ itemId: 'minecraft:stone_sword', count: 1 }, { itemId: 'minecraft:cobblestone', count: 20 }] },
-			entities: [{ type: 'minecraft:zombie', hostile: true, stableId: 'z', x: 3.5, y: 50, z: 0.5 }] }),
+			entities: [{ type: 'minecraft:zombie', hostile: true, stableId: '0c1f6b9e-3d2a-4c5b-8e7f-1a2b3c4d5e01', x: 3.5, y: 50, z: 0.5 }] }),
 		frontier: { candidates: [], coverage: { headings: {} } },
 		acts: {
-			dig_to: [{ result: { state: 'FAILED', reasonCode: 'HOSTILE_NEAR', message: 'Stopped: minecraft:zombie z at 3,50,0' } }, { result: { state: 'FAILED', reasonCode: 'LOW_HEALTH', message: 'Health 7' } }],
+			dig_to: [{ result: { state: 'FAILED', reasonCode: 'HOSTILE_NEAR', message: 'Stopped: minecraft:zombie 0c1f6b9e-3d2a-4c5b-8e7f-1a2b3c4d5e01 at 3,50,0' } }, { result: { state: 'FAILED', reasonCode: 'LOW_HEALTH', message: 'Health 7' } }],
 			fight_target: [{ result: { state: 'SUCCEEDED', reasonCode: 'TARGET_KILLED' } }],
 			build_shelter: [{ result: { state: 'SUCCEEDED', reasonCode: 'SHELTER_BUILT' } }],
 		},
@@ -751,8 +752,6 @@ test('review P2 radius: digs are capped by the steps left along their heading, s
 test('review P2 schema: a wide within never asks a dig for more blocks than dig_to accepts', async () => {
 	const body = fakeBody({ frontier: { candidates: [], coverage: { headings: {} } },
 		acts: { dig_to: [{ result: { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', message: 'minecraft:iron_ore seen at 3,30,9, 6 blocks away' } }] } });
-	const act = body.act;
-	body.act = async (actionType, args, options) => { normalizeMinecraftToolCall('act', { actionType, arguments: args }); return act(actionType, args, options); };
 	const result = await searchFor({ block: 'minecraft:iron_ore' }, body, { within: 2048 });
 	assert.equal(result.reasonCode, 'FIND_SEEN');
 	assert.ok(body.calls.filter((call) => call.actionType === 'dig_to').every((call) => (call.args.maxBlocks ?? 0) <= 4096));
@@ -887,12 +886,12 @@ test('any log: find watches and surveys every kind obtain accepts, the biome\'s 
 });
 
 test('scripted gate seed 6: a lone cave zombie is fought with the pickaxe at full health, not walled off and handed back', async () => {
-	const zombie = { type: 'minecraft:zombie', hostile: true, stableId: 'z', x: 2.5, y: 30, z: 0.5 };
+	const zombie = { type: 'minecraft:zombie', hostile: true, stableId: '0c1f6b9e-3d2a-4c5b-8e7f-1a2b3c4d5e02', x: 2.5, y: 30, z: 0.5 };
 	const body = fakeBody({
 		start: sample({ player: { x: 0.5, y: 30, z: 0.5, yaw: 0, health: 20, skyOpen: false },
 			inventory: { items: [{ itemId: 'minecraft:stone_pickaxe', count: 1 }, { itemId: 'minecraft:cobblestone', count: 20 }] }, entities: [zombie] }),
 		frontier: { candidates: [], coverage: { headings: {} } },
-		acts: { dig_to: [{ result: { state: 'FAILED', reasonCode: 'HOSTILE_NEAR', message: 'Stopped: minecraft:zombie z at 2,30,0, 2.0 blocks away.' } },
+		acts: { dig_to: [{ result: { state: 'FAILED', reasonCode: 'HOSTILE_NEAR', message: 'Stopped: minecraft:zombie 0c1f6b9e-3d2a-4c5b-8e7f-1a2b3c4d5e02 at 2,30,0, 2.0 blocks away.' } },
 			{ result: { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', message: 'minecraft:iron_ore seen at 3,20,9, 4 blocks away' } }],
 		fight_target: [{ result: { state: 'SUCCEEDED', reasonCode: 'TARGET_KILLED' }, then: { entities: [] } }] },
 	});

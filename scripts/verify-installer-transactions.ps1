@@ -24,6 +24,8 @@ $script:fixtureRoot = $testRoot
 $script:operations = [Collections.Generic.List[string]]::new()
 $script:faultOperation = ''
 $script:faultPath = ''
+$script:lockFaults = 0
+$script:lockFaultPath = ''
 function Assert-FixturePath([string] $Path) {
 	$resolved = [IO.Path]::GetFullPath($Path)
 	if (-not $resolved.StartsWith($script:fixtureRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
@@ -44,6 +46,12 @@ function Trace-Operation([string] $Operation, [string] $Path, [string] $Destinat
 }
 function Move-Item {
 	[CmdletBinding()] param([string] $LiteralPath, [string] $Destination, [switch] $Force)
+	# A sharing lock Windows holds briefly on an exited node.exe: an IOException the installer retries.
+	if ($script:lockFaults -gt 0 -and $LiteralPath -eq $script:lockFaultPath) {
+		$script:lockFaults--
+		$script:operations.Add('locked ' + $LiteralPath.Substring($script:fixtureRoot.Length + 1))
+		throw [IO.IOException]::new('Injected sharing lock')
+	}
 	Trace-Operation 'move' $LiteralPath $Destination
 	Microsoft.PowerShell.Management\Move-Item @PSBoundParameters
 }
@@ -68,6 +76,8 @@ function New-Fixture([string] $Name) {
 	$script:operations.Clear()
 	$script:faultOperation = ''
 	$script:faultPath = ''
+	$script:lockFaults = 0
+	$script:lockFaultPath = ''
 }
 function Assert-Failed([scriptblock] $Action, [string] $Pattern) {
 	$failureMessage = ''
@@ -76,10 +86,14 @@ function Assert-Failed([scriptblock] $Action, [string] $Pattern) {
 }
 
 $nodeAst = Read-ScriptAst 'install-node-runtime.ps1'
+# The transaction moves through the installer's own retry wrapper, which calls the Move-Item fault wrapper above.
+$retryDefinition = $nodeAst.Find({ param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Move-ItemWithRetry' }, $true)
+if ($null -eq $retryDefinition) { throw 'Move-ItemWithRetry is missing from install-node-runtime.ps1.' }
+. ([scriptblock]::Create($retryDefinition.Extent.Text))
 $transactions = @($nodeAst.FindAll({ param($ast)
 	$ast -is [Management.Automation.Language.TryStatementAst] -and
 	$ast.CatchClauses.Count -gt 0 -and
-	$ast.Body.Extent.Text -match 'Move-Item -LiteralPath \$staging -Destination \$runtime' -and
+	$ast.Body.Extent.Text -match 'Move-ItemWithRetry \$staging \$runtime' -and
 	$ast.CatchClauses.Extent.Text -match 'rollback was incomplete'
 }, $true))
 if ($transactions.Count -ne 1) { throw 'Could not identify the Node promotion transaction.' }
@@ -104,13 +118,15 @@ function Verify-NodeTransaction([string] $Fault, [bool] $HadActive = $true) {
 	}
 	if ($Fault -eq 'backup') { $script:faultOperation = 'move'; $script:faultPath = $runtime }
 	if ($Fault -eq 'promotion') { $script:faultOperation = 'move'; $script:faultPath = $staging }
+	if ($Fault -eq 'lock') { $script:lockFaults = 2; $script:lockFaultPath = $runtime }
 	$failureMessage = ''
 	try { . $nodeTransaction } catch { $failureMessage = $_.Exception.Message }
-	if ($Fault -eq 'none') {
+	if ($Fault -in @('none', 'lock')) {
 		Assert-Equal '' $failureMessage 'Successful transaction failed'
 		Assert-Equal 'replacement' ([IO.File]::ReadAllText($node)) 'Successful promotion'
 		Assert-Equal 'original' ([IO.File]::ReadAllText((Join-Path $backup 'node.exe'))) 'Original backup remains for outer cleanup'
 		$expected = 'move active -> backup|move staging -> active|verify active'
+		if ($Fault -eq 'lock') { $expected = 'locked active|locked active|' + $expected }
 	} else {
 		if ($failureMessage -notmatch 'Injected|failed verification') { throw "Missing expected failure: $failureMessage" }
 		if ($HadActive) {
@@ -368,6 +384,7 @@ try {
 		'Node verification failure restores backup' = { Verify-NodeTransaction 'verification' }
 		'Fresh Node verification failure removes replacement' = { Verify-NodeTransaction 'verification' $false }
 		'Node successful transaction preserves backup' = { Verify-NodeTransaction 'none' }
+		'Node backup move retries a sharing lock' = { Verify-NodeTransaction 'lock' }
 		'Partial directory recovery can retry' = { Verify-Recovery 'node' }
 		'Journal deletion failure can retry' = { Verify-Recovery 'journal' }
 		'State copy failure can retry' = { Verify-Recovery 'state' }
