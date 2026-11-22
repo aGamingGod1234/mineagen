@@ -208,8 +208,25 @@ async function session(seed, index) {
 			await s.command(`fill ${x - 8} ${69 + thick} ${z - 8} ${x + 8} 100 ${z + 8} minecraft:air`);
 			await s.command(`tp ${AGENT} ${x + 0.5} ${69 + thick} ${z + 0.5}`);
 		};
-		if (CASES.includes('thin1')) await run('thin1', { kit: [[0, 'cobblestone 3']], at: thin(1) });
-		if (CASES.includes('thin2')) await run('thin2', { kit: [[0, 'cobblestone 3']], at: thin(2) });
+		if (CASES.includes('thin1')) await run('thin1', { kit: [[0, 'cobblestone 3']], at: thin(1), fast: true });
+		if (CASES.includes('thin2')) await run('thin2', { kit: [[0, 'cobblestone 3']], at: thin(2), fast: true });
+		// Empty-handed at dusk on open ground, as a fresh or respawned body is: rest's only way is the dug hole. empty is
+		// the natural surface where the body lands; sand and snow put a 9x9 pad of that ground under it, 4 deep.
+		const pad9 = block => async () => {
+			const [cx, cz] = [index * 400 + 200 + rows.length * 48, 300];
+			await s.command(`spreadplayers ${cx} ${cz} 0 24 false ${AGENT}`);
+			await s.gameSleep(1500);
+			await s.command(`execute at ${AGENT} positioned over motion_blocking_no_leaves run tp ${AGENT} ~ ~ ~`);
+			const p = await pos();
+			if (!p || block === null) return;
+			const [x, y, z] = p.map(Math.floor);
+			await s.command(`fill ${x - 4} ${y - 4} ${z - 4} ${x + 4} ${y - 1} ${z + 4} minecraft:${block}`);
+			await s.command(`fill ${x - 4} ${y} ${z - 4} ${x + 4} ${y + 3} ${z + 4} minecraft:air`);
+			await s.command(`tp ${AGENT} ${x + 0.5} ${y} ${z + 0.5}`);
+		};
+		for (const [name, block] of [['empty', null], ['sand', 'sand'], ['snow', 'snow_block']]) {
+			if (CASES.includes(name)) await run(name, { kit: [], at: pad9(block), setTime: 12500, fast: true });
+		}
 		// A flat stone pad of its own for the bed cases (spreadplayers can leave the body where the last case stood).
 		const pad = async () => {
 			await s.command('forceload add -210 690 -190 710'); await sleep(1500);
