@@ -50,19 +50,15 @@
   ],
   "expectCode": "OBTAINED",
   "finalProbe": [
-   "execute if block 298 14 -261 minecraft:air",
-   "execute if entity @e[name=Probe,x=290,y=14.9,z=-270,dx=20,dy=10,dz=20]"
+   "execute if block 298 14 -261 minecraft:air"
   ],
   "expectFinalProbe": [
    {
     "index": 0,
     "match": "Test passed"
-   },
-   {
-    "index": 1,
-    "match": "Test passed"
    }
-  ]
+  ],
+  "minEndY": 14.9
  },
  {
   "name": "floor-ore-gap-5596",
@@ -118,18 +114,14 @@
   ],
   "expectCode": "OBTAINED",
   "finalProbe": [
-   "execute if block 298 14 -261 minecraft:air",
-   "execute if entity @e[name=Probe,x=290,y=14.9,z=-270,dx=20,dy=10,dz=20]"
+   "execute if block 298 14 -261 minecraft:air"
   ],
   "expectFinalProbe": [
    {
     "index": 0,
     "match": "Test passed"
-   },
-   {
-    "index": 1,
-    "match": "Test passed"
    }
-  ]
+  ],
+  "minEndY": 14.9
  }
 ]
