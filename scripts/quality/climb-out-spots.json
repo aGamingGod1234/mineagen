@@ -107,10 +107,10 @@
    "fill {x+5} {y+9} {z-10} {x+26} {y+9} {z+18} minecraft:stone"
   ],
   "expectEndDy": [
-   7,
-   9
+   10,
+   10
   ],
-  "maxPlaced": 2
+  "maxPlaced": 3
  },
  {
   "name": "climb-overhang-3",
@@ -148,7 +148,7 @@
    12,
    12
   ],
-  "maxPlaced": 4
+  "maxPlaced": 3
  },
  {
   "name": "climb-to-hilltop",
@@ -190,5 +190,42 @@
   ],
   "expectCode": "ARRIVED",
   "maxPlaced": 2
+ },
+ {
+  "seed": "1001",
+  "x": 0,
+  "z": 0,
+  "y": 100,
+  "legs": 1,
+  "inventory": [
+   {
+    "item": "minecraft:iron_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 32
+   }
+  ],
+  "expectCode": "ARRIVED",
+  "name": "climb-out-of-pit",
+  "travelTo": {
+   "dx": 10,
+   "dy": 7,
+   "dz": 0
+  },
+  "maxPlaced": 99,
+  "fixture": [
+   "forceload add {x-6} {z-10} {x+26} {z+18}",
+   "time set noon",
+   "fill {x-6} {y+7} {z-10} {x+26} {y+40} {z+18} minecraft:air",
+   "fill {x-6} {y-2} {z-10} {x-1} {y+6} {z+18} minecraft:stone",
+   "fill {x+1} {y-2} {z-10} {x+26} {y+6} {z+18} minecraft:stone",
+   "fill {x} {y-2} {z-10} {x} {y+6} {z-1} minecraft:stone",
+   "fill {x} {y-2} {z+1} {x} {y+6} {z+18} minecraft:stone",
+   "fill {x} {y-2} {z} {x} {y-1} {z} minecraft:stone",
+   "fill {x} {y+2} {z} {x} {y+6} {z} minecraft:stone",
+   "fill {x-1} {y} {z-2} {x+4} {y+6} {z+3} minecraft:air"
+  ]
  }
 ]

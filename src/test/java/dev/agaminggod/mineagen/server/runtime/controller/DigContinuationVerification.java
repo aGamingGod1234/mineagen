@@ -52,10 +52,11 @@ public final class DigContinuationVerification {
 					&& !stairs.get("throughCaves").getAsBoolean() && stairs.getAsJsonArray("discard").size() == 1, "travel staircase keeps sealFluids:false, throughCaves and discard"); n++;
 			check("stairs_up".equals(ServerTravelController.staircase(new JsonObject(), 50, 12, 0, 60_000L, 40).get("pattern").getAsString())
 					&& ServerDigController.sealFluidsOption(ServerTravelController.staircase(new JsonObject(), 50, 12, 0, 60_000L, 40)), "travel staircase goes up to a higher target and seals by default"); n++;
-			check(ServerDigController.outInTheOpen(false, true, () -> true), "stairs_up out of the ground: a step into dry open air under sky ends the climb"); n++;
-			check(!ServerDigController.outInTheOpen(false, true, () -> false), "stairs_up under a ledge or cave mouth (roof over the next step) climbs on"); n++;
-			check(!ServerDigController.outInTheOpen(true, true, () -> true), "stairs_up with ground under the next step (a hillside) digs on"); n++;
-			check(!ServerDigController.outInTheOpen(false, false, () -> true), "stairs_up over water under sky still places its step"); n++;
+			check(ServerDigController.outInTheOpen(false, true, true, () -> true), "stairs_up out of the ground: a step with nothing to dig into dry open air under sky ends the climb"); n++;
+			check(!ServerDigController.outInTheOpen(false, true, true, () -> false), "stairs_up under a ledge or cave mouth (roof over the step) climbs on"); n++;
+			check(!ServerDigController.outInTheOpen(false, true, false, () -> true), "stairs_up with rock still to cut in the step (a ledge edge) digs on"); n++;
+			check(!ServerDigController.outInTheOpen(true, true, true, () -> true), "stairs_up with ground under the next step (a hillside) digs on"); n++;
+			check(!ServerDigController.outInTheOpen(false, false, true, () -> true), "stairs_up over water under sky still places its step"); n++;
 			BlockPos origin = new BlockPos(0,64,0);
 			Set<BlockPos> air = new HashSet<>();
 			for(int x=0;x<2;x++) for(int y=64;y<66;y++) for(int z=0;z<2;z++) air.add(new BlockPos(x,y,z));
