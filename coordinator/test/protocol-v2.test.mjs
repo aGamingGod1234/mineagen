@@ -3340,6 +3340,7 @@ test('a malformed or oversized fact in one snapshot drops that snapshot and keep
 		assert.deepEqual(fixture.protocolErrors, []);
 		assert.equal(fixture.rejections.length, 1);
 		assert.equal(fixture.rejections[0].type, 'action_progress');
+		assert.equal(fixture.socket.writes.some((line) => JSON.parse(line).type === 'request_observation'), false, 'the mod commits no observation baseline for progress');
 	}
 });
 
@@ -3377,6 +3378,8 @@ test('the bridge closes only after eight bad snapshots in a row for one agent an
 	const closes = await readyBridgeFixture(t);
 	for (let index = 0; index < 8; index++) closes.socket.emit('data', corrupt(index));
 	await new Promise((resolve) => setImmediate(resolve));
+	const resyncs = closes.socket.writes.filter((line) => JSON.parse(line).type === 'request_observation');
+	assert.equal(resyncs.length, 1, 'one resync until an observation is accepted');
 	assert.equal(closes.socket.destroyed, true);
 	assert.equal(closes.protocolErrors.length, 1);
 	assert.equal(closes.protocolErrors[0].code, 'REPEATED_SNAPSHOT_REJECTION');

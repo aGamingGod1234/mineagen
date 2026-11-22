@@ -91,6 +91,7 @@ test('every text field the coordinator bounds in a snapshot is classified', () =
 	for (const field of [...Object.keys(FREE_TEXT), ...Object.keys(FIXED_TEXT)]) {
 		assert.ok(fields.has(field), `${field} is no longer checked by the coordinator: remove its row`);
 	}
+	assert.deepEqual(fields.get('observedDetails:field'), { check: 'boundedText', bound: '8192' }, 'the generic detail bound the clips below are held to');
 	// The table's bound and unit are the coordinator's own, so lowering a coordinator bound below the mod's clip fails here.
 	for (const [field, { check, bound }] of Object.entries(FREE_TEXT)) {
 		assert.deepEqual(fields.get(field), { check, bound: String(bound) }, `${field}: the coordinator check changed`);

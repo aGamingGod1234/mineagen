@@ -618,6 +618,7 @@ export class MultiplexedServerBridge extends EventEmitter {
 	#observedRevisions = new Map();
 	#payloadRejections = new Map();
 	#snapshotRejectionStreaks = new Map();
+	#resyncRequested = new Set();
 
 	constructor(config, { audit = null, ...dependencies } = {}) {
 		super();
@@ -727,6 +728,7 @@ export class MultiplexedServerBridge extends EventEmitter {
 		if (!this.#isCurrentConnection(socket, connectionEpoch)) return;
 		this.#inboundMessageIds.clear();
 		this.#snapshotRejectionStreaks.clear();
+		this.#resyncRequested.clear();
 		this.#observedRevisions.clear();
 		this.#clearInboundQueue();
 		this.#clientNonce = authenticationToken(this.#randomNonce(), 'clientNonce');
@@ -882,16 +884,22 @@ export class MultiplexedServerBridge extends EventEmitter {
 				this.#snapshotRejectionStreaks.delete(streak);
 				if (this.#snapshotRejectionStreaks.size >= MAX_TRACKED_PAYLOAD_REJECTIONS) this.#snapshotRejectionStreaks.delete(this.#snapshotRejectionStreaks.keys().next().value);
 				this.#snapshotRejectionStreaks.set(streak, inARow);
-				// The server counts the dropped snapshot as delivered and would send the next one as changes against it, so a
-				// wake it carried (a creeper starting to swell) would never come. Ask for the whole current state instead.
-				void this.send('request_observation', envelope.agentId, { goalRevision: envelope.payload.goalRevision, resync: true },
-					{ connectionEpoch }).catch(() => {});
+				// The server counted the dropped observation as delivered, so a wake it carried (a creeper starting to swell)
+				// would never come again. Ask it to announce every current threat again: once until an observation is accepted,
+				// so a fault lasting a few seconds is ridden out at the normal observation rate.
+				if (envelope.type === 'observation' && !this.#resyncRequested.has(envelope.agentId)) {
+					this.#resyncRequested.add(envelope.agentId);
+					void this.send('request_observation', envelope.agentId, { goalRevision: envelope.payload.goalRevision, resync: true },
+						{ connectionEpoch }).catch(() => {});
+				}
 			}
 			this.#reportRejectedPayload(envelope, value, payloadError, connectionEpoch);
 			return;
 		}
 		this.#snapshotRejectionStreaks.delete(streak);
+		if (envelope.type === 'observation') this.#resyncRequested.delete(envelope.agentId);
 		if (envelope.type === 'agent_registered' || envelope.type === 'agent_removed') {
+			this.#resyncRequested.delete(envelope.agentId);
 			for (const type of SUPERSEDED_INBOUND_TYPES) this.#snapshotRejectionStreaks.delete(`${envelope.agentId}\0${type}`);
 		}
 		if (envelope.type === 'agent_removed') {

@@ -4484,6 +4484,12 @@ public final class MultiplexedServerBridgeVerification {
 			assertEquals(java.util.List.of("threats." + creeper + ".swelling"), changedFacts(again),
 					"a relatched swelling signal is a new edge (cycle " + cycle + ")");
 		}
+		assertTrue(changedFacts(publish.apply(withCreeper, keys)).isEmpty(), "a delivered swell is not announced twice");
+		// The coordinator dropped that delivery and asked for a resync: the swelling creeper must wake it again.
+		publication.publishedState().forgetDelivered(agent);
+		JsonObject resynced = publish.apply(withCreeper, keys);
+		assertTrue(changedFacts(resynced).contains("threats." + creeper + ".swelling"),
+				"after a resync the swelling creeper is announced again: " + changedFacts(resynced));
 
 		java.util.Set<String> withOther = new java.util.TreeSet<>(expired);
 		withOther.add(dev.agaminggod.mineagen.server.perception.ThreatSignalLatch.key(other, "ranged_aiming"));
@@ -5027,7 +5033,7 @@ public final class MultiplexedServerBridgeVerification {
 		JsonObject resynced = first.deepCopy();
 		state.omitUnchangedFooting(agent, resynced);
 		assertEquals(true, resynced.getAsJsonObject("player").has("footing"), "a resync delivers footing again");
-		assertEquals(null, state.threatBaseline(agent), "a resync forgets the delivered baseline");
+		assertEquals(Set.of(), state.threatBaseline(agent), "a resync announces every current threat again");
 		state.commit(agent, first);
 		for (String field : new String[] {"drop", "atLeast", "into", "yaw"}) {
 			JsonObject changed = first.deepCopy();

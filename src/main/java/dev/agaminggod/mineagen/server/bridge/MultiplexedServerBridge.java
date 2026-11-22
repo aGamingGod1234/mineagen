@@ -1584,8 +1584,8 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		if (requiredLong(payload, "goalRevision") != record.goalRevision()) {
 			throw new AgentDomainException("STALE_REVISION", "Coordinator observation request revision is stale");
 		}
-		// The coordinator dropped an observation it could not validate: the next one must be the whole current state, not a
-		// change list against the dropped one, or a wake (a creeper starting to swell) it announced would be lost.
+		// The coordinator dropped an observation it could not validate, which this side counted as delivered: announce every
+		// current threat again, or a wake the dropped one carried (a creeper starting to swell) would be lost.
 		if (payload.has("resync") && requiredBoolean(payload, "resync")) observationPublication.forgetDelivered(id);
 		observations.invalidate(id);
 		observationPublication.markAttention(id);
@@ -4455,12 +4455,14 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 			requireObservedTarget(agentId, eventSequence, recipientId);
 		}
 
-		/** Forgets what was last delivered, so the next publication is the whole current state, as the first of a session is. */
+		/**
+		 * After the coordinator dropped a delivery: every threat signal now latched is announced again as a changed fact
+		 * (an empty threat baseline, not a missing one, which a first delivery would absorb silently) and footing is sent again.
+		 */
 		public synchronized void forgetDelivered(AgentId agentId) {
 			Objects.requireNonNull(agentId, "agentId must not be null");
-			delivered.remove(agentId);
 			deliveredFooting.remove(agentId);
-			deliveredThreatSignals.remove(agentId);
+			if (delivered.containsKey(agentId)) deliveredThreatSignals.put(agentId, Set.of());
 			threatRepublish.remove(agentId);
 		}
 
