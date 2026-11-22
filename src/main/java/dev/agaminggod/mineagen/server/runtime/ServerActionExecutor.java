@@ -3690,6 +3690,9 @@ public final class ServerActionExecutor {
 				long accepted = Math.max(0L, AgentInputRuntime.controller(player).acceptedUses(request.agentId()) - useAcceptedBaseline);
 				if (useElapsedTicks >= useDurationTicks || useOnce && accepted > 0) {
 					if (!useStartObserved) useFoodRefusal = fullHungerRefusal(player, useHand);
+					// A block or entity in reach takes the click before the held item (a door opens, a villager trades): the
+					// receipt names it, so a throw it took is not read as thrown. Read before the release, which clears it.
+					String takenBy = accepted > 0 ? AgentInputRuntime.controller(player).lastAcceptedUseTarget(request.agentId()) : null;
 					releaseInput();
 					if (bucketRay != null) {
 						ItemStack after = player.getItemInHand(useHand);
@@ -3707,7 +3710,8 @@ public final class ServerActionExecutor {
 					return accepted > 0
 							? result(ServerActionState.SUCCEEDED, "USE_INPUT_CONFIRMED",
 									useFeedback("Held use for " + useElapsedTicks + " server ticks; accepted interactions=" + accepted
-											+ ", using state observed=" + useStartObserved + ", input released=true; downstream effects are unconfirmed",
+											+ ", using state observed=" + useStartObserved + ", input released=true; downstream effects are unconfirmed"
+											+ (takenBy == null ? "" : "; the click went to " + takenBy + ", not to the held item in the air"),
 											useFoodRefusal, useStartObserved), now)
 							: result(ServerActionState.FAILED, "USE_NOT_ACCEPTED", Objects.requireNonNullElse(
 									useFoodRefusal, "Held use input was released without an accepted vanilla interaction"), now);

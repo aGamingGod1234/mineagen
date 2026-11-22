@@ -26,6 +26,11 @@ export const EYE_FLIGHT_BLOCKS = 12;
 // Where the body looks while an eye flies: this far along its heading and a little above, so the end of the flight and the
 // drop below it stay inside the view cone.
 export const EYE_WATCH_BLOCKS = 10;
+// A use click that something at hand took (a villager, a door) throws no eye: after this many in one find it hands back.
+export const BLOCKED_THROW_TRIES = 3;
+// Where the body looks for a throw after a click was taken: well up, over a villager's head or a door's top. An eye flies
+// toward the stronghold whatever the aim, so the heading is not lost.
+export const CLEAR_THROW_PITCH = -75;
 // A leg that ends with one of these after covering ground still counts as a leg: the next eye is thrown from there.
 // A pickup that ends with one of these found no way to the eye at all.
 export const NO_WAY_CODES = new Set(['NO_SEEN_ROUTE', 'NO_STANDABLE_PATH', 'NO_ROUTE', 'REACHED_FRONTIER', 'CAVE_OPENING', 'ITEM_PICKUP_TIMED_OUT']);
@@ -65,6 +70,7 @@ export async function followEyes(target, body, { observation: initial, deadline,
 	state.filled ??= [];
 	state.phase ??= 'throw';
 	const left = () => deadline - body.now();
+	let blocked = 0, steppedFor = 0;
 	const refresh = async () => {
 		o = await body.observe();
 		const last = state.throws.at(-1);
@@ -140,6 +146,18 @@ export async function followEyes(target, body, { observation: initial, deadline,
 		const b = fx * d.x + fz * d.z, c = fx * fx + fz * fz - r * r, disc = b * b - c;
 		return disc < 0 ? 0 : Math.max(0, -b + Math.sqrt(disc));
 	};
+	// The eye left the hand when the count fell, an eye entity flies, or a new flight receipt came. None of these after a
+	// use click means something at hand took the click (a villager's trade, a door) and nothing was thrown.
+	const notThrown = t => Number.isFinite(t?.eyesBefore) && eyesHeld(o) >= t.eyesBefore
+		&& !(o.entities ?? []).some(r => r.type === 'minecraft:eye_of_ender')
+		&& !flights(o).some(e => !(state.beforeFlights ?? []).includes(e.flightId ?? e.sequence));
+	// Forget a throw that did not happen and throw again from the throw phase, so no find is left waiting for a flight.
+	const unthrown = () => {
+		state.throws.pop();
+		state.phase = 'throw';
+		blocked++;
+		return blocked >= BLOCKED_THROW_TRIES ? finish('FIND_BLOCKED', `Eye not thrown: something at hand took the use click ${blocked} times`) : null;
+	};
 	const ingest = flight => {
 		const t = state.throws.at(-1);
 		Object.assign(t, flight);
@@ -198,7 +216,17 @@ export async function followEyes(target, body, { observation: initial, deadline,
 				}
 				continue;
 			}
-			if (state.waited) return finish('FIND_BLOCKED', 'Eye flight not observed; heading unknown');
+			if (notThrown(last)) {
+				const end = unthrown();
+				if (end) return end;
+				continue;
+			}
+			if (state.waited) {
+				// The eye left the hand but its flight was never seen: the next find throws again rather than waiting on.
+				last.outcome ??= 'not_observed';
+				state.phase = 'throw';
+				return finish('FIND_BLOCKED', 'Eye flight not observed; heading unknown');
+			}
 			state.waited = true;
 			const end = await act('wait', { durationMs: Math.min(5000, left()) });
 			if (end) return end;
@@ -430,9 +458,23 @@ export async function followEyes(target, body, { observation: initial, deadline,
 		const end = await act(Number.isInteger(eye.slot) && eye.slot >= 9 ? 'select_tool' : 'select_item', Number.isInteger(eye.slot) && eye.slot >= 9
 			? { sourceSlot: eye.slot, hotbarSlot: o.inventory.selectedSlot ?? 0, expectedItemId: EYE, minRemainingDurability: 0 } : { itemId: EYE });
 		if (end) return end;
+		// A click taken twice from here: step back from what is in the way before the next try, as a player does.
+		if (blocked >= 2 && steppedFor < blocked) {
+			steppedFor = blocked;
+			const back = direction((o.player.yaw ?? 0) + 180);
+			const end = await act('travel_to', bounded({ x: o.player.x + back.x * 4, z: o.player.z + back.z * 4, tolerance: 1.5, build: false }));
+			if (end && end.reasonCode !== 'FIND_BLOCKED') return end;
+			continue;
+		}
 		// Face the way the last eye flew, a little up, so this one flies into view from the hand.
 		const previous = state.throws.at(-1);
-		if (Number.isFinite(previous?.yaw)) {
+		if (blocked > 0) {
+			// The last click was taken at eye level: turn aside and look well up, over what took it.
+			const faced = await act('control', { forward: 0, strafe: 0, jump: false, sneak: false, sprint: false, attack: false, use: false,
+				yaw: (((Number.isFinite(previous?.yaw) ? previous.yaw : o.player.yaw ?? 0) + 90 * blocked + 180) % 360 + 360) % 360 - 180, pitch: CLEAR_THROW_PITCH,
+				selectedSlot: o.inventory.selectedSlot ?? 0, hand: 'main', ticks: 2 });
+			if (faced) return faced;
+		} else if (Number.isFinite(previous?.yaw)) {
 			const faced = await act('control', { forward: 0, strafe: 0, jump: false, sneak: false, sprint: false, attack: false, use: false,
 				yaw: previous.yaw, pitch: -20, selectedSlot: o.inventory.selectedSlot ?? 0, hand: 'main', ticks: 2 });
 			if (faced) return faced;
@@ -441,11 +483,22 @@ export async function followEyes(target, body, { observation: initial, deadline,
 		state.scanTurns = 0;
 		state.eyeWaits = 0;
 		state.beforeFlights = flights(o).map(e => e.flightId ?? e.sequence);
-		state.throws.push({ from: { x: o.player.x, y: o.player.y, z: o.player.z } });
+		state.throws.push({ from: { x: o.player.x, y: o.player.y, z: o.player.z }, eyesBefore: eyesHeld(o) });
 		state.phase = 'flight';
 		state.waited = false;
 		const thrown = await act('use_item', { expectedItemId: EYE, mode: 'once', hand: 'main', durationMs: Math.min(250, left()) });
 		state.throws.at(-1).eyesAfter = eyesHeld(o);
+		// The use failed or was cut short and no eye left the hand: no throw happened.
+		if (thrown && notThrown(state.throws.at(-1))) {
+			if (thrown.reasonCode === 'FIND_BLOCKED') {
+				const end = unthrown();
+				if (end) return end;
+				continue;
+			}
+			state.throws.pop();
+			state.phase = 'throw';
+			return finish(thrown.reasonCode, thrown.find?.eyes?.stoppedBy ?? 'interrupted', thrown.find?.seen ?? null);
+		}
 		body.progress?.({ label: `Eye throw ${state.throws.length}: ${eyesHeld(o)} eyes held` });
 		if (thrown) return thrown;
 	}
