@@ -12,6 +12,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
@@ -110,6 +111,7 @@ public final class ServerEscapeController implements ServerController {
 	public TickResult tick(ServerPlayer player, long now) {
 		if (!player.isAlive()) return finish(player, TickResult.failed("AGENT_DEAD", "Body died while getting out" + done() + facts(player), 0.0D));
 		if (now >= deadline) return finish(player, TickResult.timedOut("ESCAPE_TIMEOUT", "timeoutMs ran out before the body was safe" + done() + facts(player), 0.5D));
+		if (stand != null) return standTick(player, now);
 		if (child != null) return childTick(player, now);
 		if (move != null) return moveTick(player);
 		Situation situation = situation(player);
@@ -469,6 +471,15 @@ public final class ServerEscapeController implements ServerController {
 		if (result.state() != State.SUCCEEDED && "HOSTILE_NEAR".equals(result.reasonCode())) {
 			child = null;
 			travelBank = null;
+			// A mob near enough to fight, with the way out refused because of it (a hole, a pillar beside a skeleton):
+			// running is not open, so the body stands its ground as a cornered flee does, then goes on getting out.
+			LivingEntity near = nearestHostile(player, STAND_RANGE);
+			if (near != null && stands < MAX_TRIES) {
+				stands++;
+				stand = new CorneredStand(near, null, player, now);
+				standLabel = "stood its ground against " + type(near instanceof Mob mob ? mob : null);
+				return standTick(player, now);
+			}
 			return finish(player, TickResult.failed("HOSTILE_NEAR", "Stopped getting out for a hostile: " + shortMessage(result.message())
 					+ done() + facts(player), 0.2D));
 		}
@@ -479,6 +490,32 @@ public final class ServerEscapeController implements ServerController {
 		return TickResult.running(0.5D);
 	}
 
+	/** A hostile this near when a step is refused for it is fought where the body stands, not climbed past. */
+	static final double STAND_RANGE = 6.0D;
+	private CorneredStand stand;
+	private String standLabel;
+	private int stands;
+
+	private TickResult standTick(ServerPlayer player, long now) {
+		TickResult result = stand.tick(player, now);
+		if (result.state() == State.RUNNING) return TickResult.running(0.5D);
+		stand.cancel(player);
+		stand = null;
+		note(standLabel + " (" + result.reasonCode() + "): " + shortMessage(result.message()));
+		if ("AGENT_DEAD".equals(result.reasonCode())) return finish(player, TickResult.failed("AGENT_DEAD", "Body died while getting out" + done() + facts(player), 0.0D));
+		return TickResult.running(0.5D);
+	}
+
+	private static LivingEntity nearestHostile(ServerPlayer player, double within) {
+		LivingEntity best = null;
+		for (Mob mob : player.level().getEntitiesOfClass(Mob.class, player.getBoundingBox().inflate(within),
+				mob -> mob.isAlive() && dev.agaminggod.mineagen.server.perception.ThreatPerception.isHostileTo(mob, player)
+						&& player.distanceTo(mob) <= within)) {
+			if (best == null || player.distanceTo(mob) < player.distanceTo(best)) best = mob;
+		}
+		return best;
+	}
+
 	private long childMs(long now) {
 		return Math.max(1_000L, Math.min(CHILD_MS, deadline - now));
 	}
@@ -487,6 +524,8 @@ public final class ServerEscapeController implements ServerController {
 	public void cancel(ServerPlayer player) {
 		if (child != null) child.cancel(player);
 		child = null;
+		if (stand != null) stand.cancel(player);
+		stand = null;
 		move = null;
 		input.release();
 	}
@@ -506,6 +545,8 @@ public final class ServerEscapeController implements ServerController {
 	private TickResult finish(ServerPlayer player, TickResult result) {
 		if (child != null) child.cancel(player);
 		child = null;
+		if (stand != null) stand.cancel(player);
+		stand = null;
 		move = null;
 		input.release();
 		return result;
