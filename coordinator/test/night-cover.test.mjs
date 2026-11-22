@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { nightFor, nightMoveStop } from '../src/night-cover.mjs';
-import { searchFor } from '../src/find-search.mjs';
+import { checkedSearchBody, searchFor } from './helpers/checked-body.mjs';
 
 const at = (dayTime, player = {}, dimension = 'minecraft:overworld') => ({ world: { dimension, dayTime },
 	player: { x: 0.5, y: 70, z: 0.5, yaw: 0, health: 20, armor: 0, skyOpen: true, ...player } });
@@ -52,12 +52,12 @@ test('a find for gravel from under cover at dusk hands back FIND_NIGHT without c
 	const calls = [];
 	let clock = 0;
 	const observation = { ...at(11_500, { y: 30, skyOpen: false }), inventory: { items: [] } };
-	const body = {
+	const body = checkedSearchBody({
 		now: () => clock, progress: () => {}, observe: async () => structuredClone(observation),
 		look: async () => { clock += 2_000; return { state: 'SUCCEEDED', survey: {} }; },
 		act: async (actionType, args) => { calls.push({ actionType, args }); clock += 30_000; return { state: 'SUCCEEDED', reasonCode: 'ARRIVED' }; },
 		frontier: () => null, known: () => null, places: async () => [], openSky: () => ({ x: 0.5, y: 70, z: 0.5, dimension: 'minecraft:overworld' }),
-	};
+	});
 	const result = await searchFor({ block: 'minecraft:oak_log' }, body);
 	assert.equal(result.reasonCode, 'FIND_NIGHT');
 	assert.match(result.message, /staying under cover/);

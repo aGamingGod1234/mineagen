@@ -3,6 +3,7 @@ package dev.agaminggod.mineagen.client.gui.widget;
 import dev.agaminggod.mineagen.agent.AgentVisualIdentity;
 import dev.agaminggod.mineagen.client.gui.AgentRosterGrid;
 import dev.agaminggod.mineagen.client.gui.AgentRosterGridLayout.Bounds;
+import dev.agaminggod.mineagen.client.gui.ConsoleDraw;
 import dev.agaminggod.mineagen.client.gui.ConsoleFocusTarget;
 import dev.agaminggod.mineagen.client.gui.ConsoleText;
 import dev.agaminggod.mineagen.client.gui.ConsoleTheme;
@@ -119,7 +120,8 @@ public final class AgentRosterTile extends AbstractWidget implements ConsoleFocu
 			String fittedModel = ellipsize(
 					entry.modelLabel(), secondary.width(), value -> ConsoleText.width(font, value));
 			ConsoleText.text(graphics, font, fittedModel, secondary.left(), secondary.top(), ConsoleTheme.MUTED);
-			drawStateCue(graphics, metrics.stateCueBounds(), entry.state());
+			Bounds cue = metrics.stateCueBounds();
+			ConsoleDraw.stateMark(graphics, stateMark(entry), cue.left(), cue.top(), cue.width());
 		}
 		if (metrics.showCheck()) {
 			drawSelectionCheck(graphics, metrics.checkBounds());
@@ -132,46 +134,15 @@ public final class AgentRosterTile extends AbstractWidget implements ConsoleFocu
 		return hovered ? ConsoleTheme.SURFACE_HOVER : ConsoleTheme.SURFACE;
 	}
 
-	private static void drawStateCue(GuiGraphicsExtractor graphics, Bounds bounds, String state) {
-		int color = stateColor(state);
-		switch (stateCue(state)) {
-			case BAR -> graphics.fill(
-					bounds.left(), bounds.top() + 2, bounds.right(), bounds.bottom() - 1, color);
-			case SQUARE -> graphics.outline(
-					bounds.left(), bounds.top(), bounds.width(), bounds.height(), color);
-			case PAUSE -> {
-				graphics.fill(bounds.left(), bounds.top(), bounds.left() + 2, bounds.bottom(), color);
-				graphics.fill(bounds.right() - 2, bounds.top(), bounds.right(), bounds.bottom(), color);
-			}
-			case CROSS -> {
-				graphics.fill(bounds.left(), bounds.top(), bounds.left() + 2, bounds.top() + 2, color);
-				graphics.fill(bounds.right() - 2, bounds.top(), bounds.right(), bounds.top() + 2, color);
-				graphics.fill(bounds.left() + 2, bounds.top() + 2, bounds.right() - 2, bounds.bottom(), color);
-			}
-		}
+	/** What the tile draws for its entry's state: read from the raw lifecycle state, never from the label text. */
+	public static ConsoleDraw.StateMark stateMark(AgentRosterEntry entry) {
+		return ConsoleDraw.stateMark(dev.agaminggod.mineagen.control.AgentControlPresentation.stateCue(entry.lifecycleState()));
 	}
 
 	private static void drawSelectionCheck(GuiGraphicsExtractor graphics, Bounds bounds) {
 		graphics.fill(bounds.left(), bounds.top() + 3, bounds.left() + 2, bounds.top() + 5, ConsoleTheme.ACCENT);
 		graphics.fill(bounds.left() + 2, bounds.top() + 4, bounds.left() + 4, bounds.bottom(), ConsoleTheme.ACCENT);
 		graphics.fill(bounds.left() + 4, bounds.top() + 1, bounds.right(), bounds.top() + 5, ConsoleTheme.ACCENT);
-	}
-
-	private static StateCue stateCue(String state) {
-		String value = state == null ? "" : state.toLowerCase(java.util.Locale.ROOT);
-		if (value.contains("work") || value.contains("running")) return StateCue.BAR;
-		if (value.contains("idle") || value.contains("ready")) return StateCue.SQUARE;
-		if (value.contains("block") || value.contains("wait")) return StateCue.PAUSE;
-		return StateCue.CROSS;
-	}
-
-	private static int stateColor(String state) {
-		return switch (stateCue(state)) {
-			case BAR -> ConsoleTheme.SUCCESS;
-			case SQUARE -> ConsoleTheme.MUTED;
-			case PAUSE -> ConsoleTheme.ACCENT;
-			case CROSS -> ConsoleTheme.ERROR;
-		};
 	}
 
 	@Override
@@ -238,8 +209,8 @@ public final class AgentRosterTile extends AbstractWidget implements ConsoleFocu
 		Bounds primary = showPrimary
 				? new Bounds(textLeft, primaryY, textRight, primaryY + 9) : hidden;
 
-		int stateWidth = 6;
-		int stateHeight = 5;
+		int stateWidth = ConsoleDraw.STATE_MARK_SIZE;
+		int stateHeight = ConsoleDraw.STATE_MARK_SIZE;
 		int secondaryY = primaryY + 12;
 		int secondaryLeft = textLeft + stateWidth + 4;
 		boolean showSecondary = showPrimary && textRight - secondaryLeft >= 12
@@ -247,7 +218,8 @@ public final class AgentRosterTile extends AbstractWidget implements ConsoleFocu
 		Bounds secondary = showSecondary
 				? new Bounds(secondaryLeft, secondaryY, textRight, secondaryY + 9) : hidden;
 		Bounds state = showSecondary
-				? new Bounds(textLeft, secondaryY + 1, textLeft + stateWidth, secondaryY + 1 + stateHeight)
+				// Centred on the 9 px text line it marks.
+				? new Bounds(textLeft, secondaryY - 2, textLeft + stateWidth, secondaryY - 2 + stateHeight)
 				: hidden;
 
 		ArrayList<Bounds> painted = new ArrayList<>();
@@ -400,12 +372,5 @@ public final class AgentRosterTile extends AbstractWidget implements ConsoleFocu
 		public boolean showCheck() {
 			return !checkBounds.isEmpty();
 		}
-	}
-
-	private enum StateCue {
-		BAR,
-		SQUARE,
-		PAUSE,
-		CROSS
 	}
 }

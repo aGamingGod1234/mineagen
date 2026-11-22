@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { searchFor } from '../src/find-search.mjs';
+import { checkedSearchBody, searchFor } from './helpers/checked-body.mjs';
 
 // K1 (issue #2): find's surface sweep. 1,358 of 1,662 NO_ROUTE results were its walk legs ({yaw, distance, build:false}):
 // several doomed walks per spot, one build leg, then the blocked set cleared and the sweep started again. It also looked
@@ -15,7 +15,7 @@ function body({ player, dimension = 'minecraft:overworld', blocks = [], travel =
 	let clock = 0;
 	const calls = [];
 	const cell = () => `${Math.floor(observation.player.x)},${Math.floor(observation.player.y)},${Math.floor(observation.player.z)}`;
-	return {
+	return checkedSearchBody({
 		calls,
 		now: () => clock,
 		progress: () => {},
@@ -32,7 +32,7 @@ function body({ player, dimension = 'minecraft:overworld', blocks = [], travel =
 		known: () => null,
 		places: async () => [],
 		openSky: () => openSky,
-	};
+	});
 }
 
 const noRoute = { state: 'FAILED', reasonCode: 'NO_ROUTE', message: 'No seen standing spot ahead gets closer, and build is false' };

@@ -1,16 +1,18 @@
 // Plays every provider-free practice room REPEATS times on boat machines and scores it per room, stage and skill,
 // then compares the result with a saved baseline.
 //   node scripts/quality/benchmark.mjs --jar JAR --out FRESH_DIR [--rooms FILE ...] [--repeats 10] [--slots 5]
-//     [--only ROOM,ROOM] [--baseline FILE] [--save-baseline FILE] [room-batch flags: --code REF --machines ID,...
+//     [--only ROOM,ROOM] [--baseline FILE] [--save-baseline FILE] [--targets ROOM,...] [room-batch flags: --code REF --machines ID,...
 //     --vms N --snapshot NAME --type TYPE --room-timeout MIN --name PREFIX]
-//   node scripts/quality/benchmark.mjs --score OUT [--rooms FILE ...] [--baseline FILE] [--save-baseline FILE]
+//   node scripts/quality/benchmark.mjs --score OUT [--rooms FILE ...] [--baseline FILE] [--save-baseline FILE] [--targets ROOM,...]
 // --rooms (repeatable, default scripts/quality/benchmark-rooms.json) lists rooms as
 //   [{ room, fixture, stage, skill, skill2, line, estMinutes, tickRate }], `line` being a room-batch command with $OUT
 //   and $JAR (see scripts/quality/README.md "Room batches on boat"); a file kept outside the repository can add rooms
 //   whose inputs are private. Each room plays as ceil(REPEATS / SLOTS) room-batch rooms ROOM.c1.., each with SLOTS arms
 //   r1..rK on the same jar side by side on one machine, longest rooms first.
 // Output: OUT/batch (room-batch's folder), OUT/plan.json, OUT/score.json (the baseline format), OUT/scoreboard.md and,
-// with --baseline, OUT/comparison.txt, also printed.
+// with --baseline, OUT/comparison.txt, also printed. The comparison judges each room by its Holm-adjusted Fisher p, then
+// pools the rooms: --targets names the rooms the change is meant to improve (one exact test, are they better), and every
+// other room is a guard (one exact test, are they worse).
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
@@ -20,7 +22,7 @@ import { fileURLToPath } from 'node:url';
 import { collectRuns, compareScores, formatComparison, formatScoreboard, groupScores, planBenchmark, scoreRooms } from './lib/benchmark-score.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
-const USAGE = 'Usage: benchmark.mjs --jar JAR --out FRESH_DIR [--rooms FILE ...] [--repeats 10] [--slots 5] [--only ROOM,...] [--baseline FILE] [--save-baseline FILE] [--code REF] [--machines ID,...] [--vms N] [--snapshot NAME] [--type TYPE] [--room-timeout MIN] [--name PREFIX] [--dry-run]\n       benchmark.mjs --score OUT [--rooms FILE ...] [--baseline FILE] [--save-baseline FILE]';
+const USAGE = 'Usage: benchmark.mjs --jar JAR --out FRESH_DIR [--rooms FILE ...] [--repeats 10] [--slots 5] [--only ROOM,...] [--baseline FILE] [--save-baseline FILE] [--targets ROOM,...] [--code REF] [--machines ID,...] [--vms N] [--snapshot NAME] [--type TYPE] [--room-timeout MIN] [--name PREFIX] [--dry-run]\n       benchmark.mjs --score OUT [--rooms FILE ...] [--baseline FILE] [--save-baseline FILE] [--targets ROOM,...]';
 const PASS_THROUGH = ['code', 'machines', 'vms', 'snapshot', 'type', 'roomTimeout', 'name', 'idleTtl'];
 
 const flags = { rooms: [] };
@@ -65,7 +67,7 @@ async function score(out, plan, identity, roomMeta = meta) {
 	console.log(board);
 	if (flags.saveBaseline) { await writeFile(flags.saveBaseline, JSON.stringify(result, null, 2) + '\n'); console.log(`baseline saved to ${flags.saveBaseline}`); }
 	if (baseline) {
-		const text = `Against the baseline of ${String(baseline.code ?? '?').slice(0, 8)} (${baseline.repeats} repeats):\n${formatComparison(compareScores(baseline, result))}`;
+		const text = `Against the baseline of ${String(baseline.code ?? '?').slice(0, 8)} (${baseline.repeats} repeats):\n${formatComparison(compareScores(baseline, result), { targets: (flags.targets ?? '').split(',').filter(Boolean) })}`;
 		await writeFile(path.join(out, 'comparison.txt'), text + '\n');
 		console.log(`\n${text}`);
 	}
