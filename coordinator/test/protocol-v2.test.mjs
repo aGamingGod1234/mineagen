@@ -3831,6 +3831,17 @@ test('the bridge delivers a full inventory in place of each unchanged marker it 
 	}
 });
 
+test('a marker miss after an accepted observation asks to re-announce from that observation (PERF-ARCH-8)', async (t) => {
+	const fixture = await readyBridgeFixture(t);
+	const full = readyServerObservation(4);
+	fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('observation', 'agent-a', 'server-plain', full))}\n`);
+	fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('observation', 'agent-a', 'server-miss', { ...full, eventSequence: 8, inventory: { unchanged: 'never-sent' } }))}\n`);
+	await new Promise((resolve) => setImmediate(resolve));
+	const requests = fixture.socket.writes.map((line) => JSON.parse(line)).filter((envelope) => envelope.type === 'request_observation');
+	assert.deepEqual(requests.map((envelope) => envelope.payload), [{ goalRevision: 4, fullInventory: true, resync: true, acceptedEventSequence: 7 }]);
+	assert.deepEqual(validateProtocolV2Payload('request_observation', requests[0].payload), requests[0].payload, 'all three fields pass outbound validation together');
+});
+
 test('a marker with no full inventory on this connection is dropped, reported and the full one is requested (PERF-ARCH-8)', async (t) => {
 	const fixture = await readyBridgeFixture(t);
 	const full = readyServerObservation(4);

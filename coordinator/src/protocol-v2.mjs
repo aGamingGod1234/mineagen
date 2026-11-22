@@ -1069,7 +1069,7 @@ export class MultiplexedServerBridge extends EventEmitter {
 		if (!this.#inventoryResendRequested.has(value.agentId)) {
 			this.#inventoryResendRequested.add(value.agentId);
 			// The server counted the dropped observation as delivered: also ask it to announce again what that one carried.
-			const accepted = this.#acceptedObservationSequence.get(value.agentId);
+			const accepted = this.#resyncRequested.get(value.agentId)?.from ?? this.#acceptedObservationSequence.get(value.agentId);
 			const request = { goalRevision: value.payload.goalRevision, fullInventory: true, resync: true, ...(accepted === undefined ? {} : { acceptedEventSequence: accepted }) };
 			Promise.resolve().then(() => this.send('request_observation', value.agentId, request, { connectionEpoch }))
 				.catch(() => this.#inventoryResendRequested.delete(value.agentId));
