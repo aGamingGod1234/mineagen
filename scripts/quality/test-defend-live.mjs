@@ -131,6 +131,10 @@ try {
 			if (h === 0) { died = true; break; }
 			await tight(30);
 		}
+		// The blast is read in the window above: a creeper still about (its fuse went out) is removed before damage is read,
+		// and the command is let finish, so neither reaches the next run.
+		await s.command('kill @e[type=minecraft:creeper]');
+		for (const until = Date.now() + 10000; commandResult === null && Date.now() < until;) await tight(100);
 		const events = [...seen.values()];
 		return { firingAtCommand, commandResult, exploded, distanceAtBlast, lastDistance, died, creeperEvents: events,
 			yieldedToCommand: events.some(event => event.outcome === 'yielded' && /model command/.test(event.detail)),

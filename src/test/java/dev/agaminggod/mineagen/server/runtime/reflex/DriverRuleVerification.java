@@ -457,10 +457,15 @@ public final class DriverRuleVerification {
 		ReflexScheduler.Decision out = step(failing, refire + 1L, id, false, ReflexScheduler.ActionStatus.DONE);
 		check(out.endOutcome() == ReflexScheduler.Outcome.DONE && failing.deferredYielded(), "the command it kept takes the body once a run ends out of reach");
 
-		// A command after the run has already ended takes the body at once.
-		ReflexScheduler idle = new ReflexScheduler();
-		idle.replace(List.of(named(defaults, id)), 0L);
-		check(idle.yield(1L).ended() == null && idle.current() == null, "no run, nothing to yield");
+		// A command that comes once the fuse is out of reach, the run still going, waits for the run's end too.
+		ReflexScheduler late = new ReflexScheduler();
+		late.replace(List.of(named(defaults, id)), 0L);
+		step(late, 1L, id, true, RUNNING);
+		step(late, 2L, id, false, RUNNING);
+		check(late.yield(3L).ended() == null && late.current() != null, "a command after the sense line still waits for the run");
+		check(!step(late, 4L, id, false, RUNNING).changed(), "the run keeps going");
+		check(step(late, 5L, id, false, ReflexScheduler.ActionStatus.DONE).endOutcome() == ReflexScheduler.Outcome.DONE && late.deferredYielded(),
+				"and hands the body over when it ends");
 	}
 
 	private static ReflexScheduler.Decision step(ReflexScheduler scheduler, long now, String id, boolean truth, ReflexScheduler.ActionStatus status) {
