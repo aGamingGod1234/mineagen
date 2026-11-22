@@ -109,6 +109,13 @@ export function sparePickaxe(observation) {
 		&& !(item.maxDamage > 0 && item.maxDamage - (item.damage ?? 0) <= 2))
 		.sort((a, b) => PICK_TIERS.indexOf(b.itemId.replace(/^minecraft:/, '').split('_')[0]) - PICK_TIERS.indexOf(a.itemId.replace(/^minecraft:/, '').split('_')[0]))[0] ?? null;
 }
+/**
+ * The row a step out of the water is laid and cut from: the feet's row, or, on a sample clear of the water at the top of a
+ * bob with water right under the feet, the water's row below it (else the step is laid and cut a block above the lip).
+ */
+export function stepRow(feetY, inWater, bobbing) {
+	return Math.floor(feetY + 1e-3) - (!inWater && bobbing ? 1 : 0);
+}
 /** Uses left on every carried pickaxe, each above the 2 a dig keeps back (dig_to stops at 2 or fewer). */
 export function pickaxeUses(observation) {
 	const picks = (observation?.inventory?.items ?? []).filter((item) => /_pickaxe$/.test(item?.itemId ?? '') && item.maxDamage > 0);
@@ -132,7 +139,7 @@ export function stairBudget(uses, depthLeft, reserve = DESCENT_RESERVE) {
 	if (!Number.isFinite(uses)) return Infinity;
 	return Math.max(0, 2 * (uses - Math.max(0, depthLeft) - reserve));
 }
-const TIMED = new Set(['travel_to', 'dig_to', 'fight_target', 'break_block', 'build_shelter', 'escape']);
+const TIMED = new Set(['travel_to', 'dig_to', 'fight_target', 'break_block', 'build_shelter', 'escape', 'flee_from']);
 const SHELTER_BLOCKS = new Set(['minecraft:cobblestone', 'minecraft:cobbled_deepslate', 'minecraft:dirt', 'minecraft:stone', 'minecraft:deepslate', 'minecraft:andesite', 'minecraft:diorite', 'minecraft:granite', 'minecraft:tuff', 'minecraft:netherrack']);
 const MAX_PEEKS = 2;
 // Shafts a lava find short of pickaxe uses may start: one, and one more after a stop (a cave, water) turned it.
@@ -588,7 +595,9 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 			const flat = Math.hypot(toward.x - at.x, toward.z - at.z) > 0.5;
 			const dir = nearestCardinal(flat ? Math.atan2(-(toward.x - at.x), toward.z - at.z) * 180 / Math.PI : Number.isFinite(player.yaw) ? player.yaw : 0);
 			const dx = Math.round(-Math.sin(dir.yaw * Math.PI / 180)), dz = Math.round(Math.cos(dir.yaw * Math.PI / 180));
-			const fx = Math.floor(at.x), fy = Math.floor(at.y + 1e-3), fz = Math.floor(at.z);
+			// Clear of the water at the top of a bob (feet in the row over it): the step is cut from the water's row, not the
+			// row the bob lifted the feet into, or it is laid and cut a block above the lip.
+			const fx = Math.floor(at.x), fz = Math.floor(at.z), fy = stepRow(at.y, inWater(), bobbing());
 			// Water under the step too (a flooded cave below the shaft, water up to its roof): a block laid into it first,
 			// against the rock over it, is the step's floor, as a player lays one before climbing out.
 			const block = (observation?.inventory?.items ?? []).find((item) => SHELTER_BLOCKS.has(item?.itemId) && item.count >= 1)?.itemId;
@@ -1568,6 +1577,11 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 					const back = await leg('back up the stairs away from the mob cave', 'travel_to', { x: descentFrom.x, y: descentFrom.y, z: descentFrom.z, retrace: true, tolerance: 3, stopWhenSeen: profile.stopId });
 					const backEnded = await settle(back);
 					if (backEnded !== null) return backEnded;
+					// Neither the flee nor the walk back up got the body away from the cave: digging on from the same exposed
+					// spot is no retreat. The danger goes back to the model.
+					const after = bodyAt(observation);
+					if (back.result?.state !== 'SUCCEEDED' && (after === null || after.y < here.y + 3))
+						return handBack('FAILED', 'FIND_DANGER', `Stopped for danger: the stairs opened into a mob cave at y${Math.floor(here.y)} and neither the flee nor the walk back up the stairs got away (${back.result?.reasonCode ?? back.result?.state})`);
 					heading = CARDINALS[(CARDINALS.indexOf(heading) + 2) % 4];
 					base = heading; turns = 0;
 					continue;

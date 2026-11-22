@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DESCENT_RESERVE, UNREACHED, UNREACHED_SPOT, chooseHeading, pickaxeUses, stairBudget, findProfile, oreRockShare, rememberedPlaces, sameVein, searchFor, seenAtOf, sightingOf } from '../src/find-search.mjs';
+import { DESCENT_RESERVE, stepRow, UNREACHED, UNREACHED_SPOT, chooseHeading, pickaxeUses, stairBudget, findProfile, oreRockShare, rememberedPlaces, sameVein, searchFor, seenAtOf, sightingOf } from '../src/find-search.mjs';
 import { normalizeMinecraftToolCall } from '../src/native-minecraft-tools.mjs';
 import { isNativeBodyTool } from '../src/codex-service.mjs';
 
@@ -1672,7 +1672,7 @@ test('Nether ore searches do not invent nonexistent deepslate variants', () => {
 // (water in every cell round it up to the stone roof at y57); the only air is the shaft, open to the sky, so the spot the
 // runtime keeps under open sky is the body's own at the bottom. On main every way off read "already at the surface" and
 // the body trod water there for 12 minutes (10 of 10 runs).
-function afloatUnderOwnShaft({ bob = false, spawnSky = false } = {}) {
+function afloatUnderOwnShaft({ bob = false, spawnSky = false, bobY = 56.9 } = {}) {
 	let laid = false, out = false, pulses = 0;
 	const cut = new Set();
 	const water = [];
@@ -1691,7 +1691,7 @@ function afloatUnderOwnShaft({ bob = false, spawnSky = false } = {}) {
 				if (args.forward === 1 && args.pitch === 0 && laid && cut.size >= 3) { out = true; return { y: 57, z: player.z + 1, inWater: false, underWater: false, skyOpen: false, onGround: true }; }
 				// lava-gate-6: a jump pulse at the water's top lifts the body clear for a sample, then it sinks back.
 				pulses += 1;
-				if (bob && args.jump && pulses % 2 === 1) return { y: 56.9, inWater: false, onGround: false };
+				if (bob && args.jump && pulses % 2 === 1) return { y: bobY, inWater: false, onGround: false };
 				return { y: 56.3, inWater: true, onGround: false };
 			} })),
 		dig_to: Array.from({ length: 30 }, () => ({ get result() { return out ? { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', message: 'minecraft:lava seen at 30,40,-30, 5 blocks away' }
@@ -1714,6 +1714,23 @@ for (const [label, options] of [['bobbing clear of the water on every other jump
 		assert.equal(result.reasonCode, 'FIND_SEEN', result.message);
 	});
 }
+
+test('the step out of the water comes from the water\'s row on a bob sample that crossed into the row above', () => {
+	assert.equal(stepRow(56.3, true, false), 56, 'in the water: its own row');
+	assert.equal(stepRow(56.9, false, true), 55, 'clear of the water, water under the feet: the row below (the water the feet left)');
+	assert.equal(stepRow(57.2, false, true), 56, 'a bob into the row over the water: the water row, not 57');
+	assert.equal(stepRow(57.2, false, false), 57, 'dry ground: its own row');
+});
+
+test('a bob that lifts the feet into the row over the water lays and cuts the step from the water\'s row, not a block above the lip', async () => {
+	const body = afloatUnderOwnShaft({ bob: true, bobY: 57.2 });
+	const result = await searchFor({ block: 'minecraft:lava' }, body, { timeoutMs: 540_000 });
+	const laid = body.calls.find((call) => call.actionType === 'place_block');
+	assert.ok(laid !== undefined, `a step laid (${result.reasonCode} ${result.message})`);
+	assert.equal(laid.args.y, 56, 'laid in the water row beside the body');
+	const cuts = body.calls.filter((call) => call.actionType === 'break_block').map((call) => call.args.y);
+	assert.ok(cuts.length > 0 && Math.min(...cuts) === 57, `cut from the row over the step (${cuts.join(',')})`);
+});
 
 test('lava-gate-1: afloat at the bottom of its own shaft open to the sky, the lava find lays a step in the water, cuts it out and climbs on', async () => {
 	const body = afloatUnderOwnShaft();
@@ -1952,4 +1969,23 @@ test('the default lava descent is the bucket shaft; MINEAGEN_LAVA_STAIRS=on digs
 	process.env.MINEAGEN_LAVA_STAIRS = 'on';
 	t.after(() => { delete process.env.MINEAGEN_LAVA_STAIRS; });
 	assert.equal(await first(), 'steep_down');
+});
+
+test('stairs into a mob cave: when neither the flee nor the walk back up gets away, the danger goes back, no dig from the same spot', async (t) => {
+	process.env.MINEAGEN_LAVA_STAIRS = 'on';
+	t.after(() => { delete process.env.MINEAGEN_LAVA_STAIRS; });
+	const start = sample({ player: { x: 0.5, y: 71, z: 0.5, yaw: 0, health: 20, skyOpen: true },
+		inventory: { items: [{ itemId: 'minecraft:iron_pickaxe', count: 1 }, { itemId: 'minecraft:water_bucket', count: 1 }, { itemId: 'minecraft:stone_sword', count: 1 }] } });
+	const body = fakeBody({ start, frontier: { candidates: [], coverage: { headings: {} } },
+		acts: {
+			dig_to: [{ move: () => ({ y: -5 }), result: { state: 'FAILED', reasonCode: 'HOSTILE_NEAR', message: 'Stopped: minecraft:zombie 95d3ca29-7f2f-401f-a6b2-bc81a81c1e25 at 3,-5,0, 3.3 blocks away. At 0,-5,0, steep_down heading south' } },
+				{ result: { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', message: 'minecraft:lava seen at 4,-54,0, 4 blocks away' } }],
+			flee_from: [{ result: { state: 'SUCCEEDED', reasonCode: 'WALLED_IN', message: 'Could not get away, so it stood its ground' } }],
+			travel_to: [{ result: { state: 'FAILED', reasonCode: 'NO_ROUTE', message: 'No seen standing spot ahead gets closer' } }],
+		} });
+	const result = await searchFor({ block: 'minecraft:lava' }, body);
+	assert.equal(result.reasonCode, 'FIND_DANGER', result.message);
+	assert.equal(body.calls.filter((call) => call.actionType === 'dig_to').length, 1, 'no second dig from the exposed spot');
+	const flee = body.calls.find((call) => call.actionType === 'flee_from');
+	assert.ok(Number.isFinite(flee?.args.timeoutMs), 'the flee is a timed leg, capped by the search budget');
 });

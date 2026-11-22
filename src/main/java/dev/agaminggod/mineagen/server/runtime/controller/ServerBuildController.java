@@ -420,6 +420,8 @@ public final class ServerBuildController implements ServerController {
 		// build that stopped now would leave it to flow onto the working spot. The cell is finished first; only lava or
 		// fire on the body stops it at once.
 		boolean finishing = lavaStanding(player) && !player.isInLava() && !player.isOnFire();
+		if (finishing) OPEN_CELLS.add(player.getUUID());
+		else OPEN_CELLS.remove(player.getUUID());
 		if (now >= deadline && !finishing) return end(player, TickResult.timedOut("BUILD_TIMEOUT", facts(player) + "; the time limit ran out", progress()));
 		if (!player.isAlive()) return fail(player, "AGENT_DEAD", "The body died while building");
 		if (dimension == null) { dimension = player.level().dimension(); lastHealth = player.getHealth(); }
@@ -479,6 +481,7 @@ public final class ServerBuildController implements ServerController {
 
 	@Override
 	public void cancel(ServerPlayer player) {
+		if (player != null) OPEN_CELLS.remove(player.getUUID());
 		if (child != null) child.cancel(player);
 		child = null;
 		if (walk != null) walk.cancel(player);
@@ -2127,6 +2130,17 @@ public final class ServerBuildController implements ServerController {
 		return false;
 	}
 
+	/**
+	 * Bodies whose cast has a cell half done this tick (see {@link #lavaStanding}): the defend reflex stands aside for them
+	 * as for the body's own fight or flight, since a pause would leave the lava to flow or the water to run into the pool.
+	 */
+	private static final Set<java.util.UUID> OPEN_CELLS = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+	/** Whether this body's cast has a cell half done (lava in and not cooled, or its water not scooped back). */
+	public static boolean castCellOpen(ServerPlayer player) {
+		return player != null && OPEN_CELLS.contains(player.getUUID());
+	}
+
 	/** Ticks past {@link #LAVA_HOLD_TICKS} a cell's standing lava may hold off a stop while its take-back walks into reach. */
 	static final int LAVA_FINISH_TICKS = 40;
 
@@ -2974,6 +2988,7 @@ public final class ServerBuildController implements ServerController {
 	}
 
 	private TickResult end(ServerPlayer player, TickResult result) {
+		OPEN_CELLS.remove(player.getUUID());
 		if (casting && !poolMemory.isEmpty()) LAST_POOL.put(player.getUUID(), new PoolNote(player.level().dimension(), player.level().getGameTime(), Set.copyOf(poolMemory),
 				portal != null && back != null && castIndex > 0 && result.state() != State.SUCCEEDED ? new FrameNote(portal.origin(), back) : null));
 		cancel(player);
