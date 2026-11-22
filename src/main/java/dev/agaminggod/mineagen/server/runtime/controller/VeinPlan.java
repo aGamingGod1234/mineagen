@@ -154,18 +154,25 @@ public final class VeinPlan {
 	 * mines it from beside; never standing on it is what keeps the body from dropping into whatever lies below.
 	 */
 	static BlockPos stepOff(BlockPos feet, Vec3 at, Collection<BlockPos> under, Predicate<BlockPos> open, Predicate<BlockPos> floor, double range) {
+		return stepOff(feet, at, under, open, floor, range, Set.of());
+	}
+
+	/** As {@link #stepOff(BlockPos, Vec3, Collection, Predicate, Predicate, double)}, never one of {@code tried}. */
+	static BlockPos stepOff(BlockPos feet, Vec3 at, Collection<BlockPos> under, Predicate<BlockPos> open, Predicate<BlockPos> floor, double range, Set<BlockPos> tried) {
 		BlockPos best = null;
 		double bestDistance = Double.MAX_VALUE;
 		for (int dx = -2; dx <= 2; dx++) for (int dz = -2; dz <= 2; dz++) {
 			int steps = Math.abs(dx) + Math.abs(dz);
 			if (steps == 0 || steps > 2) continue;
 			BlockPos cell = feet.offset(dx, 0, dz);
+			if (tried.contains(cell)) continue;
 			if (under.contains(cell.below()) || !open.test(cell) || !open.test(cell.above()) || !floor.test(cell.below())) continue;
-			// Two steps away only through an open cell between: never a stance behind a wall.
+			// Two steps away only through a cell between that is walkable itself (open feet and head over a floor): never a
+			// stance behind a wall, and never one across a gap the walk would have to jump.
 			if (steps == 2) {
 				BlockPos mid = Math.abs(dx) == 2 ? feet.offset(dx / 2, 0, 0) : Math.abs(dz) == 2 ? feet.offset(0, 0, dz / 2) : null;
-				if (mid == null ? !(open.test(feet.offset(dx, 0, 0)) && open.test(feet.offset(dx, 1, 0)) || open.test(feet.offset(0, 0, dz)) && open.test(feet.offset(0, 1, dz)))
-						: !open.test(mid) || !open.test(mid.above())) continue;
+				Predicate<BlockPos> walkable = between -> open.test(between) && open.test(between.above()) && (floor.test(between.below()) || under.contains(between.below()));
+				if (mid == null ? !(walkable.test(feet.offset(dx, 0, 0)) || walkable.test(feet.offset(0, 0, dz))) : !walkable.test(mid)) continue;
 			}
 			Vec3 eye = eyeAt(cell);
 			if (under.stream().noneMatch(block -> reachable(eye, block, range))) continue;

@@ -1146,6 +1146,14 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 					await act('dig_to', { pattern: 'tunnel', x: where.x, z: where.z, maxBlocks: 6, stopWhenSeen: id(where.blockId), throughCaves: 'small', timeoutMs: 30_000 });
 					mined = await body.mine({ x: where.x, y: where.y, z: where.z, vein: true, maxBlocks: 24, timeoutMs: 90_000 });
 				}
+				// Every block in reach under the feet and no stance mine_vein could see or reach: step back the way the body
+				// faced from and try once more from there, as a player steps off an ore to mine it.
+				if (mined?.reasonCode === 'VEIN_UNDER_BODY' && !body.interrupted() && !body.stopped()) {
+					const facing = (await body.observe()).player?.yaw ?? 0;
+					step(`step off the ${bare(where.blockId)} at ${where.x},${where.y},${where.z} and mine it from beside`);
+					await act('travel_to', { yaw: Math.round((((facing + 180) % 360) + 540) % 360 - 180), distance: 2, tolerance: 1, timeoutMs: 15_000 });
+					if (!body.interrupted() && !body.stopped()) mined = await body.mine({ x: where.x, y: where.y, z: where.z, vein: true, maxBlocks: 24, timeoutMs: 90_000 });
+				}
 				if (body.interrupted() || body.stopped()) return 'stopped';
 				if (mined?.state !== 'SUCCEEDED') {
 					if (!TOOL_STOPS.has(mined?.reasonCode)) budget.failed.add(`${where.x},${where.y},${where.z}`);
