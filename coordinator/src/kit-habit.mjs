@@ -119,9 +119,12 @@ export function nextKitStep(o, { reserved = null } = {}) {
 	// COMBAT-2: a spare shield before the Nether, from iron left once the route's own armour is on (chestplate and boots,
 	// skill-fits KIT_ARMOUR), so it never takes that armour's iron. A shield that breaks there ("the shield broke") then
 	// has its replacement in the pack, which the equip step above puts in the off hand.
+	// Counted as obtain's planner counts them: a shield about to break is not one (heldCounts), so the step asks for one
+	// more than the usable ones and crafts exactly one, whose 1 iron the spare covers.
 	const routeArmour = worn('chest') && worn('feet');
-	if (shields.length === 1 && routeArmour && spare >= 1 && wood >= 6 && (o.world?.dimension ?? 'minecraft:overworld') === 'minecraft:overworld'
-		&& craftable('minecraft:shield', 2)) return { kind: 'craft', itemId: 'minecraft:shield', count: 2 };
+	const usable = heldCounts(o).get('shield') ?? 0;
+	if (shields.length === 1 && usable <= 1 && routeArmour && spare >= 1 && wood >= 6 && (o.world?.dimension ?? 'minecraft:overworld') === 'minecraft:overworld'
+		&& craftable('minecraft:shield', usable + 1)) return { kind: 'craft', itemId: 'minecraft:shield', count: usable + 1 };
 	return null;
 }
 

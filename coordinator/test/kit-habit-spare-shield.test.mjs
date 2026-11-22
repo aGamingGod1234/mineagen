@@ -44,3 +44,11 @@ test('after a death the iron pickaxe still comes first: 1 iron and a stone picka
 	assert.deepEqual(nextKitStep(body([['stone_pickaxe', 1, 'mainhand'], ['iron_ingot', 4, 10], ...WOOD])), { kind: 'craft', itemId: 'minecraft:shield' });
 	assert.deepEqual(nextKitStep(body([['iron_pickaxe', 1, 'mainhand'], ['iron_ingot', 1, 10], ...WOOD])), { kind: 'craft', itemId: 'minecraft:shield' });
 });
+
+test('a shield about to break counts as none: the spare step asks for one usable shield, one craft, not two', () => {
+	const worn = [['iron_pickaxe', 1, 'mainhand'], ['bucket', 1, 13], ['flint_and_steel', 1, 14], ...WORN, ['iron_ingot', 4, 10], ...WOOD];
+	const o = body(worn);
+	o.inventory.items.push({ itemId: 'minecraft:shield', count: 1, slot: 'offhand', damage: 334, maxDamage: 336 });
+	// 4 ingots less the missing bucket's 3: 1 spare, exactly one shield's iron.
+	assert.deepEqual(nextKitStep(o), { kind: 'craft', itemId: 'minecraft:shield', count: 1 });
+});
