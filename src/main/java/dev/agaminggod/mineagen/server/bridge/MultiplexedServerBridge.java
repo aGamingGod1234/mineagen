@@ -190,6 +190,8 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 	private final int port;
 	private final ServerSocketFactory serverSockets;
 	private final LongSupplier nanoTime;
+	/** When the server thread last began a tick (System.nanoTime; fixtures may allocate the bridge without its clock); 0 before the first. */
+	private volatile long lastTickNanos;
 	private final GoalVerificationDedupe goalVerifications;
 	private final BoundedServerTaskQueue serverTasks = new BoundedServerTaskQueue(
 			SERVER_TASK_BULK_CAP + SERVER_TASK_URGENT_RESERVE + SERVER_TASK_CONTROL_RESERVE,
@@ -400,6 +402,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 			serverSocket = socket;
 			manager.setRuntimeHooks(this);
 			Thread.ofPlatform().daemon().name("mineagen-v2-accept").start(this::acceptLoop);
+			Thread.ofPlatform().daemon().name("mineagen-v2-pause-watch").start(this::pauseWatchLoop);
 		} catch (IOException exception) {
 			running.set(false);
 			if (socket != null) {
@@ -437,6 +440,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 	 * Every callback in this method must run on the server thread.
 	 */
 	public void startTick() {
+		lastTickNanos = System.nanoTime();
 		admissionTicks++;
 		flushPublicChat();
 		drainServerTasks();
@@ -1003,6 +1007,34 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		if (!serverInstanceId.equals(envelope.serverInstanceId())) {
 			throw new BridgeProtocolException("SERVER_INSTANCE_MISMATCH", "Authenticated session changed serverInstanceId");
 		}
+		// A ticking server answers in order on its own thread, after the messages before it (tests and replays use the
+		// reply as that barrier). A paused one, or one not ticking for HEARTBEAT_DIRECT_AFTER_MS, is answered here on the
+		// reader thread instead: queued, a paused single-player game sent no reply, the coordinator called the link dead
+		// after 15 s and cancelled the bot's step (playtest: Esc for 13 s). The reply says how long ago the server ticked
+		// and whether it is paused, so a hung server still reads as dead to a coordinator that announced tickClock.
+		if ("heartbeat".equals(envelope.type()) && answersHeartbeatOffThread()) {
+			synchronized (publicationLock) {
+				if (session == source && source.open.get() && source.authenticated.get())
+					send("heartbeat", "server", source.tickClock ? heartbeatPayload() : new JsonObject());
+			}
+			return;
+		}
+		// coordinator_status is replaceable (the latest state wins), so only the newest waits for the server thread. One
+		// queued per second, a single-player pause long enough (about 77 min) filled the queue and closed the link.
+		if ("coordinator_status".equals(envelope.type())) {
+			if (source.pendingStatus.getAndSet(envelope) != null) return;
+			if (!serverTasks.offer(inboundLane(envelope.type()), () -> {
+				BridgeEnvelope latest = source.pendingStatus.getAndSet(null);
+				if (latest == null) return;
+				synchronized (publicationLock) {
+					if (session != source || !source.open.get() || !source.authenticated.get()) return;
+					routeAuthenticated(latest);
+				}
+			})) {
+				throw new BridgeProtocolException("SERVER_TASK_QUEUE_FULL", "Coordinator exceeded the bounded server task queue");
+			}
+			return;
+		}
 		if (!serverTasks.offer(inboundLane(envelope.type()), () -> {
 			synchronized (publicationLock) {
 				if (session != source || !source.open.get() || !source.authenticated.get()) return;
@@ -1011,6 +1043,64 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		})) {
 			throw new BridgeProtocolException("SERVER_TASK_QUEUE_FULL", "Coordinator exceeded the bounded server task queue");
 		}
+	}
+
+	/** How often the pause watcher reads the server's pause state. */
+	static final long PAUSE_WATCH_INTERVAL_MS = 250L;
+	/** The pause state last told to the coordinator on the current session; false for a new one. */
+	private volatile boolean pauseAnnounced;
+
+	/**
+	 * Tells the coordinator the moment a single-player pause starts or ends, as an unprompted heartbeat with tickClock's
+	 * fields. Learned only from the next heartbeat reply (up to its 5 s probe), a program with a second or two left would
+	 * time out before the coordinator held its deadline.
+	 */
+	private void pauseWatchLoop() {
+		while (running.get()) {
+			try {
+				Thread.sleep(PAUSE_WATCH_INTERVAL_MS);
+			} catch (InterruptedException exception) {
+				Thread.currentThread().interrupt();
+				return;
+			}
+			net.minecraft.server.MinecraftServer server = manager == null ? null : manager.server();
+			announcePause(server != null && server.isPaused());
+		}
+	}
+
+	/** Sends the heartbeat fields when {@code paused} differs from what the current tickClock session was last told. */
+	void announcePause(boolean paused) {
+		synchronized (publicationLock) {
+			Session active = session;
+			if (paused == pauseAnnounced || active == null || !active.open.get() || !active.authenticated.get() || !active.tickClock) return;
+			pauseAnnounced = paused;
+			send("heartbeat", "server", heartbeatPayload(paused));
+		}
+	}
+
+	/** Without a tick this long, a heartbeat is answered off the server thread (see {@link #accept}). */
+	static final long HEARTBEAT_DIRECT_AFTER_MS = 5_000L;
+
+	private boolean answersHeartbeatOffThread() {
+		long last = lastTickNanos;
+		if (last == 0L) return false;
+		net.minecraft.server.MinecraftServer server = manager == null ? null : manager.server();
+		return server != null && server.isPaused() || (System.nanoTime() - last) / 1_000_000L >= HEARTBEAT_DIRECT_AFTER_MS;
+	}
+
+	/** How long ago the server thread last began a tick, and whether the server is paused (a single-player pause). */
+	JsonObject heartbeatPayload() {
+		net.minecraft.server.MinecraftServer server = manager == null ? null : manager.server();
+		return heartbeatPayload(server != null && server.isPaused());
+	}
+
+	JsonObject heartbeatPayload(boolean paused) {
+		long last = lastTickNanos;
+		long ageMs = last == 0L ? 0L : Math.max(0L, (System.nanoTime() - last) / 1_000_000L);
+		JsonObject payload = new JsonObject();
+		payload.addProperty("tickAgeMs", ageMs);
+		payload.addProperty("paused", paused);
+		return payload;
 	}
 
 	static BoundedServerTaskQueue.Lane inboundLane(String type) {
@@ -1102,6 +1192,9 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		source.dropAheadFacts = announcedCapability(envelope.payload(), "dropAheadFacts");
 		source.pausedByFacts = announcedCapability(envelope.payload(), "pausedByFacts");
 		source.killFacts = announcedCapability(envelope.payload(), "killFacts");
+		source.tickClock = announcedCapability(envelope.payload(), "tickClock");
+		// A new coordinator assumes a running server; the watcher tells it of a pause from here on.
+		pauseAnnounced = false;
 		source.actionIssuer = announcedCapability(envelope.payload(), "actionIssuer");
 
 		while (true) {
@@ -1232,7 +1325,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 			case "agent_error" -> acceptAgentError(envelope);
 			case "agent_notice" -> acceptAgentNotice(envelope);
 			case "verbose_event" -> acceptVerboseEvent(envelope);
-			case "heartbeat" -> send("heartbeat", "server", new JsonObject());
+			case "heartbeat" -> send("heartbeat", "server", session != null && session.tickClock ? heartbeatPayload() : new JsonObject());
 			default -> throw new BridgeProtocolException("UNKNOWN_MESSAGE_TYPE", envelope.type());
 		}
 	}
@@ -4516,6 +4609,10 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		private volatile boolean placementFacts;
 		private volatile boolean dropAheadFacts;
 		private volatile boolean pausedByFacts;
+		/** The newest coordinator_status not yet applied on the server thread (see {@link #accept}). */
+		final java.util.concurrent.atomic.AtomicReference<BridgeEnvelope> pendingStatus = new java.util.concurrent.atomic.AtomicReference<>();
+		/** The coordinator reads heartbeat tickAgeMs and paused (see {@link #heartbeatPayload}); an older one rejects them. */
+		private volatile boolean tickClock;
 		private volatile boolean killFacts;
 		private volatile boolean actionIssuer;
 		private volatile String clientNonce;

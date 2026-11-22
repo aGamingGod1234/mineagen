@@ -34,7 +34,7 @@ async function coordinator(t) {
 test('production ingress carries dusk and worn-tool facts without a plan, and only per-event data changes', async t => {
 	const { wake, planner } = await coordinator(t);
 	const dusk = await wake(wire(1));
-	assert.equal(dusk.now.light, 'dusk in ~2m (day 1); night lasts ~8m; mobs spawn in darkness; sky-exposed');
+	assert.equal(dusk.now.light, 'dusk in ~2m (day 1); night lasts ~8m; mobs spawn in darkness; sky-exposed; no armour: be under cover by dusk', 'the live sample carries armour 0');
 	assert.equal(dusk.now.tools, 'stone_pickaxe 12 uses left (no spare pickaxe; replacement materials held: 3 cobblestone + 2 stick; crafting_table not held/seen)');
 	assert.equal(dusk.observation.world.dayTime, undefined, 'world clock is stripped from the model observation but the header survives');
 	assert.equal(dusk.observation.inventory.items[0].usesLeft, 12, 'real adaptation preserves slot wear');

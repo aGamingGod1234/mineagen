@@ -18,7 +18,17 @@ public final class ConsoleThemeVerification {
 		assertTrue(ConsoleTheme.contrastRatio(ConsoleTheme.MUTED, ConsoleTheme.PANEL) >= 4.5D,
 				"secondary text remains readable");
 		assertTrue(ConsoleTheme.contrastRatio(ConsoleTheme.ACCENT, ConsoleTheme.TRACK) >= 4.5D,
-				"primary controls keep readable text contrast");
+				"accent text stays readable on inset fields");
+		assertTrue(ConsoleTheme.contrastRatio(ConsoleTheme.ACCENT_INK, ConsoleTheme.ACCENT) >= 4.5D,
+				"primary button text clears normal-text contrast on the accent fill");
+		assertTrue(ConsoleTheme.contrastRatio(ConsoleTheme.ACCENT_INK, ConsoleTheme.ACCENT_HOVER) >= 4.5D,
+				"primary button text stays readable while hovered");
+		assertTrue(ConsoleTheme.contrastRatio(ConsoleTheme.MUTED, ConsoleTheme.SURFACE) >= 4.5D,
+				"labels and status lines stay readable on cards");
+		assertTrue(ConsoleTheme.contrastRatio(ConsoleTheme.ACCENT, ConsoleTheme.SURFACE_SELECTED) >= 4.5D,
+				"a selected choice names itself in readable accent text");
+		assertTrue(ConsoleTheme.contrastRatio(ConsoleTheme.ERROR, ConsoleTheme.DANGER_SURFACE) >= 4.5D,
+				"danger actions keep readable text");
 		assertTrue(ConsoleTheme.providerColor("codex") == ConsoleTheme.CODEX,
 				"Codex uses the shared provider color");
 		assertTrue(ConsoleTheme.providerColor("claude") == ConsoleTheme.CLAUDE,
@@ -74,7 +84,7 @@ public final class ConsoleThemeVerification {
 				"wrapping selectors loop from the last value to the first");
 		assertTrue(ConsoleCycleButton.step(0, -1, 3, true) == 2,
 				"wrapping selectors loop from the first value to the last");
-		return 36;
+		return 41;
 	}
 
 	private static void assertTrue(boolean condition, String label) {

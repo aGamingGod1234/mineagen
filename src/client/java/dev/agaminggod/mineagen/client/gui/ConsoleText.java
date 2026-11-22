@@ -9,6 +9,7 @@ import net.minecraft.network.chat.MutableComponent;
 /** Text primitives for the product UI that intentionally avoid Minecraft's default shadow. */
 public final class ConsoleText {
 	private static final FontDescription CONSOLE_FONT = new FontDescription.Resource(ConsoleFont.ID);
+	private static final FontDescription CONSOLE_MEDIUM = new FontDescription.Resource(ConsoleFont.MEDIUM_ID);
 
 	private ConsoleText() {
 	}
@@ -19,6 +20,15 @@ public final class ConsoleText {
 
 	public static MutableComponent component(Component message) {
 		return message.copy().withStyle(style -> style.withFont(CONSOLE_FONT).withoutShadow());
+	}
+
+	/** Medium weight, for titles, values and button labels. */
+	public static MutableComponent strong(String message) {
+		return Component.literal(message).withStyle(style -> style.withFont(CONSOLE_MEDIUM).withoutShadow());
+	}
+
+	public static int strongWidth(Font font, String message) {
+		return font.width(strong(message));
 	}
 
 	public static int width(Font font, String message) {

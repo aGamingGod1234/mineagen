@@ -169,6 +169,7 @@ public final class ServerTravelController implements ServerController {
 	private int portalTicks;
 	/** Ticks spent walking straight into the opening after the step in ended short of it. */
 	private int portalNudge;
+	private boolean portalStepped;
 	private TravelCheckpoints.WalkingSearch checkpointSearch;
 	private GridPosition legTarget;
 	private double legStartLeft;
@@ -217,7 +218,7 @@ public final class ServerTravelController implements ServerController {
 	private float swimTurned;
 	/** Ticks spent ducking out from under a ceiling this swim (SwimStep.PEEK), capped at PEEK_TICKS. */
 	private int peekTicks;
-	private static final int PEEK_TICKS = 30;
+	private static final int PEEK_TICKS = dev.agaminggod.mineagen.server.perception.WaterAirFacts.PEEK_TICKS;
 	/** Banks it reached but could not climb onto (4 s within reach), never chosen again this trip. */
 	private final Set<GridPosition> refusedShores = new HashSet<>();
 	private long nearShoreSince;
@@ -450,6 +451,21 @@ public final class ServerTravelController implements ServerController {
 	}
 
 	/**
+	 * Whether a body this near a lit portal walks the last step in itself: within 2 blocks across, from at most 1 below its
+	 * floor cell to 2 above it, as a player steps or drops into the opening. lava-gate-1: the body stood 1.2 above the
+	 * floor on the ground cleared beside a cast frame, 1 block from the opening, and the trip failed PORTAL_NOT_REACHED
+	 * in 3 s (2 of 3 runs that lit the portal).
+	 */
+	static boolean nudgesIntoPortal(double horizontalSquared, double aboveFloor) {
+		return horizontalSquared <= 4.0D && aboveFloor >= -1.0D && aboveFloor <= 2.0D;
+	}
+
+	/** Whether a body this far below a lit portal's floor, beside it, pillars one block before the step in. */
+	static boolean stepsUpToPortal(double horizontalSquared, double aboveFloor) {
+		return horizontalSquared <= 6.25D && aboveFloor < -1.0D && aboveFloor >= -2.6D;
+	}
+
+	/**
 	 * At a target that is a seen portal: step into its nearest standing cell, then stand there until the crossing. Null
 	 * when the target is no portal, or while the step in runs (the leg phase ticks it).
 	 */
@@ -471,12 +487,34 @@ public final class ServerTravelController implements ServerController {
 			return TickResult.running(progress(player));
 		}
 		if (portalLeg && !(phase == Phase.LEG && leg != null)) {
+			// The step block under the feet is being placed: the build phase ticks it.
+			if (phase == Phase.BUILD && move != null) return null;
 			double dx = portalCell.x() + 0.5D - player.getX(), dz = portalCell.z() + 0.5D - player.getZ();
-			if (portalNudge++ < PORTAL_NUDGE_TICKS && dx * dx + dz * dz <= 4.0D && Math.abs(player.getY() - portalCell.y()) <= 1.0D) {
+			double above = player.getY() - portalCell.y();
+			if (portalNudge++ < PORTAL_NUDGE_TICKS && nudgesIntoPortal(dx * dx + dz * dz, above)) {
 				TickResult stop = stopOrTimeout(player, nowEpochMs);
 				if (stop != null) return stop;
-				apply(player, new AgentInputStates.MotorTarget(Mth.wrapDegrees((float) Math.toDegrees(Math.atan2(-dx, dz))), 0.0F, true, false, false), false, false, false, nowEpochMs);
+				// A jump where the frame's bottom row stands a block over the feet, as a player hops into the opening.
+				apply(player, new AgentInputStates.MotorTarget(Mth.wrapDegrees((float) Math.toDegrees(Math.atan2(-dx, dz))), 0.0F, true, player.horizontalCollision, false), false, false, false, nowEpochMs);
 				return TickResult.running(progress(player));
+			}
+			// The frame stands on a ledge 2 over the ground in front (lava-gate-1: 8 of 9 lit portals not entered): one
+			// carried block under the feet, then the step in from a block below the floor. Never on a build:false walk,
+			// which promises to place and mine nothing.
+			if (build && !portalStepped && stepsUpToPortal(dx * dx + dz * dz, above) && player.onGround() && TravelBuilder.blockSlot(player) >= 0) {
+				portalStepped = true;
+				portalNudge = 0;
+				releaseInput();
+				move = new TravelBuilder.Plan(TravelBuilder.Kind.PILLAR, Direction.NORTH, 1, null, null);
+				buildDirection = Direction.NORTH;
+				buildRun = BUILD_RUN;
+				moveFeet = feet(player);
+				moveTicks = 0;
+				moveStage = 0;
+				pillarDone = 0;
+				centred = false;
+				phase = Phase.BUILD;
+				return null;
 			}
 		}
 		if (portalLeg) return phase == Phase.LEG && leg != null ? null : fail(player, "PORTAL_NOT_REACHED", "Could not step into the portal at " + cell(portalCell) + lastFailureText());
@@ -536,7 +574,10 @@ public final class ServerTravelController implements ServerController {
 		if (health <= minHealth && startHealth > minHealth) return fail(player, "LOW_HEALTH", "Health fell to " + format(health) + " (minHealth " + format(minHealth) + ")");
 		int food = player.getFoodData().getFoodLevel();
 		if (food <= SPRINT_FOOD && startFood > SPRINT_FOOD) return fail(player, "LOW_FOOD", "Food fell to " + food + "; sprinting needs more than " + SPRINT_FOOD);
-		if (ticks % 5 == 0) {
+		// While the trip digs its own staircase, the staircase's mob rule decides (every dig_to stop applies): a climb out
+		// goes on past a mob not yet within reach (#101), where this walking rule stopped it for a new archer targeting the
+		// body at any range or any hostile within 6, halfway up the stair.
+		if (ticks % 5 == 0 && phase != Phase.DIG) {
 			List<Mob> seen = hostiles(player);
 			for (Mob mob : seen) {
 				double distance = mob.distanceTo(player);
@@ -710,8 +751,7 @@ public final class ServerTravelController implements ServerController {
 			// above that cell comes into view and the route up is acquired there. Not sprinting: a sprint-swim follows the
 			// view, which here points up into the ceiling.
 			peekTicks++;
-			double dx = peek.getX() + 0.5D - player.getX(), dz = peek.getZ() + 0.5D - player.getZ();
-			yaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
+			yaw = dev.agaminggod.mineagen.server.perception.WaterAirFacts.peekYaw(player, peek);
 			forward = true;
 			pitch = PEEK_PITCH;
 			boolean jump = SwimPlanning.floatJump(inWater, player.onGround(), eyesUnder);
@@ -777,8 +817,8 @@ public final class ServerTravelController implements ServerController {
 	/** What a swimmer whose eyes are under water does next. */
 	enum SwimStep { AIR, SHORE, PEEK, WAIT, LOOK, STOP }
 
-	/** The view while ducking out from under a ceiling: nearly straight up, so the open column above comes into view. */
-	static final float PEEK_PITCH = -80.0F;
+	/** The view while ducking out from under a ceiling (WaterAirFacts.PEEK_PITCH), shared with the swim-up reflex. */
+	static final float PEEK_PITCH = dev.agaminggod.mineagen.server.perception.WaterAirFacts.PEEK_PITCH;
 
 	/**
 	 * Air first, as a player does: under water the body rises along the seen route to air whenever its breath covers the

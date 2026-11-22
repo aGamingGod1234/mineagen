@@ -426,8 +426,11 @@ public final class InputStateVerification {
 	private static int verifyExactHandUseDriver() {
 		ExactHandUseDriver driver = new ExactHandUseDriver();
 		RecordingUseAccess block = RecordingUseAccess.target(ExactHandUseDriver.TargetKind.BLOCK, true, true);
+		block.name = "block minecraft:oak_door at 1,64,2";
 		driver.start(AGENT, InteractionHand.MAIN_HAND, block);
 		driver.tick(AGENT, InteractionHand.MAIN_HAND, block, 1L);
+		assertEquals("block minecraft:oak_door at 1,64,2", driver.lastAcceptedTarget(AGENT),
+				"a use click a block took names that block, so a throw it took is not read as thrown");
 		assertEquals(List.of(InteractionHand.MAIN_HAND), block.targetHands,
 				"block use receives only the requested main hand");
 		assertEquals(List.of(), block.itemHands, "consumed block use does not fall through to item use");
@@ -447,6 +450,7 @@ public final class InputStateVerification {
 		assertEquals(List.of(InteractionHand.OFF_HAND), entity.targetHands,
 				"entity use receives only the requested offhand");
 		assertEquals(List.of(), entity.itemHands, "consumed entity use does not fall through to item use");
+		assertEquals("entity", driver.lastAcceptedTarget(AGENT), "an unnamed entity that took the click is still reported");
 		driver.stop(AGENT, entity);
 
 		RecordingUseAccess heldItem = RecordingUseAccess.item();
@@ -456,6 +460,7 @@ public final class InputStateVerification {
 				"missed target does not fabricate a target interaction");
 		assertEquals(List.of(InteractionHand.OFF_HAND), heldItem.itemHands,
 				"item use starts with the requested offhand");
+		assertTrue(driver.lastAcceptedTarget(AGENT) == null, "the held item acting in the air names no target");
 		assertEquals(InteractionHand.OFF_HAND, heldItem.usedHand(), "held item reports the requested active hand");
 		for (int tick = 0; tick <= ExactHandUseDriver.REPEAT_COOLDOWN_TICKS; tick++) {
 			driver.tick(AGENT, InteractionHand.OFF_HAND, heldItem, tick + 21L);
@@ -595,7 +600,7 @@ public final class InputStateVerification {
 		driver.stop(AGENT, restartedAfterClear);
 		driver.discard(AGENT);
 		assertEquals(0L, driver.acceptedUses(AGENT), "cleanup clears accepted-use evidence before the next lease");
-		return 41;
+		return 44;
 	}
 
 	private static int verifyBoundedMotor() {
@@ -737,6 +742,7 @@ public final class InputStateVerification {
 		private InteractionHand usedHand = InteractionHand.MAIN_HAND;
 		private int releaseCalls;
 		private int remainingTargetFailures;
+		private String name;
 
 		private RecordingUseAccess(
 				ExactHandUseDriver.TargetKind targetKind,
@@ -791,6 +797,11 @@ public final class InputStateVerification {
 		@Override
 		public ExactHandUseDriver.TargetKind target() {
 			return targetKind;
+		}
+
+		@Override
+		public String targetName() {
+			return name;
 		}
 
 		@Override

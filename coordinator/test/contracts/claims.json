@@ -41481,7 +41481,18 @@
       "status": "checked"
     },
     {
-      "predicate": "VeinPlan counts only known blocks of one family connected through 26 neighbours (one log species; an ore with its deepslate twin), picks the trunk base and the stance beside it, reaches up to six logs above the feet from inside the column, refuses trees with seen logs out of reach, never breaks a cell under the body (it steps onto a seen standing cell beside, VeinPlan.stepOff, and mines from there), and cuts trees bottom up and veins nearest first; each block goes through break_block's gates and tool choice.",
+      "id": "control:c46616ae6acf4919:585b4428958ca9b9",
+      "contract": {
+        "id": "control:c46616ae6acf4919:585b4428958ca9b9",
+        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), PIGLINS_NEAR_GOLD (gold ore with a calm piglin seen or heard within 16 blocks: breaking it would turn them on you), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
+        "kind": "control-reference",
+        "topic": "mine_vein"
+      },
+      "location": {
+        "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
+        "line": 819
+      },
+      "predicate": "VeinPlan counts only known blocks of one family connected through 26 neighbours (one log species; an ore with its deepslate twin), picks the trunk base and the stance beside it, reaches up to six logs above the feet from inside the column, refuses trees with seen logs out of reach, never breaks a cell under the body (it steps onto a seen standing cell beside, VeinPlan.stepOff, and mines from there), and cuts trees bottom up and veins nearest first; each block goes through break_block's gates and tool choice. PIGLINS_NEAR_GOLD: before and during the break of a block tagged guarded_by_piglins (Nether gold ore, gold blocks) it stops when a calm piglin, seen or not, is inside the player's box grown by 16 on each axis, since vanilla angers every piglin there.",
       "checks": [
         {
           "file": "src/test/java/dev/agaminggod/mineagen/server/runtime/controller/VeinPlanVerification.java",
@@ -41496,17 +41507,6 @@
           "entryPoint": "verifyCore"
         }
       ],
-      "id": "control:c46616ae6acf4919:81d026581764cd38",
-      "contract": {
-        "id": "control:c46616ae6acf4919:81d026581764cd38",
-        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
-        "kind": "control-reference",
-        "topic": "mine_vein"
-      },
-      "location": {
-        "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
-        "line": 819
-      },
       "status": "partial",
       "reason": "The planning rules are witnessed on fixtures; the controller that drives the breaks in a live world has no world-level fixture."
     },
@@ -42402,19 +42402,10 @@
       "status": "checked"
     },
     {
-      "predicate": "barter_until requires a worn gold armour piece, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin with an empty offhand, walks over seen returns within 8 blocks, counts the asked item by inventory change and stops with the listed codes; the measured outcomes come from the piglin-room runs.",
-      "checks": [
-        {
-          "type": "live-behavior",
-          "test": "barter.piglin-room",
-          "command": "slot.sh live node scripts/quality/test-cast-barter-live.mjs barter evals/d41-cast-barter/checkpoints/piglin-barter.json OUT_DIR",
-          "predicate": "In a sealed Nether-wastes room with 3 summoned adult piglins, a worn golden helmet and 32 gold ingots, one barter_until call throws ingots one at a time, collects returns, and its reported gained count of the asked item equals the operator-read inventory change."
-        }
-      ],
-      "id": "control:984c1c073e0c228d:c755e5635a98c819",
+      "id": "control:984c1c073e0c228d:af77b42869ca7d0b",
       "contract": {
-        "id": "control:984c1c073e0c228d:c755e5635a98c819",
-        "claim": "Barters with piglins until `count` of the item have been gained. It needs a gold armour piece worn (NO_GOLD_ARMOUR otherwise; vanilla piglins attack a player without one) and gold ingots carried. The body walks to the nearest calm adult piglin it sees within 16 blocks that is not already examining an item, turns to it and throws one gold ingot toward its feet (a vanilla Q drop from the selected stack), then turns to the next free piglin; with none free in view it turns on the spot in 60 degree steps to find one. A piglin examines an ingot for about 6 s and throws a random return toward you; the body walks to returned items it sees within 8 blocks and picks them up by touch, as vanilla does. Every returned item is kept; the count is the change in the carried amount of `itemId` since the call started.",
+        "id": "control:984c1c073e0c228d:af77b42869ca7d0b",
+        "claim": "Barters with piglins until `count` of the item have been gained. It needs a gold armour piece worn or carried (it puts a carried one on first; NO_GOLD_ARMOUR otherwise; vanilla piglins attack a player without one) and gold carried: ingots, or gold blocks and nuggets it crafts into ingots when the ingots run out (blocks in the inventory grid; nuggets at a crafting table within reach, or a carried one it places). The body walks to the nearest calm adult piglin it sees within 16 blocks (up to 32 when none is within 16) that is not already examining an item and has no seen hoglin or brute within 8 blocks, turns to it and throws one gold ingot toward its feet (a vanilla Q drop from the selected stack), then turns to the next free piglin; with none free in view it turns on the spot in 60 degree steps to find one. A piglin examines an ingot for about 6 s and throws a random return toward you; the body walks to returned items it sees within 8 blocks and picks them up by touch, as vanilla does, except building rubble (gravel, blackstone, soul sand, nether bricks, netherrack), and drops a stack of that rubble when it needs a free slot to craft ingots; the count is the change in the carried amount of `itemId` since the call started.",
         "kind": "control-reference",
         "topic": "barter_until"
       },
@@ -42422,11 +42413,37 @@
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
         "line": 897
       },
+      "predicate": "barter_until puts on a carried gold armour piece when none is worn (right-click use) and otherwise stops NO_GOLD_ARMOUR, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin within 16 blocks (up to 32 when none is that near) with an empty offhand and no seen hoglin, zoglin or brute within 8 blocks, crafts carried gold blocks (inventory grid) and nuggets (a table in reach or a carried one placed) into ingots when the ingots run out, walks over seen returns within 8 blocks except building rubble (gravel, blackstone, soul sand, nether bricks, netherrack), drops a rubble stack when it needs a free slot to craft, counts the asked item by inventory change and the ingots traded by the gold gone, and stops with the listed codes; the measured outcomes come from the piglin-room and barter practice-room runs.",
+      "checks": [
+        {
+          "type": "live-behavior",
+          "test": "barter.piglin-room",
+          "command": "slot.sh live node scripts/quality/test-cast-barter-live.mjs barter evals/d41-cast-barter/checkpoints/piglin-barter.json OUT_DIR",
+          "predicate": "In a sealed Nether-wastes room with 3 summoned adult piglins, a worn golden helmet and 32 gold ingots, one barter_until call throws ingots one at a time, collects returns, and its reported gained count of the asked item equals the operator-read inventory change."
+        },
+        {
+          "type": "live-behavior",
+          "test": "barter.practice-room",
+          "command": "slot.sh live node scripts/quality/test-barter-room-live.mjs held|blocks|mine SALT OUT_DIR JAR",
+          "predicate": "In a sealed, lit Nether-wastes hall with summoned calm adult piglins, the held room (golden helmet carried, not worn; 192 ingots; piglins 28 blocks off) and the blocks room (20 gold blocks, 6 ingots) trade carried gold for pearls through repeated barter_until calls with no death; the mine room converts mined nuggets at a placed table."
+        }
+      ],
       "status": "partial",
       "reason": "Piglin-room runs cover bartering, collection and the count; the anger, armour, hostile and danger stops are implemented in ServerBarterController but have no dedicated fixture."
     },
     {
-      "predicate": "barter_until requires a worn gold armour piece, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin with an empty offhand, walks over seen returns within 8 blocks, counts the asked item by inventory change and stops with the listed codes; the measured outcomes come from the piglin-room runs. PIGLIN_ANGRY needs a seen piglin going for the body (its target); the ANGRY_AT memory is not read.",
+      "id": "control:984c1c073e0c228d:6db2e962dcb8bd27",
+      "contract": {
+        "id": "control:984c1c073e0c228d:6db2e962dcb8bd27",
+        "claim": "Stops with the counts (item gained and held, ingots traded, thrown and crafted, every item gained): BARTER_COUNT_REACHED, OUT_OF_GOLD (no ingot left or craftable here and no piglin still examining one), NO_PIGLIN (no calm adult piglin in sight after a full look around in 60 degree steps), PIGLIN_ANGRY (a piglin you see goes for you), NO_GOLD_ARMOUR, DAMAGE_TAKEN, LOW_HEALTH (8 or less), IN_LAVA, ON_FIRE, HOSTILE_NEAR (a non-piglin hostile in sight within 12 blocks), BARTER_TIMED_OUT. Cancel it like any action.",
+        "kind": "control-reference",
+        "topic": "barter_until"
+      },
+      "location": {
+        "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
+        "line": 899
+      },
+      "predicate": "barter_until puts on a carried gold armour piece when none is worn (right-click use) and otherwise stops NO_GOLD_ARMOUR, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin within 16 blocks (up to 32 when none is that near) with an empty offhand and no seen hoglin, zoglin or brute within 8 blocks, crafts carried gold blocks (inventory grid) and nuggets (a table in reach or a carried one placed) into ingots when the ingots run out, walks over seen returns within 8 blocks except building rubble (gravel, blackstone, soul sand, nether bricks, netherrack), drops a rubble stack when it needs a free slot to craft, counts the asked item by inventory change and the ingots traded by the gold gone, and stops with the listed codes; the measured outcomes come from the piglin-room and barter practice-room runs. PIGLIN_ANGRY needs a seen piglin going for the body (its target); the ANGRY_AT memory is not read.",
       "checks": [
         {
           "type": "live-behavior",
@@ -42439,19 +42456,14 @@
           "test": "verifyPiglinAnger",
           "type": "java-behavior",
           "command": "gradlew verifyCore"
+        },
+        {
+          "type": "live-behavior",
+          "test": "barter.practice-room",
+          "command": "slot.sh live node scripts/quality/test-barter-room-live.mjs held|blocks|mine SALT OUT_DIR JAR",
+          "predicate": "In a sealed, lit Nether-wastes hall with summoned calm adult piglins, the held room (golden helmet carried, not worn; 192 ingots; piglins 28 blocks off) and the blocks room (20 gold blocks, 6 ingots) trade carried gold for pearls through repeated barter_until calls with no death; the mine room converts mined nuggets at a placed table."
         }
       ],
-      "id": "control:984c1c073e0c228d:f98b196d79b224c2",
-      "contract": {
-        "id": "control:984c1c073e0c228d:f98b196d79b224c2",
-        "claim": "Stops with the counts (item gained and held, ingots thrown and left, every item gained): BARTER_COUNT_REACHED, OUT_OF_GOLD (no ingot left and no piglin still examining one), NO_PIGLIN (no calm adult piglin in sight after a full look around in 60 degree steps), PIGLIN_ANGRY (a piglin you see goes for you), NO_GOLD_ARMOUR, DAMAGE_TAKEN, LOW_HEALTH (8 or less), IN_LAVA, ON_FIRE, HOSTILE_NEAR (a non-piglin hostile in sight within 12 blocks), BARTER_TIMED_OUT. Cancel it like any action.",
-        "kind": "control-reference",
-        "topic": "barter_until"
-      },
-      "location": {
-        "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
-        "line": 899
-      },
       "status": "partial",
       "reason": "Piglin-room runs cover bartering, collection and the count; the anger, armour, hostile and danger stops are implemented in ServerBarterController but have no dedicated fixture."
     },
@@ -55208,33 +55220,20 @@
       "status": "checked"
     },
     {
-      "predicate": "A block with seen or heard lava beside it is refused by the break gate before any swing; mine_vein reports it as LAVA_AHEAD and stops.",
-      "checks": [
-        {
-          "file": "src/test/java/dev/agaminggod/mineagen/server/runtime/controller/VeinPlanVerification.java",
-          "test": "verifyFamilies + verifyTree + verifyTallTree + verifyVein",
-          "type": "java-behavior",
-          "entryPoint": "verifyCore"
-        }
-      ],
-      "id": "control:c46616ae6acf4919:81d026581764cd38:result:LAVA_BEHIND",
+      "id": "control:c46616ae6acf4919:585b4428958ca9b9:result:LAVA_BEHIND",
       "contract": {
-        "id": "control:c46616ae6acf4919:81d026581764cd38:result:LAVA_BEHIND",
-        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
+        "id": "control:c46616ae6acf4919:585b4428958ca9b9:result:LAVA_BEHIND",
+        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), PIGLINS_NEAR_GOLD (gold ore with a calm piglin seen or heard within 16 blocks: breaking it would turn them on you), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
         "kind": "result-code",
         "topic": "mine_vein",
         "code": "LAVA_BEHIND",
-        "parent": "control:c46616ae6acf4919:81d026581764cd38"
+        "parent": "control:c46616ae6acf4919:585b4428958ca9b9"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
         "line": 819
       },
-      "status": "partial",
-      "reason": "The planning rules are witnessed on fixtures; the controller that drives the breaks in a live world has no world-level fixture."
-    },
-    {
-      "predicate": "The break gate refuses the block the body stands on over an unseen drop where water evaporates; mine_vein leaves that block and goes on.",
+      "predicate": "A block with seen or heard lava beside it is refused by the break gate before any swing; mine_vein reports it as LAVA_AHEAD and stops. PIGLINS_NEAR_GOLD: before and during the break of a block tagged guarded_by_piglins (Nether gold ore, gold blocks) it stops when a calm piglin, seen or not, is inside the player's box grown by 16 on each axis, since vanilla angers every piglin there.",
       "checks": [
         {
           "file": "src/test/java/dev/agaminggod/mineagen/server/runtime/controller/VeinPlanVerification.java",
@@ -55243,24 +55242,24 @@
           "entryPoint": "verifyCore"
         }
       ],
-      "id": "control:c46616ae6acf4919:81d026581764cd38:result:UNSEEN_BELOW",
+      "status": "partial",
+      "reason": "The planning rules are witnessed on fixtures; the controller that drives the breaks in a live world has no world-level fixture."
+    },
+    {
+      "id": "control:c46616ae6acf4919:585b4428958ca9b9:result:UNSEEN_BELOW",
       "contract": {
-        "id": "control:c46616ae6acf4919:81d026581764cd38:result:UNSEEN_BELOW",
-        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
+        "id": "control:c46616ae6acf4919:585b4428958ca9b9:result:UNSEEN_BELOW",
+        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), PIGLINS_NEAR_GOLD (gold ore with a calm piglin seen or heard within 16 blocks: breaking it would turn them on you), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
         "kind": "result-code",
         "topic": "mine_vein",
         "code": "UNSEEN_BELOW",
-        "parent": "control:c46616ae6acf4919:81d026581764cd38"
+        "parent": "control:c46616ae6acf4919:585b4428958ca9b9"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
         "line": 819
       },
-      "status": "partial",
-      "reason": "The planning rules are witnessed on fixtures; the controller that drives the breaks in a live world has no world-level fixture."
-    },
-    {
-      "predicate": "An ore no carried tool harvests is refused before any swing (MiningTools.wastesOre); mine_vein stops with NO_TOOL.",
+      "predicate": "The break gate refuses the block the body stands on over an unseen drop where water evaporates; mine_vein leaves that block and goes on. PIGLINS_NEAR_GOLD: before and during the break of a block tagged guarded_by_piglins (Nether gold ore, gold blocks) it stops when a calm piglin, seen or not, is inside the player's box grown by 16 on each axis, since vanilla angers every piglin there.",
       "checks": [
         {
           "file": "src/test/java/dev/agaminggod/mineagen/server/runtime/controller/VeinPlanVerification.java",
@@ -55269,24 +55268,24 @@
           "entryPoint": "verifyCore"
         }
       ],
-      "id": "control:c46616ae6acf4919:81d026581764cd38:result:NO_TOOL",
+      "status": "partial",
+      "reason": "The planning rules are witnessed on fixtures; the controller that drives the breaks in a live world has no world-level fixture."
+    },
+    {
+      "id": "control:c46616ae6acf4919:585b4428958ca9b9:result:NO_TOOL",
       "contract": {
-        "id": "control:c46616ae6acf4919:81d026581764cd38:result:NO_TOOL",
-        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
+        "id": "control:c46616ae6acf4919:585b4428958ca9b9:result:NO_TOOL",
+        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), PIGLINS_NEAR_GOLD (gold ore with a calm piglin seen or heard within 16 blocks: breaking it would turn them on you), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
         "kind": "result-code",
         "topic": "mine_vein",
         "code": "NO_TOOL",
-        "parent": "control:c46616ae6acf4919:81d026581764cd38"
+        "parent": "control:c46616ae6acf4919:585b4428958ca9b9"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
         "line": 819
       },
-      "status": "partial",
-      "reason": "The planning rules are witnessed on fixtures; the controller that drives the breaks in a live world has no world-level fixture."
-    },
-    {
-      "predicate": "VeinPlan.outOfReach lists seen logs no stance (beside the trunk, inside its column) reaches; a non-empty list refuses the tree before any swing.",
+      "predicate": "An ore no carried tool harvests is refused before any swing (MiningTools.wastesOre); mine_vein stops with NO_TOOL. PIGLINS_NEAR_GOLD: before and during the break of a block tagged guarded_by_piglins (Nether gold ore, gold blocks) it stops when a calm piglin, seen or not, is inside the player's box grown by 16 on each axis, since vanilla angers every piglin there.",
       "checks": [
         {
           "file": "src/test/java/dev/agaminggod/mineagen/server/runtime/controller/VeinPlanVerification.java",
@@ -55295,24 +55294,24 @@
           "entryPoint": "verifyCore"
         }
       ],
-      "id": "control:c46616ae6acf4919:81d026581764cd38:result:TREE_OUT_OF_REACH",
+      "status": "partial",
+      "reason": "The planning rules are witnessed on fixtures; the controller that drives the breaks in a live world has no world-level fixture."
+    },
+    {
+      "id": "control:c46616ae6acf4919:585b4428958ca9b9:result:TREE_OUT_OF_REACH",
       "contract": {
-        "id": "control:c46616ae6acf4919:81d026581764cd38:result:TREE_OUT_OF_REACH",
-        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
+        "id": "control:c46616ae6acf4919:585b4428958ca9b9:result:TREE_OUT_OF_REACH",
+        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), PIGLINS_NEAR_GOLD (gold ore with a calm piglin seen or heard within 16 blocks: breaking it would turn them on you), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
         "kind": "result-code",
         "topic": "mine_vein",
         "code": "TREE_OUT_OF_REACH",
-        "parent": "control:c46616ae6acf4919:81d026581764cd38"
+        "parent": "control:c46616ae6acf4919:585b4428958ca9b9"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
         "line": 819
       },
-      "status": "partial",
-      "reason": "The planning rules are witnessed on fixtures; the controller that drives the breaks in a live world has no world-level fixture."
-    },
-    {
-      "predicate": "More seen logs than maxBlocks in the connected tree refuse it before any swing; VeinPlan.component stops at its limit.",
+      "predicate": "VeinPlan.outOfReach lists seen logs no stance (beside the trunk, inside its column) reaches; a non-empty list refuses the tree before any swing. PIGLINS_NEAR_GOLD: before and during the break of a block tagged guarded_by_piglins (Nether gold ore, gold blocks) it stops when a calm piglin, seen or not, is inside the player's box grown by 16 on each axis, since vanilla angers every piglin there.",
       "checks": [
         {
           "file": "src/test/java/dev/agaminggod/mineagen/server/runtime/controller/VeinPlanVerification.java",
@@ -55321,24 +55320,24 @@
           "entryPoint": "verifyCore"
         }
       ],
-      "id": "control:c46616ae6acf4919:81d026581764cd38:result:TREE_TOO_BIG",
+      "status": "partial",
+      "reason": "The planning rules are witnessed on fixtures; the controller that drives the breaks in a live world has no world-level fixture."
+    },
+    {
+      "id": "control:c46616ae6acf4919:585b4428958ca9b9:result:TREE_TOO_BIG",
       "contract": {
-        "id": "control:c46616ae6acf4919:81d026581764cd38:result:TREE_TOO_BIG",
-        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
+        "id": "control:c46616ae6acf4919:585b4428958ca9b9:result:TREE_TOO_BIG",
+        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), PIGLINS_NEAR_GOLD (gold ore with a calm piglin seen or heard within 16 blocks: breaking it would turn them on you), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
         "kind": "result-code",
         "topic": "mine_vein",
         "code": "TREE_TOO_BIG",
-        "parent": "control:c46616ae6acf4919:81d026581764cd38"
+        "parent": "control:c46616ae6acf4919:585b4428958ca9b9"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
         "line": 819
       },
-      "status": "partial",
-      "reason": "The planning rules are witnessed on fixtures; the controller that drives the breaks in a live world has no world-level fixture."
-    },
-    {
-      "predicate": "VeinPlan.stance returns null with no seen open side over a seen solid floor beside the trunk base; the tree is then refused.",
+      "predicate": "More seen logs than maxBlocks in the connected tree refuse it before any swing; VeinPlan.component stops at its limit. PIGLINS_NEAR_GOLD: before and during the break of a block tagged guarded_by_piglins (Nether gold ore, gold blocks) it stops when a calm piglin, seen or not, is inside the player's box grown by 16 on each axis, since vanilla angers every piglin there.",
       "checks": [
         {
           "file": "src/test/java/dev/agaminggod/mineagen/server/runtime/controller/VeinPlanVerification.java",
@@ -55347,24 +55346,24 @@
           "entryPoint": "verifyCore"
         }
       ],
-      "id": "control:c46616ae6acf4919:81d026581764cd38:result:NO_STANCE",
+      "status": "partial",
+      "reason": "The planning rules are witnessed on fixtures; the controller that drives the breaks in a live world has no world-level fixture."
+    },
+    {
+      "id": "control:c46616ae6acf4919:585b4428958ca9b9:result:NO_STANCE",
       "contract": {
-        "id": "control:c46616ae6acf4919:81d026581764cd38:result:NO_STANCE",
-        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
+        "id": "control:c46616ae6acf4919:585b4428958ca9b9:result:NO_STANCE",
+        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), PIGLINS_NEAR_GOLD (gold ore with a calm piglin seen or heard within 16 blocks: breaking it would turn them on you), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
         "kind": "result-code",
         "topic": "mine_vein",
         "code": "NO_STANCE",
-        "parent": "control:c46616ae6acf4919:81d026581764cd38"
+        "parent": "control:c46616ae6acf4919:585b4428958ca9b9"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
         "line": 819
       },
-      "status": "partial",
-      "reason": "The planning rules are witnessed on fixtures; the controller that drives the breaks in a live world has no world-level fixture."
-    },
-    {
-      "predicate": "Seen or heard lava behind the next block (break gate LAVA_BEHIND) stops mine_vein with LAVA_AHEAD and the facts so far.",
+      "predicate": "VeinPlan.stance returns null with no seen open side over a seen solid floor beside the trunk base; the tree is then refused. PIGLINS_NEAR_GOLD: before and during the break of a block tagged guarded_by_piglins (Nether gold ore, gold blocks) it stops when a calm piglin, seen or not, is inside the player's box grown by 16 on each axis, since vanilla angers every piglin there.",
       "checks": [
         {
           "file": "src/test/java/dev/agaminggod/mineagen/server/runtime/controller/VeinPlanVerification.java",
@@ -55373,24 +55372,24 @@
           "entryPoint": "verifyCore"
         }
       ],
-      "id": "control:c46616ae6acf4919:81d026581764cd38:result:LAVA_AHEAD",
+      "status": "partial",
+      "reason": "The planning rules are witnessed on fixtures; the controller that drives the breaks in a live world has no world-level fixture."
+    },
+    {
+      "id": "control:c46616ae6acf4919:585b4428958ca9b9:result:LAVA_AHEAD",
       "contract": {
-        "id": "control:c46616ae6acf4919:81d026581764cd38:result:LAVA_AHEAD",
-        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
+        "id": "control:c46616ae6acf4919:585b4428958ca9b9:result:LAVA_AHEAD",
+        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), PIGLINS_NEAR_GOLD (gold ore with a calm piglin seen or heard within 16 blocks: breaking it would turn them on you), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
         "kind": "result-code",
         "topic": "mine_vein",
         "code": "LAVA_AHEAD",
-        "parent": "control:c46616ae6acf4919:81d026581764cd38"
+        "parent": "control:c46616ae6acf4919:585b4428958ca9b9"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
         "line": 819
       },
-      "status": "partial",
-      "reason": "The planning rules are witnessed on fixtures; the controller that drives the breaks in a live world has no world-level fixture."
-    },
-    {
-      "predicate": "Seen lava beside a block just broken stops mine_vein with LAVA_OPENED.",
+      "predicate": "Seen or heard lava behind the next block (break gate LAVA_BEHIND) stops mine_vein with LAVA_AHEAD and the facts so far. PIGLINS_NEAR_GOLD: before and during the break of a block tagged guarded_by_piglins (Nether gold ore, gold blocks) it stops when a calm piglin, seen or not, is inside the player's box grown by 16 on each axis, since vanilla angers every piglin there.",
       "checks": [
         {
           "file": "src/test/java/dev/agaminggod/mineagen/server/runtime/controller/VeinPlanVerification.java",
@@ -55399,24 +55398,24 @@
           "entryPoint": "verifyCore"
         }
       ],
-      "id": "control:c46616ae6acf4919:81d026581764cd38:result:LAVA_OPENED",
+      "status": "partial",
+      "reason": "The planning rules are witnessed on fixtures; the controller that drives the breaks in a live world has no world-level fixture."
+    },
+    {
+      "id": "control:c46616ae6acf4919:585b4428958ca9b9:result:LAVA_OPENED",
       "contract": {
-        "id": "control:c46616ae6acf4919:81d026581764cd38:result:LAVA_OPENED",
-        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
+        "id": "control:c46616ae6acf4919:585b4428958ca9b9:result:LAVA_OPENED",
+        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), PIGLINS_NEAR_GOLD (gold ore with a calm piglin seen or heard within 16 blocks: breaking it would turn them on you), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
         "kind": "result-code",
         "topic": "mine_vein",
         "code": "LAVA_OPENED",
-        "parent": "control:c46616ae6acf4919:81d026581764cd38"
+        "parent": "control:c46616ae6acf4919:585b4428958ca9b9"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
         "line": 819
       },
-      "status": "partial",
-      "reason": "The planning rules are witnessed on fixtures; the controller that drives the breaks in a live world has no world-level fixture."
-    },
-    {
-      "predicate": "Any health drop during mine_vein stops it with DAMAGE_TAKEN and the source.",
+      "predicate": "Seen lava beside a block just broken stops mine_vein with LAVA_OPENED. PIGLINS_NEAR_GOLD: before and during the break of a block tagged guarded_by_piglins (Nether gold ore, gold blocks) it stops when a calm piglin, seen or not, is inside the player's box grown by 16 on each axis, since vanilla angers every piglin there.",
       "checks": [
         {
           "file": "src/test/java/dev/agaminggod/mineagen/server/runtime/controller/VeinPlanVerification.java",
@@ -55425,24 +55424,24 @@
           "entryPoint": "verifyCore"
         }
       ],
-      "id": "control:c46616ae6acf4919:81d026581764cd38:result:DAMAGE_TAKEN",
+      "status": "partial",
+      "reason": "The planning rules are witnessed on fixtures; the controller that drives the breaks in a live world has no world-level fixture."
+    },
+    {
+      "id": "control:c46616ae6acf4919:585b4428958ca9b9:result:DAMAGE_TAKEN",
       "contract": {
-        "id": "control:c46616ae6acf4919:81d026581764cd38:result:DAMAGE_TAKEN",
-        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
+        "id": "control:c46616ae6acf4919:585b4428958ca9b9:result:DAMAGE_TAKEN",
+        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), PIGLINS_NEAR_GOLD (gold ore with a calm piglin seen or heard within 16 blocks: breaking it would turn them on you), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
         "kind": "result-code",
         "topic": "mine_vein",
         "code": "DAMAGE_TAKEN",
-        "parent": "control:c46616ae6acf4919:81d026581764cd38"
+        "parent": "control:c46616ae6acf4919:585b4428958ca9b9"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
         "line": 819
       },
-      "status": "partial",
-      "reason": "The planning rules are witnessed on fixtures; the controller that drives the breaks in a live world has no world-level fixture."
-    },
-    {
-      "predicate": "A sensed threat within 12 blocks (ThreatPerception.isSensedThreat, as dig_to) stops mine_vein.",
+      "predicate": "Any health drop during mine_vein stops it with DAMAGE_TAKEN and the source. PIGLINS_NEAR_GOLD: before and during the break of a block tagged guarded_by_piglins (Nether gold ore, gold blocks) it stops when a calm piglin, seen or not, is inside the player's box grown by 16 on each axis, since vanilla angers every piglin there.",
       "checks": [
         {
           "file": "src/test/java/dev/agaminggod/mineagen/server/runtime/controller/VeinPlanVerification.java",
@@ -55451,24 +55450,24 @@
           "entryPoint": "verifyCore"
         }
       ],
-      "id": "control:c46616ae6acf4919:81d026581764cd38:result:HOSTILE_NEAR",
+      "status": "partial",
+      "reason": "The planning rules are witnessed on fixtures; the controller that drives the breaks in a live world has no world-level fixture."
+    },
+    {
+      "id": "control:c46616ae6acf4919:585b4428958ca9b9:result:HOSTILE_NEAR",
       "contract": {
-        "id": "control:c46616ae6acf4919:81d026581764cd38:result:HOSTILE_NEAR",
-        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
+        "id": "control:c46616ae6acf4919:585b4428958ca9b9:result:HOSTILE_NEAR",
+        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), PIGLINS_NEAR_GOLD (gold ore with a calm piglin seen or heard within 16 blocks: breaking it would turn them on you), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
         "kind": "result-code",
         "topic": "mine_vein",
         "code": "HOSTILE_NEAR",
-        "parent": "control:c46616ae6acf4919:81d026581764cd38"
+        "parent": "control:c46616ae6acf4919:585b4428958ca9b9"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
         "line": 819
       },
-      "status": "partial",
-      "reason": "The planning rules are witnessed on fixtures; the controller that drives the breaks in a live world has no world-level fixture."
-    },
-    {
-      "predicate": "With no free slot, a drop the inventory cannot take stops mine_vein before the break.",
+      "predicate": "A sensed threat within 12 blocks (ThreatPerception.isSensedThreat, as dig_to) stops mine_vein. PIGLINS_NEAR_GOLD: before and during the break of a block tagged guarded_by_piglins (Nether gold ore, gold blocks) it stops when a calm piglin, seen or not, is inside the player's box grown by 16 on each axis, since vanilla angers every piglin there.",
       "checks": [
         {
           "file": "src/test/java/dev/agaminggod/mineagen/server/runtime/controller/VeinPlanVerification.java",
@@ -55477,24 +55476,50 @@
           "entryPoint": "verifyCore"
         }
       ],
-      "id": "control:c46616ae6acf4919:81d026581764cd38:result:INVENTORY_FULL",
+      "status": "partial",
+      "reason": "The planning rules are witnessed on fixtures; the controller that drives the breaks in a live world has no world-level fixture."
+    },
+    {
+      "id": "control:c46616ae6acf4919:585b4428958ca9b9:result:PIGLINS_NEAR_GOLD",
       "contract": {
-        "id": "control:c46616ae6acf4919:81d026581764cd38:result:INVENTORY_FULL",
-        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
+        "id": "control:c46616ae6acf4919:585b4428958ca9b9:result:PIGLINS_NEAR_GOLD",
+        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), PIGLINS_NEAR_GOLD (gold ore with a calm piglin seen or heard within 16 blocks: breaking it would turn them on you), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
+        "kind": "result-code",
+        "topic": "mine_vein",
+        "code": "PIGLINS_NEAR_GOLD",
+        "parent": "control:c46616ae6acf4919:585b4428958ca9b9"
+      },
+      "location": {
+        "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
+        "line": 819
+      },
+      "predicate": "A sensed threat within 12 blocks (ThreatPerception.isSensedThreat, as dig_to) stops mine_vein. PIGLINS_NEAR_GOLD: before and during the break of a block tagged guarded_by_piglins (Nether gold ore, gold blocks) it stops when a calm piglin, seen or not, is inside the player's box grown by 16 on each axis, since vanilla angers every piglin there.",
+      "checks": [
+        {
+          "file": "src/test/java/dev/agaminggod/mineagen/server/runtime/controller/VeinPlanVerification.java",
+          "test": "verifyFamilies + verifyTree + verifyTallTree + verifyVein",
+          "type": "java-behavior",
+          "entryPoint": "verifyCore"
+        }
+      ],
+      "status": "partial",
+      "reason": "The planning rules are witnessed on fixtures; the controller that drives the breaks in a live world has no world-level fixture."
+    },
+    {
+      "id": "control:c46616ae6acf4919:585b4428958ca9b9:result:INVENTORY_FULL",
+      "contract": {
+        "id": "control:c46616ae6acf4919:585b4428958ca9b9:result:INVENTORY_FULL",
+        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), PIGLINS_NEAR_GOLD (gold ore with a calm piglin seen or heard within 16 blocks: breaking it would turn them on you), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
         "kind": "result-code",
         "topic": "mine_vein",
         "code": "INVENTORY_FULL",
-        "parent": "control:c46616ae6acf4919:81d026581764cd38"
+        "parent": "control:c46616ae6acf4919:585b4428958ca9b9"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
         "line": 819
       },
-      "status": "partial",
-      "reason": "The planning rules are witnessed on fixtures; the controller that drives the breaks in a live world has no world-level fixture."
-    },
-    {
-      "predicate": "timeoutMs ends mine_vein as TIMED_OUT with the facts so far.",
+      "predicate": "With no free slot, a drop the inventory cannot take stops mine_vein before the break. PIGLINS_NEAR_GOLD: before and during the break of a block tagged guarded_by_piglins (Nether gold ore, gold blocks) it stops when a calm piglin, seen or not, is inside the player's box grown by 16 on each axis, since vanilla angers every piglin there.",
       "checks": [
         {
           "file": "src/test/java/dev/agaminggod/mineagen/server/runtime/controller/VeinPlanVerification.java",
@@ -55503,24 +55528,24 @@
           "entryPoint": "verifyCore"
         }
       ],
-      "id": "control:c46616ae6acf4919:81d026581764cd38:result:VEIN_TIMEOUT",
+      "status": "partial",
+      "reason": "The planning rules are witnessed on fixtures; the controller that drives the breaks in a live world has no world-level fixture."
+    },
+    {
+      "id": "control:c46616ae6acf4919:585b4428958ca9b9:result:VEIN_TIMEOUT",
       "contract": {
-        "id": "control:c46616ae6acf4919:81d026581764cd38:result:VEIN_TIMEOUT",
-        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
+        "id": "control:c46616ae6acf4919:585b4428958ca9b9:result:VEIN_TIMEOUT",
+        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), PIGLINS_NEAR_GOLD (gold ore with a calm piglin seen or heard within 16 blocks: breaking it would turn them on you), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
         "kind": "result-code",
         "topic": "mine_vein",
         "code": "VEIN_TIMEOUT",
-        "parent": "control:c46616ae6acf4919:81d026581764cd38"
+        "parent": "control:c46616ae6acf4919:585b4428958ca9b9"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
         "line": 819
       },
-      "status": "partial",
-      "reason": "The planning rules are witnessed on fixtures; the controller that drives the breaks in a live world has no world-level fixture."
-    },
-    {
-      "predicate": "A tree run that broke at least one log succeeds TREE_FELLED with counts, time and the seen logs left.",
+      "predicate": "timeoutMs ends mine_vein as TIMED_OUT with the facts so far. PIGLINS_NEAR_GOLD: before and during the break of a block tagged guarded_by_piglins (Nether gold ore, gold blocks) it stops when a calm piglin, seen or not, is inside the player's box grown by 16 on each axis, since vanilla angers every piglin there.",
       "checks": [
         {
           "file": "src/test/java/dev/agaminggod/mineagen/server/runtime/controller/VeinPlanVerification.java",
@@ -55529,24 +55554,24 @@
           "entryPoint": "verifyCore"
         }
       ],
-      "id": "control:c46616ae6acf4919:81d026581764cd38:result:TREE_FELLED",
+      "status": "partial",
+      "reason": "The planning rules are witnessed on fixtures; the controller that drives the breaks in a live world has no world-level fixture."
+    },
+    {
+      "id": "control:c46616ae6acf4919:585b4428958ca9b9:result:TREE_FELLED",
       "contract": {
-        "id": "control:c46616ae6acf4919:81d026581764cd38:result:TREE_FELLED",
-        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
+        "id": "control:c46616ae6acf4919:585b4428958ca9b9:result:TREE_FELLED",
+        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), PIGLINS_NEAR_GOLD (gold ore with a calm piglin seen or heard within 16 blocks: breaking it would turn them on you), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
         "kind": "result-code",
         "topic": "mine_vein",
         "code": "TREE_FELLED",
-        "parent": "control:c46616ae6acf4919:81d026581764cd38"
+        "parent": "control:c46616ae6acf4919:585b4428958ca9b9"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
         "line": 819
       },
-      "status": "partial",
-      "reason": "The planning rules are witnessed on fixtures; the controller that drives the breaks in a live world has no world-level fixture."
-    },
-    {
-      "predicate": "A vein run that broke at least one block succeeds VEIN_MINED with counts, time and the seen blocks left.",
+      "predicate": "A tree run that broke at least one log succeeds TREE_FELLED with counts, time and the seen logs left. PIGLINS_NEAR_GOLD: before and during the break of a block tagged guarded_by_piglins (Nether gold ore, gold blocks) it stops when a calm piglin, seen or not, is inside the player's box grown by 16 on each axis, since vanilla angers every piglin there.",
       "checks": [
         {
           "file": "src/test/java/dev/agaminggod/mineagen/server/runtime/controller/VeinPlanVerification.java",
@@ -55555,24 +55580,24 @@
           "entryPoint": "verifyCore"
         }
       ],
-      "id": "control:c46616ae6acf4919:81d026581764cd38:result:VEIN_MINED",
+      "status": "partial",
+      "reason": "The planning rules are witnessed on fixtures; the controller that drives the breaks in a live world has no world-level fixture."
+    },
+    {
+      "id": "control:c46616ae6acf4919:585b4428958ca9b9:result:VEIN_MINED",
       "contract": {
-        "id": "control:c46616ae6acf4919:81d026581764cd38:result:VEIN_MINED",
-        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
+        "id": "control:c46616ae6acf4919:585b4428958ca9b9:result:VEIN_MINED",
+        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), PIGLINS_NEAR_GOLD (gold ore with a calm piglin seen or heard within 16 blocks: breaking it would turn them on you), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
         "kind": "result-code",
         "topic": "mine_vein",
         "code": "VEIN_MINED",
-        "parent": "control:c46616ae6acf4919:81d026581764cd38"
+        "parent": "control:c46616ae6acf4919:585b4428958ca9b9"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
         "line": 819
       },
-      "status": "partial",
-      "reason": "The planning rules are witnessed on fixtures; the controller that drives the breaks in a live world has no world-level fixture."
-    },
-    {
-      "predicate": "No block of the tree or vein in reach and sight fails NOTHING_MINED with the seen blocks left and why.",
+      "predicate": "A vein run that broke at least one block succeeds VEIN_MINED with counts, time and the seen blocks left. PIGLINS_NEAR_GOLD: before and during the break of a block tagged guarded_by_piglins (Nether gold ore, gold blocks) it stops when a calm piglin, seen or not, is inside the player's box grown by 16 on each axis, since vanilla angers every piglin there.",
       "checks": [
         {
           "file": "src/test/java/dev/agaminggod/mineagen/server/runtime/controller/VeinPlanVerification.java",
@@ -55581,24 +55606,24 @@
           "entryPoint": "verifyCore"
         }
       ],
-      "id": "control:c46616ae6acf4919:81d026581764cd38:result:NOTHING_MINED",
+      "status": "partial",
+      "reason": "The planning rules are witnessed on fixtures; the controller that drives the breaks in a live world has no world-level fixture."
+    },
+    {
+      "id": "control:c46616ae6acf4919:585b4428958ca9b9:result:NOTHING_MINED",
       "contract": {
-        "id": "control:c46616ae6acf4919:81d026581764cd38:result:NOTHING_MINED",
-        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
+        "id": "control:c46616ae6acf4919:585b4428958ca9b9:result:NOTHING_MINED",
+        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), PIGLINS_NEAR_GOLD (gold ore with a calm piglin seen or heard within 16 blocks: breaking it would turn them on you), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
         "kind": "result-code",
         "topic": "mine_vein",
         "code": "NOTHING_MINED",
-        "parent": "control:c46616ae6acf4919:81d026581764cd38"
+        "parent": "control:c46616ae6acf4919:585b4428958ca9b9"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
         "line": 819
       },
-      "status": "partial",
-      "reason": "The planning rules are witnessed on fixtures; the controller that drives the breaks in a live world has no world-level fixture."
-    },
-    {
-      "predicate": "With only vein blocks under the body left and no seen standing cell beside (open feet and head over a solid non-vein floor, one or two steps away, reaching one of them; VeinPlan.stepOff), mine_vein fails VEIN_UNDER_BODY with the seen blocks left.",
+      "predicate": "No block of the tree or vein in reach and sight fails NOTHING_MINED with the seen blocks left and why. PIGLINS_NEAR_GOLD: before and during the break of a block tagged guarded_by_piglins (Nether gold ore, gold blocks) it stops when a calm piglin, seen or not, is inside the player's box grown by 16 on each axis, since vanilla angers every piglin there.",
       "checks": [
         {
           "file": "src/test/java/dev/agaminggod/mineagen/server/runtime/controller/VeinPlanVerification.java",
@@ -55607,19 +55632,32 @@
           "entryPoint": "verifyCore"
         }
       ],
-      "id": "control:c46616ae6acf4919:81d026581764cd38:result:VEIN_UNDER_BODY",
+      "status": "partial",
+      "reason": "The planning rules are witnessed on fixtures; the controller that drives the breaks in a live world has no world-level fixture."
+    },
+    {
+      "id": "control:c46616ae6acf4919:585b4428958ca9b9:result:VEIN_UNDER_BODY",
       "contract": {
-        "id": "control:c46616ae6acf4919:81d026581764cd38:result:VEIN_UNDER_BODY",
-        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
+        "id": "control:c46616ae6acf4919:585b4428958ca9b9:result:VEIN_UNDER_BODY",
+        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), PIGLINS_NEAR_GOLD (gold ore with a calm piglin seen or heard within 16 blocks: breaking it would turn them on you), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
         "kind": "result-code",
         "topic": "mine_vein",
         "code": "VEIN_UNDER_BODY",
-        "parent": "control:c46616ae6acf4919:81d026581764cd38"
+        "parent": "control:c46616ae6acf4919:585b4428958ca9b9"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
         "line": 819
       },
+      "predicate": "With only vein blocks under the body left and no seen standing cell beside (open feet and head over a solid non-vein floor, one or two steps away, reaching one of them; VeinPlan.stepOff), mine_vein fails VEIN_UNDER_BODY with the seen blocks left. PIGLINS_NEAR_GOLD: before and during the break of a block tagged guarded_by_piglins (Nether gold ore, gold blocks) it stops when a calm piglin, seen or not, is inside the player's box grown by 16 on each axis, since vanilla angers every piglin there.",
+      "checks": [
+        {
+          "file": "src/test/java/dev/agaminggod/mineagen/server/runtime/controller/VeinPlanVerification.java",
+          "test": "verifyFamilies + verifyTree + verifyTallTree + verifyVein",
+          "type": "java-behavior",
+          "entryPoint": "verifyCore"
+        }
+      ],
       "status": "partial",
       "reason": "The planning rules are witnessed on fixtures; the controller that drives the breaks in a live world has no world-level fixture."
     },
@@ -57076,33 +57114,20 @@
       "status": "checked"
     },
     {
-      "predicate": "barter_until requires a worn gold armour piece, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin with an empty offhand, walks over seen returns within 8 blocks, counts the asked item by inventory change and stops with the listed codes; the measured outcomes come from the piglin-room runs.",
-      "checks": [
-        {
-          "type": "live-behavior",
-          "test": "barter.piglin-room",
-          "command": "slot.sh live node scripts/quality/test-cast-barter-live.mjs barter evals/d41-cast-barter/checkpoints/piglin-barter.json OUT_DIR",
-          "predicate": "In a sealed Nether-wastes room with 3 summoned adult piglins, a worn golden helmet and 32 gold ingots, one barter_until call throws ingots one at a time, collects returns, and its reported gained count of the asked item equals the operator-read inventory change."
-        }
-      ],
-      "id": "control:984c1c073e0c228d:c755e5635a98c819:result:NO_GOLD_ARMOUR",
+      "id": "control:984c1c073e0c228d:af77b42869ca7d0b:result:NO_GOLD_ARMOUR",
       "contract": {
-        "id": "control:984c1c073e0c228d:c755e5635a98c819:result:NO_GOLD_ARMOUR",
-        "claim": "Barters with piglins until `count` of the item have been gained. It needs a gold armour piece worn (NO_GOLD_ARMOUR otherwise; vanilla piglins attack a player without one) and gold ingots carried. The body walks to the nearest calm adult piglin it sees within 16 blocks that is not already examining an item, turns to it and throws one gold ingot toward its feet (a vanilla Q drop from the selected stack), then turns to the next free piglin; with none free in view it turns on the spot in 60 degree steps to find one. A piglin examines an ingot for about 6 s and throws a random return toward you; the body walks to returned items it sees within 8 blocks and picks them up by touch, as vanilla does. Every returned item is kept; the count is the change in the carried amount of `itemId` since the call started.",
+        "id": "control:984c1c073e0c228d:af77b42869ca7d0b:result:NO_GOLD_ARMOUR",
+        "claim": "Barters with piglins until `count` of the item have been gained. It needs a gold armour piece worn or carried (it puts a carried one on first; NO_GOLD_ARMOUR otherwise; vanilla piglins attack a player without one) and gold carried: ingots, or gold blocks and nuggets it crafts into ingots when the ingots run out (blocks in the inventory grid; nuggets at a crafting table within reach, or a carried one it places). The body walks to the nearest calm adult piglin it sees within 16 blocks (up to 32 when none is within 16) that is not already examining an item and has no seen hoglin or brute within 8 blocks, turns to it and throws one gold ingot toward its feet (a vanilla Q drop from the selected stack), then turns to the next free piglin; with none free in view it turns on the spot in 60 degree steps to find one. A piglin examines an ingot for about 6 s and throws a random return toward you; the body walks to returned items it sees within 8 blocks and picks them up by touch, as vanilla does, except building rubble (gravel, blackstone, soul sand, nether bricks, netherrack), and drops a stack of that rubble when it needs a free slot to craft ingots; the count is the change in the carried amount of `itemId` since the call started.",
         "kind": "result-code",
         "topic": "barter_until",
         "code": "NO_GOLD_ARMOUR",
-        "parent": "control:984c1c073e0c228d:c755e5635a98c819"
+        "parent": "control:984c1c073e0c228d:af77b42869ca7d0b"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
         "line": 897
       },
-      "status": "partial",
-      "reason": "Piglin-room runs cover bartering, collection and the count; the anger, armour, hostile and danger stops are implemented in ServerBarterController but have no dedicated fixture."
-    },
-    {
-      "predicate": "barter_until requires a worn gold armour piece, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin with an empty offhand, walks over seen returns within 8 blocks, counts the asked item by inventory change and stops with the listed codes; the measured outcomes come from the piglin-room runs. PIGLIN_ANGRY needs a seen piglin going for the body (its target); the ANGRY_AT memory is not read.",
+      "predicate": "barter_until puts on a carried gold armour piece when none is worn (right-click use) and otherwise stops NO_GOLD_ARMOUR, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin within 16 blocks (up to 32 when none is that near) with an empty offhand and no seen hoglin, zoglin or brute within 8 blocks, crafts carried gold blocks (inventory grid) and nuggets (a table in reach or a carried one placed) into ingots when the ingots run out, walks over seen returns within 8 blocks except building rubble (gravel, blackstone, soul sand, nether bricks, netherrack), drops a rubble stack when it needs a free slot to craft, counts the asked item by inventory change and the ingots traded by the gold gone, and stops with the listed codes; the measured outcomes come from the piglin-room and barter practice-room runs.",
       "checks": [
         {
           "type": "live-behavior",
@@ -57111,30 +57136,30 @@
           "predicate": "In a sealed Nether-wastes room with 3 summoned adult piglins, a worn golden helmet and 32 gold ingots, one barter_until call throws ingots one at a time, collects returns, and its reported gained count of the asked item equals the operator-read inventory change."
         },
         {
-          "file": "src/test/java/dev/agaminggod/mineagen/server/runtime/PerceptionGateVerification.java",
-          "test": "verifyPiglinAnger",
-          "type": "java-behavior",
-          "command": "gradlew verifyCore"
+          "type": "live-behavior",
+          "test": "barter.practice-room",
+          "command": "slot.sh live node scripts/quality/test-barter-room-live.mjs held|blocks|mine SALT OUT_DIR JAR",
+          "predicate": "In a sealed, lit Nether-wastes hall with summoned calm adult piglins, the held room (golden helmet carried, not worn; 192 ingots; piglins 28 blocks off) and the blocks room (20 gold blocks, 6 ingots) trade carried gold for pearls through repeated barter_until calls with no death; the mine room converts mined nuggets at a placed table."
         }
       ],
-      "id": "control:984c1c073e0c228d:f98b196d79b224c2:result:BARTER_COUNT_REACHED",
+      "status": "partial",
+      "reason": "Piglin-room runs cover bartering, collection and the count; the anger, armour, hostile and danger stops are implemented in ServerBarterController but have no dedicated fixture."
+    },
+    {
+      "id": "control:984c1c073e0c228d:6db2e962dcb8bd27:result:BARTER_COUNT_REACHED",
       "contract": {
-        "id": "control:984c1c073e0c228d:f98b196d79b224c2:result:BARTER_COUNT_REACHED",
-        "claim": "Stops with the counts (item gained and held, ingots thrown and left, every item gained): BARTER_COUNT_REACHED, OUT_OF_GOLD (no ingot left and no piglin still examining one), NO_PIGLIN (no calm adult piglin in sight after a full look around in 60 degree steps), PIGLIN_ANGRY (a piglin you see goes for you), NO_GOLD_ARMOUR, DAMAGE_TAKEN, LOW_HEALTH (8 or less), IN_LAVA, ON_FIRE, HOSTILE_NEAR (a non-piglin hostile in sight within 12 blocks), BARTER_TIMED_OUT. Cancel it like any action.",
+        "id": "control:984c1c073e0c228d:6db2e962dcb8bd27:result:BARTER_COUNT_REACHED",
+        "claim": "Stops with the counts (item gained and held, ingots traded, thrown and crafted, every item gained): BARTER_COUNT_REACHED, OUT_OF_GOLD (no ingot left or craftable here and no piglin still examining one), NO_PIGLIN (no calm adult piglin in sight after a full look around in 60 degree steps), PIGLIN_ANGRY (a piglin you see goes for you), NO_GOLD_ARMOUR, DAMAGE_TAKEN, LOW_HEALTH (8 or less), IN_LAVA, ON_FIRE, HOSTILE_NEAR (a non-piglin hostile in sight within 12 blocks), BARTER_TIMED_OUT. Cancel it like any action.",
         "kind": "result-code",
         "topic": "barter_until",
         "code": "BARTER_COUNT_REACHED",
-        "parent": "control:984c1c073e0c228d:f98b196d79b224c2"
+        "parent": "control:984c1c073e0c228d:6db2e962dcb8bd27"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
         "line": 899
       },
-      "status": "partial",
-      "reason": "Piglin-room runs cover bartering, collection and the count; the anger, armour, hostile and danger stops are implemented in ServerBarterController but have no dedicated fixture."
-    },
-    {
-      "predicate": "barter_until requires a worn gold armour piece, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin with an empty offhand, walks over seen returns within 8 blocks, counts the asked item by inventory change and stops with the listed codes; the measured outcomes come from the piglin-room runs. PIGLIN_ANGRY needs a seen piglin going for the body (its target); the ANGRY_AT memory is not read.",
+      "predicate": "barter_until puts on a carried gold armour piece when none is worn (right-click use) and otherwise stops NO_GOLD_ARMOUR, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin within 16 blocks (up to 32 when none is that near) with an empty offhand and no seen hoglin, zoglin or brute within 8 blocks, crafts carried gold blocks (inventory grid) and nuggets (a table in reach or a carried one placed) into ingots when the ingots run out, walks over seen returns within 8 blocks except building rubble (gravel, blackstone, soul sand, nether bricks, netherrack), drops a rubble stack when it needs a free slot to craft, counts the asked item by inventory change and the ingots traded by the gold gone, and stops with the listed codes; the measured outcomes come from the piglin-room and barter practice-room runs. PIGLIN_ANGRY needs a seen piglin going for the body (its target); the ANGRY_AT memory is not read.",
       "checks": [
         {
           "type": "live-behavior",
@@ -57147,26 +57172,32 @@
           "test": "verifyPiglinAnger",
           "type": "java-behavior",
           "command": "gradlew verifyCore"
+        },
+        {
+          "type": "live-behavior",
+          "test": "barter.practice-room",
+          "command": "slot.sh live node scripts/quality/test-barter-room-live.mjs held|blocks|mine SALT OUT_DIR JAR",
+          "predicate": "In a sealed, lit Nether-wastes hall with summoned calm adult piglins, the held room (golden helmet carried, not worn; 192 ingots; piglins 28 blocks off) and the blocks room (20 gold blocks, 6 ingots) trade carried gold for pearls through repeated barter_until calls with no death; the mine room converts mined nuggets at a placed table."
         }
       ],
-      "id": "control:984c1c073e0c228d:f98b196d79b224c2:result:OUT_OF_GOLD",
+      "status": "partial",
+      "reason": "Piglin-room runs cover bartering, collection and the count; the anger, armour, hostile and danger stops are implemented in ServerBarterController but have no dedicated fixture."
+    },
+    {
+      "id": "control:984c1c073e0c228d:6db2e962dcb8bd27:result:OUT_OF_GOLD",
       "contract": {
-        "id": "control:984c1c073e0c228d:f98b196d79b224c2:result:OUT_OF_GOLD",
-        "claim": "Stops with the counts (item gained and held, ingots thrown and left, every item gained): BARTER_COUNT_REACHED, OUT_OF_GOLD (no ingot left and no piglin still examining one), NO_PIGLIN (no calm adult piglin in sight after a full look around in 60 degree steps), PIGLIN_ANGRY (a piglin you see goes for you), NO_GOLD_ARMOUR, DAMAGE_TAKEN, LOW_HEALTH (8 or less), IN_LAVA, ON_FIRE, HOSTILE_NEAR (a non-piglin hostile in sight within 12 blocks), BARTER_TIMED_OUT. Cancel it like any action.",
+        "id": "control:984c1c073e0c228d:6db2e962dcb8bd27:result:OUT_OF_GOLD",
+        "claim": "Stops with the counts (item gained and held, ingots traded, thrown and crafted, every item gained): BARTER_COUNT_REACHED, OUT_OF_GOLD (no ingot left or craftable here and no piglin still examining one), NO_PIGLIN (no calm adult piglin in sight after a full look around in 60 degree steps), PIGLIN_ANGRY (a piglin you see goes for you), NO_GOLD_ARMOUR, DAMAGE_TAKEN, LOW_HEALTH (8 or less), IN_LAVA, ON_FIRE, HOSTILE_NEAR (a non-piglin hostile in sight within 12 blocks), BARTER_TIMED_OUT. Cancel it like any action.",
         "kind": "result-code",
         "topic": "barter_until",
         "code": "OUT_OF_GOLD",
-        "parent": "control:984c1c073e0c228d:f98b196d79b224c2"
+        "parent": "control:984c1c073e0c228d:6db2e962dcb8bd27"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
         "line": 899
       },
-      "status": "partial",
-      "reason": "Piglin-room runs cover bartering, collection and the count; the anger, armour, hostile and danger stops are implemented in ServerBarterController but have no dedicated fixture."
-    },
-    {
-      "predicate": "barter_until requires a worn gold armour piece, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin with an empty offhand, walks over seen returns within 8 blocks, counts the asked item by inventory change and stops with the listed codes; the measured outcomes come from the piglin-room runs. PIGLIN_ANGRY needs a seen piglin going for the body (its target); the ANGRY_AT memory is not read.",
+      "predicate": "barter_until puts on a carried gold armour piece when none is worn (right-click use) and otherwise stops NO_GOLD_ARMOUR, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin within 16 blocks (up to 32 when none is that near) with an empty offhand and no seen hoglin, zoglin or brute within 8 blocks, crafts carried gold blocks (inventory grid) and nuggets (a table in reach or a carried one placed) into ingots when the ingots run out, walks over seen returns within 8 blocks except building rubble (gravel, blackstone, soul sand, nether bricks, netherrack), drops a rubble stack when it needs a free slot to craft, counts the asked item by inventory change and the ingots traded by the gold gone, and stops with the listed codes; the measured outcomes come from the piglin-room and barter practice-room runs. PIGLIN_ANGRY needs a seen piglin going for the body (its target); the ANGRY_AT memory is not read.",
       "checks": [
         {
           "type": "live-behavior",
@@ -57179,26 +57210,32 @@
           "test": "verifyPiglinAnger",
           "type": "java-behavior",
           "command": "gradlew verifyCore"
+        },
+        {
+          "type": "live-behavior",
+          "test": "barter.practice-room",
+          "command": "slot.sh live node scripts/quality/test-barter-room-live.mjs held|blocks|mine SALT OUT_DIR JAR",
+          "predicate": "In a sealed, lit Nether-wastes hall with summoned calm adult piglins, the held room (golden helmet carried, not worn; 192 ingots; piglins 28 blocks off) and the blocks room (20 gold blocks, 6 ingots) trade carried gold for pearls through repeated barter_until calls with no death; the mine room converts mined nuggets at a placed table."
         }
       ],
-      "id": "control:984c1c073e0c228d:f98b196d79b224c2:result:NO_PIGLIN",
+      "status": "partial",
+      "reason": "Piglin-room runs cover bartering, collection and the count; the anger, armour, hostile and danger stops are implemented in ServerBarterController but have no dedicated fixture."
+    },
+    {
+      "id": "control:984c1c073e0c228d:6db2e962dcb8bd27:result:NO_PIGLIN",
       "contract": {
-        "id": "control:984c1c073e0c228d:f98b196d79b224c2:result:NO_PIGLIN",
-        "claim": "Stops with the counts (item gained and held, ingots thrown and left, every item gained): BARTER_COUNT_REACHED, OUT_OF_GOLD (no ingot left and no piglin still examining one), NO_PIGLIN (no calm adult piglin in sight after a full look around in 60 degree steps), PIGLIN_ANGRY (a piglin you see goes for you), NO_GOLD_ARMOUR, DAMAGE_TAKEN, LOW_HEALTH (8 or less), IN_LAVA, ON_FIRE, HOSTILE_NEAR (a non-piglin hostile in sight within 12 blocks), BARTER_TIMED_OUT. Cancel it like any action.",
+        "id": "control:984c1c073e0c228d:6db2e962dcb8bd27:result:NO_PIGLIN",
+        "claim": "Stops with the counts (item gained and held, ingots traded, thrown and crafted, every item gained): BARTER_COUNT_REACHED, OUT_OF_GOLD (no ingot left or craftable here and no piglin still examining one), NO_PIGLIN (no calm adult piglin in sight after a full look around in 60 degree steps), PIGLIN_ANGRY (a piglin you see goes for you), NO_GOLD_ARMOUR, DAMAGE_TAKEN, LOW_HEALTH (8 or less), IN_LAVA, ON_FIRE, HOSTILE_NEAR (a non-piglin hostile in sight within 12 blocks), BARTER_TIMED_OUT. Cancel it like any action.",
         "kind": "result-code",
         "topic": "barter_until",
         "code": "NO_PIGLIN",
-        "parent": "control:984c1c073e0c228d:f98b196d79b224c2"
+        "parent": "control:984c1c073e0c228d:6db2e962dcb8bd27"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
         "line": 899
       },
-      "status": "partial",
-      "reason": "Piglin-room runs cover bartering, collection and the count; the anger, armour, hostile and danger stops are implemented in ServerBarterController but have no dedicated fixture."
-    },
-    {
-      "predicate": "barter_until requires a worn gold armour piece, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin with an empty offhand, walks over seen returns within 8 blocks, counts the asked item by inventory change and stops with the listed codes; the measured outcomes come from the piglin-room runs. PIGLIN_ANGRY needs a seen piglin going for the body (its target); the ANGRY_AT memory is not read.",
+      "predicate": "barter_until puts on a carried gold armour piece when none is worn (right-click use) and otherwise stops NO_GOLD_ARMOUR, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin within 16 blocks (up to 32 when none is that near) with an empty offhand and no seen hoglin, zoglin or brute within 8 blocks, crafts carried gold blocks (inventory grid) and nuggets (a table in reach or a carried one placed) into ingots when the ingots run out, walks over seen returns within 8 blocks except building rubble (gravel, blackstone, soul sand, nether bricks, netherrack), drops a rubble stack when it needs a free slot to craft, counts the asked item by inventory change and the ingots traded by the gold gone, and stops with the listed codes; the measured outcomes come from the piglin-room and barter practice-room runs. PIGLIN_ANGRY needs a seen piglin going for the body (its target); the ANGRY_AT memory is not read.",
       "checks": [
         {
           "type": "live-behavior",
@@ -57211,26 +57248,32 @@
           "test": "verifyPiglinAnger",
           "type": "java-behavior",
           "command": "gradlew verifyCore"
+        },
+        {
+          "type": "live-behavior",
+          "test": "barter.practice-room",
+          "command": "slot.sh live node scripts/quality/test-barter-room-live.mjs held|blocks|mine SALT OUT_DIR JAR",
+          "predicate": "In a sealed, lit Nether-wastes hall with summoned calm adult piglins, the held room (golden helmet carried, not worn; 192 ingots; piglins 28 blocks off) and the blocks room (20 gold blocks, 6 ingots) trade carried gold for pearls through repeated barter_until calls with no death; the mine room converts mined nuggets at a placed table."
         }
       ],
-      "id": "control:984c1c073e0c228d:f98b196d79b224c2:result:PIGLIN_ANGRY",
+      "status": "partial",
+      "reason": "Piglin-room runs cover bartering, collection and the count; the anger, armour, hostile and danger stops are implemented in ServerBarterController but have no dedicated fixture."
+    },
+    {
+      "id": "control:984c1c073e0c228d:6db2e962dcb8bd27:result:PIGLIN_ANGRY",
       "contract": {
-        "id": "control:984c1c073e0c228d:f98b196d79b224c2:result:PIGLIN_ANGRY",
-        "claim": "Stops with the counts (item gained and held, ingots thrown and left, every item gained): BARTER_COUNT_REACHED, OUT_OF_GOLD (no ingot left and no piglin still examining one), NO_PIGLIN (no calm adult piglin in sight after a full look around in 60 degree steps), PIGLIN_ANGRY (a piglin you see goes for you), NO_GOLD_ARMOUR, DAMAGE_TAKEN, LOW_HEALTH (8 or less), IN_LAVA, ON_FIRE, HOSTILE_NEAR (a non-piglin hostile in sight within 12 blocks), BARTER_TIMED_OUT. Cancel it like any action.",
+        "id": "control:984c1c073e0c228d:6db2e962dcb8bd27:result:PIGLIN_ANGRY",
+        "claim": "Stops with the counts (item gained and held, ingots traded, thrown and crafted, every item gained): BARTER_COUNT_REACHED, OUT_OF_GOLD (no ingot left or craftable here and no piglin still examining one), NO_PIGLIN (no calm adult piglin in sight after a full look around in 60 degree steps), PIGLIN_ANGRY (a piglin you see goes for you), NO_GOLD_ARMOUR, DAMAGE_TAKEN, LOW_HEALTH (8 or less), IN_LAVA, ON_FIRE, HOSTILE_NEAR (a non-piglin hostile in sight within 12 blocks), BARTER_TIMED_OUT. Cancel it like any action.",
         "kind": "result-code",
         "topic": "barter_until",
         "code": "PIGLIN_ANGRY",
-        "parent": "control:984c1c073e0c228d:f98b196d79b224c2"
+        "parent": "control:984c1c073e0c228d:6db2e962dcb8bd27"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
         "line": 899
       },
-      "status": "partial",
-      "reason": "Piglin-room runs cover bartering, collection and the count; the anger, armour, hostile and danger stops are implemented in ServerBarterController but have no dedicated fixture."
-    },
-    {
-      "predicate": "barter_until requires a worn gold armour piece, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin with an empty offhand, walks over seen returns within 8 blocks, counts the asked item by inventory change and stops with the listed codes; the measured outcomes come from the piglin-room runs. PIGLIN_ANGRY needs a seen piglin going for the body (its target); the ANGRY_AT memory is not read.",
+      "predicate": "barter_until puts on a carried gold armour piece when none is worn (right-click use) and otherwise stops NO_GOLD_ARMOUR, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin within 16 blocks (up to 32 when none is that near) with an empty offhand and no seen hoglin, zoglin or brute within 8 blocks, crafts carried gold blocks (inventory grid) and nuggets (a table in reach or a carried one placed) into ingots when the ingots run out, walks over seen returns within 8 blocks except building rubble (gravel, blackstone, soul sand, nether bricks, netherrack), drops a rubble stack when it needs a free slot to craft, counts the asked item by inventory change and the ingots traded by the gold gone, and stops with the listed codes; the measured outcomes come from the piglin-room and barter practice-room runs. PIGLIN_ANGRY needs a seen piglin going for the body (its target); the ANGRY_AT memory is not read.",
       "checks": [
         {
           "type": "live-behavior",
@@ -57243,26 +57286,32 @@
           "test": "verifyPiglinAnger",
           "type": "java-behavior",
           "command": "gradlew verifyCore"
+        },
+        {
+          "type": "live-behavior",
+          "test": "barter.practice-room",
+          "command": "slot.sh live node scripts/quality/test-barter-room-live.mjs held|blocks|mine SALT OUT_DIR JAR",
+          "predicate": "In a sealed, lit Nether-wastes hall with summoned calm adult piglins, the held room (golden helmet carried, not worn; 192 ingots; piglins 28 blocks off) and the blocks room (20 gold blocks, 6 ingots) trade carried gold for pearls through repeated barter_until calls with no death; the mine room converts mined nuggets at a placed table."
         }
       ],
-      "id": "control:984c1c073e0c228d:f98b196d79b224c2:result:NO_GOLD_ARMOUR",
+      "status": "partial",
+      "reason": "Piglin-room runs cover bartering, collection and the count; the anger, armour, hostile and danger stops are implemented in ServerBarterController but have no dedicated fixture."
+    },
+    {
+      "id": "control:984c1c073e0c228d:6db2e962dcb8bd27:result:NO_GOLD_ARMOUR",
       "contract": {
-        "id": "control:984c1c073e0c228d:f98b196d79b224c2:result:NO_GOLD_ARMOUR",
-        "claim": "Stops with the counts (item gained and held, ingots thrown and left, every item gained): BARTER_COUNT_REACHED, OUT_OF_GOLD (no ingot left and no piglin still examining one), NO_PIGLIN (no calm adult piglin in sight after a full look around in 60 degree steps), PIGLIN_ANGRY (a piglin you see goes for you), NO_GOLD_ARMOUR, DAMAGE_TAKEN, LOW_HEALTH (8 or less), IN_LAVA, ON_FIRE, HOSTILE_NEAR (a non-piglin hostile in sight within 12 blocks), BARTER_TIMED_OUT. Cancel it like any action.",
+        "id": "control:984c1c073e0c228d:6db2e962dcb8bd27:result:NO_GOLD_ARMOUR",
+        "claim": "Stops with the counts (item gained and held, ingots traded, thrown and crafted, every item gained): BARTER_COUNT_REACHED, OUT_OF_GOLD (no ingot left or craftable here and no piglin still examining one), NO_PIGLIN (no calm adult piglin in sight after a full look around in 60 degree steps), PIGLIN_ANGRY (a piglin you see goes for you), NO_GOLD_ARMOUR, DAMAGE_TAKEN, LOW_HEALTH (8 or less), IN_LAVA, ON_FIRE, HOSTILE_NEAR (a non-piglin hostile in sight within 12 blocks), BARTER_TIMED_OUT. Cancel it like any action.",
         "kind": "result-code",
         "topic": "barter_until",
         "code": "NO_GOLD_ARMOUR",
-        "parent": "control:984c1c073e0c228d:f98b196d79b224c2"
+        "parent": "control:984c1c073e0c228d:6db2e962dcb8bd27"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
         "line": 899
       },
-      "status": "partial",
-      "reason": "Piglin-room runs cover bartering, collection and the count; the anger, armour, hostile and danger stops are implemented in ServerBarterController but have no dedicated fixture."
-    },
-    {
-      "predicate": "barter_until requires a worn gold armour piece, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin with an empty offhand, walks over seen returns within 8 blocks, counts the asked item by inventory change and stops with the listed codes; the measured outcomes come from the piglin-room runs. PIGLIN_ANGRY needs a seen piglin going for the body (its target); the ANGRY_AT memory is not read.",
+      "predicate": "barter_until puts on a carried gold armour piece when none is worn (right-click use) and otherwise stops NO_GOLD_ARMOUR, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin within 16 blocks (up to 32 when none is that near) with an empty offhand and no seen hoglin, zoglin or brute within 8 blocks, crafts carried gold blocks (inventory grid) and nuggets (a table in reach or a carried one placed) into ingots when the ingots run out, walks over seen returns within 8 blocks except building rubble (gravel, blackstone, soul sand, nether bricks, netherrack), drops a rubble stack when it needs a free slot to craft, counts the asked item by inventory change and the ingots traded by the gold gone, and stops with the listed codes; the measured outcomes come from the piglin-room and barter practice-room runs. PIGLIN_ANGRY needs a seen piglin going for the body (its target); the ANGRY_AT memory is not read.",
       "checks": [
         {
           "type": "live-behavior",
@@ -57275,26 +57324,32 @@
           "test": "verifyPiglinAnger",
           "type": "java-behavior",
           "command": "gradlew verifyCore"
+        },
+        {
+          "type": "live-behavior",
+          "test": "barter.practice-room",
+          "command": "slot.sh live node scripts/quality/test-barter-room-live.mjs held|blocks|mine SALT OUT_DIR JAR",
+          "predicate": "In a sealed, lit Nether-wastes hall with summoned calm adult piglins, the held room (golden helmet carried, not worn; 192 ingots; piglins 28 blocks off) and the blocks room (20 gold blocks, 6 ingots) trade carried gold for pearls through repeated barter_until calls with no death; the mine room converts mined nuggets at a placed table."
         }
       ],
-      "id": "control:984c1c073e0c228d:f98b196d79b224c2:result:DAMAGE_TAKEN",
+      "status": "partial",
+      "reason": "Piglin-room runs cover bartering, collection and the count; the anger, armour, hostile and danger stops are implemented in ServerBarterController but have no dedicated fixture."
+    },
+    {
+      "id": "control:984c1c073e0c228d:6db2e962dcb8bd27:result:DAMAGE_TAKEN",
       "contract": {
-        "id": "control:984c1c073e0c228d:f98b196d79b224c2:result:DAMAGE_TAKEN",
-        "claim": "Stops with the counts (item gained and held, ingots thrown and left, every item gained): BARTER_COUNT_REACHED, OUT_OF_GOLD (no ingot left and no piglin still examining one), NO_PIGLIN (no calm adult piglin in sight after a full look around in 60 degree steps), PIGLIN_ANGRY (a piglin you see goes for you), NO_GOLD_ARMOUR, DAMAGE_TAKEN, LOW_HEALTH (8 or less), IN_LAVA, ON_FIRE, HOSTILE_NEAR (a non-piglin hostile in sight within 12 blocks), BARTER_TIMED_OUT. Cancel it like any action.",
+        "id": "control:984c1c073e0c228d:6db2e962dcb8bd27:result:DAMAGE_TAKEN",
+        "claim": "Stops with the counts (item gained and held, ingots traded, thrown and crafted, every item gained): BARTER_COUNT_REACHED, OUT_OF_GOLD (no ingot left or craftable here and no piglin still examining one), NO_PIGLIN (no calm adult piglin in sight after a full look around in 60 degree steps), PIGLIN_ANGRY (a piglin you see goes for you), NO_GOLD_ARMOUR, DAMAGE_TAKEN, LOW_HEALTH (8 or less), IN_LAVA, ON_FIRE, HOSTILE_NEAR (a non-piglin hostile in sight within 12 blocks), BARTER_TIMED_OUT. Cancel it like any action.",
         "kind": "result-code",
         "topic": "barter_until",
         "code": "DAMAGE_TAKEN",
-        "parent": "control:984c1c073e0c228d:f98b196d79b224c2"
+        "parent": "control:984c1c073e0c228d:6db2e962dcb8bd27"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
         "line": 899
       },
-      "status": "partial",
-      "reason": "Piglin-room runs cover bartering, collection and the count; the anger, armour, hostile and danger stops are implemented in ServerBarterController but have no dedicated fixture."
-    },
-    {
-      "predicate": "barter_until requires a worn gold armour piece, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin with an empty offhand, walks over seen returns within 8 blocks, counts the asked item by inventory change and stops with the listed codes; the measured outcomes come from the piglin-room runs. PIGLIN_ANGRY needs a seen piglin going for the body (its target); the ANGRY_AT memory is not read.",
+      "predicate": "barter_until puts on a carried gold armour piece when none is worn (right-click use) and otherwise stops NO_GOLD_ARMOUR, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin within 16 blocks (up to 32 when none is that near) with an empty offhand and no seen hoglin, zoglin or brute within 8 blocks, crafts carried gold blocks (inventory grid) and nuggets (a table in reach or a carried one placed) into ingots when the ingots run out, walks over seen returns within 8 blocks except building rubble (gravel, blackstone, soul sand, nether bricks, netherrack), drops a rubble stack when it needs a free slot to craft, counts the asked item by inventory change and the ingots traded by the gold gone, and stops with the listed codes; the measured outcomes come from the piglin-room and barter practice-room runs. PIGLIN_ANGRY needs a seen piglin going for the body (its target); the ANGRY_AT memory is not read.",
       "checks": [
         {
           "type": "live-behavior",
@@ -57307,26 +57362,32 @@
           "test": "verifyPiglinAnger",
           "type": "java-behavior",
           "command": "gradlew verifyCore"
+        },
+        {
+          "type": "live-behavior",
+          "test": "barter.practice-room",
+          "command": "slot.sh live node scripts/quality/test-barter-room-live.mjs held|blocks|mine SALT OUT_DIR JAR",
+          "predicate": "In a sealed, lit Nether-wastes hall with summoned calm adult piglins, the held room (golden helmet carried, not worn; 192 ingots; piglins 28 blocks off) and the blocks room (20 gold blocks, 6 ingots) trade carried gold for pearls through repeated barter_until calls with no death; the mine room converts mined nuggets at a placed table."
         }
       ],
-      "id": "control:984c1c073e0c228d:f98b196d79b224c2:result:LOW_HEALTH",
+      "status": "partial",
+      "reason": "Piglin-room runs cover bartering, collection and the count; the anger, armour, hostile and danger stops are implemented in ServerBarterController but have no dedicated fixture."
+    },
+    {
+      "id": "control:984c1c073e0c228d:6db2e962dcb8bd27:result:LOW_HEALTH",
       "contract": {
-        "id": "control:984c1c073e0c228d:f98b196d79b224c2:result:LOW_HEALTH",
-        "claim": "Stops with the counts (item gained and held, ingots thrown and left, every item gained): BARTER_COUNT_REACHED, OUT_OF_GOLD (no ingot left and no piglin still examining one), NO_PIGLIN (no calm adult piglin in sight after a full look around in 60 degree steps), PIGLIN_ANGRY (a piglin you see goes for you), NO_GOLD_ARMOUR, DAMAGE_TAKEN, LOW_HEALTH (8 or less), IN_LAVA, ON_FIRE, HOSTILE_NEAR (a non-piglin hostile in sight within 12 blocks), BARTER_TIMED_OUT. Cancel it like any action.",
+        "id": "control:984c1c073e0c228d:6db2e962dcb8bd27:result:LOW_HEALTH",
+        "claim": "Stops with the counts (item gained and held, ingots traded, thrown and crafted, every item gained): BARTER_COUNT_REACHED, OUT_OF_GOLD (no ingot left or craftable here and no piglin still examining one), NO_PIGLIN (no calm adult piglin in sight after a full look around in 60 degree steps), PIGLIN_ANGRY (a piglin you see goes for you), NO_GOLD_ARMOUR, DAMAGE_TAKEN, LOW_HEALTH (8 or less), IN_LAVA, ON_FIRE, HOSTILE_NEAR (a non-piglin hostile in sight within 12 blocks), BARTER_TIMED_OUT. Cancel it like any action.",
         "kind": "result-code",
         "topic": "barter_until",
         "code": "LOW_HEALTH",
-        "parent": "control:984c1c073e0c228d:f98b196d79b224c2"
+        "parent": "control:984c1c073e0c228d:6db2e962dcb8bd27"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
         "line": 899
       },
-      "status": "partial",
-      "reason": "Piglin-room runs cover bartering, collection and the count; the anger, armour, hostile and danger stops are implemented in ServerBarterController but have no dedicated fixture."
-    },
-    {
-      "predicate": "barter_until requires a worn gold armour piece, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin with an empty offhand, walks over seen returns within 8 blocks, counts the asked item by inventory change and stops with the listed codes; the measured outcomes come from the piglin-room runs. PIGLIN_ANGRY needs a seen piglin going for the body (its target); the ANGRY_AT memory is not read.",
+      "predicate": "barter_until puts on a carried gold armour piece when none is worn (right-click use) and otherwise stops NO_GOLD_ARMOUR, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin within 16 blocks (up to 32 when none is that near) with an empty offhand and no seen hoglin, zoglin or brute within 8 blocks, crafts carried gold blocks (inventory grid) and nuggets (a table in reach or a carried one placed) into ingots when the ingots run out, walks over seen returns within 8 blocks except building rubble (gravel, blackstone, soul sand, nether bricks, netherrack), drops a rubble stack when it needs a free slot to craft, counts the asked item by inventory change and the ingots traded by the gold gone, and stops with the listed codes; the measured outcomes come from the piglin-room and barter practice-room runs. PIGLIN_ANGRY needs a seen piglin going for the body (its target); the ANGRY_AT memory is not read.",
       "checks": [
         {
           "type": "live-behavior",
@@ -57339,26 +57400,32 @@
           "test": "verifyPiglinAnger",
           "type": "java-behavior",
           "command": "gradlew verifyCore"
+        },
+        {
+          "type": "live-behavior",
+          "test": "barter.practice-room",
+          "command": "slot.sh live node scripts/quality/test-barter-room-live.mjs held|blocks|mine SALT OUT_DIR JAR",
+          "predicate": "In a sealed, lit Nether-wastes hall with summoned calm adult piglins, the held room (golden helmet carried, not worn; 192 ingots; piglins 28 blocks off) and the blocks room (20 gold blocks, 6 ingots) trade carried gold for pearls through repeated barter_until calls with no death; the mine room converts mined nuggets at a placed table."
         }
       ],
-      "id": "control:984c1c073e0c228d:f98b196d79b224c2:result:IN_LAVA",
+      "status": "partial",
+      "reason": "Piglin-room runs cover bartering, collection and the count; the anger, armour, hostile and danger stops are implemented in ServerBarterController but have no dedicated fixture."
+    },
+    {
+      "id": "control:984c1c073e0c228d:6db2e962dcb8bd27:result:IN_LAVA",
       "contract": {
-        "id": "control:984c1c073e0c228d:f98b196d79b224c2:result:IN_LAVA",
-        "claim": "Stops with the counts (item gained and held, ingots thrown and left, every item gained): BARTER_COUNT_REACHED, OUT_OF_GOLD (no ingot left and no piglin still examining one), NO_PIGLIN (no calm adult piglin in sight after a full look around in 60 degree steps), PIGLIN_ANGRY (a piglin you see goes for you), NO_GOLD_ARMOUR, DAMAGE_TAKEN, LOW_HEALTH (8 or less), IN_LAVA, ON_FIRE, HOSTILE_NEAR (a non-piglin hostile in sight within 12 blocks), BARTER_TIMED_OUT. Cancel it like any action.",
+        "id": "control:984c1c073e0c228d:6db2e962dcb8bd27:result:IN_LAVA",
+        "claim": "Stops with the counts (item gained and held, ingots traded, thrown and crafted, every item gained): BARTER_COUNT_REACHED, OUT_OF_GOLD (no ingot left or craftable here and no piglin still examining one), NO_PIGLIN (no calm adult piglin in sight after a full look around in 60 degree steps), PIGLIN_ANGRY (a piglin you see goes for you), NO_GOLD_ARMOUR, DAMAGE_TAKEN, LOW_HEALTH (8 or less), IN_LAVA, ON_FIRE, HOSTILE_NEAR (a non-piglin hostile in sight within 12 blocks), BARTER_TIMED_OUT. Cancel it like any action.",
         "kind": "result-code",
         "topic": "barter_until",
         "code": "IN_LAVA",
-        "parent": "control:984c1c073e0c228d:f98b196d79b224c2"
+        "parent": "control:984c1c073e0c228d:6db2e962dcb8bd27"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
         "line": 899
       },
-      "status": "partial",
-      "reason": "Piglin-room runs cover bartering, collection and the count; the anger, armour, hostile and danger stops are implemented in ServerBarterController but have no dedicated fixture."
-    },
-    {
-      "predicate": "barter_until requires a worn gold armour piece, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin with an empty offhand, walks over seen returns within 8 blocks, counts the asked item by inventory change and stops with the listed codes; the measured outcomes come from the piglin-room runs. PIGLIN_ANGRY needs a seen piglin going for the body (its target); the ANGRY_AT memory is not read.",
+      "predicate": "barter_until puts on a carried gold armour piece when none is worn (right-click use) and otherwise stops NO_GOLD_ARMOUR, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin within 16 blocks (up to 32 when none is that near) with an empty offhand and no seen hoglin, zoglin or brute within 8 blocks, crafts carried gold blocks (inventory grid) and nuggets (a table in reach or a carried one placed) into ingots when the ingots run out, walks over seen returns within 8 blocks except building rubble (gravel, blackstone, soul sand, nether bricks, netherrack), drops a rubble stack when it needs a free slot to craft, counts the asked item by inventory change and the ingots traded by the gold gone, and stops with the listed codes; the measured outcomes come from the piglin-room and barter practice-room runs. PIGLIN_ANGRY needs a seen piglin going for the body (its target); the ANGRY_AT memory is not read.",
       "checks": [
         {
           "type": "live-behavior",
@@ -57371,26 +57438,32 @@
           "test": "verifyPiglinAnger",
           "type": "java-behavior",
           "command": "gradlew verifyCore"
+        },
+        {
+          "type": "live-behavior",
+          "test": "barter.practice-room",
+          "command": "slot.sh live node scripts/quality/test-barter-room-live.mjs held|blocks|mine SALT OUT_DIR JAR",
+          "predicate": "In a sealed, lit Nether-wastes hall with summoned calm adult piglins, the held room (golden helmet carried, not worn; 192 ingots; piglins 28 blocks off) and the blocks room (20 gold blocks, 6 ingots) trade carried gold for pearls through repeated barter_until calls with no death; the mine room converts mined nuggets at a placed table."
         }
       ],
-      "id": "control:984c1c073e0c228d:f98b196d79b224c2:result:ON_FIRE",
+      "status": "partial",
+      "reason": "Piglin-room runs cover bartering, collection and the count; the anger, armour, hostile and danger stops are implemented in ServerBarterController but have no dedicated fixture."
+    },
+    {
+      "id": "control:984c1c073e0c228d:6db2e962dcb8bd27:result:ON_FIRE",
       "contract": {
-        "id": "control:984c1c073e0c228d:f98b196d79b224c2:result:ON_FIRE",
-        "claim": "Stops with the counts (item gained and held, ingots thrown and left, every item gained): BARTER_COUNT_REACHED, OUT_OF_GOLD (no ingot left and no piglin still examining one), NO_PIGLIN (no calm adult piglin in sight after a full look around in 60 degree steps), PIGLIN_ANGRY (a piglin you see goes for you), NO_GOLD_ARMOUR, DAMAGE_TAKEN, LOW_HEALTH (8 or less), IN_LAVA, ON_FIRE, HOSTILE_NEAR (a non-piglin hostile in sight within 12 blocks), BARTER_TIMED_OUT. Cancel it like any action.",
+        "id": "control:984c1c073e0c228d:6db2e962dcb8bd27:result:ON_FIRE",
+        "claim": "Stops with the counts (item gained and held, ingots traded, thrown and crafted, every item gained): BARTER_COUNT_REACHED, OUT_OF_GOLD (no ingot left or craftable here and no piglin still examining one), NO_PIGLIN (no calm adult piglin in sight after a full look around in 60 degree steps), PIGLIN_ANGRY (a piglin you see goes for you), NO_GOLD_ARMOUR, DAMAGE_TAKEN, LOW_HEALTH (8 or less), IN_LAVA, ON_FIRE, HOSTILE_NEAR (a non-piglin hostile in sight within 12 blocks), BARTER_TIMED_OUT. Cancel it like any action.",
         "kind": "result-code",
         "topic": "barter_until",
         "code": "ON_FIRE",
-        "parent": "control:984c1c073e0c228d:f98b196d79b224c2"
+        "parent": "control:984c1c073e0c228d:6db2e962dcb8bd27"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
         "line": 899
       },
-      "status": "partial",
-      "reason": "Piglin-room runs cover bartering, collection and the count; the anger, armour, hostile and danger stops are implemented in ServerBarterController but have no dedicated fixture."
-    },
-    {
-      "predicate": "barter_until requires a worn gold armour piece, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin with an empty offhand, walks over seen returns within 8 blocks, counts the asked item by inventory change and stops with the listed codes; the measured outcomes come from the piglin-room runs. PIGLIN_ANGRY needs a seen piglin going for the body (its target); the ANGRY_AT memory is not read.",
+      "predicate": "barter_until puts on a carried gold armour piece when none is worn (right-click use) and otherwise stops NO_GOLD_ARMOUR, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin within 16 blocks (up to 32 when none is that near) with an empty offhand and no seen hoglin, zoglin or brute within 8 blocks, crafts carried gold blocks (inventory grid) and nuggets (a table in reach or a carried one placed) into ingots when the ingots run out, walks over seen returns within 8 blocks except building rubble (gravel, blackstone, soul sand, nether bricks, netherrack), drops a rubble stack when it needs a free slot to craft, counts the asked item by inventory change and the ingots traded by the gold gone, and stops with the listed codes; the measured outcomes come from the piglin-room and barter practice-room runs. PIGLIN_ANGRY needs a seen piglin going for the body (its target); the ANGRY_AT memory is not read.",
       "checks": [
         {
           "type": "live-behavior",
@@ -57403,26 +57476,32 @@
           "test": "verifyPiglinAnger",
           "type": "java-behavior",
           "command": "gradlew verifyCore"
+        },
+        {
+          "type": "live-behavior",
+          "test": "barter.practice-room",
+          "command": "slot.sh live node scripts/quality/test-barter-room-live.mjs held|blocks|mine SALT OUT_DIR JAR",
+          "predicate": "In a sealed, lit Nether-wastes hall with summoned calm adult piglins, the held room (golden helmet carried, not worn; 192 ingots; piglins 28 blocks off) and the blocks room (20 gold blocks, 6 ingots) trade carried gold for pearls through repeated barter_until calls with no death; the mine room converts mined nuggets at a placed table."
         }
       ],
-      "id": "control:984c1c073e0c228d:f98b196d79b224c2:result:HOSTILE_NEAR",
+      "status": "partial",
+      "reason": "Piglin-room runs cover bartering, collection and the count; the anger, armour, hostile and danger stops are implemented in ServerBarterController but have no dedicated fixture."
+    },
+    {
+      "id": "control:984c1c073e0c228d:6db2e962dcb8bd27:result:HOSTILE_NEAR",
       "contract": {
-        "id": "control:984c1c073e0c228d:f98b196d79b224c2:result:HOSTILE_NEAR",
-        "claim": "Stops with the counts (item gained and held, ingots thrown and left, every item gained): BARTER_COUNT_REACHED, OUT_OF_GOLD (no ingot left and no piglin still examining one), NO_PIGLIN (no calm adult piglin in sight after a full look around in 60 degree steps), PIGLIN_ANGRY (a piglin you see goes for you), NO_GOLD_ARMOUR, DAMAGE_TAKEN, LOW_HEALTH (8 or less), IN_LAVA, ON_FIRE, HOSTILE_NEAR (a non-piglin hostile in sight within 12 blocks), BARTER_TIMED_OUT. Cancel it like any action.",
+        "id": "control:984c1c073e0c228d:6db2e962dcb8bd27:result:HOSTILE_NEAR",
+        "claim": "Stops with the counts (item gained and held, ingots traded, thrown and crafted, every item gained): BARTER_COUNT_REACHED, OUT_OF_GOLD (no ingot left or craftable here and no piglin still examining one), NO_PIGLIN (no calm adult piglin in sight after a full look around in 60 degree steps), PIGLIN_ANGRY (a piglin you see goes for you), NO_GOLD_ARMOUR, DAMAGE_TAKEN, LOW_HEALTH (8 or less), IN_LAVA, ON_FIRE, HOSTILE_NEAR (a non-piglin hostile in sight within 12 blocks), BARTER_TIMED_OUT. Cancel it like any action.",
         "kind": "result-code",
         "topic": "barter_until",
         "code": "HOSTILE_NEAR",
-        "parent": "control:984c1c073e0c228d:f98b196d79b224c2"
+        "parent": "control:984c1c073e0c228d:6db2e962dcb8bd27"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
         "line": 899
       },
-      "status": "partial",
-      "reason": "Piglin-room runs cover bartering, collection and the count; the anger, armour, hostile and danger stops are implemented in ServerBarterController but have no dedicated fixture."
-    },
-    {
-      "predicate": "barter_until requires a worn gold armour piece, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin with an empty offhand, walks over seen returns within 8 blocks, counts the asked item by inventory change and stops with the listed codes; the measured outcomes come from the piglin-room runs. PIGLIN_ANGRY needs a seen piglin going for the body (its target); the ANGRY_AT memory is not read.",
+      "predicate": "barter_until puts on a carried gold armour piece when none is worn (right-click use) and otherwise stops NO_GOLD_ARMOUR, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin within 16 blocks (up to 32 when none is that near) with an empty offhand and no seen hoglin, zoglin or brute within 8 blocks, crafts carried gold blocks (inventory grid) and nuggets (a table in reach or a carried one placed) into ingots when the ingots run out, walks over seen returns within 8 blocks except building rubble (gravel, blackstone, soul sand, nether bricks, netherrack), drops a rubble stack when it needs a free slot to craft, counts the asked item by inventory change and the ingots traded by the gold gone, and stops with the listed codes; the measured outcomes come from the piglin-room and barter practice-room runs. PIGLIN_ANGRY needs a seen piglin going for the body (its target); the ANGRY_AT memory is not read.",
       "checks": [
         {
           "type": "live-behavior",
@@ -57435,21 +57514,52 @@
           "test": "verifyPiglinAnger",
           "type": "java-behavior",
           "command": "gradlew verifyCore"
+        },
+        {
+          "type": "live-behavior",
+          "test": "barter.practice-room",
+          "command": "slot.sh live node scripts/quality/test-barter-room-live.mjs held|blocks|mine SALT OUT_DIR JAR",
+          "predicate": "In a sealed, lit Nether-wastes hall with summoned calm adult piglins, the held room (golden helmet carried, not worn; 192 ingots; piglins 28 blocks off) and the blocks room (20 gold blocks, 6 ingots) trade carried gold for pearls through repeated barter_until calls with no death; the mine room converts mined nuggets at a placed table."
         }
       ],
-      "id": "control:984c1c073e0c228d:f98b196d79b224c2:result:BARTER_TIMED_OUT",
+      "status": "partial",
+      "reason": "Piglin-room runs cover bartering, collection and the count; the anger, armour, hostile and danger stops are implemented in ServerBarterController but have no dedicated fixture."
+    },
+    {
+      "id": "control:984c1c073e0c228d:6db2e962dcb8bd27:result:BARTER_TIMED_OUT",
       "contract": {
-        "id": "control:984c1c073e0c228d:f98b196d79b224c2:result:BARTER_TIMED_OUT",
-        "claim": "Stops with the counts (item gained and held, ingots thrown and left, every item gained): BARTER_COUNT_REACHED, OUT_OF_GOLD (no ingot left and no piglin still examining one), NO_PIGLIN (no calm adult piglin in sight after a full look around in 60 degree steps), PIGLIN_ANGRY (a piglin you see goes for you), NO_GOLD_ARMOUR, DAMAGE_TAKEN, LOW_HEALTH (8 or less), IN_LAVA, ON_FIRE, HOSTILE_NEAR (a non-piglin hostile in sight within 12 blocks), BARTER_TIMED_OUT. Cancel it like any action.",
+        "id": "control:984c1c073e0c228d:6db2e962dcb8bd27:result:BARTER_TIMED_OUT",
+        "claim": "Stops with the counts (item gained and held, ingots traded, thrown and crafted, every item gained): BARTER_COUNT_REACHED, OUT_OF_GOLD (no ingot left or craftable here and no piglin still examining one), NO_PIGLIN (no calm adult piglin in sight after a full look around in 60 degree steps), PIGLIN_ANGRY (a piglin you see goes for you), NO_GOLD_ARMOUR, DAMAGE_TAKEN, LOW_HEALTH (8 or less), IN_LAVA, ON_FIRE, HOSTILE_NEAR (a non-piglin hostile in sight within 12 blocks), BARTER_TIMED_OUT. Cancel it like any action.",
         "kind": "result-code",
         "topic": "barter_until",
         "code": "BARTER_TIMED_OUT",
-        "parent": "control:984c1c073e0c228d:f98b196d79b224c2"
+        "parent": "control:984c1c073e0c228d:6db2e962dcb8bd27"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
         "line": 899
       },
+      "predicate": "barter_until puts on a carried gold armour piece when none is worn (right-click use) and otherwise stops NO_GOLD_ARMOUR, throws one gold ingot at a time (vanilla Q drop) toward the nearest seen calm adult piglin within 16 blocks (up to 32 when none is that near) with an empty offhand and no seen hoglin, zoglin or brute within 8 blocks, crafts carried gold blocks (inventory grid) and nuggets (a table in reach or a carried one placed) into ingots when the ingots run out, walks over seen returns within 8 blocks except building rubble (gravel, blackstone, soul sand, nether bricks, netherrack), drops a rubble stack when it needs a free slot to craft, counts the asked item by inventory change and the ingots traded by the gold gone, and stops with the listed codes; the measured outcomes come from the piglin-room and barter practice-room runs. PIGLIN_ANGRY needs a seen piglin going for the body (its target); the ANGRY_AT memory is not read.",
+      "checks": [
+        {
+          "type": "live-behavior",
+          "test": "barter.piglin-room",
+          "command": "slot.sh live node scripts/quality/test-cast-barter-live.mjs barter evals/d41-cast-barter/checkpoints/piglin-barter.json OUT_DIR",
+          "predicate": "In a sealed Nether-wastes room with 3 summoned adult piglins, a worn golden helmet and 32 gold ingots, one barter_until call throws ingots one at a time, collects returns, and its reported gained count of the asked item equals the operator-read inventory change."
+        },
+        {
+          "file": "src/test/java/dev/agaminggod/mineagen/server/runtime/PerceptionGateVerification.java",
+          "test": "verifyPiglinAnger",
+          "type": "java-behavior",
+          "command": "gradlew verifyCore"
+        },
+        {
+          "type": "live-behavior",
+          "test": "barter.practice-room",
+          "command": "slot.sh live node scripts/quality/test-barter-room-live.mjs held|blocks|mine SALT OUT_DIR JAR",
+          "predicate": "In a sealed, lit Nether-wastes hall with summoned calm adult piglins, the held room (golden helmet carried, not worn; 192 ingots; piglins 28 blocks off) and the blocks room (20 gold blocks, 6 ingots) trade carried gold for pearls through repeated barter_until calls with no death; the mine room converts mined nuggets at a placed table."
+        }
+      ],
       "status": "partial",
       "reason": "Piglin-room runs cover bartering, collection and the count; the anger, armour, hostile and danger stops are implemented in ServerBarterController but have no dedicated fixture."
     },

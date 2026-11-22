@@ -32,7 +32,11 @@ async function program(samples) {
 	await until(() => traces.some(({ event }) => event === 'native_program_started'), 'the program');
 	const status = () => runtime.execute({ agentId: 'agent-a', goalRevision: 3, turnId: 'turn-1', callId: `status-${++sequence}`, tool: { kind: 'program_status', programId: handle.programId } }, record());
 	const before = (await status()).deadlineEpochMs;
-	for (const [epochMs, gameTime] of samples) observe(wire(epochMs, gameTime));
+	for (const sample of samples) {
+		if (sample === 'pause' || sample === 'resume') { runtime.serverPaused(sample === 'pause'); continue; }
+		const [epochMs, gameTime] = sample;
+		observe(wire(epochMs, gameTime));
+	}
 	const after = (await status()).deadlineEpochMs;
 	await runtime.dispose('agent-a', 'test_complete');
 	return { movedMs: after - before, credits: traces.filter(({ event }) => event === 'lag_time_credited') };
@@ -83,4 +87,13 @@ test('an out-of-order sample is ignored', async () => {
 	const samples = Array.from({ length: 11 }, (_, second) => [1_000_000 + second * 1000, 1000 + second * 8]);
 	samples.splice(6, 0, [1_000_000 + 2500, 1000 + 20]);
 	assert.equal((await program(samples)).movedMs, 6000);
+});
+
+test('a single-player pause is not credited again as server lag after the resume', async () => {
+	// The pause already moved the deadline by its own length; game time stood still for 60 wall seconds, so without a
+	// re-anchor the first sample after it would add those 60 s again and use up the lag budget.
+	const samples = [[1_000_000, 1000], [1_001_000, 1020], 'pause', 'resume', [1_061_000, 1040], [1_062_000, 1060], [1_063_000, 1080]];
+	const { movedMs, credits } = await program(samples);
+	assert.equal(credits.length, 0, 'no lag credit for the paused minute');
+	assert.ok(movedMs < 1_000, `the deadline moved only by the real pause length, ${movedMs} ms`);
 });

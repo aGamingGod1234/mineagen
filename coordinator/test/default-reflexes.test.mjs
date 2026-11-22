@@ -191,3 +191,41 @@ test('flag on: a respawn sets the stance at once from the new sample', () => {
 	assert.equal(book.stance('a'), 'steady');
 	assert.equal(valueOf(book, 'default-retreat', 'health_below'), 7);
 });
+
+// Wall breaker rods (a): the fortress stance near wither skeletons.
+const withWither = (distance, extra = {}) => ({ ...live(NETHER), entities: [{ type: 'minecraft:wither_skeleton', uuid: 'w', distance, alive: true }], ...extra });
+test('fortress stance: a wither skeleton within 16 in the Nether, before fight, with hysteresis to 20', () => {
+	assert.equal(resolveAutoStance(withWither(15)), 'fortress');
+	assert.equal(resolveAutoStance(withWither(17)), 'cautious', 'farther than 16: the Nether stance');
+	assert.equal(resolveAutoStance(withWither(10, { currentAction: { active: true, actionId: 'f', actionType: 'fight_until' } })), 'fortress',
+		'a running fight does not lower the floors near wither skeletons');
+	assert.equal(resolveAutoStance(withWither(18), 'fortress'), 'fortress', 'hysteresis: holds until 20');
+	assert.equal(resolveAutoStance(withWither(21), 'fortress'), 'cautious');
+	assert.equal(resolveAutoStance(withWither(5, { continuity: { rememberedSections: ['entities'] } })), 'cautious', 'a remembered sighting is not one seen now');
+	assert.equal(resolveAutoStance({ ...withWither(5), world: { dimension: 'minecraft:overworld' } }), 'steady', 'only in the Nether');
+	assert.equal(resolveAutoStance({ ...live(NETHER), entities: [{ type: 'minecraft:wither_skeleton', distance: 5, alive: false }] }), 'cautious', 'a dead one does not count');
+});
+
+test('fortress stance raises the back-off floors above every other stance and changes nothing but numbers', () => {
+	const fortress = Object.fromEntries(DEFAULT_REFLEXES.map((rule) => [rule.id, materializeDefault(rule, 'fortress')]));
+	assert.deepEqual(['default-retreat', 'default-cover', 'default-blaze-cover'].map((id) => fortress[id].when.find((c) => c.type === 'health_below').value), [14, 12, 16]);
+	for (const [id, setting] of Object.entries(STANCE_SETTINGS)) {
+		if (setting.condition !== 'health_below') continue;
+		for (const other of ['steady', 'fight', 'cautious']) assert.ok(setting.fortress > setting[other], `${id}: fortress ${setting.fortress} > ${other} ${setting[other]}`);
+	}
+	const strip = (rule) => JSON.stringify({ ...rule, when: rule.when.map(({ value, ...c }) => c) });
+	for (const rule of DEFAULT_REFLEXES) assert.equal(strip(fortress[rule.id]), strip(rule), `${rule.id} changes nothing but a number`);
+	assert.ok(MAX_REFLEXES + DEFAULT_REFLEXES.length <= MAX_REFLEX_RULES, 'no new default rule: the set still fits the mod');
+});
+
+test('flag on: the fortress stance takes effect without the 3 s dwell', () => {
+	let now = 0;
+	const book = new ReflexBook({ now: () => now, instincts: true });
+	book.observeContext('a', live(NETHER));
+	now = 10_000; book.observeContext('a', live(NETHER));
+	assert.equal(book.stance('a'), 'cautious');
+	now = 10_050; assert.equal(book.observeContext('a', withWither(12)), true, 'at once');
+	assert.equal(book.stance('a'), 'fortress');
+	assert.equal(valueOf(book, 'default-retreat', 'health_below'), 14);
+	assert.match(book.takeReport('a'), /; stance fortress \(auto\)/);
+});

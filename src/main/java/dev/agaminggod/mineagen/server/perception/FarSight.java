@@ -76,6 +76,8 @@ public final class FarSight {
 	static final int LARGE_CLUSTER = 8;
 	/** Line-of-sight tests per pass; passive passes run at most every 10 ticks and reuse results while the eye is still. */
 	static final int PASSIVE_CLIPS = 128;
+	/** The veins section's share of a pass's sight lines, reserved ahead of every other section ({@link Sight#reserve}). */
+	static final double VEIN_SHARE = 0.10D;
 	static final int SURVEY_CLIPS = 256;
 	/**
 	 * Full far-sight passes per level per tick. Observations of up to 8 agents can land on one tick; agents over the cap
@@ -733,6 +735,8 @@ public final class FarSight {
 		private final Map<Long, Boolean> loadedChunks = new HashMap<>();
 		private final int budget;
 		private int sectionLimit = Integer.MAX_VALUE;
+		/** Sight lines held back for a section that runs last (veins), so the sections before it cannot spend them. */
+		private int reserved;
 		int clips;
 		int lavaNeed = CastLava.FRAME_CELLS;
 
@@ -759,7 +763,20 @@ public final class FarSight {
 		}
 
 		boolean exhausted() {
-			return clips >= budget || clips >= sectionLimit;
+			return clips >= budget - reserved || clips >= sectionLimit;
+		}
+
+		/**
+		 * Holds {@code share} of the budget back from every section until {@link #release()}. Each section's share is counted
+		 * from what the sections before it used, so busy views (a village, a fortress) spend the whole budget before the last
+		 * section; the ore section reserves its share this way.
+		 */
+		void reserve(double share) {
+			reserved = (int) Math.ceil(budget * share);
+		}
+
+		void release() {
+			reserved = 0;
 		}
 
 		/** A lava pool too small to feed a portal cast (CastLava): a hazard, not lava to fetch. */
@@ -1045,6 +1062,9 @@ public final class FarSight {
 		int candidates = gathered.size();
 		ToDoubleFunction<Found> distance = found -> centreDistance(eye, found.position());
 
+		// Ore is what a dig is for: its share is held back from the sections before it (#108's resources made the earlier
+		// shares add up to the whole budget, so a busy fortress or village view left veins no sight lines).
+		if (request.wants(Section.VEINS)) sight.reserve(VEIN_SHARE);
 		if (request.wants(Section.BLOCKS)) {
 			sight.section(0.10D);
 			rows.addAll(lavaRows(sight, withDistances(cache.lava.groups(gathered.lava()), distance), request.rowsPerSection()));
@@ -1085,12 +1105,16 @@ public final class FarSight {
 		}
 		List<BlockPos> seenOre = new ArrayList<>();
 		if (request.wants(Section.VEINS)) {
-			sight.section(0.10D);
+			sight.release();
+			sight.section(VEIN_SHARE);
+			boolean starved = sight.exhausted();
 			int tests = 0;
 			for (Found found : gathered.ore().stream().sorted(Comparator.comparingDouble(distance)).toList()) {
 				if (tests++ >= SightedFeatures.MAX_VEIN_SEEDS * 2) break;
 				if (sight.sees(found)) seenOre.add(BlockPos.of(found.position()));
 			}
+			// With timing on: how often ore candidates were there but the pass had no sight lines left for them.
+			if (!gathered.ore().isEmpty()) PerceptionTiming.count("far_sight_vein_starved", starved ? 1 : 0);
 		}
 		// Every row is judged by its own distance: a structure or cluster near the edge never reports a block past range.
 		rows.removeIf(row -> row.distance() > range);

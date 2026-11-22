@@ -47,6 +47,9 @@ export const FAILURE_CODES = Object.freeze({
 	FIND_NOT_FOUND: ['body', null],
 	SEARCH_BOUNDARY: ['body', 'body stays inside search circle with braking room', ['searchBoundaryReached(']],
 	FIND_DANGER: ['threat', null],
+	// Night with no armour (night-cover.mjs): find and obtain refuse a climb up or a long walk on open ground until dawn.
+	FIND_NIGHT: ['threat', null],
+	NIGHT: ['threat', null],
 	FIND_BLOCKED: ['item', null],
 	FIND_NO_POSITION: ['internal', 'no live sample gave the body position'],
 	SHELTER_BLOCKED: ['cell', null],
@@ -124,6 +127,8 @@ export const FAILURE_CODES = Object.freeze({
 	FRAME_CELL_UNSEEN: ['cell', null],
 	NO_PIGLIN: ['reach', null],
 	PIGLIN_ANGRY: ['threat', null],
+	// mine_vein refused to break gold a seen calm piglin within 16 blocks would guard (ServerVeinController).
+	PIGLINS_NEAR_GOLD: ['threat', null],
 	CAST_TIMED_OUT: ['reach', null],
 	BARTER_TIMED_OUT: ['reach', null],
 	OUT_OF_BLOCKS: ['item', null],
@@ -340,10 +345,21 @@ export const FAILURE_CODES = Object.freeze({
 	FIGHT_UNTIL_TIMED_OUT: ['rule', null],
 	NO_TARGET_SEEN: ['entity', null],
 	AREA_CLEARED: ['entity', null],
+	// fight_until forest mode (WarpedForestHunt): relocation walks kept failing, or no seen forest floor left to walk to.
+	FOREST_UNREACHABLE: ['cell', null],
+	FOREST_SEARCHED_OUT: ['cell', null],
 	BURNING: ['threat', null],
 	SPOT_UNREACHABLE: ['cell', null],
 	// roof:true against endermen: not enough carried blocks, the shelter build failed, the sill could not be aimed at.
 	ROOF_BLOCKS_MISSING: ['rule', null],
+	// fight_until blaze spawner hold (ServerSpawnerHoldController, wall breaker rods).
+	HOLD_BREACHED: ['threat', null],
+	OUT_OF_FOOD: ['item', null],
+	SPAWNER_GONE: ['cell', null],
+	SPAWNER_UNREACHABLE: ['cell', null],
+	SPAWNER_QUIET: ['body', null],
+	CANCEL_CONFIRM_REQUIRED: ['rule', null],
+	WITHER_ON_DECK: ['threat', null],
 	ROOF_NOT_BUILT: ['cell', null],
 	SILL_NOT_REACHED: ['cell', null],
 	RECIPE_GRID_MISMATCH: ['rule', 'the recipe fits the 2x2 inventory grid', ['recipe.table']],

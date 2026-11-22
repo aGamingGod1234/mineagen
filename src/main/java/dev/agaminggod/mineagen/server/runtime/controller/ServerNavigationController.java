@@ -34,6 +34,7 @@ import org.slf4j.LoggerFactory;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Objects;
+import java.util.Map;
 import java.util.Set;
 import java.util.LinkedHashSet;
 import java.util.function.BooleanSupplier;
@@ -159,6 +160,7 @@ public final class ServerNavigationController implements ServerController {
 	private long stallTimeoutMs = STALL_TIMEOUT_MS;
 	private int maxReplans = MAX_REPLANS;
 	private boolean seenRouteOnly;
+	private Map<BlockPos, BlockState> walkedGround = Map.of();
 
 	public ServerNavigationController(
 			Vec3 destination,
@@ -236,6 +238,11 @@ public final class ServerNavigationController implements ServerController {
 	 */
 	ServerNavigationController seenRouteOnly() {
 		this.seenRouteOnly = true;
+		return this;
+	}
+
+	ServerNavigationController withWalkedGround(Map<BlockPos, BlockState> walkedGround) {
+		this.walkedGround = walkedGround;
 		return this;
 	}
 
@@ -1880,10 +1887,10 @@ public final class ServerNavigationController implements ServerController {
 		if (navigationWorld == null || !navigationWorld.belongsTo(player.level())
 				|| !navigationWorld.matchesMovement(player)) {
 			previousFrontiers.clear();
-			navigationWorld = doorWorld(new MinecraftNavigationWorld(player.level(), player));
+			navigationWorld = doorWorld(new MinecraftNavigationWorld(player.level(), player).withWalkedGround(walkedGround));
 		} else if (!navigationWorld.uses(seen)) {
 			if (navigationWorld == searchWorld && (search != null || preparation != null)) {
-				navigationWorld = doorWorld(new MinecraftNavigationWorld(player.level(), player));
+				navigationWorld = doorWorld(new MinecraftNavigationWorld(player.level(), player).withWalkedGround(walkedGround));
 			} else {
 				navigationWorld.nextFrame(seen);
 				gapSprintGuard.forgetSample();
