@@ -25,8 +25,8 @@ import net.minecraft.world.phys.Vec3;
  * is carried or can be crafted from what is carried (3 wool of one colour and 3 planks, at a crafting table within reach,
  * a carried one, or one made from 4 more planks); sleeping also sets the spawn there. Without a bed, or when sleep is
  * refused, it walls itself in where it stands with carried blocks (build_shelter's sealed cell), or with too few blocks
- * digs a hole 3 deep (two cells beside the body it has looked into, then one under its own feet) and roofs it with one
- * dug block over its head. At morning it opens the walls (or digs stairs back up) and hands back.
+ * digs a 1x2 hole beside the body and roofs it with what it dug, one block deeper (under its own feet) when the
+ * blocks in hand cannot close it 2 deep. At morning it opens the walls (or digs stairs back up) and hands back.
  * Underground (more than 4 blocks of ground over its eyes) the night changes nothing, so it hands back at once and the work goes on.
  * It hands back too when stuck (no safe cell, no blocks, attacked inside) and at timeoutMs.
  */
@@ -385,25 +385,49 @@ public final class ServerRestController implements ServerController {
 						+ describeBelow(player, floor) + ": not stepping into a drop; wall in with 10 or more plain blocks, or rest on solid ground");
 				log.add("hole dug to " + second.toShortString() + (unseen ? " (its floor hidden from beside it)" : " over solid " + describeBelow(player, floor)));
 				return runChild(new ServerNavigationController(Vec3.atBottomCenterOf(second), 0.35D, false, dev.agaminggod.mineagen.server.runtime.GameClock.nowMs(), STEP_MS, false),
-						stepped -> stepped.state() == State.SUCCEEDED || feet(player).equals(second) ? deepen(player, away)
+						stepped -> stepped.state() == State.SUCCEEDED || feet(player).equals(second) ? lookWalls(player, feet(player), away, 0, () -> roofOrDeepen(player, away))
 								: stuck(player, "could not step into the hole: " + stepped.reasonCode() + " " + stepped.message()));
 			}));
 		}));
 	}
 
-	/** In the hole: the block under the feet, then a look at every wall cell so the roof plan knows they are solid. */
-	private TickResult deepen(ServerPlayer player, Direction away) {
-		BlockPos under = feet(player).below();
+	/**
+	 * In the 1x2 hole, walls looked at: roof it 2 deep when the blocks in hand cover every cell the sealed plan still needs
+	 * (a scaffold and the roof on flat dug ground: exactly the 2 the dig gave back). Otherwise dig the block under the feet
+	 * (in view straight down): one more block in hand, and 3 deep the roof sits against the hole's own walls, 1 block.
+	 * The floor under it is unseen, so this is only done when the 2-deep roof cannot close.
+	 */
+	private TickResult roofOrDeepen(ServerPlayer player, Direction away) {
+		BlockPos center = feet(player), under = center.below();
+		String item = environment.blockItem(player);
+		int held = item == null ? 0 : count(player, stack -> BuiltInRegistries.ITEM.getKey(stack.getItem()).toString().equals(item));
+		int needs = roofNeeds(player, center, away);
+		if (held >= needs) return roofHole(player, away);
 		return lookThen(under, () -> {
 			if (!diggableColumn(player, under)) {
-				log.add("kept the hole 2 deep over " + describeBelow(player, under));
+				log.add("roof needs " + needs + " blocks, " + held + " in hand; kept the hole 2 deep over " + describeBelow(player, under));
 				return roofHole(player, away);
 			}
+			log.add("roof needs " + needs + " blocks, " + held + " in hand: one deeper");
 			return clearThen(player, under, 0, () -> runChild(landed(player, under), done -> {
 				log.add("deepened to " + feet(player).toShortString());
-				return lookWalls(player, feet(player), away, 0);
+				return lookWalls(player, feet(player), away, 0, () -> roofHole(player, away));
 			}));
 		});
+	}
+
+	/** Cells of the sealed roof plan round {@code center} not seen as full blocks: each needs a block. */
+	private static int roofNeeds(ServerPlayer player, BlockPos center, Direction opening) {
+		SeenTerrain.Reader<BlockState> seen = SeenTerrain.of(player);
+		List<BlockPos> cells = new ArrayList<>();
+		for (ServerShelterController.Cell cell : ServerShelterController.plan(center, opening, true)) cells.add(cell.at());
+		cells.add(center.relative(opening).above());
+		int needs = 0;
+		for (BlockPos at : cells) {
+			BlockState known = seen.known(at.getX(), at.getY(), at.getZ());
+			if (known == null || !known.isCollisionShapeFullBlock(player.level(), at)) needs++;
+		}
+		return needs;
 	}
 
 	/** Waits until the body stands on the floor below the broken block (and its drop is picked up), at most LAND_MS. */
@@ -415,10 +439,10 @@ public final class ServerRestController implements ServerController {
 	}
 
 	/** The cells build_shelter's sealed plan checks round the hole: each side at feet and head height, and the roof's support. */
-	private TickResult lookWalls(ServerPlayer player, BlockPos center, Direction away, int index) {
-		if (index >= SIDES.length * 2 + 1) return roofHole(player, away);
+	private TickResult lookWalls(ServerPlayer player, BlockPos center, Direction away, int index, java.util.function.Supplier<TickResult> then) {
+		if (index >= SIDES.length * 2 + 1) return then.get();
 		BlockPos cell = index < SIDES.length * 2 ? center.relative(SIDES[index / 2]).above(index % 2) : center.relative(away.getOpposite()).above(2);
-		return lookThen(cell, () -> lookWalls(player, center, away, index + 1));
+		return lookThen(cell, () -> lookWalls(player, center, away, index + 1, then));
 	}
 
 	/** What the body knows of a cell: its block, "an open drop", a fluid, or "unseen". */
