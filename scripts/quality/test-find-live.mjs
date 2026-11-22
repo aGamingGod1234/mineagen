@@ -3,8 +3,10 @@
 // server per spot. The body starts at the world's generated spawn (a fresh vanilla start) with the given kit and the
 // twelve default reflexes (the coordinator's ReflexBook). The real NativeToolRuntime runs each call against the server: the coordinator code a model
 // call reaches, fed by the wire adapter's live-shaped samples. No model call is made. repeat: while the last call ended
-// without its target (budget or danger handback) and budgetMs of the spot is left, the same call runs again, as a model
-// that only re-asks would: a find unless FIND_BLOCKED, another tool only on a reason code listed in the spot's repeatOn.
+// without its target (budget or danger handback) and budgetMs of the spot is left, the same call runs again: a find unless
+// FIND_BLOCKED, another tool only on a reason code listed in the spot's repeatOn. Before each repeat the shared stand-in
+// (lib/standin-policy.mjs) answers the stop's fork as the model would (fight or flee a hostile in the way, eat, a sound
+// pickaxe, out of water); a FIND_BLOCKED find is asked again after its fork was answered. row.standin lists each choice.
 // Verdict per spot (lib/find-spot.mjs): expectCode on the last call, else the find's sighting, else (a room with no find
 // call) no damage; every spot needs no death, from vanilla's counters. locate (e.g. "structure #minecraft:village") records vanilla's nearest one from the start as ground
 // truth for the report; the search never sees it; skipBeyond skips a spot whose nearest one lies farther. Reports per spot: each result, seconds, path walked against net displacement, the farthest
@@ -46,6 +48,7 @@ import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-r
 import { damageCounter, damageEvidence, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
 import { isFindCall, shouldRepeat, findSpotVerdict, findSpotLabel, callEntry, awaitActionReceipts } from './lib/find-spot.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
+import { standinFork, standinEntry, playStandin, STANDIN_POLICY_ON } from './lib/standin-policy.mjs';
 
 const atBody = (text, at) => String(text).replace(/\{([xyz])([+-][\d.]+)?\}/g, (_, axis, offset) => String(at[axis] + Number(offset ?? 0)));
 
@@ -246,7 +249,53 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 			await s.clock.sleep(nextSample - now());
 		} })();
 		const budgetMs = spot.budgetMs ?? 900_000;
+		// The shared stand-in (lib/standin-policy.mjs) for a spot with repeat: before asking again it answers the stop's fork
+		// (under water, a hostile in the way, hunger, a worn pickaxe, a blocked search tried once from another angle). Its
+		// calls run to their receipts; every choice goes in row.standin.
+		const standinRun = async (one, tag) => {
+			let result;
+			try {
+				result = await runtime.execute({ agentId: record.agentId, goalRevision: record.goalRevision, turnId: `standin-${tag}`, callId: `standin-${tag}`,
+					tool: normalizeMinecraftToolCall(one.name, one.arguments) }, record);
+			} catch (error) { return { state: 'ERROR', reasonCode: error?.code ?? 'ERROR', message: String(error?.message ?? error).slice(0, 300) }; }
+			const handle = result?.actionId ?? result?.handle?.actionId;
+			if (typeof handle === 'string' && ['RUNNING', 'PREPARING', 'ACCEPTED', 'STARTED'].includes(String(result?.state))) {
+				// Waited to the call's own timeout and 30 s more; one still running then is cancelled, so the next call
+				// never meets a busy body.
+				const until = now() + (one.arguments?.arguments?.timeoutMs ?? one.arguments?.target?.timeoutMs ?? 60_000) + 30_000;
+				const receipt = () => row.actions?.find(action => action.actionId === handle && action.state);
+				while (!receipt() && now() < until) await s.clock.sleep(500);
+				if (receipt()) return receipt();
+				await runtime.execute({ agentId: record.agentId, goalRevision: record.goalRevision, turnId: `standin-cancel-${tag}`, callId: `standin-cancel-${tag}`,
+					tool: normalizeMinecraftToolCall('cancelAction', { actionId: handle, goalRevision: record.goalRevision }) }, record).catch(() => {});
+				return { state: 'HARNESS_TIMEOUT', reasonCode: 'HARNESS_TIMEOUT' };
+			}
+			return result;
+		};
+		const standinAnswer = async (result, callIndex, attempt, used) => {
+			if (!STANDIN_POLICY_ON) return null;
+			let observation;
+			try { observation = adaptObservation(await s.observe()); } catch { return null; }
+			const decision = standinFork({ result, observation, used });
+			const atS = Math.round((now() - t0) / 1000);
+			if (!decision.fork) { (row.standin ??= []).push(standinEntry(decision, { atS, step: callIndex, code: result?.reasonCode })); return decision; }
+			used[decision.fork] = (used[decision.fork] ?? 0) + 1;
+			const outcomes = await playStandin(decision, { dead: async () => (await deaths()) > deathsBefore, run: (one, index) => {
+				// Recovery stays inside the room budget: an obtain needs its 60 s minimum left, an act call gets at most what is left.
+				const left = budgetMs - (now() - t0);
+				if (left < (one.name === 'do_step' ? 60_000 : 10_000)) return { state: 'SKIPPED', reasonCode: 'ROOM_BUDGET', message: `${Math.round(left / 1000)} s of the room budget left` };
+				const inner = one.arguments?.arguments;
+				const args = one.name === 'do_step' ? { ...one.arguments, target: { ...one.arguments.target, timeoutMs: Math.max(60_000, Math.min(300_000, left - 30_000)) } }
+					: Number.isFinite(inner?.timeoutMs) ? { ...one.arguments, arguments: { ...inner, timeoutMs: Math.min(inner.timeoutMs, Math.floor(left)) } } : one.arguments;
+				return standinRun({ ...one, arguments: args }, `${callIndex}-${attempt}-${index}`);
+			} });
+			const entry = standinEntry(decision, { atS, step: callIndex, code: result?.reasonCode, outcomes });
+			(row.standin ??= []).push(entry);
+			console.log(`[${spot.name}] STANDIN ${entry.fork} ${entry.choice}: ${entry.why} -> ${entry.calls.map(one => `${one.type} ${one.state} ${one.reasonCode ?? ''}`.trim()).join('; ')}`);
+			return decision;
+		};
 		for (const [callIndex, call] of (spot.calls ?? []).entries()) {
+			const used = {};
 			for (let attempt = 0; ; attempt++) {
 				// A call with its own target timeoutMs (obtain) is not asked again with less than its 60 s minimum left of the
 				// budget (normalizeObtain refuses shorter): the last answer stands.
@@ -309,17 +358,33 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 				// repeatBlocked: a model re-asks after FIND_BLOCKED too (seven-rods: 2-6 find calls a run); otherwise it stops there.
 				const budgetLeftMs = budgetMs - (now() - t0);
 				const blockedReask = spot.repeat && spot.repeatBlocked && result?.reasonCode === 'FIND_BLOCKED' && budgetLeftMs >= 10_000;
-				if (!blockedReask && !shouldRepeat(call, result, spot, { budgetLeftMs })) break;
+				// A blocked search is asked again only after the stand-in answered its fork (another angle, a sound pickaxe).
+				const blockedFind = STANDIN_POLICY_ON && spot.repeat && isFindCall(call) && result?.reasonCode === 'FIND_BLOCKED' && budgetLeftMs >= 60_000;
+				if (!blockedReask && !blockedFind && !shouldRepeat(call, result, spot, { budgetLeftMs })) break;
 				// The provider-free stand-in for a model: give the reflexes a moment with danger, then ask again.
 				if (['RUNNING', 'PREPARING'].includes(result?.state) && typeof result?.actionId === 'string') {
 					await runtime.execute({ agentId: record.agentId, goalRevision: record.goalRevision, turnId: `find-live-cancel-${callIndex}-${attempt}`, callId: `cancel-${callIndex}-${attempt}`,
 						tool: normalizeMinecraftToolCall('cancelAction', { actionId: result.actionId, goalRevision: record.goalRevision }) }, record).catch(() => {});
 				}
-				// The stand-in for a model after danger: give the reflexes (and regeneration, when hurt) a moment, then ask again.
-				if (result?.reasonCode === 'FIND_DANGER') await s.clock.sleep((await health()) < 12 ? 15000 : 4000);
+				const decision = await standinAnswer(result, callIndex, attempt, used);
+				if ((await deaths()) > deathsBefore) { row.ended = 'death or lost observations'; break; }
+				// A spot with repeatBlocked keeps re-asking after a blocked search as main does, fork or not.
+				if (blockedFind && !blockedReask && !decision?.fork) break;
+				// The recovery may have spent the budget: ask again only with the 10 s shouldRepeat needs.
+				if (budgetMs - (now() - t0) < 10_000) break;
+				// No fork answered: give the reflexes (and regeneration, when hurt) a moment, then ask again.
+				if (result?.reasonCode === 'FIND_DANGER' && !decision?.fork) await s.clock.sleep((await health()) < 12 ? 15000 : 4000);
 			}
 			// A death, lost observations or an unfinished background step ends the spot: no later call runs.
 			if (row.ended) break;
+		}
+		// The same classifier in both arms (STANDIN_POLICY on or off): the fork the policy sees on a repeat spot's last stop,
+		// with no caps and nothing played. A failed spot whose standinEnd.fork is set ended at a fork the policy answers.
+		const lastCall = row.calls.at(-1);
+		if (spot.repeat && lastCall && lastCall.state !== 'SUCCEEDED') {
+			const o = await s.observe().then(adaptObservation).catch(() => null);
+			const end = standinFork({ result: lastCall, observation: o ?? {} });
+			row.standinEnd = { code: lastCall.reasonCode, fork: end.fork, ...(end.choice ? { choice: end.choice } : {}), why: end.why, ...(row.ended ? { ended: row.ended } : {}) };
 		}
 		// A background step (do_step build) returned RUNNING: take the readings only once each command has its receipt.
 		if (!row.ended) {
