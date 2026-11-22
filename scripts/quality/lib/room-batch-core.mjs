@@ -345,6 +345,6 @@ export function topUp({ rooms, arms, valid, out, countValid = armValidRuns }) {
 		}
 		return extra;
 	};
-	const report = () => [...groups].map(([name, group]) => ({ group: name, copies: group.copies, planned: group.copies * group.perCopy, valid: { ...group.valid }, short: arms.filter(arm => group.valid[arm] < valid) }));
+	const report = () => [...groups].map(([name, group]) => ({ group: name, copies: group.copies, perCopy: group.perCopy, planned: group.copies * group.perCopy, valid: { ...group.valid }, short: arms.filter(arm => group.valid[arm] < valid) }));
 	return { more, added, report };
 }

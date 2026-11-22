@@ -281,6 +281,22 @@ test('top-ups: copies finishing together keep each other\'s counts, multi-row co
 	assert.deepEqual((await topUp({ rooms: r, arms: ['new'], valid: 1, out: '/x', countValid: async () => ({ valid: 0, rows: 1 }) }).more(r[0], { lost: false, arms: {} })).map(copy => copy.room), ['tr-wastes-r2']);
 });
 
+test('a stopped batch makes no top-ups and says its groups were short with copies left, not at the cap', async () => {
+	const out = await mkdtemp(path.join(os.tmpdir(), 'room-batch-valid-stop-'));
+	try {
+		const controller = new AbortController();
+		const bad = row('x', { notExercised: 'mob never in range' });
+		const { pool, jobs } = scriptedPool(out, () => [bad]);
+		const fetch = pool.fetch;
+		pool.fetch = async (...args) => { const done = await fetch(...args); controller.abort(); return done; };
+		const rooms = parseCommands([1, 2].map(copy => `@a.c${copy} ${LINE}`).join('\n'), ['new', 'old']);
+		const result = await runBatch({ batch: { name: 't', code: 'abc12345' }, rooms, arms: [{ name: 'new' }, { name: 'old' }], pool, vms: 1, out, pollMs: 1, log: () => {}, valid: 2, signal: controller.signal });
+		assert.equal(jobs.length, 1, 'stopped after the first copy');
+		assert.deepEqual(result.topUps[0].copies, 2, 'no copy made after the stop');
+		assert.match(result.text, /0 top-up copies; short with copies left \(batch stopped or out of machines\): a \(new 0, old 0\)/);
+	} finally { await rm(out, { recursive: true, force: true }); }
+});
+
 test('with top-ups on, an idle machine stays until no busy machine can add rooms, so top-ups spread over the machines', async () => {
 	const order = [];
 	let added = false;

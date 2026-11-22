@@ -156,7 +156,8 @@ export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeout
 			return bringUp();
 		};
 		outcomes = await runQueue({ rooms, workers: [], arrivals, attempt, replace, release: vm => retire(vm, 'no rooms left'), log,
-			more: topUps ? async (room, outcome) => { const extra = await topUps.more(room, outcome); for (const copy of extra) log(`top-up ${copy.room}: ${copy.topUpOf} is short of ${valid} valid runs`); return extra; } : null });
+			// A stopped batch plays nothing more, so it makes no top-ups either.
+			more: topUps ? async (room, outcome) => { if (signal?.aborted) return []; const extra = await topUps.more(room, outcome); for (const copy of extra) log(`top-up ${copy.room}: ${copy.topUpOf} is short of ${valid} valid runs`); return extra; } : null });
 		if (!layouts.size && !signal?.aborted) throw new Error('no machine came up');
 		// A stopped batch leaves its unfinished rooms lost for that reason, not for want of a machine.
 		if (signal?.aborted) outcomes = outcomes.map(outcome => outcome?.lost ? { ...outcome, reason: 'batch stopped' } : outcome);
@@ -170,6 +171,9 @@ export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeout
 	const merged = await mergeArms({ out, rooms: played, arms: armNames, outcomes });
 	let text = formatSummary({ batch, merged, arms: armNames, wallSeconds, vms: machines.length, rooms: played });
 	const short = topUps?.report().filter(group => group.short.length) ?? [];
-	if (topUps) text += `\n--valid ${valid}: ${topUps.added.length} top-up copies; ${short.length ? `short at the ${2 * valid}-run cap: ${short.map(group => `${group.group} (${Object.entries(group.valid).map(([arm, n]) => `${arm} ${n}`).join(', ')})`).join('; ')}` : 'every group reached it'}`;
+	const named = groups => groups.map(group => `${group.group} (${Object.entries(group.valid).map(([arm, n]) => `${arm} ${n}`).join(', ')})`).join('; ');
+	const capped = short.filter(group => group.planned + group.perCopy > 2 * valid), early = short.filter(group => !capped.includes(group));
+	if (topUps) text += `\n--valid ${valid}: ${topUps.added.length} top-up copies; ${short.length ? [capped.length ? `short at the ${2 * valid}-run cap: ${named(capped)}` : null,
+		early.length ? `short with copies left (batch stopped or out of machines): ${named(early)}` : null].filter(Boolean).join('; ') : 'every group reached it'}`;
 	return { outcomes, topUps: topUps?.report() ?? null, merged, wallSeconds, text, machines: machines.map(vm => ({ id: vm.id, reused: !!vm.reused, returned: !!vm.returned, destroyed: !!vm.destroyed, destroyError: vm.destroyError ?? null, usage: vm.usage ?? null })) };
 }
