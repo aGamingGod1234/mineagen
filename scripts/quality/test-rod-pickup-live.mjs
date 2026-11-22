@@ -21,6 +21,7 @@ import { createHash } from 'node:crypto';
 import { boot, unshownTickRate } from './watch-replay.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
+import { deathCounter, recordDeathEvidence } from './lib/damage-counter.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const USAGE = 'Usage: test-rod-pickup-live.mjs OUT_DIR under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME (ARENA_JAR, SCENARIOS, REPEATS, MAX_BLAZES)';
@@ -47,7 +48,8 @@ const NETHER = 'execute in minecraft:the_nether run';
 const SX = 2000, SZ = 2000, FEET = 80, DROP = 3, EDGE = SX + 2;
 const START = [EDGE - 0.5, FEET, SZ + 0.5];
 const number = text => Number((/(-?\d+(?:\.\d+)?)[fdb]?\s*$/.exec(String(text).trim()) ?? [])[1]);
-const deathCount = async s => Number(/has (\d+)/.exec(String(await s.command(`scoreboard players get ${AGENT} deaths`)))?.[1] ?? 0);
+// boot() adds the deathCount objective `deaths` before the body exists, so an unset score is 0; an unreadable one is null.
+const deathCount = s => deathCounter(text => s.command(text), AGENT, { objective: 'deaths', unsetIsZero: true });
 const health = async s => { const text = await s.command(`data get entity ${AGENT} Health`); return /No entity|not found/i.test(text) ? 0 : number(text); };
 const rodsHeld = o => (o?.inventory?.items ?? []).filter(i => i.itemId === 'minecraft:blaze_rod').reduce((n, i) => n + (i.count ?? 0), 0);
 // Server truth: how many blaze rod item entities lie in the room.
@@ -129,7 +131,8 @@ async function trial(s, scenario, repeat) {
 			row.endedAt = o?.player?.position ?? o?.position ?? null;
 		}
 	}
-	row.deaths = (await deathCount(s)) - deathsBefore;
+	// An unreadable or decreasing count is unknown evidence (row.deaths null, an integrity entry), never zero deaths.
+	recordDeathEvidence(row, deathsBefore, await deathCount(s));
 	if (!((await health(s).catch(() => 0)) > 0) && row.deaths === 0) row.deaths = 1;
 	if (!row.dropped) row.error = `no rod dropped in ${MAX_BLAZES} blaze kills`;
 	row.pass = row.dropped && row.rodsHeld > 0 && row.deaths === 0;

@@ -254,8 +254,12 @@ public final class ServerSpawnerHoldController implements ServerController {
 		return this;
 	}
 
-	private ServerController ordinaryFight(ServerPlayer player, long now) {
-		return openFight != null ? openFight.get() : new ServerFightUntilController(player, model, protection, now, "fight_until", null, roofing);
+	/** The ordinary fight with the time left ({@code elapsed} of the action spent), not a fresh timeout. */
+	private ServerController ordinaryFight(ServerPlayer player, long now, long elapsed) {
+		if (openFight != null) return openFight.get();
+		JsonObject left = model.deepCopy();
+		left.addProperty("timeoutMs", Math.max(1_000L, timeoutMs - elapsed));
+		return new ServerFightUntilController(player, left, protection, now, "fight_until", null, roofing);
 	}
 
 	/** True while a spawner hold owns this body (its whole run, not only in the cell): back-off reflexes stand aside. */
@@ -273,10 +277,6 @@ public final class ServerSpawnerHoldController implements ServerController {
 	public TickResult tick(ServerPlayer player, long now) {
 		if (finished != null) return finished;
 		if (fallback != null) return fallback.tick(player, now);
-		if (phase == Phase.SCAN) {
-			TickResult scanning = scan(player, now);
-			if (scanning != null) return scanning;
-		}
 		long elapsed = elapsedTime.advance(now);
 		lastElapsed = elapsed;
 		if (startHeld < 0) { startHeld = ServerFightUntilController.count(player, untilItem); lastBlazeMs = elapsed; lastHurtTime = player.hurtTime; }
@@ -290,8 +290,12 @@ public final class ServerSpawnerHoldController implements ServerController {
 		senseHits(player, inCell);
 		senseCharges(player);
 		if (blazeSeen(player)) lastBlazeMs = elapsed;
-		var seenSpawner = SeenTerrain.of(player).known(spawner.getX(), spawner.getY(), spawner.getZ());
+		var seenSpawner = spawner == null ? null : SeenTerrain.of(player).known(spawner.getX(), spawner.getY(), spawner.getZ());
 		boolean spawnerGone = seenSpawner != null && !seenSpawner.is(Blocks.SPAWNER);
+		// The fight_target form ends at its own timeout with fight_target's code (the hold's own is FIGHT_UNTIL_TIMED_OUT).
+		if (target != null && elapsed >= timeoutMs)
+			return stop(player, TickResult.timedOut("FIGHT_TIMED_OUT", String.format(Locale.ROOT, "%.0f s timeout reached; %s", timeoutMs / 1000.0D,
+					summary(player, elapsed)), progress(player)));
 		String code = SpawnerHold.handBack(new SpawnerHold.Sense(ServerFightUntilController.count(player, untilItem), untilCount, player.getHealth(),
 				fleeAtHealth, player.getFoodData().getFoodLevel(), foodSlot(player) >= 0, elapsed, timeoutMs, spawnerGone,
 				phase == Phase.HOLD ? elapsed - lastBlazeMs : 0L, phase == Phase.HOLD || emergency != null, sitesFailed, noSiteLeft,
@@ -301,8 +305,13 @@ public final class ServerSpawnerHoldController implements ServerController {
 			if (target.isDeadOrDying()) code = "TARGET_KILLED";
 			else if (!target.isAlive() || target.isRemoved() || target.level() != player.level()) code = "TARGET_GONE";
 		}
-		if (target != null && "FIGHT_UNTIL_TIMED_OUT".equals(code)) code = "FIGHT_TIMED_OUT";
 		if (code != null) return stop(player, handBackResult(player, code, elapsed));
+		// The look round for a spawner comes after the action-wide checks above (death, lava, rod count, health floor,
+		// timeout), so a hurt or finished body never turns on the spot for 4 s.
+		if (phase == Phase.SCAN) {
+			TickResult scanning = scan(player, now, elapsed);
+			if (scanning != null) return scanning;
+		}
 		// fight_target form, open fight on: the model's own fight_target runs; hurt below TURTLE_HEALTH, the body walls in
 		// where it stands and heals (emergency), then fights on. No site walk: in the blaze spawner rooms the deaths came on
 		// the walk to a cell site and while building it under fire.
@@ -339,7 +348,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 	 * (22 Nov): a spawner the body never saw lay 5 and 12 blocks away while blaze fights there found no blaze. Null once
 	 * a spawner is found (the hold goes on this tick).
 	 */
-	private TickResult scan(ServerPlayer player, long now) {
+	private TickResult scan(ServerPlayer player, long now, long elapsed) {
 		if (scanTicks % 5 == 0) {
 			BlockPos found = seenFortressSpawner(player);
 			if (found != null) {
@@ -354,7 +363,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 			HOLDING.remove(player.getUUID());
 			shieldInput.release();
 			fallbackWhy = "no fortress spawner seen after looking round";
-			fallback = ordinaryFight(player, now);
+			fallback = ordinaryFight(player, now, elapsed);
 			return fallback.tick(player, now);
 		}
 		float yaw = player.getYRot() + 360.0F / (SCAN_TICKS / 2.0F);
@@ -457,7 +466,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 				HOLDING.remove(player.getUUID());
 				cancelParts(player);
 				fallbackWhy = "no seen cell 6-12 blocks from the spawner";
-				fallback = ordinaryFight(player, now);
+				fallback = ordinaryFight(player, now, lastElapsed);
 				return fallback.tick(player, now);
 			}
 			noSiteLeft = true;
@@ -698,6 +707,8 @@ public final class ServerSpawnerHoldController implements ServerController {
 		engineEnds.merge(result.reasonCode(), 1, Integer::sum);
 		note("engine " + result.reasonCode() + ": " + result.message().substring(0, Math.min(240, result.message().length())));
 		String stop = SpawnerHold.engineEnd(result.reasonCode());
+		// The fight_target form's timeout is its own (the check at the top of tick), not the engine's code.
+		if (target != null && "FIGHT_UNTIL_TIMED_OUT".equals(stop)) return TickResult.running(progress(player));
 		if (stop != null) return stop(player, handBackResult(player, stop, elapsed));
 		return TickResult.running(progress(player));
 	}
@@ -1078,12 +1089,11 @@ public final class ServerSpawnerHoldController implements ServerController {
 	}
 
 	private TickResult handBackResult(ServerPlayer player, String code, long elapsed) {
-		if (target != null && "FIGHT_UNTIL_TIMED_OUT".equals(code)) code = "FIGHT_TIMED_OUT";
 		String text = summary(player, elapsed);
 		return switch (code) {
 			case "UNTIL_COUNT_REACHED" -> TickResult.succeeded(code, "Holds " + ServerFightUntilController.count(player, untilItem) + " " + untilItemId
 					+ " (asked " + untilCount + "); " + text);
-			case "FIGHT_UNTIL_TIMED_OUT", "FIGHT_TIMED_OUT" -> TickResult.timedOut(code, String.format(Locale.ROOT, "%.0f s timeout reached; %s", timeoutMs / 1000.0D, text), progress(player));
+			case "FIGHT_UNTIL_TIMED_OUT" -> TickResult.timedOut(code, String.format(Locale.ROOT, "%.0f s timeout reached; %s", timeoutMs / 1000.0D, text), progress(player));
 			case "TARGET_KILLED" -> TickResult.succeeded(code, "Killed " + BuiltInRegistries.ENTITY_TYPE.getKey(target.getType()) + " " + target.getUUID()
 					+ " from the spawner hold's cell; " + text);
 			case "TARGET_GONE" -> TickResult.succeeded(code, BuiltInRegistries.ENTITY_TYPE.getKey(target.getType()) + " " + target.getUUID() + " is gone; " + text);
