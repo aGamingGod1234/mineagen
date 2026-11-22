@@ -149,7 +149,8 @@ public final class ServerFleeController implements ServerController {
 		List<Other> others = otherThreats(player);
 		List<CombatPlanning.FleeThreat> otherThreats = others.stream().map(Other::threat).toList();
 		TickResult pinned = pinned(player, others, nowEpochMs);
-		if (pinned != null) return cornered(player, pinned);
+		if (pinned != null && !retrace(player, others, nowEpochMs)) return cornered(player, pinned);
+		if (pinned != null) return TickResult.running(0.0D);
 		int blocker = CombatPlanning.escapeBlocker(otherThreats, distance);
 		boolean targetPresent = target.isAlive() && !target.isRemoved() && target.level() == player.level();
 		if (!targetPresent) {
@@ -158,7 +159,7 @@ public final class ServerFleeController implements ServerController {
 						+ separation(lastSeparation) + clearOf(others) + swimming(player) + covered(player), 0.0D));
 			}
 			// The named chaser is gone but others still close in: keep fleeing from them.
-			if (!drive(player, nowEpochMs, others, false)) return cornered(player, blocked(player, others, -1.0D));
+			if (!driveOrRetrace(player, nowEpochMs, others, false)) return cornered(player, blocked(player, others, -1.0D));
 			return running(player, elapsed, others, blocker, 0.0D);
 		}
 		double current = player.distanceTo(target);
@@ -191,7 +192,7 @@ public final class ServerFleeController implements ServerController {
 					"Still %.1f of %.1f blocks from %s when the flee timed out", current, distance, targetType)
 					+ blockerText(others, blocker) + waterText(player) + covered(player), fraction));
 		}
-		if (!drive(player, nowEpochMs, others, true)) return cornered(player, blocked(player, others, current));
+		if (!driveOrRetrace(player, nowEpochMs, others, true)) return cornered(player, blocked(player, others, current));
 		return TickResult.running(fraction);
 	}
 
@@ -316,7 +317,7 @@ public final class ServerFleeController implements ServerController {
 
 	private String covered(ServerPlayer player) {
 		double moved = startPosition == null ? 0.0D : CombatMoveText.horizontal(startPosition, player.getX(), player.getZ());
-		return String.format(Locale.ROOT, "; moved %.1f m in %.1f s; best observed separation %s; stalled headings tried %d", moved, elapsedMs / 1000.0D, separation(bestSeparation), stalledHeadings.size());
+		return String.format(Locale.ROOT, "; moved %.1f m in %.1f s; best observed separation %s; stalled headings tried %d", moved, elapsedMs / 1000.0D, separation(bestSeparation), stalledHeadings.size()) + wayNote;
 	}
 
 	private static String separation(double value) {
@@ -370,6 +371,98 @@ public final class ServerFleeController implements ServerController {
 	}
 
 	/** Applies one flee tick; false when standing with no safe heading, so the model chooses (fight, pillar, block). */
+	/** The way back along known ground, chosen once no heading leads away; null when none is being walked. */
+	private List<GridPosition> wayBack;
+	private int wayIndex;
+	private Vec3 wayLast;
+	private int wayStuck;
+	private int wayTries;
+	/** Ways back a flee plans at most (a fresh one after each that ended blocked or was cut by a mob). */
+	static final int WAY_BACK_TRIES = 2;
+	static final int WAY_BACK_STEPS = 32;
+	static final int WAY_BACK_CELLS = 3_000;
+	static final double WAY_BACK_MIN_GAIN = 2.0D;
+	static final int WAY_BACK_MAX_DROP = 1;
+	static final int WAY_BACK_STUCK_TICKS = 30;
+	/** How near a cell's centre a hostile stands for the way back to refuse that cell: the body would run into it. */
+	static final double WAY_BACK_MOB_RADIUS = 1.5D;
+
+	/**
+	 * A heading away first; when every heading is refused (a 1-wide stair back up, a bend in a tunnel) the way back along
+	 * ground the body knows, its own stair included, as a player retraces the way it came instead of standing to fight
+	 * (Portal lava-gate-6: the stairs opened into a zombie spawner room and the cornered stand fought until death).
+	 */
+	private boolean driveOrRetrace(ServerPlayer player, long nowEpochMs, List<Other> others, boolean includeTarget) {
+		if (wayBack != null) {
+			if (walkWayBack(player, others)) return true;
+			wayBack = null;
+			motor = null;
+		}
+		if (drive(player, nowEpochMs, others, includeTarget)) return true;
+		return retrace(player, others, nowEpochMs);
+	}
+
+	/** Starts (or keeps walking) the way back; false when there is none. */
+	private boolean retrace(ServerPlayer player, List<Other> others, long nowEpochMs) {
+		if (wayBack != null) {
+			if (walkWayBack(player, others)) return true;
+			wayBack = null;
+			motor = null;
+		}
+		if (wayTries >= WAY_BACK_TRIES) return false;
+		wayTries++;
+		double x = 0.0D, z = 0.0D;
+		int n = 0;
+		if (target.isAlive() && target.level() == player.level()) { x += target.getX(); z += target.getZ(); n++; }
+		for (Other other : others) { x += other.mob().getX(); z += other.mob().getZ(); n++; }
+		if (n == 0) return false;
+		List<GridPosition> path = SafeStep.awayPath(player, x / n, z / n, WAY_BACK_STEPS, WAY_BACK_CELLS, WAY_BACK_MIN_GAIN,
+				cell -> hostileOn(player, cell), WAY_BACK_MAX_DROP);
+		if (path == null || path.isEmpty()) return false;
+		wayBack = path;
+		wayIndex = 0;
+		wayLast = null;
+		wayStuck = 0;
+		wayNote = "; took the way back along known ground (" + path.size() + " steps)";
+		return walkWayBack(player, others);
+	}
+
+	private String wayNote = "";
+
+	/** A hostile stands on or beside {@code cell}. */
+	private static boolean hostileOn(ServerPlayer player, GridPosition cell) {
+		double cx = cell.x() + 0.5D, cz = cell.z() + 0.5D;
+		return !player.level().getEntitiesOfClass(Mob.class, new net.minecraft.world.phys.AABB(cx - 2.0D, cell.y() - 2.0D, cz - 2.0D, cx + 2.0D, cell.y() + 3.0D, cz + 2.0D),
+				mob -> mob.isAlive() && ThreatPerception.isHostileTo(mob, player)
+						&& Math.hypot(mob.getX() - cx, mob.getZ() - cz) <= WAY_BACK_MOB_RADIUS && Math.abs(mob.getY() - cell.y()) < 2.0D).isEmpty();
+	}
+
+	/** One tick along the way back: false when it ended (arrived, blocked, or a mob stepped onto it). */
+	private boolean walkWayBack(ServerPlayer player, List<Other> others) {
+		while (wayIndex < wayBack.size()) {
+			GridPosition cell = wayBack.get(wayIndex);
+			double horizontal = Math.hypot(player.getX() - (cell.x() + 0.5D), player.getZ() - (cell.z() + 0.5D));
+			if (horizontal > 0.4D || Math.abs(player.getY() - cell.y()) > 0.7D) break;
+			wayIndex++;
+		}
+		if (wayIndex >= wayBack.size()) return false;
+		for (int i = wayIndex; i < Math.min(wayBack.size(), wayIndex + 3); i++) if (hostileOn(player, wayBack.get(i))) return false;
+		Vec3 now = player.position();
+		wayStuck = wayLast != null && now.distanceToSqr(wayLast) < 0.0025D ? wayStuck + 1 : 0;
+		wayLast = now;
+		if (wayStuck >= WAY_BACK_STUCK_TICKS) return false;
+		GridPosition cell = wayBack.get(wayIndex);
+		float toward = (float) Math.toDegrees(Math.atan2(-(cell.x() + 0.5D - player.getX()), cell.z() + 0.5D - player.getZ()));
+		float yaw = AgentInputStates.turnYaw(player.getYRot(), toward);
+		float error = AgentInputStates.shortestAngleDelta(yaw, toward);
+		float forward = CombatPlanning.alignedForward(1.0F, error);
+		boolean jump = cell.y() > SafeStep.feet(player).y() && player.onGround() && Math.abs(error) < 30.0F;
+		boolean sprint = Math.abs(error) < 30.0F && player.getFoodData().getFoodLevel() > 6;
+		input.apply(player, new AgentInputState(forward, 0.0F, jump, false, sprint, false, false, yaw, 0.0F,
+				player.getInventory().getSelectedSlot(), InteractionHand.MAIN_HAND));
+		return true;
+	}
+
 	private boolean drive(ServerPlayer player, long nowEpochMs, List<Other> others, boolean includeTarget) {
 		if (detourOrigin != null && CombatMoveText.horizontal(detourOrigin, player.getX(), player.getZ()) >= 1.5D) {
 			stalledHeadings.clear();
