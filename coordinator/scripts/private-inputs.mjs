@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -102,8 +102,10 @@ export function privateModule(moduleUrl, { entry = null, suppliedBy = null } = {
  if (!selection) throw new Error(`privateModule: ${file} has no module entry (test "*") in ${MANIFEST_PATH}`);
  const missing = unavailableInputs(selection);
  if (missing.length === 0) return Promise.resolve();
+ // Real paths: the module URL is resolved through symlinks, junctions and subst drives, argv[1] is not.
+ const real = (file) => { try { return realpathSync.native(file); } catch { return path.resolve(file); } };
  const same = (a, b) => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b);
- const ownProcess = Boolean(process.argv[1]) && same(path.resolve(process.argv[1]), fileURLToPath(moduleUrl));
+ const ownProcess = Boolean(process.argv[1]) && same(real(process.argv[1]), real(fileURLToPath(moduleUrl)));
  if (!ownProcess) throw new Error(`${file}: ${skipReason(missing)}`);
  test.skip(`${file}: ${skipReason(missing)}`);
  console.log(`SKIP ${file}: the module stops loading here; Node's "unsettled top-level await" warning below is this skip.`);

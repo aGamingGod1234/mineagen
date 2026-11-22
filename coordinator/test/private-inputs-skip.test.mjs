@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
+import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { manifestEntries, unavailableInputs } from '../scripts/private-inputs.mjs';
 
@@ -61,7 +62,8 @@ test('a selection skips without the archive, and only the source checkout entrie
 
 // The held-await skip is plain Node behaviour, so run it as Node runs a test file: its own process under node --test.
 test('a module selection run directly with no archive reports one skip and exits 0, and a real failure still fails', async (t) => {
-	const dir = await mkdtemp(path.join(root, 'test', '.private-skip-probe-'));
+	// Outside the test folder, so a probe left by an interrupted run is never picked up by npm test.
+	const dir = await mkdtemp(path.join(tmpdir(), 'private-skip-probe-'));
 	t.after(() => rm(dir, { recursive: true, force: true }));
 	const entry = "{ file: 'probe', test: '*', inputs: ['coordinator/test/fixtures/no-such-recording.json'] }";
 	const probe = async (name, body) => {
