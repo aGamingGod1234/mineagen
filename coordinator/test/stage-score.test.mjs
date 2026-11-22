@@ -445,4 +445,8 @@ test('model latency: per-game and per wall-clock 10-minute p50 and p90 of model 
 	facts.modelCall({ at: 2000, modelCallId: 'y', totalMs: 500, interrupted: true });
 	const timed = facts.finish({ startedAt: 0 }).modelLatency;
 	assert.deepEqual([timed.calls, timed.interruptedCalls, timed.p90Ms], [1, 1, 3000], 'a call cut short by an interrupt stays out of the tail');
+	// Usage traced after a tool ran: the call is bucketed by when the model answered.
+	const late = (await import('../../scripts/quality/lib/game-facts.mjs')).gameFacts();
+	late.modelCall({ at: 1_210_000, modelCallId: 'z', requestAt: 1_190_000, endedAt: 1_195_000, totalMs: 5000 });
+	assert.equal(late.finish({ startedAt: 0 }).modelLatency.byClock10Min[0].fromEpochMs, 600_000);
 });
