@@ -62,8 +62,16 @@ async function coordinatorRoot(arg) {
 		const own = `${into}.${process.pid}`;
 		await mkdir(own, { recursive: true });
 		execFileSync('tar', ['-xzf', full, '-C', own]);
-		try { renameSync(own, into); }
-		catch (error) { if (!existsSync(path.join(into, 'coordinator', 'src'))) throw error; rmSync(own, { recursive: true, force: true }); }
+		// Windows refuses a folder rename while a scanner holds a file just written: retry briefly. A copy another room put
+		// in place first wins; failing both, this room plays its own complete copy (acorn still resolves from coordinator/).
+		for (let tries = 0; ; tries += 1) {
+			try { renameSync(own, into); break; }
+			catch (error) {
+				if (existsSync(path.join(into, 'coordinator', 'src'))) { try { rmSync(own, { recursive: true, force: true, maxRetries: 5 }); } catch { /* a leftover copy only costs disk */ } break; }
+				if (!['EPERM', 'EACCES', 'EBUSY'].includes(error?.code) || tries >= 10) return path.join(own, 'coordinator');
+				await new Promise(done => setTimeout(done, 200 * (tries + 1)));
+			}
+		}
 	}
 	return path.join(into, 'coordinator');
 }
