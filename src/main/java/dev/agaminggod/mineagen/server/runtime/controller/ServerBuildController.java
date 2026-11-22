@@ -389,9 +389,6 @@ public final class ServerBuildController implements ServerController {
 	/** This cell has no spot whose water line misses the lava's cell: pour it from a spot where it crosses (main's way). */
 	private boolean crossAllowed;
 	private int lavaTakes, fetchRetries;
-	/** The current walk follows steps walked before; it took no step; its start. */
-	private boolean viaWay, wayStale;
-	private Vec3 walkFrom;
 	private int staleScoops;
 	private final java.util.ArrayDeque<BlockPos> wayBack = new java.util.ArrayDeque<>();
 
@@ -442,7 +439,6 @@ public final class ServerBuildController implements ServerController {
 			wayBack.clear();
 			if (moved.state() != State.SUCCEEDED) {
 				lastWalkFailure = moved.reasonCode() + " " + moved.message();
-				if (viaWay && walkFrom != null && player.position().distanceTo(walkFrom) < 1.0D) wayStale = true;
 				LOGGER.info("[build] {} walk {} failed at {}: {}", player.getGameProfile().name(), walks, xyz(player.blockPosition()), lastWalkFailure);
 				BlockPos flow = casting && "LAVA_FLOW".equals(moved.reasonCode()) ? lavaNamed(moved.message()) : null;
 				if (flow != null && flowWaits < 3 && !fed(player, flow)) {
@@ -2066,7 +2062,6 @@ public final class ServerBuildController implements ServerController {
 		pause = 2;
 		long tick = player.level().getGameTime();
 		standRetries = 0;
-		wayStale = false;
 		LOGGER.info("[build] {} {} at {} from {} (cell {} of 10)", player.getGameProfile().name(), kind, xyz(target), xyz(player.blockPosition()), castIndex + 1);
 		walks = 0;
 		triedSpots.clear();
@@ -2689,11 +2684,7 @@ public final class ServerBuildController implements ServerController {
 		moveForClick = false;
 		// Any phase of a cast (clearing, casting, lighting): the frame and mould hide the way round from travel's planner.
 		// Not a step back from an inflow or a walk to open the pool: those go the short way travel finds.
-		// A way walked before that the last walk could not take a step along (the cast's own blocks or flow changed the
-		// ground: away-pair-7 tried the same dead way 10 times and ended NO_STAND_SPOT at cell 8): travel plans this one.
-		List<BlockPos> way = casting && phase != Phase.PLUG && phase != Phase.UNCOVER && !wayStale ? wayWalked(player, spot) : null;
-		viaWay = way != null && way.size() > 3;
-		walkFrom = player.position();
+		List<BlockPos> way = casting && phase != Phase.PLUG && phase != Phase.UNCOVER ? wayWalked(player, spot) : null;
 		LOGGER.info("[build] {} walk {} to {} in {} ({})", player.getGameProfile().name(), walks, xyz(spot), phase, way != null && way.size() > 3 ? way.size() + " steps walked before" : "travel");
 		if (way != null && way.size() > 3) {
 			// Cell by cell along steps it took: travel plans only through what is in sight, and a way round the frame is not.
