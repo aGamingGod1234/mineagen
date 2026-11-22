@@ -3406,6 +3406,21 @@ test('the bridge closes only after eight bad snapshots in a row for one agent an
 	await new Promise((resolve) => setImmediate(resolve));
 	const froms = sequenced.socket.writes.map((line) => JSON.parse(line)).filter((envelope) => envelope.type === 'request_observation').map((envelope) => envelope.payload.acceptedEventSequence);
 	assert.deepEqual(froms, [7, 7]);
+
+	// Accepted 7, dropped 8, a quiet 9 already on its way, the answer 10 dropped too: the retry still counts from 7.
+	const inFlight = await readyBridgeFixture(t);
+	const answer = (id, sequence, broken) => {
+		const payload = readyServerObservation(4);
+		payload.eventSequence = sequence;
+		payload.attention = true;
+		payload.changedFacts = ['player.air'];
+		if (broken) payload.position.x = 'broken';
+		return `${JSON.stringify(serverEnvelope('observation', 'agent-a', id, payload))}\n`;
+	};
+	for (const line of [at('q7', 7, false), at('q8', 8, true), at('q9', 9, false), answer('q10', 10, true), at('q11', 11, false), answer('q12', 12, false), at('q13', 13, false), at('q14', 14, true)]) inFlight.socket.emit('data', line);
+	await new Promise((resolve) => setImmediate(resolve));
+	const inFlightFroms = inFlight.socket.writes.map((line) => JSON.parse(line)).filter((envelope) => envelope.type === 'request_observation').map((envelope) => envelope.payload.acceptedEventSequence);
+	assert.deepEqual(inFlightFroms, [7, 7, 13], 'a quiet observation in flight is not the answer; a new fault after the answer counts from then');
 	lasting.socket.emit('data', good('re-announced'));
 	lasting.socket.emit('data', good('quiet'));
 	await new Promise((resolve) => setImmediate(resolve));
