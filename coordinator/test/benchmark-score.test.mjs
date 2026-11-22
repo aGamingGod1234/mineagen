@@ -1,10 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { collectRuns, compareScores, fisher, foldReason, formatComparison, formatScoreboard, groupScores, planBenchmark, scoreRooms } from '../../scripts/quality/lib/benchmark-score.mjs';
+import { handRolledTickRate } from '../../scripts/quality/lib/fixture-play.mjs';
+import { roomVerdict } from '../../scripts/quality/lib/fixture-run.mjs';
+import { damageCounter, recordDamageEvidence } from '../../scripts/quality/lib/damage-counter.mjs';
 import { parseCommands } from '../../scripts/quality/lib/room-batch-core.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
@@ -122,6 +126,99 @@ test('a single result object counts its own deaths and a room passes only on its
 	assert.deepEqual([by('rest', 'r1').deaths, by('rest', 'r1').damage], [1, 20]);
 });
 
+test('a fire room with missing or decreasing damage evidence is invalid even when its reflex passed', async t => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'bench-damage-'));
+	t.after(() => rm(dir, { recursive: true, force: true }));
+	const room = path.join(dir, 'rooms', 'fire.c1');
+	const afterByArm = { missing: null, decreased: 8, valid: 10 };
+	const reason = 'missing evidence: damage_taken Missing or decreasing vanilla damage counter';
+	await mkdir(room, { recursive: true });
+	await writeFile(path.join(room, 'done.json'), JSON.stringify({
+		arms: Object.fromEntries(Object.keys(afterByArm).map(arm => [arm, { exit: 0 }])),
+	}));
+	for (const [arm, after] of Object.entries(afterByArm)) {
+		let reads = 0;
+		const command = async text => {
+			if (text === 'scoreboard players get Body arena_damage') {
+				const score = reads++ === 0 ? 10 : after;
+				if (score === null) throw new Error('RCON read failed');
+				return `Body has ${score} [arena_damage]`;
+			}
+			if (text === 'scoreboard players get Body fixture_deaths') return 'Body has 0 [fixture_deaths]';
+			return '';
+		};
+		const rate = handRolledTickRate(command, new EventEmitter(), 'Body', { tickRate: 60 });
+		const end = await rate.play();
+		const armed = { pass: true, tick: await end() };
+		assert.equal(rate.rate, 20);
+		assert.equal(roomVerdict(armed).verdict, arm === 'valid' ? 'PASS' : 'INVALID');
+		await mkdir(path.join(room, arm));
+		await writeFile(path.join(room, arm, 'results.json'), JSON.stringify({ armed }));
+	}
+	const runs = await collectRuns(dir);
+	for (const { arm, verdict, reason: why, damage } of runs) {
+		assert.deepEqual([verdict, why, damage], arm === 'valid' ? ['PASS', null, 0] : ['INVALID', reason, null]);
+	}
+	const { pass, invalid } = scoreRooms(runs).fire;
+	assert.deepEqual({ pass, invalid }, { pass: 1, invalid: 2 });
+});
+
+test('a portal crossing with an unreadable damage score is invalid in its own verdict and the benchmark', async t => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'bench-portal-'));
+	t.after(() => rm(dir, { recursive: true, force: true }));
+	const room = path.join(dir, 'rooms', 'portal.c1');
+	await mkdir(path.join(room, 'r1'), { recursive: true });
+	await writeFile(path.join(room, 'done.json'), JSON.stringify({ arms: { r1: { exit: 0 } } }));
+	let reads = 0;
+	const readDamage = await damageCounter(async command => {
+		if (!command.startsWith('scoreboard players get ')) return '';
+		if (++reads === 1) return 'Portal has 7 [arena_damage]';
+		throw new Error('RCON read failed');
+	}, 'Portal');
+	const play = {};
+	recordDamageEvidence(play, await readDamage(), await readDamage());
+	const crossing = { ok: true, play };
+	await writeFile(path.join(room, 'r1', 'result.json'), JSON.stringify({ ok: true, cases: { nether: crossing } }));
+	const verdict = roomVerdict({ ...crossing, pass: crossing.ok });
+	assert.equal(verdict.verdict, 'INVALID');
+	assert.match(verdict.reason, /damage_taken/);
+	const [run] = await collectRuns(dir);
+	assert.deepEqual([run.verdict, run.reason, run.damage], ['INVALID', verdict.reason, null]);
+});
+
+test('a fire room with an invalid death count cannot pass even with valid damage evidence', async t => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'bench-deaths-'));
+	t.after(() => rm(dir, { recursive: true, force: true }));
+	const room = path.join(dir, 'rooms', 'fire.c1');
+	const replies = { rejected: null, malformed: 'unavailable', decreased: 'Body has 1 [fixture_deaths]', valid: 'Body has 2 [fixture_deaths]' };
+	await mkdir(room, { recursive: true });
+	await writeFile(path.join(room, 'done.json'), JSON.stringify({
+		arms: Object.fromEntries(Object.keys(replies).map(arm => [arm, { exit: 0 }])),
+	}));
+	for (const [arm, reply] of Object.entries(replies)) {
+		let deathReads = 0;
+		const command = async text => {
+			if (text === 'scoreboard players get Body arena_damage') return 'Body has 0 [arena_damage]';
+			if (text !== 'scoreboard players get Body fixture_deaths') return '';
+			if (++deathReads === 1) return 'Body has 2 [fixture_deaths]';
+			if (reply === null) throw new Error('RCON read failed');
+			return reply;
+		};
+		const rate = handRolledTickRate(command, new EventEmitter(), 'Body', { tickRate: 60 });
+		const end = await rate.play();
+		const armed = { pass: true, tick: await end() };
+		assert.equal(armed.tick.damageTaken, 0);
+		assert.equal(roomVerdict(armed).verdict, arm === 'valid' ? 'PASS' : 'INVALID');
+		await mkdir(path.join(room, arm));
+		await writeFile(path.join(room, arm, 'results.json'), JSON.stringify({ armed }));
+	}
+	const runs = await collectRuns(dir);
+	const reason = 'missing evidence: deaths Missing or decreasing vanilla death counter';
+	for (const { arm, verdict, reason: why, deaths } of runs) {
+		assert.deepEqual([verdict, why, deaths], arm === 'valid' ? ['PASS', null, 0] : ['INVALID', reason, null]);
+	}
+});
+
 test('a death repeated by a variant and its counter counts once, and an item wear is not health damage', async t => {
 	const dir = await mkdtemp(path.join(os.tmpdir(), 'bench-nest-'));
 	t.after(() => rm(dir, { recursive: true, force: true }));
@@ -209,6 +306,22 @@ test('a room judged on survival whose fixture records no death count has no verd
 	assert.deepEqual([runs[0].verdict, runs[0].reason], ['INVALID', 'no death record']);
 });
 
+test('the edge room judges the shield shot and only records the empty-handed knockback', async t => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'bench-edge-'));
+	t.after(() => rm(dir, { recursive: true, force: true }));
+	const put = async (file, value) => { await mkdir(path.dirname(path.join(dir, file)), { recursive: true }); await writeFile(path.join(dir, file), JSON.stringify(value)); };
+	const shot = (offBridge) => ({ cases: [{ case: 'edge-control', mode: 'defaults', alive: true, knockedOff: true }, { case: 'edge-control-shield', mode: 'defaults', alive: true, offBridge },
+		{ case: 'edge-control-shield', mode: 'none', alive: true, offBridge: true }] });
+	for (const [room, offBridge] of [['held', false], ['fell', true]]) {
+		await put(`rooms/${room}.c1/done.json`, { room: `${room}.c1`, arms: { r1: { exit: 0, seconds: 60 } } });
+		await put(`rooms/${room}.c1/r1/default-reflex.json`, shot(offBridge));
+	}
+	const runs = await collectRuns(dir, null, { held: { bar: 'none' }, fell: { bar: 'none' } });
+	const of = room => runs.filter(run => run.room === room).map(run => run.verdict);
+	assert.deepEqual(of('held'), ['PASS'], 'knocked off empty-handed, on the bridge behind the shield');
+	assert.deepEqual(of('fell'), ['FAIL'], 'off the bridge with a shield in hand');
+});
+
 test('what a fixture wrote outranks its exit 0: caught errors, pass false, alive false, empty rows and cut-short files', async t => {
 	const dir = await mkdtemp(path.join(os.tmpdir(), 'bench-score-'));
 	t.after(() => rm(dir, { recursive: true, force: true }));
@@ -259,7 +372,7 @@ test('a death counted after the counter sample stands, and an unreadable counter
 	await put('rooms/unread.c1/r1/blaze.json', { variants: { cover: { runs: [{ deaths: 0, deathCounter: { valid: false, deaths: null } }] } } });
 	// A parent repeating its child's count does not double it.
 	await put('rooms/same.c1/r1/blaze.json', { variants: { cover: { deaths: 1, runs: [{ deaths: 1, deathCounter: { valid: true, deaths: 1 } }] } } });
-	const meta = Object.fromEntries(rooms.map(room => [room, { bar: 'none' }]));
+	const meta = { late: { bar: 'none' }, same: { bar: 'none' } };
 	const runs = await collectRuns(dir, plan, meta);
 	const by = room => runs.find(run => run.room === room);
 	assert.equal(by('late').verdict, 'FAIL');

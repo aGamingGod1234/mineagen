@@ -1,15 +1,18 @@
 #!/usr/bin/env node
 // Isolated bow/shield and snowball mechanics, separate from natural-spawner yield and model decision scores.
+// FIXTURE_TICK_RATE runs each case faster: the room and kit stay at 20 TPS, and from the build on (build, side window,
+// the NoAI blaze, the guard reflex, the shots and waits, all body actions timed in ticks) the case runs at the raised
+// rate. Each case records seconds (game), wallSeconds and rates.
 import { mkdir, writeFile } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { resolve, join } from 'node:path';
-import { boot } from './watch-replay.mjs';
+import { boot, fixtureTickRate } from './watch-replay.mjs';
 import { normalizeReflexEntries } from '../../coordinator/src/reflexes.mjs';
 const out = resolve(process.argv[2]), jar = resolve(process.env.ARENA_JAR);
 const hash = createHash('sha256'); for await (const chunk of createReadStream(jar)) hash.update(chunk);
 await mkdir(out, { recursive: true });
-const results = { kind: 'provider-free isolated ranged mechanics; fixture health is evaluator-only', jarSha256: hash.digest('hex'), cases: [] };
+const results = { kind: 'provider-free isolated ranged mechanics; fixture health is evaluator-only', jarSha256: hash.digest('hex'), tickRate: fixtureTickRate(), cases: [] };
 let s, rules = [];
 const act = async (type, args) => {
  await s.bridge.send('reflex_update', s.record.agentId, { revision: s.revision, rules: normalizeReflexEntries(rules), yield: true });
@@ -20,7 +23,7 @@ const health = async () => {
  return /(-?[\d.]+)f?\s*$/.exec(t.trim())?.[1] * 1 || 0;
 };
 try {
- s = await boot(out, { jar, template: process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port: Number(process.env.SLOT_PORT_BASE), seed: 20261009 });
+ s = await boot(out, { jar, template: process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port: Number(process.env.SLOT_PORT_BASE), seed: 20261009, tickRate: fixtureTickRate() });
  await s.command('gamerule minecraft:spawn_mobs false');
  await s.command('forceload add -32 -32 96 32');
  await s.command('fill -24 100 -24 80 100 24 minecraft:stone');
@@ -34,6 +37,7 @@ try {
  await s.command('gamemode survival Probe');
  const cases = [['north',6,0,true,'bow'], ['east',10,1,true,'bow'], ['south',14,2,true,'bow'], ['west',6,0,false,'bow'], ['east',6,0,true,'snowball'], ['east',6,0,false,'bow','south']];
  for (let i=0; i<cases.length; i++) {
+  await s.normalRate();
   rules = []; await s.setReflexes(rules);
   await s.command('kill @e[type=minecraft:blaze]'); await s.command('kill @e[type=minecraft:item]');
   await s.command('kill @e[type=minecraft:arrow]');
@@ -46,6 +50,8 @@ try {
   await s.command('item replace entity Probe weapon.offhand with minecraft:shield');
   await s.observe();
   const row = { opening, range, rise, roof, weapon, shots: [] };
+  await s.fastRate();
+  const t0 = s.clock.now(), wall0 = Date.now(), timer = await s.gameTimer();
   row.build = await act('build_shelter', { x, y:101, z:0, opening, roof, itemId:'minecraft:cobblestone', timeoutMs:60000 });
   if (row.build.state==='SUCCEEDED') {
    const [dx,dz]={north:[0,-1],east:[1,0],south:[0,1],west:[-1,0]}[sideWindow ?? opening];
@@ -72,8 +78,11 @@ try {
    }
    row.finalHealth=await health(); row.finalInventory=(await s.observe()).inventory;
   }
+  Object.assign(row, { seconds: Math.round((s.clock.now() - t0) / 1000), wallSeconds: Math.round((Date.now() - wall0) / 1000), gameSeconds: Math.round((await timer.elapsed()) / 1000), rates: await timer.rates().catch(() => null) });
+  await s.normalRate();
   results.cases.push(row); await writeFile(join(out,'ranged.json'),JSON.stringify(results,null,2));
   console.log(JSON.stringify(row));
  }
+ results.tick = { rate: s.tickRate, held: await s.tickReport() };
 } finally { await s?.stop().catch(()=>{}); await writeFile(join(out,'ranged.json'),JSON.stringify(results,null,2)); }
 if(results.cases.length!==6||results.cases.some(c=>c.build.state!=='SUCCEEDED'||c.sideWindow&&c.sideWindow.result.state!=='SUCCEEDED'||!c.guardReady||c.finalHealth!==0||!c.shots.length||c.shots.some(s=>s.result.state!=='SUCCEEDED'))) process.exitCode=1;

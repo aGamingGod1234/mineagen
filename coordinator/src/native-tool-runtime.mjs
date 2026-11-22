@@ -287,7 +287,8 @@ export class NativeToolRuntime {
 		this.#planNeeds = planNeeds;
 		this.#memoryObservation = memoryObservation;
 		this.#programExecutor = programExecutor ?? (this.#clock === WALL_CLOCK ? new NativeProgramExecutor({ sessionId })
-			: new NativeProgramExecutor({ sessionId, now: this.#clock.now, setTimeoutFn: this.#clock.setTimeout, clearTimeoutFn: this.#clock.clearTimeout }));
+			// The cancel acknowledgement is a bridge round trip, not body time, so it keeps wall-time timers.
+			: new NativeProgramExecutor({ sessionId, now: this.#clock.now, setTimeoutFn: this.#clock.setTimeout, clearTimeoutFn: this.#clock.clearTimeout, acknowledgementSetTimeoutFn: setTimeout, acknowledgementClearTimeoutFn: clearTimeout }));
 		this.#executorOnGameClock = programExecutor === null && this.#clock !== WALL_CLOCK;
 		if (typeof onProgramEvent !== 'function') throw new TypeError('onProgramEvent must be a function');
 		this.#onProgramEvent = onProgramEvent;
@@ -858,7 +859,7 @@ export class NativeToolRuntime {
 				// The ledger makes repeated rejections visible like body failures.
 				const latest = this.#observations.get(record.agentId);
 				const repeat = this.#repeatedFailures.record(record.agentId, { goalRevision: record.goalRevision, actionType: request.tool.actionType ?? request.tool.kind,
-					arguments: request.tool.arguments ?? null, state: 'FAILED', reasonCode: error.code, observation: latest?.goalRevision === record.goalRevision ? latest.observation : null });
+					arguments: request.tool.arguments ?? null, state: 'FAILED', reasonCode: error.code, ...this.#failureStamp(latest?.goalRevision === record.goalRevision ? latest.observation : null) });
 				// A publication failure carries the actionId it may already have sent.
 				error.failure = failureFacts({ code: error.code, changed: error.actionId === undefined ? 'nothing' : 'unknown', blockedBy: String(error.message ?? '').slice(0, 512), repeat: repeat ?? undefined });
 			}
@@ -2299,15 +2300,21 @@ export class NativeToolRuntime {
 		return structuredClone(result);
 	}
 
+	/** The sample a repeated failure is counted at, with its time on the gameplay clock (the ledger's 60 s window). */
+	#failureStamp(observation) {
+		return { observation, at: this.#clock.at(observation), now: this.#clock.now() };
+	}
+
 	/** Height changes along a finished move, and known footing near a target that had none. Facts only. */
 	/**
 	 * The body position this action starts from: the newer of the latest observation and where the previous body action
 	 * ended. Its age says how stale it is at dispatch, so a reported movement is never the sum of two actions.
 	 */
 	#startSample(record, latest) {
-		const now = Date.now();
+		// Both sides on the gameplay clock: wall time in production, game time under a fixture's game clock.
+		const now = this.#clock.now();
 		const seen = latest?.goalRevision === record.goalRevision ? observationPosition(latest.observation) : null;
-		const seenAt = Number.isFinite(latest?.observation?.observedAtEpochMs) ? latest.observation.observedAtEpochMs : null;
+		const seenAt = this.#clock.at(latest?.observation);
 		const ended = this.#bodyEnds.get(record.agentId);
 		const endedSample = ended?.goalRevision === record.goalRevision ? ended : null;
 		const pick = endedSample !== null && (seen === null || seenAt === null || endedSample.at >= seenAt) ? endedSample : seen === null ? null : { position: seen, at: seenAt };
@@ -2849,7 +2856,10 @@ export class NativeToolRuntime {
 			act: async (actionType, args, { watch = null } = {}) => {
 				live();
 				steps += 1;
-				const action = normalizeMinecraftToolCall('act', { actionType, arguments: args });
+				// escape is a step the model starts with do_step, hidden from its act; a helper (find's wet hole) runs it as the
+				// same body action do_step escape starts, with that step's 60 s timeout.
+				const action = actionType === 'escape' ? { kind: 'action', actionType, arguments: { timeoutMs: 60_000, ...args } }
+					: normalizeMinecraftToolCall('act', { actionType, arguments: args });
 				if (action.kind !== 'action') throw codedError('INVALID_NATIVE_TOOL', `${label} expected one body action for ${actionType}`);
 				let seen = null, running = true, timer = null, wake = null, release = null;
 				// Samples arrive with each published change; a watched leg also asks for one every 2 s. The leg's end wakes the
@@ -3260,7 +3270,7 @@ export class NativeToolRuntime {
 		const failureClass = classifyBodyFailure(reasonCode, state);
 		const travel = TRAVEL_ACTIONS.has(active.actionType) ? this.#travelFacts(record, active, reasonCode, observation, payload.message) : {};
 		const repeatedFailure = active.actionType === 'chat' ? null : this.#repeatedFailures.record(record.agentId, {
-			goalRevision: record.goalRevision, actionType: active.actionType, arguments: active.arguments, state, reasonCode, observation });
+			goalRevision: record.goalRevision, actionType: active.actionType, arguments: active.arguments, state, reasonCode, ...this.#failureStamp(observation) });
 		const rawMessage = payload.message === undefined ? undefined : String(payload.message).slice(0, 2_048);
 		let message = state === 'SUCCEEDED' && reasonCode === 'PORTAL_LIT' && active.actionType === 'build'
 			&& active.arguments?.structure === 'nether_portal' && active.dimension === 'minecraft:overworld'
@@ -3317,7 +3327,7 @@ export class NativeToolRuntime {
 		}
 		const endedAt = observationPosition(observation);
 		if (endedAt !== null && active.actionType !== 'chat') this.#bodyEnds.set(record.agentId, { goalRevision: record.goalRevision, position: endedAt,
-			at: Number.isFinite(observation?.observedAtEpochMs) ? observation.observedAtEpochMs : Date.now() });
+			at: this.#clock.at(observation) ?? this.#clock.now() });
 		this.#retainReceipt(record, active, { ...result, source: 'server_action_result' });
 		if (payload.breakOutcome !== undefined) this.#breakOutcomes.set(result, payload.breakOutcome);
 		// The receipt's cell is in the world and dimension the action was dispatched in, even if the body has moved since.
@@ -3328,7 +3338,7 @@ export class NativeToolRuntime {
 		this.#occupancy.recordResourceResult?.(record.agentId, dispatched, { actionType: active.actionType, arguments: active.arguments, state, reasonCode, message: payload.message ?? null, observedAtEpochMs: payload.observedAtEpochMs ?? null });
 		this.#placedWorkstations.onActionResult(record.agentId, { actionType: active.actionType, arguments: active.arguments, state, observedAtEpochMs: payload.observedAtEpochMs, actionObservation: payload.actionObservation }, dispatched);
 		this.#dugStairs.onActionResult(record.agentId, { actionType: active.actionType, arguments: active.arguments, from: active.from ?? null, to: endedAt ?? observationPosition(latest),
-			at: Number.isFinite(payload.observedAtEpochMs) ? payload.observedAtEpochMs : Date.now() }, dispatched);
+			at: this.#clock.at({ observedAtEpochMs: payload.observedAtEpochMs, world: observation?.world }) ?? this.#clock.now() }, dispatched);
 		// The same own receipt reaches every store that remembers the cell, so none keeps a station the agent broke.
 		this.#recovery.recordResult?.(record.agentId, dispatched, { actionType: active.actionType, arguments: active.arguments, state, reasonCode, observedAtEpochMs: payload.observedAtEpochMs });
 		if (this.#notebook !== null && active.worldId != null) {

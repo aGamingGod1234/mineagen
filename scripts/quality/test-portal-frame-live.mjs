@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 // Provider-free check that the seen portal frame row reports frame cells, blockers and lighting from real observations.
 // Always launch under slot.sh live; ports come from SLOT_PORT_BASE. Operator commands build/reset fixtures only.
+// FIXTURE_TICK_RATE (test only): the frame reads and the bucket actions run at 20 TPS: between a pour and its scoop the
+// harness reads blocks and swaps items while the lava's 30-tick spread delay runs, and at 60 TPS those steps take three
+// times as many ticks. Settling waits and the 3 s spread watch after the scoop pass at the fixture rate (rate.idleSleep).
+// frames.json's tick holds the rates over the run.
 import { readFile, writeFile, mkdir, cp, readdir } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,6 +13,8 @@ import { randomBytes, createHash } from 'node:crypto';
 import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
+import { handRolledTickRate } from './lib/fixture-play.mjs';
+import { unshownTickRate } from './watch-replay.mjs';
 
 const root=fileURLToPath(new URL('../..',import.meta.url));
 const out=resolve(process.argv[2] ?? 'runtime/portal-frame-live');
@@ -37,7 +43,7 @@ class Inbox {
   accept(e){const i=this.waiters.findIndex(w=>w.type===e.type&&w.match(e));if(i>=0)this.waiters.splice(i,1)[0].done(e);else {this.events.push(e);if(this.events.length>1024)this.events.shift();}}
   wait(type,match=()=>true,ms=30000){const i=this.events.findIndex(e=>e.type===type&&match(e));if(i>=0)return Promise.resolve(this.events.splice(i,1)[0]);return new Promise((res,rej)=>{const w={type,match,done:e=>{clearTimeout(t);res(e)}};const t=setTimeout(()=>{this.waiters=this.waiters.filter(x=>x!==w);rej(new Error(`TIMEOUT ${type}`))},ms);this.waiters.push(w)});}
 }
-let rcon,bridge,record,observation;
+let rcon,bridge,record,observation,rate;
 const agent='Frame';
 const command=async s=>{
   if(rcon.state==='closed'){rcon=new HeadlessRconClient({host:'127.0.0.1',port:port+1,password:secret,commandTimeoutMs:5000});await rcon.connect();}
@@ -61,12 +67,13 @@ async function executeAction(c){
 try {
   for(let i=0;i<150;i++){try{rcon=new HeadlessRconClient({host:'127.0.0.1',port:port+1,password:secret,connectTimeoutMs:500,commandTimeoutMs:5000});await rcon.connect();break}catch(e){await rcon?.close();if(i===149)throw e;await sleep(1000)}}
   bridge=new MultiplexedServerBridge({port,secret},{});inbox=new Inbox(bridge);
+  rate=handRolledTickRate(text=>command(text),bridge, agent, { tickRate: unshownTickRate('it already fails at 20 TPS, so an A/B cannot show the same game at 60') });
   bridge.on('observation',e=>{if(e.agentId===record?.agentId&&e.payload.ready){observation=e.payload}});
   bridge.on('goal_spec_request',e=>{bridge.send('goal_spec_proposal',e.agentId,{requestId:e.payload.requestId,summary:'Controlled live mechanics fixture',predicate:{type:'survive_duration',ticks:12000}}).catch(()=>{});});
   const ready=inbox.wait('ready');bridge.start();await ready;
   await bridge.send('catalog_snapshot','server',{refreshedAtEpochMs:Date.now(),models:[{provider:'codex',model:'gpt-6.1-sol',id:'gpt-6.1-sol',displayName:'Provider-free portal frame fixture',reasoningEfforts:['low'],serviceTiers:['priority']}]});
   await command('difficulty peaceful');await command('gamerule minecraft:send_command_feedback false');await command('time set noon');
-  await command('forceload add -16 -16 32 32');await sleep(2000);
+  await command('forceload add -16 -16 32 32');await rate.idleSleep(2000);
   await command('fill -5 75 -5 20 90 10 minecraft:air');await command('fill -4 79 -4 2 79 4 minecraft:stone');
   const registered=inbox.wait('agent_registered');console.log(await command(`execute positioned 0.5 80 0.5 run mineagen summon gpt-6.1-sol low ${agent}`));
   const e=await registered;record={...(e.payload.record??e.payload),agentId:e.agentId};
@@ -76,13 +83,14 @@ try {
   await command('fill -4 79 -4 5 79 8 minecraft:stone');
   await command(`gamemode survival ${agent}`);
   const frame=row=>row.sighted?.portalFrames?.[0];
-  async function act(type,args){
+  async function act(type,args,{refusal=false}={}){
     const id=`frame-${++ordinal}`;
     const r=await executeAction({actionId:id,action:{type,arguments:args},provenance:{traceId:id,programId:'frame-fixture',stepId:id,eventSequence:observation.eventSequence}});
-    if(r.state!=='SUCCEEDED')throw new Error(JSON.stringify(r));
+    if(r.state!=='SUCCEEDED'&&!refusal)throw new Error(JSON.stringify(r));
     return r;
   }
-  const look=async yaw=>{await command(`tp ${agent} 0.5 80 0.5 ${yaw} 10`);await sleep(600);return observe();};
+  const look=async yaw=>{await command(`tp ${agent} 0.5 80 0.5 ${yaw} 10`);await rate.idleSleep(600);return observe();};
+  const t0=rate.clock.now(),wall0=Date.now(),timer=await rate.gameTimer();
   const results={};
   // Bottom two and the left pillar of a 2x3 interior at x0..1 y81..83 z4; the top row (y84) is above the block rows' window.
   for(const [x,y] of [[0,80],[1,80],[-1,81],[-1,82],[-1,83]]) await command(`setblock ${x} ${y} 4 minecraft:obsidian`);
@@ -98,16 +106,16 @@ try {
   if(results.complete?.missing.length!==0||results.complete.blocked.length!==0||results.complete.lit)throw new Error(`complete ${JSON.stringify(results.complete)}`);
   o=await look(180);results.away=frame(o)??null;
   if(results.away)throw new Error(`frame reported while facing away ${JSON.stringify(results.away)}`);
-  await command('setblock 0 81 4 minecraft:fire');await sleep(500);
+  await command('setblock 0 81 4 minecraft:fire');await rate.idleSleep(500);
   o=await look(0);results.lit=frame(o);
   if(!results.lit?.lit)throw new Error(`lit ${JSON.stringify(results.lit)}`);
   // Casting facts through real bucket actions: water beside or above converts a poured lava source at once; water only
   // below does not; an unconverted source can be scooped back before it spreads.
   const is=async(x,y,z,id)=>/passed/i.test(await command(`execute if block ${x} ${y} ${z} minecraft:${id}`));
   await command('fill -4 80 -4 5 86 3 minecraft:air');
-  await command(`tp ${agent} 0.5 80 -2.5 0 30`);await sleep(500);await observe();
-  const pour=async(x,y,z)=>{await command(`item replace entity ${agent} weapon.mainhand with minecraft:lava_bucket`);await sleep(200);await observe();
-    return act('interact_block',{x,y:y-1,z,face:'up',hand:'main',expectedItemId:'minecraft:lava_bucket'});};
+  await command(`tp ${agent} 0.5 80 -2.5 0 30`);await rate.idleSleep(500);await observe();
+  const pour=async(x,y,z,extra={},options={})=>{await command(`item replace entity ${agent} weapon.mainhand with minecraft:lava_bucket`);await rate.idleSleep(200);await observe();
+    return act('interact_block',{x,y:y-1,z,face:'up',hand:'main',expectedItemId:'minecraft:lava_bucket',...extra},options);};
   await command('setblock -2 80 0 minecraft:cobblestone');await command('setblock -1 80 0 minecraft:cobblestone');await command('setblock -1 81 0 minecraft:water');
   await pour(-2,81,0);results.waterBeside=await is(-2,81,0,'obsidian');
   await command('fill -4 80 -1 4 82 1 minecraft:air');
@@ -115,13 +123,16 @@ try {
   await pour(2,81,0);results.waterOnlyBelowStaysLava=await is(2,81,0,'lava');
   await command('setblock 2 81 0 minecraft:air');await command('setblock 2 79 0 minecraft:stone');
   await command('setblock 0 80 1 minecraft:cobblestone');
-  await pour(0,81,1);results.noWaterIsLava=await is(0,81,1,'lava');
-  await command(`item replace entity ${agent} weapon.mainhand with minecraft:bucket`);await sleep(200);await observe();
+  // This pour's flow would reach the body: the lava safety rule refuses it unless the caller accepts the risk.
+  const guarded=await pour(0,81,1,{},{refusal:true});results.pourAtBodyRefused=guarded.reasonCode==='LAVA_POUR_AT_BODY'&&!(await is(0,81,1,'lava'));
+  await pour(0,81,1,{acceptLavaRisk:true});results.noWaterIsLava=await is(0,81,1,'lava');
+  await command(`item replace entity ${agent} weapon.mainhand with minecraft:bucket`);await rate.idleSleep(200);await observe();
   await act('interact_block',{x:0,y:81,z:1,face:'north',hand:'main',expectedItemId:'minecraft:bucket'});
-  await sleep(3000);
+  await rate.idleSleep(3000);
   results.scoopedBack=await is(0,81,1,'air');
   results.noSpread=!(await is(0,81,0,'lava'))&&!(await is(1,81,1,'lava'))&&!(await is(-1,81,1,'lava'))&&!(await is(0,80,0,'lava'));
-  if(!results.waterBeside||!results.waterOnlyBelowStaysLava||!results.noWaterIsLava||!results.scoopedBack||!results.noSpread)throw new Error(`casting ${JSON.stringify(results)}`);
+  if(!results.waterBeside||!results.waterOnlyBelowStaysLava||!results.pourAtBodyRefused||!results.noWaterIsLava||!results.scoopedBack||!results.noSpread)throw new Error(`casting ${JSON.stringify(results)}`);
+  results.tick={tickRate:rate.tickRate,rates:await timer.rates().catch(()=>null),seconds:Math.round((rate.clock.now()-t0)/1000),gameSeconds:Math.round((await timer.elapsed())/1000),wallSeconds:Math.round((Date.now()-wall0)/1000),held:await rate.tickReport()};
   await writeFile(join(out,'frames.json'),JSON.stringify(results,null,2));
   console.log(JSON.stringify(results));
   console.log('Portal frame variants and casting facts recorded');

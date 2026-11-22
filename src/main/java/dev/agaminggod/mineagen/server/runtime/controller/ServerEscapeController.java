@@ -66,6 +66,8 @@ public final class ServerEscapeController implements ServerController {
 	/** A shooter this near and in sight keeps the body from counting as safe. */
 	static final double SHOOTER_RANGE = 16.0D;
 	static final int COVER_WITHIN = 8;
+	/** How far a run from a shooter goes: past the 16 blocks it counts as a threat from. */
+	static final double RUN_BLOCKS = 20.0D;
 	/** Ticks the body must stay safe before the job hands back. */
 	static final int SAFE_TICKS = 20;
 	static final int MAX_TRIES = 3;
@@ -87,8 +89,11 @@ public final class ServerEscapeController implements ServerController {
 	private int climbs;
 	/** Gives back the running move's attempt when a reflex interrupts it (see {@link #resumed}). */
 	private Runnable refund;
-	private int fills;
+	private int fills, steps;
 	private int covers;
+	/** Runs out of a shooter's range when no cover is in reach. */
+	private int runs;
+	private boolean runInterrupted;
 	private int pits;
 	private final Map<BlockPos, Integer> bankTries = new java.util.HashMap<>();
 	private final Set<BlockPos> stairedBanks = new HashSet<>();
@@ -108,6 +113,7 @@ public final class ServerEscapeController implements ServerController {
 		if (child != null) return childTick(player, now);
 		if (move != null) return moveTick(player);
 		Situation situation = situation(player);
+		if (situation != Situation.SHOOTERS) runInterrupted = false;
 		if (situation != Situation.SAFE) safeTicks = 0;
 		return switch (situation) {
 			case SAFE -> {
@@ -136,7 +142,7 @@ public final class ServerEscapeController implements ServerController {
 	}
 
 	/** The way out of water: swim to air, travel to a bank, cut stairs up to it, or stop with no way / no shore. */
-	enum WaterMove { SWIM, TRAVEL, STAIRS, FILL, NO_WAY, NO_SHORE }
+	enum WaterMove { SWIM, TRAVEL, STAIRS, FILL, STEP, NO_WAY, NO_SHORE }
 
 	/**
 	 * {@code tries} counts this pick of the bank too. Little air, or no bank in reach, swims first (at most
@@ -151,8 +157,18 @@ public final class ServerEscapeController implements ServerController {
 	 * water under them from the bottom up until standing dry, and then climbs out of the hole that is left.
 	 */
 	static WaterMove waterMove(boolean underwater, int air, boolean bank, int tries, boolean onGround, boolean bankAbove, boolean staired, int swims, boolean canFill) {
-		if (underwater && (!bank || air < SWIM_FIRST_AIR) && swims < MAX_TRIES && !(canFill && air >= SWIM_FIRST_AIR)) return WaterMove.SWIM;
-		if (!bank) return canFill ? WaterMove.FILL : underwater ? WaterMove.NO_WAY : WaterMove.NO_SHORE;
+		return waterMove(underwater, air, bank, tries, onGround, bankAbove, staired, swims, canFill, false);
+	}
+
+	/**
+	 * {@code canStep}: no bank and no confined shaft to fill, but a water cell beside the body has solid ground under it and
+	 * two open cells over it (stepCell), and a plain block is carried. One block placed there is a bank, as a player in
+	 * a flooded hole whose rim is out of reach puts a block down beside them and climbs onto it.
+	 */
+	static WaterMove waterMove(boolean underwater, int air, boolean bank, int tries, boolean onGround, boolean bankAbove, boolean staired, int swims,
+			boolean canFill, boolean canStep) {
+		if (underwater && (!bank || air < SWIM_FIRST_AIR) && swims < MAX_TRIES && !(canFill && air >= SWIM_FIRST_AIR) && !(canStep && air >= SWIM_FIRST_AIR)) return WaterMove.SWIM;
+		if (!bank) return canFill ? WaterMove.FILL : canStep ? WaterMove.STEP : underwater ? WaterMove.NO_WAY : WaterMove.NO_SHORE;
 		// dig_to stops at once with the eyes under water (WATER_AHEAD), so the stairs start only from breathable footing.
 		if (tries > 2 && onGround && !underwater && bankAbove && !staired) return WaterMove.STAIRS;
 		if (tries > MAX_TRIES + 1) return WaterMove.NO_WAY;
@@ -173,8 +189,9 @@ public final class ServerEscapeController implements ServerController {
 		String block = plainBlock(player);
 		Column column = bank == null && block != null && fills < MAX_TRIES ? fillColumn(player.level(), player.blockPosition()) : null;
 		boolean canFill = column != null && ServerBuildController.carried(player, block) >= column.depth();
+		BlockPos step = bank == null && !canFill && block != null && steps < MAX_TRIES ? stepCell(player.level(), player.blockPosition(), connectedWater(player.level(), player.blockPosition())) : null;
 		WaterMove next = waterMove(player.isUnderWater(), player.getAirSupply(), bank != null, tries, player.onGround(), bankAbove,
-				bank != null && stairedBanks.contains(bank), swims, canFill);
+				bank != null && stairedBanks.contains(bank), swims, canFill, step != null);
 		return switch (next) {
 			case SWIM -> {
 				if (bank != null) bankTries.merge(bank, -1, Integer::sum);
@@ -199,6 +216,11 @@ public final class ServerEscapeController implements ServerController {
 				fills++;
 				refund = () -> fills--;
 				yield startMove(player, fillUnder(block, column.top().getX(), column.top().getZ()), "fill the " + column.depth() + " water cells under the body with " + block.replace("minecraft:", ""));
+			}
+			case STEP -> {
+				steps++;
+				refund = () -> steps--;
+				yield startMove(player, placeStep(block, step.immutable()), "place a step block at " + step.toShortString() + " to climb out onto");
 			}
 			case TRAVEL -> {
 				travelBank = bank.immutable();
@@ -226,6 +248,45 @@ public final class ServerEscapeController implements ServerController {
 			input.accept(new dev.agaminggod.mineagen.server.runtime.input.AgentInputState(1.0F, 0.0F, true, false, false, false, false, yaw, pitch,
 					player.getInventory().getSelectedSlot(), net.minecraft.world.InteractionHand.MAIN_HAND));
 			return new EscapeMoves.Result(EscapeMoves.Status.RUNNING, "pushing onto the bank");
+		};
+	}
+
+	/**
+	 * A water cell beside the body (at its feet or one above, where the surface is), connected to its water, with a sturdy
+	 * block under it and two open cells over it: a block placed there makes standing room beside the body. Null when none.
+	 */
+	static BlockPos stepCell(Level level, BlockPos feet, Set<BlockPos> pool) {
+		for (int dy = 1; dy >= 0; dy--) {
+			for (Direction side : Direction.Plane.HORIZONTAL) {
+				BlockPos cell = feet.above(dy).relative(side);
+				if (!pool.contains(cell)) continue;
+				BlockPos under = cell.below();
+				if (!level.getBlockState(under).isFaceSturdy(level, under, Direction.UP)) continue;
+				if (clear(level, cell.above()) && clear(level, cell.above(2))) return cell;
+			}
+		}
+		return null;
+	}
+
+	/** Place one block into {@code cell} against the top of the block under it, afloat; done once the cell holds no water. */
+	EscapeMoves.Move placeStep(String item, BlockPos cell) {
+		int[] ticks = {0};
+		return (player, input) -> {
+			if (!player.level().getFluidState(cell).is(net.minecraft.tags.FluidTags.WATER))
+				return new EscapeMoves.Result(EscapeMoves.Status.DONE, "placed a step at " + cell.toShortString());
+			if (++ticks[0] > 100) return new EscapeMoves.Result(EscapeMoves.Status.FAILED, "could not place a step into " + cell.toShortString() + " in 5 s");
+			net.minecraft.world.phys.Vec3 aim;
+			try { aim = environment.aim(player, cell, Direction.UP, item); }
+			catch (RuntimeException refused) { aim = net.minecraft.world.phys.Vec3.atCenterOf(cell).add(0.0D, -0.499D, 0.0D); }
+			var look = dev.agaminggod.mineagen.server.runtime.input.AgentInputStates.lookingAt(player, aim, 0, 0, true, false, false, false, false, net.minecraft.world.InteractionHand.MAIN_HAND);
+			float yaw = dev.agaminggod.mineagen.server.runtime.input.AgentInputStates.turnYaw(player.getYRot(), look.yaw());
+			float pitch = dev.agaminggod.mineagen.server.runtime.input.AgentInputStates.turnPitch(player.getXRot(), look.pitch());
+			input.accept(new dev.agaminggod.mineagen.server.runtime.input.AgentInputState(0.0F, 0.0F, true, false, false, false, false, yaw, pitch,
+					player.getInventory().getSelectedSlot(), net.minecraft.world.InteractionHand.MAIN_HAND));
+			if (Math.abs(dev.agaminggod.mineagen.server.runtime.input.AgentInputStates.shortestAngleDelta(yaw, look.yaw())) > 1.0F || Math.abs(pitch - look.pitch()) > 1.0F)
+				return new EscapeMoves.Result(EscapeMoves.Status.RUNNING, "looking at " + cell.toShortString());
+			try { environment.place(player, cell, Direction.UP, item); } catch (RuntimeException refused) { /* not ready yet; next tick */ }
+			return new EscapeMoves.Result(EscapeMoves.Status.RUNNING, "placing a step at " + cell.toShortString());
 		};
 	}
 
@@ -341,11 +402,22 @@ public final class ServerEscapeController implements ServerController {
 	}
 
 	private TickResult shooters(ServerPlayer player) {
+		if (runInterrupted) return runFromShooter(player, shooterNear(player));
 		if (covers >= MAX_TRIES) return finish(player, TickResult.failed("ESCAPE_EXPOSED", "Still in sight of " + type(shooterNear(player))
 				+ " after " + covers + " cover moves" + done() + facts(player), 0.5D));
 		covers++;
 		refund = () -> covers--;
 		return startMove(player, EscapeMoves.takeCover(COVER_WITHIN), "cover from " + type(shooterNear(player)));
+	}
+
+	private TickResult runFromShooter(ServerPlayer player, Mob shooter) {
+		runInterrupted = false;
+		runs++;
+		refund = () -> {
+			runs--;
+			runInterrupted = true;
+		};
+		return startMove(player, EscapeMoves.sprintAway(RUN_BLOCKS, shooter), "run out of range of " + type(shooter));
 	}
 
 	private TickResult startMove(ServerPlayer player, EscapeMoves.Move next, String label) {
@@ -361,9 +433,13 @@ public final class ServerEscapeController implements ServerController {
 		input.release();
 		move = null;
 		refund = null;
-		// A cover move that found no cover and had no blocks to build one hands the choice back now.
+		// No cover in reach and no blocks to build it: a player runs out of bow range instead of standing in the open (a
+		// practice room: standing exposed, the defend reflex traded hits with the skeleton until the body died). Only when
+		// running did not help either does the choice go back.
 		if (result.status() == EscapeMoves.Status.FAILED && moveLabel.startsWith("cover") && situation(player) == Situation.SHOOTERS) {
-			return finish(player, TickResult.failed("ESCAPE_EXPOSED", "No cover from " + type(shooterNear(player)) + " here: " + result.detail() + done() + facts(player), 0.5D));
+			Mob shooter = shooterNear(player);
+			if (runs < MAX_TRIES) return runFromShooter(player, shooter);
+			return finish(player, TickResult.failed("ESCAPE_EXPOSED", "No cover from " + type(shooter) + " here: " + result.detail() + done() + facts(player), 0.5D));
 		}
 		return TickResult.running(0.5D);
 	}
