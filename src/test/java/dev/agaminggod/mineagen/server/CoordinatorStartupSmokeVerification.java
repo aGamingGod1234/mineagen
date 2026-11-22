@@ -174,7 +174,7 @@ public final class CoordinatorStartupSmokeVerification {
 					},
 					() -> {
 						try {
-							deleteTree(packageRoot, evidence.identities());
+							deleteTree(packageRoot, evidence.owned());
 						} catch (Exception | Error failure) {
 							try {
 								failure.addSuppressed(new IOException("Startup smoke cleanup evidence (observations, not lock ownership):\n"
@@ -212,12 +212,18 @@ public final class CoordinatorStartupSmokeVerification {
 		}
 	}
 
-	private record CleanupEvidence(String observations, List<CoordinatorProcessOwnership.ProcessIdentity> identities) {
+	/**
+	 * identities: every process observed, including unrelated host Node processes that share the staged image through a
+	 * hardlink; owned: only the recorded coordinator root and its descendants, the ones cleanup waits for.
+	 */
+	private record CleanupEvidence(String observations, List<CoordinatorProcessOwnership.ProcessIdentity> identities,
+			List<CoordinatorProcessOwnership.ProcessIdentity> owned) {
 	}
 
 	private static CleanupEvidence cleanupEvidence(Path root) {
 		StringBuilder observations = new StringBuilder();
 		List<CoordinatorProcessOwnership.ProcessIdentity> identities = new ArrayList<>();
+		List<CoordinatorProcessOwnership.ProcessIdentity> owned = List.of();
 		try {
 			Path ownership = CoordinatorProcessOwnership.ownershipFile(root);
 			observations.append("ownershipRecordPresent=").append(Files.exists(ownership)).append('\n');
@@ -235,6 +241,7 @@ public final class CoordinatorStartupSmokeVerification {
 					}
 				});
 			}
+			owned = List.copyOf(identities);
 			Path node = isWindows() ? root.resolve("runtime/toolchains/node/node.exe")
 					: root.resolve("runtime/toolchains/node/bin/node");
 			if (Files.exists(node)) {
@@ -257,7 +264,7 @@ public final class CoordinatorStartupSmokeVerification {
 		} catch (Exception unavailable) {
 			observations.append("process evidence unavailable: ").append(unavailable);
 		}
-		return new CleanupEvidence(observations.toString(), List.copyOf(identities));
+		return new CleanupEvidence(observations.toString(), List.copyOf(identities), owned);
 	}
 
 	private static void observeProcess(ProcessHandle process, String relationship, StringBuilder observations,
@@ -640,9 +647,11 @@ public final class CoordinatorStartupSmokeVerification {
 	}
 
 	/**
-	 * Deletes the staged tree once the processes that ran from it are gone. Windows can hold a sharing lock on an exited
-	 * node.exe for several seconds (CI saw the lock outlast a 2 s window with every observed process already exited), so
-	 * cleanup first waits for each observed process to exit, then retries each path for {@link #DELETE_WINDOW_SECONDS}.
+	 * Deletes the staged tree once the coordinator processes that ran from it (the recorded root and its descendants)
+	 * are gone; unrelated host Node processes sharing the image are never waited for. Windows can hold a sharing lock
+	 * on an exited node.exe for several seconds (CI saw the lock outlast a 2 s window with every observed process
+	 * already exited), so cleanup first waits for each coordinator process to exit, then retries each path for
+	 * {@link #DELETE_WINDOW_SECONDS}.
 	 * A file still locked after that, when processes were observed and all have exited, is quarantined (see
 	 * {@link #quarantine}) rather than failing CI; a process still alive is a real leak and fails, and a cleanup that
 	 * observed no process stays strict.
