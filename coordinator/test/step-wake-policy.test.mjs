@@ -228,7 +228,7 @@ test('a step whose walk keeps looping for 3 min wakes the model once with the st
 		assert.equal(event.trigger, 'step_stalled');
 		assert.match(event.now.whileActing, /^not woken for: the step made no progress for 3 min \(no item gained\); movement loop \(the body kept going\) x\d+/);
 		assert.ok(rows.some(({ event: name, verdict, reason }) => name === 'native_wake_filtered' && verdict === 'wake' && /^step dig_to stalled 1\d\d s$/.test(reason)));
-		assert.equal(run.bridge.sent.filter(({ type }) => type === 'cancel_action').length, 0, 'the wake does not stop the step');
+		assert.equal(run.bridge.sent.filter(({ type }) => type === 'action_cancel').length, 0, 'the wake does not stop the step');
 	} finally { await run.coordinator.stop(); }
 });
 

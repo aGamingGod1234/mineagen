@@ -69,6 +69,7 @@ import { heldToolBreak } from './held-tool-break.mjs';
 import { SituationChangeTracker } from './situation-changes.mjs';
 import { ContextEntryTracker, uncoveredDangers } from './danger-contexts.mjs';
 import { STALL_STOP_CODE, STALL_STOP_STEPS, WakeFilter, countSkillKinds, stepFolds } from './wake-filter.mjs';
+import { normalizeMinecraftToolCall } from './native-minecraft-tools.mjs';
 import { searchHoldsSteer } from './search-danger.mjs';
 import { carriedFoodToEat, naturalRegeneration } from './fork-rule.mjs';
 // Danger triggers a running count skill handles itself when they come from its own mob (see countSkillKinds).
@@ -1169,7 +1170,10 @@ export class DynamicCoordinator extends EventEmitter {
 						// (wake-filter.mjs stalled): a background step wakes it while the step runs on; obtain, which runs inside the
 						// model's own call, is stopped with its own code so its result reaches the model now.
 						// obtain is judged only while its own find drives the body: walking to a seen block, gathering and crafting are progress.
-						const judged = STALL_STOP_STEPS.has(step) && this.#nativeRuntime.searching?.(record) !== true ? null : step;
+						// A background step is judged only while the model's turn is closed: a blocking walk (travelTo, act) runs
+						// inside the model's own call, where a wake could only arrive when the call ends.
+						const judged = STALL_STOP_STEPS.has(step) ? (this.#nativeRuntime.searching?.(record) === true ? step : null)
+							: this.#providerWork.has(record.agentId) ? null : step;
 						const stall = this.#wakeFilter.stalled(record.agentId, judged, attention.trigger, observation, this.#nativeRuntime.reflexEvents(record));
 						if (stall !== null) {
 							const minutes = Math.max(1, Math.round(stall.stalledMs / 60_000));
@@ -2699,6 +2703,18 @@ export class DynamicCoordinator extends EventEmitter {
 		return result;
 	}
 
+	/** Cancels the walk a stalled obtain left running; the model gets obtain's result without the hand-back of that leg. */
+	async #cancelStalledLeg(work, toolRequest, record, result) {
+		const { running, recoveryHint, ...rest } = result;
+		let cancelled;
+		try {
+			cancelled = await this.#nativeRuntime.execute({ ...toolRequest, callId: `${String(toolRequest.callId).slice(0, 100)}:stalled-leg`,
+				tool: normalizeMinecraftToolCall('cancelAction', { actionId: running.actionId, goalRevision: record.goalRevision }) }, record, { lifecycleGeneration: work.lifecycleGeneration });
+		} catch (error) { cancelled = { state: 'FAILED', reasonCode: error?.code ?? 'ACTION_ERROR' }; }
+		this.#writeTrace('native_stalled_leg_cancelled', { agentId: record.agentId, goalRevision: record.goalRevision, actionId: running.actionId, state: cancelled?.state ?? null, reasonCode: cancelled?.reasonCode ?? null });
+		return { ...rest, stoppedLeg: { actionId: running.actionId, ...(typeof running.actionType === 'string' ? { actionType: running.actionType } : {}), cancel: cancelled?.state ?? null } };
+	}
+
 	async #executeNativeToolCall(work, toolRequest) {
 		const record = this.#registry.get(work.agentId);
 		// Each model call is a fresh choice (a new step included), so a step's stall clock starts over from it.
@@ -2789,6 +2805,9 @@ export class DynamicCoordinator extends EventEmitter {
 			const announceStep = () => this.#publishVerbose(record.agentId, record.goalRevision, 'decision', sanitizePublicNarrative(`${toolRequest.tool.step.verb.replace(/_/g, ' ')}: ${toolRequest.tool.step.why}`), work.connectionEpoch);
 			if (toolRequest.tool.step !== undefined && toolRequest.tool.kind !== 'start_action') announceStep();
 			result = await this.#nativeRuntime.execute(toolRequest, record, { lifecycleGeneration: work.lifecycleGeneration });
+			// A stalled obtain hands back with its looping walk still running (a fork stop keeps the leg): that walk is the
+			// stuck part, so it is cancelled first, as the model would, and obtain can be called again at once.
+			if (result?.reasonCode === STALL_STOP_CODE && typeof result.running?.actionId === 'string') result = await this.#cancelStalledLeg(work, toolRequest, record, result);
 			if (toolRequest.tool.step !== undefined && toolRequest.tool.kind === 'start_action' && result?.step?.started === true) announceStep();
 			// A greeting/read/reply does not grant later messages authority over finished work.
 			if (deliveredConfirmationAuthority && !isConfirmationContextTool(toolRequest.tool)
