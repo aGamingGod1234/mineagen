@@ -9,7 +9,9 @@
 // Then, on the first seed: day (REST_NOT_NIGHT), a sealed room underground (UNDERGROUND), the Nether (REST_NOT_HERE).
 // TICK_RATE (default 60) speeds the server while a walled-in night runs. The fixture otherwise runs at 20 TPS and ignores
 // FIXTURE_TICK_RATE: at 80, 2 of 6 walled-in nights took 3-4 damage and 1 of 6 bed nights could not place its bed, which no
-// run at 20 did; the cause is not known. ARENA_JAR picks the jar. Launch under slot.sh live with
+// run at 20 did; the cause is not known. A night's damage is sampled health (minHealth) while the saturated body heals
+// about 1 health per half second, so it depends on how much game time passes between reads; rows also record damageTaken,
+// vanilla's cumulative counter, which healing cannot hide. ARENA_JAR picks the jar. Launch under slot.sh live with
 // ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME set; operator commands only set the fixture up.
 import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -17,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { boot } from './watch-replay.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
-import { deathCounter } from './lib/damage-counter.mjs';
+import { damageCounter, damageEvidence, deathCounter } from './lib/damage-counter.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const out = path.resolve(process.argv[2] ?? 'runtime/rest-live');
@@ -74,6 +76,7 @@ async function session(seed, index) {
 		await s.command(`mineagen start ${AGENT} Survive for 1200 seconds.`); s.record.goalRevision = (await started).payload.goalRevision;
 		await s.bridge.send('agent_ready', s.record.agentId, { goalRevision: s.record.goalRevision, reconciled: false });
 		await s.command(`gamemode survival ${AGENT}`);
+		const readDamage = await damageCounter(text => s.command(text), AGENT);
 
 		const prepare = async (kit, at) => {
 			await s.normalRate();
@@ -107,6 +110,7 @@ async function session(seed, index) {
 			await s.command(`gamerule minecraft:natural_health_regeneration ${healthTarget < 20 ? 'false' : 'true'}`);
 			const startHealth = await health();
 			const deathsBefore = await deaths();
+			const damageBefore = await readDamage();
 			const spawnBefore = await s.command(`data get entity ${AGENT} respawn`);
 			const start = await pos();
 			if (setTime !== null) await s.command(`time set ${setTime}`);
@@ -122,7 +126,8 @@ async function session(seed, index) {
 			// A command sent just as the goal revision moves on is refused STALE_REVISION; the revision listener has caught
 			// up a moment later, so it is sent once more.
 			const act = s.act('rest', { timeoutMs }, 700000).then(async r => {
-				if (r?.reasonCode === 'STALE_REVISION') { await sleep(2000); r = await s.act('rest', { timeoutMs }, 700000); }
+				// Game time: the body stands idle in the night meanwhile, so a raised rate must not make the pause longer.
+				if (r?.reasonCode === 'STALE_REVISION') { await s.gameSleep(2000); r = await s.act('rest', { timeoutMs }, 700000); }
 				result = r;
 			}).catch(error => { result = { state: 'ERROR', message: error.message }; });
 			const restId = s.lastActionId;
@@ -175,6 +180,7 @@ async function session(seed, index) {
 				spawnBefore: String(spawnBefore).replace(/^.*?: /, '').slice(0, 200), spawnAfter: String(await s.command(`data get entity ${AGENT} respawn`)).replace(/^.*?: /, '').slice(0, 200),
 				start, end, moved: start && end ? +Math.hypot(end[0] - start[0], end[2] - start[2]).toFixed(1) : null,
 				message: String(result?.message ?? '').slice(0, 900) };
+			Object.assign(row, damageEvidence(damageBefore, await readDamage(), startHealth, await health().catch(() => null)));
 			rows.push(row);
 			console.log(`[rest] seed ${seed} ${name}: ${row.reasonCode ?? row.state} ${died ? 'DIED' : `damage ${row.damage}`} in ${row.seconds} s, time after ${row.timeAfter}, spawn ${/pos/.test(row.spawnAfter) && row.spawnAfter !== row.spawnBefore ? 'SET' : 'unchanged'} | ${row.message.slice(0, 260)}`);
 			await writeFile(path.join(out, 'rows.json'), JSON.stringify(rows, null, 1));

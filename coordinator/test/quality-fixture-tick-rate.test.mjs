@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import { bootTickRate, installTickRate, frozenFixtureSetup } from '../../scripts/quality/watch-replay.mjs';
+import { watchObservations } from '../../scripts/quality/lib/fixture-play.mjs';
 
 // A fake server: records the commands a fixture sends and the tick rate it is left at.
 function server() {
@@ -15,6 +16,22 @@ function server() {
 	};
 	return s;
 }
+
+test('the 60 TPS enderman watch rejects on a lost observation even while game time is frozen', async () => {
+	const clock = {
+		now: () => 1000,
+		sleep: () => assert.fail('a lost observation must end the watch before it sleeps'),
+	};
+	let requests = 0;
+	const observe = async timeoutMs => {
+		assert.equal(++requests, 1, 'the watch must not retry with a frozen game clock');
+		assert.equal(timeoutMs, 3000);
+		throw new Error('TIMEOUT observation');
+	};
+	const watch = watchObservations(clock, observe, 12000, () => false);
+	await assert.rejects(watch.next(), /TIMEOUT observation/);
+	assert.deepEqual(await watch.next(), { done: true, value: undefined });
+});
 
 test('a rate the fixture raised itself is brought back to 20 by normalRate, at a fixture rate of 20', async () => {
 	// The rest fixture at its default (FIXTURE_TICK_RATE unset, TICK_RATE 60): it speeds up a walled-in night, and the
@@ -83,8 +100,8 @@ test('boot runs a fixture at 20 unless it passes a rate, and says why when FIXTU
 });
 
 // rest: at 80, 2 of 6 walled-in nights took 3-4 damage and 1 of 6 bed nights could not place its bed; no run at 20 did
-// (cause not known). travel: its own waits are still wall time. Neither may pass a raised rate.
-for (const fixture of ['rest', 'travel']) {
+// (cause not known). It may not pass a raised rate.
+for (const fixture of ['rest']) {
 	test(`the ${fixture} fixture boots at 20 TPS whatever FIXTURE_TICK_RATE says`, async () => {
 		const source = await readFile(new URL(`../../scripts/quality/test-${fixture}-live.mjs`, import.meta.url), 'utf8');
 		// A boot() call, or the boot options a fixture hands warmBoots (fixture-servers.mjs).
@@ -183,5 +200,41 @@ test('frozen setup releases the world when setup or the freeze acknowledgement f
 		} };
 		await assert.rejects(frozenFixtureSetup(s, async () => { throw new Error('setup failed'); }), /failed|lost/);
 		assert.deepEqual(sent, ['tick freeze', 'tick unfreeze']);
+	}
+});
+
+test('unshownTickRate keeps a fixture that missed the A/B bar at 20 unless an A/B asks for it', async () => {
+	const { unshownTickRate } = await import('../../scripts/quality/watch-replay.mjs');
+	const warnings = [];
+	const warn = (text) => warnings.push(text);
+	assert.equal(unshownTickRate('passes differed', {}, warn), 20);
+	assert.equal(unshownTickRate('passes differed', { FIXTURE_TICK_RATE: '60' }, warn), 20);
+	assert.match(warnings[0], /FIXTURE_TICK_RATE=60 ignored: .*passes differed/);
+	assert.equal(unshownTickRate('passes differed', { FIXTURE_TICK_RATE: '60', FIXTURE_TICK_RATE_UNSHOWN: '1' }, warn), 60);
+	assert.equal(warnings.length, 1);
+});
+
+// The 21 Nov 20 vs 60 TPS A/B (10 runs a side, same jar): these fixtures played the same game at 60, so they take
+// FIXTURE_TICK_RATE. Every other converted fixture stays at 20 through unshownTickRate until an A/B shows it.
+const SHOWN_AT_60 = ['bed', 'bed-spawn', 'bow-crystal', 'build', 'caged-crystal', 'controller-contracts', 'cornered', 'crowd',
+	'defend', 'dig', 'drawn-bow', 'end-breath', 'enderman', 'end-survive', 'end-void', 'find', 'find-spot', 'fire', 'gather', 'gold-route',
+	'knockback-edge', 'nether-fight', 'nether-gather', 'portal-walkin', 'ranged-blaze', 'reflex-failspots', 'route-recovery', 'savepoints', 'shelter',
+	'shelter-forest', 'shelter-ranged', 'shelter-terrain', 'travel-resume', 'warped-pearl', 'water'];
+// Escape and iron-kit use wall time for play. The other fixtures manage their own rates (see the README).
+const NEVER_RAISED = ['barter-odds', 'escape', 'iron-kit', 'lag-clock', 'rest'];
+test('only fixtures the A/B showed at 60 TPS take FIXTURE_TICK_RATE; the rest stay at 20', async () => {
+	const { readdir } = await import('node:fs/promises');
+	const dir = new URL('../../scripts/quality/', import.meta.url);
+	const fixtures = (await readdir(dir)).filter((name) => /^test-.+-live\.mjs$/.test(name)).map((name) => name.slice(5, -9));
+	for (const fixture of fixtures) {
+		const source = await readFile(new URL(`test-${fixture}-live.mjs`, dir), 'utf8');
+		if (SHOWN_AT_60.includes(fixture)) {
+			assert.doesNotMatch(source, /unshownTickRate\(/, `${fixture} was shown at 60 TPS`);
+			assert.match(source, /fixtureTickRate\(\)|handRolledTickRate\(/, `${fixture} takes FIXTURE_TICK_RATE`);
+		} else if (NEVER_RAISED.includes(fixture)) {
+			assert.doesNotMatch(source, /(?:fixtureTickRate|unshownTickRate|handRolledTickRate)\(/, `${fixture} must not take FIXTURE_TICK_RATE`);
+		} else {
+			assert.match(source, /unshownTickRate\(/, `${fixture} is not shown at 60 TPS: it must stay at 20 through unshownTickRate`);
+		}
 	}
 });

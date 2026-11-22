@@ -63,6 +63,15 @@ public final class ServerDigController implements ServerController {
 			throw new IllegalArgumentException("pattern must be stairs_down, steep_down, stairs_up, tunnel or shaft");
 		}
 
+		/**
+		 * The named pattern, or with none named the stairs toward the target y from the body's feet: up when it is above,
+		 * else down. 19 Nov round: two escape climbs from skeletons with no pattern dug stairs_down and "reached" y-24 at 0 blocks.
+		 */
+		public static Pattern parse(String value, Integer targetY, int feetY) {
+			if (value == null && targetY != null && targetY > feetY) return STAIRS_UP;
+			return parse(value);
+		}
+
 		boolean down() {
 			return this == STAIRS_DOWN || this == STEEP_DOWN || this == SHAFT;
 		}
@@ -133,7 +142,9 @@ public final class ServerDigController implements ServerController {
 
 	private enum Phase { START, MINE, SETTLE_FALL, FLOOR, PLACE, MOVE, RETREAT, RECENTER, SHAFT_FALL, CAVE_LOOK }
 
-	private final Pattern pattern;
+	private Pattern pattern;
+	/** No pattern was named: the first tick picks stairs up or down from the feet then (inferDirection). */
+	private boolean inferDirection;
 	/** The shape being dug now: the requested pattern, or steep_down once a shaft passes maxShaftY. */
 	private Pattern active;
 	/** A shaft goes on as steep_down at or below this y (lava lakes and aquifer lava are common down there). */
@@ -251,6 +262,15 @@ public final class ServerDigController implements ServerController {
 	private int aimTicks;
 	private int phaseTicks;
 	private int refills;
+	/** Times this call stepped back from falling gravel or sand and dug on once it landed (retreat). */
+	private int looseRetreats;
+	private int landingTicks;
+	/** Ticks spent knocking a snow layer or plant out of this step's cell (floor). */
+	private int clearTicks;
+	static final int CLEAR_TICKS = 40;
+	static final int MAX_LOOSE_RETREATS = 6;
+	/** How long the body waits, stepped back, for a falling block to land before it digs on (2 s). */
+	static final int LANDING_TICKS = 40;
 	private final Set<BlockPos> cut = new HashSet<>();
 	private final Set<BlockPos> openBefore = new HashSet<>();
 	private BlockPos placeAt;
@@ -306,11 +326,24 @@ public final class ServerDigController implements ServerController {
 			throw new IllegalArgumentException("tunnel needs x, z or a heading");
 	}
 
+	/** With no pattern named, the stairs go toward the target y from where the feet are on the first tick. */
+	public ServerDigController inferDirection(boolean infer) {
+		this.inferDirection = infer && pattern == Pattern.STAIRS_DOWN;
+		return this;
+	}
+
 	@Override
 	public TickResult tick(ServerPlayer player, long nowEpochMs) {
 		if (!started) {
 			started = true;
 			startY = player.blockPosition().getY();
+			if (inferDirection) { pattern = Pattern.parse(null, targetY, startY); active = pattern; }
+			// A down pattern toward a y above the feet (or stairs up toward one below) would count as there at once with
+			// nothing mined: refuse it instead of reporting success.
+			if (targetY != null && pattern != Pattern.TUNNEL && (pattern.down() ? targetY > startY : targetY < startY))
+				return TickResult.failed("INVALID_DIG_GOAL", summary(player, "Stopped: " + pattern.wireName() + " goes " + (pattern.down() ? "down" : "up")
+						+ ", but y" + targetY + " is " + (pattern.down() ? "above" : "below") + " the feet at y" + startY + "; use "
+						+ (pattern.down() ? "stairs_up" : "stairs_down") + " or leave pattern out"), progress(player));
 			lastHealth = player.getHealth();
 			startHealth = lastHealth;
 			// A same-column x/z goal has no bearing; plan() still steers toward any horizontal displacement.
@@ -500,6 +533,7 @@ public final class ServerDigController implements ServerController {
 			if (known != null && passable(player.level(), neighbour, known)) openBefore.add(neighbour);
 		}
 		refills = 0;
+		clearTicks = 0;
 		cellIndex = 0;
 		mining = null;
 		phaseTicks = 0;
@@ -836,6 +870,22 @@ public final class ServerDigController implements ServerController {
 		if (active == Pattern.STAIRS_UP) {
 			BlockPos step = next.below();
 			BlockState state = player.level().getBlockState(step);
+			// A snow layer or grass in the step's cell hides the faces a step block would go against: knock it away
+			// first, as a player does, then place the step on what is under it.
+			if (!standable(player.level(), step, state) && !state.isAir() && state.canBeReplaced() && state.getFluidState().isEmpty()
+					&& clearTicks < CLEAR_TICKS) {
+				Vec3 aim = dev.agaminggod.mineagen.server.runtime.TargetSightline.block(player.level(), net.minecraft.world.phys.shapes.CollisionContext.of(player),
+						player.getEyePosition(), step, player.blockInteractionRange(), null);
+				if (aim != null) {
+					clearTicks++;
+					AgentInputState look = AgentInputStates.lookingAt(player, aim, 0.0F, 0.0F, false, false, false, false, false, InteractionHand.MAIN_HAND);
+					boolean onTarget = Tracer.rayTrace(player, 1.0F, player.blockInteractionRange(), false) instanceof BlockHitResult hit
+							&& hit.getType() == HitResult.Type.BLOCK && hit.getBlockPos().equals(step);
+					applyInput(player, 0.0F, false, false, onTarget, AgentInputStates.turnYaw(player.getYRot(), look.yaw()),
+							AgentInputStates.turnPitch(player.getXRot(), look.pitch()), player.getInventory().getSelectedSlot());
+					return TickResult.running(progress(player));
+				}
+			}
 			if (!standable(player.level(), step, state)) {
 				String filler = filler(player);
 				Direction face = filler == null || !state.canBeReplaced() || !state.getFluidState().isEmpty() ? null : supportFace(player, step);
@@ -1255,11 +1305,30 @@ public final class ServerDigController implements ServerController {
 		return false;
 	}
 
-	/** A loose block is falling at the head after the jump headroom opened: step back down the stairs out of its way. */
+	/**
+	 * A loose block is falling at the head after the jump headroom opened: step back down the stairs out of its way, let
+	 * it land, then plan the step again and dig through what fell, as a player does with a gravel pocket. Only after
+	 * MAX_LOOSE_RETREATS such falls in one call does it hand back.
+	 */
 	private TickResult retreat(ServerPlayer player) {
 		BlockPos back = feet.relative(heading.getOpposite()).below();
-		if (player.blockPosition().equals(back) && player.onGround() || ++phaseTicks > 30)
-			return stop(player, "FALLING_BLOCKS", "A loose block fell from above " + cell(feet.above(2)) + "; stepped back to " + cell(player.blockPosition()));
+		if (player.blockPosition().equals(back) && player.onGround() || ++phaseTicks > 30) {
+			if (looseRetreats < MAX_LOOSE_RETREATS && player.onGround()) {
+				boolean falling = !player.level().getEntitiesOfClass(FallingBlockEntity.class, player.getBoundingBox().inflate(1.0D, 6.0D, 1.0D)).isEmpty();
+				if (falling && ++landingTicks <= LANDING_TICKS) {
+					hold(player, 0.0F, false, false, heading.toYRot(), 0.0F);
+					return TickResult.running(progress(player));
+				}
+				looseRetreats++;
+				landingTicks = 0;
+				phaseTicks = 0;
+				phase = Phase.START;
+				releaseInput();
+				return TickResult.running(progress(player));
+			}
+			return stop(player, "FALLING_BLOCKS", "A loose block fell from above " + cell(feet.above(2)) + "; stepped back to " + cell(player.blockPosition())
+					+ (looseRetreats > 0 ? " after digging on through " + looseRetreats + " earlier falls" : ""));
+		}
 		hold(player, -1.0F, false, false, heading.toYRot(), 0.0F);
 		return TickResult.running(progress(player));
 	}

@@ -30,6 +30,8 @@ const MINE_COSTS = [
 const CHANCE_BREAKS = { flint: 10 };
 const HOSTILE = /^(zombie|husk|drowned|skeleton|stray|bogged|parched|spider|cave_spider|creeper|enderman|witch|slime|phantom|pillager|vindicator|evoker|ravager|silverfish|guardian|elder_guardian|warden|breeze|zombie_villager)$/;
 const PASSIVE_KILL = 4, HOSTILE_KILL = 12;
+// Kill ways outside the Overworld: blaze rods and ender pearls, the eye of ender's makings.
+const AWAY_KILLS = new Set(['blaze', 'enderman']);
 // Kills per item for a mob's rare drop (zombie iron, carrots and potatoes, drowned copper): about 1 in 40 in vanilla.
 const RARE_DROP_KILLS = 40;
 const RARE_VARIANT = { sheep: (id) => id.endsWith('_wool') && id !== 'white_wool' };
@@ -146,7 +148,10 @@ class Costs {
 		if (mined.length > 0) consider({ kind: 'mine', blocks: mined.map((row) => row.block), tool: mined[0].tool }, mined[0].cost);
 		const otherWay = best.cost < Infinity;
 		for (const [mob, flags] of this.index.mobDrops[id] ?? []) {
-			if (!(this.index.mobSpawns?.[mob] ?? []).some((place) => place.startsWith('overworld'))) continue;
+			// A mob is a way where it spawns (cows only in the Overworld). Outside the Overworld only the eye hunts count: a
+			// coal or gold plan must not send the body after wither skeletons, ghasts or piglins.
+			if (!(this.index.mobSpawns?.[mob] ?? []).some((place) => place.split(' ')[0] === this.dimension)) continue;
+			if (this.dimension !== 'overworld' && !AWAY_KILLS.has(mob)) continue;
 			let cost = HOSTILE.test(mob) ? HOSTILE_KILL : PASSIVE_KILL;
 			if (flags.includes('r')) cost *= otherWay && flags.includes('k') ? RARE_DROP_KILLS : 3;
 			// Most of a mob's kind look alike: dyed sheep are rare, so only white wool is a sheep's usual drop.
@@ -192,11 +197,13 @@ class Costs {
 /**
  * The plan to hold `count` of any of `ids`: needs (raw items to mine or kill for, with the tool each needs first) and
  * ops (crafts and smelts in an order where every op's inputs come before it), netted against what is held.
+ *   also: more targets [{ ids, count }] planned in the same pool, after the first (a whole kit: one iron need for the
+ *   pickaxe, shield, buckets and flint and steel together, sharing stations, tools and fuel).
  *   held: Map short id -> count. seen: Set of short block/mob ids in view or remembered nearby.
  *   stations: { crafting_table: boolean, furnace: boolean } for one placed within walking reach.
  * Returns { ops, needs, fuel, unreachable }: unreachable lists ids with no way the body can do.
  */
-export function planObtain({ ids, count }, { held = new Map(), seen = new Set(), stations = {}, index = howtoIndex(), coalFirst = false, dimension = 'minecraft:overworld', costHeld = held } = {}) {
+export function planObtain({ ids, count, also = [] }, { held = new Map(), seen = new Set(), stations = {}, index = howtoIndex(), coalFirst = false, dimension = 'minecraft:overworld', costHeld = held } = {}) {
 	const costs = new Costs(index, costHeld, seen, dimension);
 	const pool = new Map(held);
 	const ops = new Map(), needs = new Map(), unreachable = new Set(), stationNeed = new Set();
@@ -281,13 +288,14 @@ export function planObtain({ ids, count }, { held = new Map(), seen = new Set(),
 		demand(tool, 1, path);
 	};
 	demand(ids.length === 1 ? ids[0] : ids.join('|'), count, []);
+	for (const target of also) demand(target.ids.length === 1 ? target.ids[0] : target.ids.join('|'), target.count, []);
 	// Stations: one placed in reach or held serves every op at it; otherwise it is made like any item.
 	const resolveStations = () => {
 		for (const station of OBTAIN_STATIONS) {
 			if (!stationNeed.has(station) || stations[station] || stationNeed.has(`${station}:handled`)) continue;
 			stationNeed.add(`${station}:handled`);
 			if ((pool.get(station) ?? 0) > 0) { pool.set(station, pool.get(station) - 1); continue; }
-			if (!ids.includes(station)) demand(station, 1, []);
+			if (!ids.includes(station) && !also.some((target) => target.ids.includes(station))) demand(station, 1, []);
 		}
 	};
 	resolveStations();
@@ -312,7 +320,7 @@ export function planObtain({ ids, count }, { held = new Map(), seen = new Set(),
 	// and stations in the cost context, since they are reusable rather than recipe inputs.
 	const alternativeCosts = new Map([...held].filter(([id]) => EQUIPMENT.test(id) || STATIONS.has(id)));
 	if (unreachable.size > 0 && costHeld === held && alternativeCosts.size < held.size) {
-		return planObtain({ ids, count }, { held, seen, stations, index, coalFirst, dimension, costHeld: alternativeCosts });
+		return planObtain({ ids, count, also }, { held, seen, stations, index, coalFirst, dimension, costHeld: alternativeCosts });
 	}
 	return { ops: [...ops.values()], needs: [...needs.values()], fuel, unreachable: [...unreachable], tools: [...tools] };
 }

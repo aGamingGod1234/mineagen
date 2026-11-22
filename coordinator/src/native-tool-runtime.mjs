@@ -57,7 +57,8 @@ const SEQUENCE_STEP_SETTLE_MS = 800;
 const EXPIRED = Symbol('expired');
 // The model may answer danger with these while its program is paused for a decision, without first
 // settling the program decision; the paused program keeps its decision for a later respondProgram.
-const PAUSED_PROGRAM_DANGER_ACTIONS = new Set(['fight_target', 'flee_from']);
+// escape is the emergency step: like fight and flee it may borrow the body from a program paused for a danger decision.
+const PAUSED_PROGRAM_DANGER_ACTIONS = new Set(['fight_target', 'flee_from', 'escape']);
 const GUARD_DEFENSIVE_ACTIONS = new Set(['fight_target', 'flee_from', 'block_with_shield', 'use_item', 'respawn']);
 const GUARD_OVERRIDE_KINDS = new Set(['action', 'start_action', 'run_program', 'sequence', 'lookAround', 'gather', 'find', 'obtain', 'repair_inventory', 'finish']);
 // A direct model body command takes the body from a firing reflex. Starting a program does not: the program pauses under it.
@@ -286,7 +287,8 @@ export class NativeToolRuntime {
 		this.#planNeeds = planNeeds;
 		this.#memoryObservation = memoryObservation;
 		this.#programExecutor = programExecutor ?? (this.#clock === WALL_CLOCK ? new NativeProgramExecutor({ sessionId })
-			: new NativeProgramExecutor({ sessionId, now: this.#clock.now, setTimeoutFn: this.#clock.setTimeout, clearTimeoutFn: this.#clock.clearTimeout }));
+			// The cancel acknowledgement is a bridge round trip, not body time, so it keeps wall-time timers.
+			: new NativeProgramExecutor({ sessionId, now: this.#clock.now, setTimeoutFn: this.#clock.setTimeout, clearTimeoutFn: this.#clock.clearTimeout, acknowledgementSetTimeoutFn: setTimeout, acknowledgementClearTimeoutFn: clearTimeout }));
 		this.#executorOnGameClock = programExecutor === null && this.#clock !== WALL_CLOCK;
 		if (typeof onProgramEvent !== 'function') throw new TypeError('onProgramEvent must be a function');
 		this.#onProgramEvent = onProgramEvent;
@@ -857,7 +859,7 @@ export class NativeToolRuntime {
 				// The ledger makes repeated rejections visible like body failures.
 				const latest = this.#observations.get(record.agentId);
 				const repeat = this.#repeatedFailures.record(record.agentId, { goalRevision: record.goalRevision, actionType: request.tool.actionType ?? request.tool.kind,
-					arguments: request.tool.arguments ?? null, state: 'FAILED', reasonCode: error.code, observation: latest?.goalRevision === record.goalRevision ? latest.observation : null });
+					arguments: request.tool.arguments ?? null, state: 'FAILED', reasonCode: error.code, ...this.#failureStamp(latest?.goalRevision === record.goalRevision ? latest.observation : null) });
 				// A publication failure carries the actionId it may already have sent.
 				error.failure = failureFacts({ code: error.code, changed: error.actionId === undefined ? 'nothing' : 'unknown', blockedBy: String(error.message ?? '').slice(0, 512), repeat: repeat ?? undefined });
 			}
@@ -948,7 +950,10 @@ export class NativeToolRuntime {
 			await this.#yieldStandingGuard(record);
 		}
 		if (REFLEX_YIELD_KINDS.has(request.tool.kind) && request.tool.actionType !== 'chat' && this.#reflexes.firing(record.agentId)) {
+			const epoch = this.#executionEpoch(record.agentId);
 			await this.#sendReflexes(record, { yieldFiring: true });
+			// A death or a new goal during the yield ends this call: nothing may dispatch onto a body that is no longer this one.
+			if (this.#executionEpoch(record.agentId) !== epoch) throw codedError('STALE_NATIVE_TOOL', 'Lifecycle changed while the reflex yielded the body');
 		}
 		if (request.tool.kind === 'reflexes') return { state: 'REFLEXES', reflexes: await this.#setReflexes(record, request.tool.reflexes) };
 		if (request.tool.kind === 'observe') return this.#observe(record);
@@ -1128,6 +1133,19 @@ export class NativeToolRuntime {
 		const background = tool.kind === 'start_action';
 		const entry = { goalRevision: record.goalRevision, verb: step.verb, ...(step.seen === undefined ? {} : { seen: step.seen }), intentId: null, actionId: null, seenWoken: false };
 		if (!background) this.#steps.set(record.agentId, entry);
+		// An emergency arrives mid-step (drowning under a dig, a skeleton during travel): escape stops the running body
+		// action itself instead of being refused as busy, which would cost the model a cancel call first.
+		// As replaceAction: the cancel must end the old action, and a lifecycle change during it (death, a new goal) stops
+		// the escape from starting on a body that is no longer this one. The dispatch path yields a firing reflex itself.
+		const running = step.verb === 'escape' && !this.#programRuns.has(record.agentId) && !this.#legChainOwnsBody(record, tool) ? this.#actions.get(record.agentId) : undefined;
+		let replaced = null;
+		if (running !== undefined && running.goalRevision === record.goalRevision && running.cancelling !== true && running.engineActionId === undefined) {
+			const expectedEpoch = this.#actionCancellationEpoch(record, running);
+			const cancelled = await this.#cancelAction(record, { kind: 'cancel_action', actionId: running.actionId, goalRevision: running.goalRevision });
+			if (this.#executionEpoch(record.agentId) !== expectedEpoch) throw codedError('STALE_NATIVE_TOOL', 'Lifecycle changed while stopping the step escape replaces');
+			if (!TERMINAL_ACTION_STATES.has(cancelled.state)) throw codedError('CANCEL_ACK_UNCONFIRMED', 'escape needs the running step to be stopped first');
+			replaced = replacementReceipt(cancelled, running.actionId);
+		}
 		let result;
 		try { result = await this.#executeTool({ ...request, tool }, record, lifecycleGeneration); }
 		catch (error) { throw reflexes === null ? error : Object.assign(error, { reflexes }); }
@@ -1136,7 +1154,7 @@ export class NativeToolRuntime {
 		const admitted = background && RUNNING_ACTION_STATES.has(result.state) && typeof result.actionId === 'string';
 		if (admitted) await this.#beginStep(record, entry, result.actionId, step);
 		const { seen: _seen, ...shown } = step;
-		return { ...result, step: { ...shown, ...(admitted ? { started: true, next: STEP_RUNNING_NOTE } : {}) }, ...(reflexes === null ? {} : { reflexes }) };
+		return { ...result, step: { ...shown, ...(admitted ? { started: true, next: STEP_RUNNING_NOTE } : {}) }, ...(reflexes === null ? {} : { reflexes }), ...(replaced === null ? {} : { replacedAction: replaced }) };
 	}
 
 	async #beginStep(record, entry, actionId, step) {
@@ -1445,7 +1463,9 @@ export class NativeToolRuntime {
 		if (!['action', 'start_action', 'replace_action'].includes(tool.kind) || !PAUSED_PROGRAM_DANGER_ACTIONS.has(tool.actionType)) return false;
 		const interrupted = this.#interruptedPausedDangerAction(record);
 		if (interrupted !== null) {
-			return tool.kind === 'action' || (tool.kind === 'replace_action' && tool.actionId === interrupted.actionId && tool.goalRevision === interrupted.goalRevision);
+			// escape (a start_action) may take over a borrowed fight or flee too: falling into water mid-fight needs it.
+			return tool.kind === 'action' || (tool.kind === 'start_action' && tool.actionType === 'escape')
+				|| (tool.kind === 'replace_action' && tool.actionId === interrupted.actionId && tool.goalRevision === interrupted.goalRevision);
 		}
 		if (!this.#pausedProgramForDanger(record)) return false;
 		if (tool.kind === 'replace_action') return this.#terminalActionReceipt(record, tool.actionId, tool.goalRevision) !== null;
@@ -2280,15 +2300,21 @@ export class NativeToolRuntime {
 		return structuredClone(result);
 	}
 
+	/** The sample a repeated failure is counted at, with its time on the gameplay clock (the ledger's 60 s window). */
+	#failureStamp(observation) {
+		return { observation, at: this.#clock.at(observation), now: this.#clock.now() };
+	}
+
 	/** Height changes along a finished move, and known footing near a target that had none. Facts only. */
 	/**
 	 * The body position this action starts from: the newer of the latest observation and where the previous body action
 	 * ended. Its age says how stale it is at dispatch, so a reported movement is never the sum of two actions.
 	 */
 	#startSample(record, latest) {
-		const now = Date.now();
+		// Both sides on the gameplay clock: wall time in production, game time under a fixture's game clock.
+		const now = this.#clock.now();
 		const seen = latest?.goalRevision === record.goalRevision ? observationPosition(latest.observation) : null;
-		const seenAt = Number.isFinite(latest?.observation?.observedAtEpochMs) ? latest.observation.observedAtEpochMs : null;
+		const seenAt = this.#clock.at(latest?.observation);
 		const ended = this.#bodyEnds.get(record.agentId);
 		const endedSample = ended?.goalRevision === record.goalRevision ? ended : null;
 		const pick = endedSample !== null && (seen === null || seenAt === null || endedSample.at >= seenAt) ? endedSample : seen === null ? null : { position: seen, at: seenAt };
@@ -2830,7 +2856,10 @@ export class NativeToolRuntime {
 			act: async (actionType, args, { watch = null } = {}) => {
 				live();
 				steps += 1;
-				const action = normalizeMinecraftToolCall('act', { actionType, arguments: args });
+				// escape is a step the model starts with do_step, hidden from its act; a helper (find's wet hole) runs it as the
+				// same body action do_step escape starts, with that step's 60 s timeout.
+				const action = actionType === 'escape' ? { kind: 'action', actionType, arguments: { timeoutMs: 60_000, ...args } }
+					: normalizeMinecraftToolCall('act', { actionType, arguments: args });
 				if (action.kind !== 'action') throw codedError('INVALID_NATIVE_TOOL', `${label} expected one body action for ${actionType}`);
 				let seen = null, running = true, timer = null, wake = null, release = null;
 				// Samples arrive with each published change; a watched leg also asks for one every 2 s. The leg's end wakes the
@@ -3241,7 +3270,7 @@ export class NativeToolRuntime {
 		const failureClass = classifyBodyFailure(reasonCode, state);
 		const travel = TRAVEL_ACTIONS.has(active.actionType) ? this.#travelFacts(record, active, reasonCode, observation, payload.message) : {};
 		const repeatedFailure = active.actionType === 'chat' ? null : this.#repeatedFailures.record(record.agentId, {
-			goalRevision: record.goalRevision, actionType: active.actionType, arguments: active.arguments, state, reasonCode, observation });
+			goalRevision: record.goalRevision, actionType: active.actionType, arguments: active.arguments, state, reasonCode, ...this.#failureStamp(observation) });
 		const rawMessage = payload.message === undefined ? undefined : String(payload.message).slice(0, 2_048);
 		let message = state === 'SUCCEEDED' && reasonCode === 'PORTAL_LIT' && active.actionType === 'build'
 			&& active.arguments?.structure === 'nether_portal' && active.dimension === 'minecraft:overworld'
@@ -3298,7 +3327,7 @@ export class NativeToolRuntime {
 		}
 		const endedAt = observationPosition(observation);
 		if (endedAt !== null && active.actionType !== 'chat') this.#bodyEnds.set(record.agentId, { goalRevision: record.goalRevision, position: endedAt,
-			at: Number.isFinite(observation?.observedAtEpochMs) ? observation.observedAtEpochMs : Date.now() });
+			at: this.#clock.at(observation) ?? this.#clock.now() });
 		this.#retainReceipt(record, active, { ...result, source: 'server_action_result' });
 		if (payload.breakOutcome !== undefined) this.#breakOutcomes.set(result, payload.breakOutcome);
 		// The receipt's cell is in the world and dimension the action was dispatched in, even if the body has moved since.
@@ -3309,7 +3338,7 @@ export class NativeToolRuntime {
 		this.#occupancy.recordResourceResult?.(record.agentId, dispatched, { actionType: active.actionType, arguments: active.arguments, state, reasonCode, message: payload.message ?? null, observedAtEpochMs: payload.observedAtEpochMs ?? null });
 		this.#placedWorkstations.onActionResult(record.agentId, { actionType: active.actionType, arguments: active.arguments, state, observedAtEpochMs: payload.observedAtEpochMs, actionObservation: payload.actionObservation }, dispatched);
 		this.#dugStairs.onActionResult(record.agentId, { actionType: active.actionType, arguments: active.arguments, from: active.from ?? null, to: endedAt ?? observationPosition(latest),
-			at: Number.isFinite(payload.observedAtEpochMs) ? payload.observedAtEpochMs : Date.now() }, dispatched);
+			at: this.#clock.at({ observedAtEpochMs: payload.observedAtEpochMs, world: observation?.world }) ?? this.#clock.now() }, dispatched);
 		// The same own receipt reaches every store that remembers the cell, so none keeps a station the agent broke.
 		this.#recovery.recordResult?.(record.agentId, dispatched, { actionType: active.actionType, arguments: active.arguments, state, reasonCode, observedAtEpochMs: payload.observedAtEpochMs });
 		if (this.#notebook !== null && active.worldId != null) {

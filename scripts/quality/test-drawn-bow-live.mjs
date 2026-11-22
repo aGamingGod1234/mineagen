@@ -4,7 +4,9 @@
 // (drawn:true, which also reads a bow drawn at the body; RULE_ARMS=drawn plays only this one). A live skeleton at 4, 7 and 10 blocks
 // shoots at an idle body with a shield in the off hand. Vanilla's damage_blocked_by_shield and damage_taken counters
 // (tenths of HP) give the share of arrow damage the shield stopped in each arm. Pass: the drawn arm blocks at least
-// DRAWN_MIN_SHARE of the damage and more than the arrow-only arm. CP2r baseline with a shield in hand: 41 of 77 hits blocked.
+// DRAWN_MIN_SHARE of the damage and more than the arrow-only arm. The benchmark plays RULE_ARMS=drawn, judged on that floor alone:
+// since #59 the shipped rule blocks 95-100% at every distance, and at 10 blocks the arrow-only rule ties it, so "more than" failed
+// rooms the bot played well. CP2r baseline with a shield in hand: 41 of 77 hits blocked.
 // Always launch under slot.sh live; ports come from SLOT_PORT_BASE. Operator commands build the fixture and spawn mobs only.
 import { readFile, writeFile, mkdir, cp, readdir, unlink, open } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
@@ -16,6 +18,7 @@ import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { normalizeReflexEntries, DEFAULT_REFLEXES } from '../../coordinator/src/reflexes.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
+import { installTickRate, fixtureTickRate } from './watch-replay.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 import { statCounter, shieldShareVerdict } from './lib/damage-counter.mjs';
 
@@ -56,7 +59,7 @@ class Inbox {
 	}
 }
 
-let rcon, bridge, record, observation, inbox, revision = 0, ordinal = 0;
+let rcon, bridge, record, observation, inbox, revision = 0, ordinal = 0, rate;
 const agent = 'Reflex';
 const timeline = [];
 const command = async (text) => {
@@ -94,12 +97,17 @@ const only = (process.env.REFLEX_ONLY ?? '').split(',').filter(Boolean);
 let o;
 try {
 	for (let attempt = 0; attempt < 150; attempt += 1) { try { rcon = new HeadlessRconClient({ host: '127.0.0.1', port: port + 1, password: secret, connectTimeoutMs: 500, commandTimeoutMs: 5000 }); await rcon.connect(); break; } catch (error) { await rcon?.close(); if (attempt === 149) throw error; await sleep(1000); } }
+	// FIXTURE_TICK_RATE: each case is set up at 20 (skeleton and arrows cleared, health topped up, the rule echoed) and
+	// the server runs at the fixture rate from the skeleton's summon to the end of the CASE_SECONDS window, which is game
+	// time on the fixture clock. The counters are read back at 20.
+	rate = installTickRate({ command: text => command(text) }, fixtureTickRate());
 	bridge = new MultiplexedServerBridge({ port, secret }, {}); inbox = new Inbox(bridge);
 	bridge.on('observation', (event) => {
+		rate.clock.observe(event.payload?.world?.gameTime);
 		if (event.agentId !== record?.agentId || !event.payload.ready) return;
 		observation = event.payload;
 		const firing = event.payload.reflexes?.firing;
-		timeline.push({ at: Date.now(), firing: firing?.id ?? null, action: event.payload.currentAction?.active ? event.payload.currentAction.actionId ?? true : false, health: event.payload.player?.health, incoming: (event.payload.incomingProjectiles ?? []).map((row) => `${row.type}@${row.etaSeconds}`), yaw: event.payload.view?.yaw, air: event.payload.player?.air, y: event.payload.position?.y });
+		timeline.push({ at: rate.clock.now(), firing: firing?.id ?? null, action: event.payload.currentAction?.active ? event.payload.currentAction.actionId ?? true : false, health: event.payload.player?.health, incoming: (event.payload.incomingProjectiles ?? []).map((row) => `${row.type}@${row.etaSeconds}`), yaw: event.payload.view?.yaw, air: event.payload.player?.air, y: event.payload.position?.y });
 	});
 	// Follow goal revisions (the accepted goal spec bumps it); reflex rules are not tied to a revision.
 	bridge.on('message', (event) => {
@@ -141,25 +149,35 @@ try {
 	for (let repeat = 0; repeat < repeats; repeat += 1) {
 		for (const distance of distances) {
 			for (const [arm, rule] of [['arrowOnly', arrowOnly], ['drawn', drawn]].filter(([arm]) => ruleArms.includes(arm))) {
+				await rate.normalRate();
 				await command('kill @e[type=minecraft:skeleton]'); await command('kill @e[type=minecraft:arrow]');
 				await command(`tp ${agent} 0.5 80 0.5 0 0`); await command(`item replace entity ${agent} weapon.offhand with minecraft:shield`);
 				await command(`effect give ${agent} minecraft:instant_health 1 3 true`);
-				await setReflexes([rule]); await sleep(1000);
+				await setReflexes([rule]); await rate.idleSleep(1000);
 				const blocked0 = await score.blk(), taken0 = await score.dmg();
+				await rate.fastRate();
+				const wall0 = Date.now(), timer = await rate.gameTimer();
 				// /summon gives a skeleton no bow (it then walks up and punches): hand it one, as a natural spawn has.
 				await command(`summon minecraft:skeleton 0.5 80 ${0.5 + distance} {PersistenceRequired:1b,equipment:{mainhand:{id:"minecraft:bow",count:1}}}`);
 				const seenEvents = new Map();
-				for (const end = Date.now() + seconds * 1000; Date.now() < end; await sleep(1000)) {
+				// DRAWN_TRACE=1: sample every 50 ms of game time (firing, shield in use, health, arrows due) into the case.
+				const trace = process.env.DRAWN_TRACE === '1' ? [] : null;
+				for (const end = rate.clock.now() + seconds * 1000; rate.clock.now() < end; await rate.clock.sleep(trace ? 50 : 1000)) {
 					// Observations come on request: read a fresh one, and top health up so no case ends in a death
 					// (damage_taken still counts every hit).
 					o = await observe();
 					for (const row of events(o, 'arrow-test')) seenEvents.set(row.seq, row);
+					if (trace) trace.push({ at: Math.round(rate.clock.now()), firing: o.reflexes?.firing?.detail ?? null, using: o.interaction?.usingItem ?? null, health: health(o),
+						incoming: (o.incomingProjectiles ?? []).map((row) => row.etaSeconds), yaw: o.view?.yaw });
 					if (process.env.DRAWN_DEBUG) console.log(`[tick] health ${health(o)} firing ${o.reflexes?.firing?.id ?? '-'} incoming ${JSON.stringify(o.incomingProjectiles ?? null)?.slice(0, 120)} mode ${o.player?.gameMode ?? o.gameMode ?? '?'}`);
 					if ((health(o) ?? 20) < 12) await command(`effect give ${agent} minecraft:instant_health 1 3 true`);
 				}
+				const gameMs = await timer.elapsed();
+				const tick = { tickRate: rate.tickRate, gameSeconds: Math.round(gameMs / 1000), wallSeconds: Math.round((Date.now() - wall0) / 1000), rates: await timer.rates().catch(() => null) };
+				await rate.normalRate();
 				const blocked1 = await score.blk(), taken1 = await score.dmg();
 				o = await observe();
-				cases.push({ arm, repeat, distance, blocked0, blocked1, taken0, taken1, events: [...seenEvents.values()] });
+				cases.push({ arm, repeat, distance, blocked0, blocked1, taken0, taken1, events: [...seenEvents.values()], tick, ...(trace ? { trace } : {}) });
 				const counter = (before, after) => before === null || after === null ? 'unreadable' : `${(after - before) / 10} HP`;
 				console.log(`[case] ${arm} ${distance} blocks: blocked ${counter(blocked0, blocked1)}, taken ${counter(taken0, taken1)}; firings ${seenEvents.size}: ${[...seenEvents.values()].slice(0, 4).map(row => `${row.outcome} ${row.detail}`).join(' | ')}`);
 				await setReflexes([]);
@@ -178,6 +196,7 @@ try {
 	acceptance.error = String(error?.stack ?? error);
 	console.error(error);
 } finally {
+	if (rate) await writeFile(join(out, 'tick.json'), JSON.stringify({ tickRate: rate.tickRate, held: await rate.tickReport() }, null, 2)).catch(() => {});
 	if (rcon) await command('stop').catch(() => {});
 	bridge?.stop(); await rcon?.close();
 	await Promise.race([new Promise((done) => child.once('exit', done)), sleep(10000)]); if (child.exitCode === null) child.kill('SIGTERM'); await log.close();

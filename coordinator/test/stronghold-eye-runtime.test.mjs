@@ -33,7 +33,10 @@ test('production stronghold find throws, follows recorded eye and resumes only i
   const first = await find();
   assert.ok(first.find?.eyes, 'must dispatch the eye hand instead of generic surface search');
   assert.equal(first.reasonCode, 'FIND_BLOCKED'); assert.equal(first.find.eyes.lastHeading, flight.yaw);
-  const move = calls.find(c => c.actionType === 'travel_to').arguments;
+  // The recorded eye was lost from view: one walk to where it would have dropped (12 blocks on), then the bearing leg.
+  const moves = calls.filter(c => c.actionType === 'travel_to').map(c => c.arguments);
+  assert.ok(moves.some(m => Math.abs(Math.hypot(m.x - flight.from.x, m.z - flight.from.z) - 12) < .001), 'searched where the unseen eye drops');
+  const move = moves.at(-1);
   assert.ok(Math.abs(move.x - (flight.from.x - Math.sin(flight.yaw * Math.PI / 180) * 120)) < .001);
   assert.equal(move.build, true); assert.equal(move.boundaryX, flight.from.x);
   await find(); assert.equal(calls.filter(c => c.actionType === 'use_item').length, 1, 'same goal resumes the leg');

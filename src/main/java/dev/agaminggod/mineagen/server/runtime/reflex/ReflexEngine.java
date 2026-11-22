@@ -66,6 +66,17 @@ public final class ReflexEngine {
 		return weaker;
 	}
 
+	/**
+	 * Keep a moving retreat through a melee chase. Hunger and low-health cover can turn the body back into the pack, and the
+	 * default arrow shield would take the whole firing for a drawn bow: the body stops to block while the pack closes.
+	 */
+	static boolean chaseGate(ReflexScheduler scheduler, ReflexSpec.Rule rule, boolean truth, boolean fleeingWithChaser) {
+		String type = rule.action().type();
+		if (!fleeingWithChaser || !rule.coordinatorDefault() || !(backsOffWhenWeaker(rule) || "eat".equals(type) || "shield".equals(type))) return truth;
+		scheduler.discardPendingStart(rule.id());
+		return false;
+	}
+
 	/** How near a chasing melee mob must be for the retreat's pace check to count it: default-retreat's hostile_near. */
 	static final double PACE_RANGE = 6.0D;
 
@@ -103,7 +114,16 @@ public final class ReflexEngine {
 
 	/** A rule's sensed truth after the engine's gates: defend reads false while the body's own fight or flight runs. */
 	static boolean gatedTruth(ReflexSpec.Rule rule, boolean truth, ActionType activeType) {
-		return truth && !("defend".equals(rule.action().type()) && defendStandsAside(activeType));
+		return gatedTruth(rule, truth, activeType, false);
+	}
+
+	/**
+	 * As above; {@code escapingShooter}: the body's escape step runs with a shooter in sight. Defend stands aside as it
+	 * does for a flee: its melee stance held the body in the open behind a shield while the escape's own walk to cover
+	 * (which blocks with the shield itself) waited (skeleton escape room: paused 7 to 30 s of a 30 s window).
+	 */
+	static boolean gatedTruth(ReflexSpec.Rule rule, boolean truth, ActionType activeType, boolean escapingShooter) {
+		return truth && !("defend".equals(rule.action().type()) && (defendStandsAside(activeType) || escapingShooter));
 	}
 
 	/**
@@ -491,7 +511,11 @@ public final class ReflexEngine {
 		ObservationVisibility.Frame frame = ObservationVisibility.frame(player.level(), player);
 		boolean cornered = active != null && active.type() == ActionType.FLEE_FROM
 				&& dev.agaminggod.mineagen.server.runtime.controller.CorneredStand.standing(player);
+		boolean fleeing = activeType == ActionType.FLEE_FROM && !cornered
+				|| agent.behaviour instanceof ReflexActions.Defend defend && defend.backingOutOfPack();
+		boolean fleeingWithChaser = fleeing && ReflexActions.Defend.nearestChaser(player, ReflexActions.PACK_RANGE) < ReflexActions.PACK_RANGE;
 		boolean firingBlocksShots = agent.scheduler.current() != null && agent.behaviour != null && agent.behaviour.blocksShots();
+		boolean escapingShooter = activeType == ActionType.ESCAPE && !EscapeMoves.shooters(player).isEmpty();
 		Map<String, ReflexScheduler.Sense> senses = new HashMap<>();
 		Map<String, Entity> focus = new HashMap<>();
 		Map<String, Vec3> points = new HashMap<>();
@@ -500,7 +524,7 @@ public final class ReflexEngine {
 			Entity found = null;
 			Vec3 point = null;
 			boolean defend = "defend".equals(rule.action().type());
-			boolean guards = defend && !defendStandsAside(activeType);
+			boolean guards = defend && !defendStandsAside(activeType) && !escapingShooter;
 			for (ReflexSpec.Condition condition : rule.when()) {
 				ReflexSensors.Reading reading = ReflexSensors.sense(player, condition, frame, agent.memory, now);
 				// For defend, "attacked" also reads a melee hit about to land, as it does a shot about to land.
@@ -525,9 +549,10 @@ public final class ReflexEngine {
 				if (!until) break;
 				until = ReflexSensors.sense(player, condition, frame, agent.memory, now).truth();
 			}
-			truth = gatedTruth(rule, truth, activeType);
+			truth = gatedTruth(rule, truth, activeType, escapingShooter);
 			if (!inEnd && endOnly(rule)) truth = false;
 			truth = shieldGate(agent.scheduler, rule, truth, firingBlocksShots);
+			truth = chaseGate(agent.scheduler, rule, truth, fleeingWithChaser);
 			owedDropsGate(agent.scheduler, rule, truth);
 			// A default "back off when weaker" rule does not pause a flee that has already found no way out and stands its
 			// ground: running or taking cover there only hands the attackers free hits (cornered fixture: 4.6 s paused

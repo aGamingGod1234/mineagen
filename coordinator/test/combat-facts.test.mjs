@@ -61,7 +61,7 @@ test('bailout and attacked-only threats lead with immediate defense, not another
 	assert.match(wake().split('\n')[0], /pursuing fight attempts a bounded retreat; read its actual outcome/);
 	assert.match(wake().split('\n')[0], /reachable cover or digging in \(a 1x1 hole 2 deep with one block over it is fully enclosed/, 'digging in needs no carried blocks');
 	o.player.health = 15;
-	assert.match(wake().split('\n')[0], /nearby threat.*supported cover placement, digging in \(a 1x1 hole 2 deep/);
+	assert.match(wake().split('\n')[0], /nearby threat.*supported cover placement, do_step escape \(cover from shooters, out of water or a hole; hands back once safe\), digging in \(a 1x1 hole 2 deep/);
 	o.player.health = 20;
 	o.entities = [{ type: 'minecraft:piglin', hostile: false, distance: 1 }];
 	assert.match(wake().split('\n')[0], /attacker beside a calm piglin.*Sword sweeps/);
