@@ -256,6 +256,18 @@ export function isDanger(result, observation) {
 }
 
 /**
+ * The sample with the hunted kind's own rows left out, so a walk-up stop for the quarry alone is not danger. Unchanged
+ * with no quarry, or with no threat rows to tell the kinds apart (unknown stays danger).
+ */
+function withoutQuarry(o, quarry) {
+	if (quarry === null || o === null || threatRows(o) === null) return o;
+	const other = (row) => row?.type !== quarry;
+	return { ...o, player: { ...o.player, ...(Array.isArray(o.player?.threats) ? { threats: o.player.threats.filter(other) } : {}) },
+		...(Array.isArray(o.threats?.entries) ? { threats: { ...o.threats, entries: o.threats.entries.filter(other) } } : {}),
+		...(Array.isArray(o.entities) ? { entities: o.entities.filter(other) } : {}) };
+}
+
+/**
  * A hostile on the body now, by obtain's one rule (hostileIsDanger: one within 10 blocks, or a ranged mob after it),
  * named for the model. A sample with no threat rows is judged by its entity rows alone: no stop says a hostile is near.
  */
@@ -500,10 +512,12 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 	// danger came from a leg's own LOW_HEALTH stop: it halts the run like danger but is handed back as LOW_HEALTH.
 	let lowLeg = false;
 	let materialsKeep = new Set();
+	// The hostile kind a hunt is walking up to (a spider for string): its own approach stop is the arrival, not danger.
+	let quarry = null;
 	const seen = async (promise) => {
 		const result = await promise;
 		if (result?.state === 'RUNNING' && typeof result.actionId === 'string') running = result;
-		if (danger === null && forkStop() === null && isDanger(result, result?.reasonCode === 'HOSTILE_NEAR' ? await rawBody.observe().catch(() => null) : null)) {
+		if (danger === null && forkStop() === null && isDanger(result, result?.reasonCode === 'HOSTILE_NEAR' ? withoutQuarry(await rawBody.observe().catch(() => null), quarry) : null)) {
 			danger = `${result.reasonCode}: ${String(result.message ?? '').slice(0, 160)}`;
 			lowLeg = result.reasonCode === 'LOW_HEALTH';
 		}
@@ -1140,7 +1154,9 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		if (need.kind === 'loot') return lootNeed(need);
 		await offCanopy();
 		if (body.interrupted() || body.stopped()) return 'stopped';
-		const covered = await surfaceFirst(need);
+		// A mob to hunt already in view under cover (a cave spider in a mineshaft) is hunted where it is, not climbed away from.
+		const close = need.kind === 'kill' ? inView(need, await body.observe(), budget) : null;
+		const covered = close !== null && close.d <= HUNT_RADIUS ? null : await surfaceFirst(need);
 		if (body.interrupted() || body.stopped()) return 'stopped';
 		// Searching sideways underground finds neither trees nor animals: hand back, saying why.
 		if (covered !== null) { noSurface = `no way up to the surface for ${need.accept[0]}: ${covered}`; return noSurface; }
@@ -1158,7 +1174,12 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			if (at && Math.hypot(mob.x - at.x, mob.z - at.z) > 12) {
 				const where = `${Math.floor(mob.x)},${Math.floor(mob.y)},${Math.floor(mob.z)}`;
 				step(`walk to the ${bare(mob.mob)} at ${where}`);
-				const walked = await act('travel_to', { x: Math.floor(mob.x) + 0.5, z: Math.floor(mob.z) + 0.5, tolerance: 5, timeoutMs: 90_000 });
+				// A hostile quarry stops the walk itself once it is close (HOSTILE_NEAR): that is the hunt's arrival. A hostile
+				// of another kind near the body still stops it as danger.
+				quarry = id(mob.mob);
+				let walked;
+				try { walked = await act('travel_to', { x: Math.floor(mob.x) + 0.5, z: Math.floor(mob.z) + 0.5, tolerance: 5, timeoutMs: 90_000 }); }
+				finally { quarry = null; }
 				if (body.interrupted() || body.stopped()) return 'stopped';
 				// The walk stopped out of the hunt's reach (water, no route): a hunt from here sees no herd for 30 s. 4-seed
 				// check B-3: two walks to one far cow stopped 70+ blocks short, and each was followed by a 30 s empty hunt.
