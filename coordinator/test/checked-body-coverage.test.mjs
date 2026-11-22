@@ -121,7 +121,7 @@ test('the search body checks escape against the action schema and the obtain bod
 test('a move the fake had no method for at the wrap, or a second body kind, is checked too', async () => {
 	const body = checkedObtainBody(checkedSearchBody({ act: async () => ({ state: 'SUCCEEDED' }) }, { allowRefusals: true }), { allowRefusals: true });
 	await assert.rejects(body.act('escape', {}), /refuses escape/, 'the obtain wrap adds its own act check over the search one');
-	assert.deepEqual(Object.keys(checkedObtainBody(body)), ['act'], 'methods the fake never had stay out of its keys, wrapped twice or not');
+	assert.deepEqual(Object.keys(checkedObtainBody(body, { allowRefusals: true })), ['act'], 'methods the fake never had stay out of its keys, wrapped twice or not');
 	body.moveTo = async () => ({ state: 'SUCCEEDED' });
 	await assert.rejects(body.moveTo({ bogus: true }), /refuses moveTo/);
 });
