@@ -49,3 +49,16 @@ test('an ore under the body (VEIN_UNDER_BODY) is not written off as unreachable 
 	await runObtain({ item: 'raw_iron', count: 1, timeoutMs: 60_000 }, body, { now: () => (t += 1000) });
 	assert.deepEqual(missed.filter((row) => row.why === 'unreachable'), [], 'the ore stays a known source');
 });
+
+test('a remembered ore is walked toward until it shows, aimed at the cell over it', async () => {
+	const acts = [];
+	const o = () => at({ inventory: { selectedSlot: 0, items: [{ itemId: 'minecraft:stone_pickaxe', slot: 0, count: 1, remainingDurability: 100 }] },
+		player: { x: 319.5, y: 15, z: -249.5, health: 20, food: 20, onGround: true }, seenResources: [ore] });
+	const body = { observe: async () => o(), stopped: () => false, interrupted: () => false, note: () => {},
+		act: async (type, args) => { acts.push([type, args]); return { state: 'FAILED', reasonCode: 'NO_ROUTE' }; },
+		mine: async () => ({ state: 'FAILED', reasonCode: 'NOTHING_MINED' }), search: async () => ({ reasonCode: 'FIND_NOT_FOUND' }), missPlace: () => {} };
+	let t = 0;
+	await runObtain({ item: 'raw_iron', count: 1, timeoutMs: 30_000 }, body, { now: () => (t += 1000) });
+	const walk = acts.find(([type]) => type === 'travel_to')?.[1];
+	assert.deepEqual([walk?.x, walk?.y, walk?.z, walk?.stopWhenSeen], [298.5, 15, -260.5, 'minecraft:iron_ore']);
+});

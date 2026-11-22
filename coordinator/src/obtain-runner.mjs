@@ -1260,7 +1260,12 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			const stops = [];
 			if (at && eyeDistance(at, where) > REACH) {
 				step(`go to the ${bare(where.blockId)} at ${where.x},${where.y},${where.z}`);
-				const went = await act('travel_to', { x: where.x + 0.5, y: where.y, z: where.z + 0.5, tolerance: 2, timeoutMs: 120_000 });
+				// A remembered ore out of view is walked toward until it shows (stopWhenSeen), aimed at the cell over it rather
+				// than the solid ore cell: aimed at the ore itself, travel tunnelled 12 blocks round to a cell 2 off with the ore
+				// behind rock (22 Nov remembered-ore room). Once it shows, the reach check below digs the last blocks.
+				const went = await act('travel_to', where.remembered
+					? { x: where.x + 0.5, y: where.y + 1, z: where.z + 0.5, tolerance: 2, stopWhenSeen: id(where.blockId), timeoutMs: 120_000 }
+					: { x: where.x + 0.5, y: where.y, z: where.z + 0.5, tolerance: 2, timeoutMs: 120_000 });
 				if (went?.state !== 'SUCCEEDED') { stops.push(went?.reasonCode); body.note(`walk stopped: ${went?.reasonCode ?? went?.state} ${String(went?.message ?? '').slice(0, 140)}`); }
 				o = await body.observe();
 				if (ORE_BLOCKS.test(bare(where.blockId)) && rememberFlood(went, where, o)) return 'ore approach flooded';
