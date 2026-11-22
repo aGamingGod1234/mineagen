@@ -267,7 +267,9 @@ export async function followEyes(target, body, { observation: initial, deadline,
 				continue;
 			}
 			last.dropId = current.stableId;
-			const end = await act('travel_to', bounded({ x: current.x, y: current.y, z: current.z, tolerance: 1, build: true }));
+			// Near the eye, not in its cell: an eye on leaves or a ledge 2-3 blocks up is reached by the pickup's own route, and a
+			// travel_to at tolerance 1 must end within a block of the eye's height (#109), which it often cannot.
+			const end = await act('travel_to', bounded({ x: current.x, y: current.y, z: current.z, tolerance: 2, build: true }));
 			const reach = () => Math.hypot(current.x - o.player.x, current.z - o.player.z);
 			if (end && end.reasonCode !== 'FIND_BLOCKED') return end;
 			// A walk to the eye that fails leaves the eye behind and the find goes on along its heading, as a player gives up
@@ -290,7 +292,9 @@ export async function followEyes(target, body, { observation: initial, deadline,
 				if (stepped && stepped.reasonCode !== 'FIND_BLOCKED') return stepped;
 				drop = visibleDrop();
 			}
-			if (end) { leave(); continue; }
+			// A walk that fell short within reach still tries the pickup by the eye's id: it plans its own way onto leaves or a
+			// ledge. Only a pickup with no way to the eye gives it up.
+			if (end && !drop?.stableId) { leave(); continue; }
 			if (drop?.stableId && eyesHeld(o) <= last.eyesAfter) {
 				failed = await act('pick_up_item', { targetSelector: drop.stableId });
 				if (failed && failed.reasonCode !== 'FIND_BLOCKED') return failed;
