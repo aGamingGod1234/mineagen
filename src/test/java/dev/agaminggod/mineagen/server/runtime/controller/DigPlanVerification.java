@@ -60,6 +60,22 @@ public final class DigPlanVerification {
 		check(!ServerDigController.stairsAffordable(380, 125), "a lava search short of pickaxe uses keeps the one-wide shaft");
 		check(ServerDigController.stairsAffordable(380, 70), "a lava search whose pickaxes cover stairs and the reserve checks each floor");
 		check(ServerDigController.stairsAffordable(Long.MAX_VALUE / 2, 300), "an unbreakable pickaxe always affords the stairs");
+		// The check is priced at what it cuts: 2 per level, so 380 uses pay for 110 levels and the 160 reserve, not 111.
+		check(ServerDigController.stairsAffordable(380, 110) && !ServerDigController.stairsAffordable(380, 111),
+				"380 uses afford the floor check for the last 110 levels down and keep the reserve");
+		// Two-column stairs turn back every step: count the cells they open over 20 levels below a 2-high start.
+		java.util.Set<BlockPos> opened = new java.util.HashSet<>(List.of(new BlockPos(0, 70, 0), new BlockPos(0, 71, 0)));
+		BlockPos stepFeet = new BlockPos(0, 70, 0);
+		Direction turn = Direction.EAST;
+		int cutCells = 0;
+		for (int level = 0; level < 20; level++) {
+			for (BlockPos cell : ServerDigController.stepCells(ServerDigController.Pattern.STAIRS_DOWN, stepFeet, turn)) if (opened.add(cell)) cutCells++;
+			stepFeet = ServerDigController.stepTarget(ServerDigController.Pattern.STAIRS_DOWN, stepFeet, turn);
+			turn = turn.getOpposite();
+		}
+		// The first step also opens its own head cell; every later one reuses the column the body left.
+		check(stepFeet.getY() == 50 && cutCells == 1 + 20 * ServerDigController.STAIR_USES_PER_DEPTH,
+				"two-column stairs cut " + ServerDigController.STAIR_USES_PER_DEPTH + " blocks per level, the price the floor check pays (cut " + cutCells + " over 20)");
 		assertions++;
 		net.minecraft.SharedConstants.tryDetectVersion();
 		net.minecraft.server.Bootstrap.bootStrap();
