@@ -155,7 +155,8 @@ export class ContextCarryOver {
 		if (error !== null) this.#tools.noteDelivered(error?.replacedAction);
 		const digestResult = error !== null ? { outcome: `error ${typeof error?.code === 'string' ? error.code : 'TOOL_FAILED'}` } : result;
 		// A step that starts or runs an action keeps its reason beside the action's arguments, in tool.step.
-		const stepWhy = isAction ? tool.step?.why ?? null : null;
+		// A call that started a body step on the model's behalf (choose_response) reports the step, and its why, in the result.
+		const stepWhy = isAction ? tool.step?.why ?? null : typeof result?.step?.why === 'string' ? result.step.why : null;
 		this.#tools.push(name, digestArguments(args, stepWhy), digestResult, callReason(args, stepWhy));
 		if (typeof result?.programId === 'string') this.#noteProgram(result);
 		if (kind === 'capabilities' && error === null) this.#noteManual(result);

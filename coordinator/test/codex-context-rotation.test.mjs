@@ -636,6 +636,12 @@ test('a running step keeps its reason after six newer calls push it out of the r
 	const line = text.split('\n').find((row) => row.includes('walk-1'));
 	assert.ok(line, text);
 	assert.ok(line.includes(`why=${JSON.stringify(WHY)}`), line);
+	// A step the coordinator started for a chosen response carries the step's reason from its result.
+	const chosen = new ContextCarryOver();
+	chosen.rememberTool({ kind: 'choose_response', choice: 'enter_cave' }, { state: 'RUNNING', actionId: 'cave-1', step: { verb: 'travel_to', why: 'Go into the cave and scan its walls for ore.', started: true } });
+	assert.match(chosen.text('Session refreshed to keep context small'), /choose_response \{"choice":"enter_cave"\} why="Go into the cave and scan its walls for ore\." -> RUNNING/);
+	for (let index = 0; index < 7; index++) chosen.rememberTool({ kind: 'observe' }, { state: 'OBSERVED' });
+	assert.match(chosen.text('Session refreshed to keep context small'), /choose_response -> RUNNING why="Go into the cave and scan its walls for ore\." \(actionId="cave-1"\)/);
 	// Once it ends, the evicted handle is compact again: only the open step's reason is worth the bytes.
 	carry.rememberTool({ kind: 'action_status', actionId: 'walk-1' }, { lastResult: { actionId: 'walk-1', state: 'SUCCEEDED', reasonCode: 'ARRIVED' } });
 	for (let index = 0; index < 7; index++) carry.rememberTool({ kind: 'observe' }, { state: 'OBSERVED' });
