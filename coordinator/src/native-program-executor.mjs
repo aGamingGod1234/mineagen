@@ -290,7 +290,9 @@ export class NativeProgramExecutor {
 	/** The urgent decision was answered or replaced by an ordinary one: credit the time the routine was held for it. */
 	#settleUrgentWait(run) {
 		if (run.urgentWaitSince === null) return;
-		const credit = Math.max(0, Math.min(this.#now() - run.urgentWaitSince, run.timeoutMs - run.creditMs));
+		// Answered during a pause: the wait counts up to the pause start; the resume credits the paused time itself.
+		const waitEnd = this.#pausedAt === null ? this.#now() : Math.max(this.#pausedAt, run.urgentWaitSince);
+		const credit = Math.max(0, Math.min(waitEnd - run.urgentWaitSince, run.timeoutMs - run.creditMs));
 		run.urgentWaitSince = null;
 		run.creditMs += credit;
 		this.#armDeadline(run);
