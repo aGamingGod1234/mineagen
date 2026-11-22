@@ -433,8 +433,9 @@ public final class ServerFleeController implements ServerController {
 	/** A hostile stands on or beside {@code cell}. */
 	private static boolean hostileOn(ServerPlayer player, GridPosition cell) {
 		double cx = cell.x() + 0.5D, cz = cell.z() + 0.5D;
-		return !player.level().getEntitiesOfClass(Mob.class, new net.minecraft.world.phys.AABB(cx - 2.0D, cell.y() - 2.0D, cz - 2.0D, cx + 2.0D, cell.y() + 3.0D, cz + 2.0D),
-				mob -> mob.isAlive() && ThreatPerception.isHostileTo(mob, player)
+		// Any active threat, as the flee's own threat list reads them: a wolf or a player that attacked counts too.
+		return !player.level().getEntitiesOfClass(LivingEntity.class, new net.minecraft.world.phys.AABB(cx - 2.0D, cell.y() - 2.0D, cz - 2.0D, cx + 2.0D, cell.y() + 3.0D, cz + 2.0D),
+				mob -> mob != player && ThreatPerception.isActiveThreat(player, mob)
 						&& Math.hypot(mob.getX() - cx, mob.getZ() - cz) <= WAY_BACK_MOB_RADIUS && Math.abs(mob.getY() - cell.y()) < 2.0D).isEmpty();
 	}
 
