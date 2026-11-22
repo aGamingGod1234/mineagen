@@ -72,6 +72,15 @@ public final class DigContinuationVerification {
 			check(!ServerDigController.smallOpening(origin,air::contains), "long opening exceeds three-block bounds"); n++;
 			String message = ServerRetraceController.timeoutText("deadline",40,40,1,64,2,86,7,"{x:8,y:64,z:2,retrace:true}");
 			check(message.contains("40/40") && message.contains("7.0 route blocks remaining including final approach") && !message.contains("To resume"), "finished waypoints still report final distance and resume"); n++;
+			// A failed leg carries its target as a structured field, and its message is unchanged (find-search still reads it).
+			ServerController.TickResult leg = ServerRetraceController.legStopped(ServerController.TickResult.failed("NO_ROUTE", "Could not get out of the water in 30 s", 0.2),
+					1, 12, new dev.agaminggod.mineagen.server.perception.WalkedRoute.Point("minecraft:overworld", -8, 46, -43), 0.08);
+			check(new BlockPos(-8, 46, -43).equals(leg.nextWaypoint()) && leg.state() == ServerController.State.FAILED && leg.reasonCode().equals("NO_ROUTE") && leg.progress() == 0.08,
+					"a failed retrace leg names its target cell as nextWaypoint"); n++;
+			check(leg.message().equals("Retrace 1/12 toward Point[dimension=minecraft:overworld, x=-8, y=46, z=-43]: Could not get out of the water in 30 s"),
+					"a failed retrace leg keeps the message find-search parses: " + leg.message()); n++;
+			check(ServerController.TickResult.failed("NO_ROUTE", "x", 0).nextWaypoint() == null && ServerController.TickResult.running(0.5).nextWaypoint() == null,
+					"results without a waypoint have none"); n++;
 		} catch (Exception failure) { throw new AssertionError(failure); }
 		return n;
 	}

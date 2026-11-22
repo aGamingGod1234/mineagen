@@ -1,5 +1,6 @@
 package dev.agaminggod.mineagen.server.runtime.controller;
 
+import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerPlayer;
 
 public interface ServerController {
@@ -25,7 +26,15 @@ public interface ServerController {
 		TIMED_OUT
 	}
 
-	record TickResult(State state, String reasonCode, String message, double progress) {
+	/**
+	 * {@code nextWaypoint} is the cell a controller was heading for when it stopped, in the body's dimension, or null. It is
+	 * structured so a caller need not read it back out of the message (retrace sets it on a failed leg).
+	 */
+	record TickResult(State state, String reasonCode, String message, double progress, BlockPos nextWaypoint) {
+		public TickResult(State state, String reasonCode, String message, double progress) {
+			this(state, reasonCode, message, progress, null);
+		}
+
 		public TickResult {
 			if (state == null || reasonCode == null || message == null) {
 				throw new IllegalArgumentException("controller result fields must not be null");
@@ -33,6 +42,10 @@ public interface ServerController {
 			if (!Double.isFinite(progress) || progress < 0.0D || progress > 1.0D) {
 				throw new IllegalArgumentException("controller progress must be in [0, 1]");
 			}
+		}
+
+		public TickResult withNextWaypoint(BlockPos waypoint) {
+			return new TickResult(state, reasonCode, message, progress, waypoint == null ? null : waypoint.immutable());
 		}
 
 		public static TickResult running(double progress) {
