@@ -5,6 +5,7 @@
 // result. It is shared by do_step find and by verbs that need a source they cannot see (obtain).
 
 import { howtoIndex } from './howto.mjs';
+import { corridorFloor, witherOnLeg, withersSeen } from './fortress-approach.mjs';
 import { eyeTarget, eyesHeld, followEyes } from './find-eyes.mjs';
 import { portalTarget, strongholdNearby, findPortalRoom } from './find-portal-room.mjs';
 import { nightMoveStop } from './night-cover.mjs';
@@ -1687,17 +1688,27 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 		let travelled = 0;
 		while (left() >= MIN_LEG_MS) {
 			const at = bodyAt(observation);
-			const floors = observation?.continuity?.rememberedSections?.includes('blocks') ? [] : (observation?.blocks ?? [])
+			const seenBlocks = observation?.continuity?.rememberedSections?.includes('blocks') ? [] : (observation?.blocks ?? []);
+			const reachable = seenBlocks
 				.filter(row => row.blockId === 'minecraft:nether_bricks' && row.placeableFaces?.includes('up'))
 				.map(row => { const cell = cellOf(row); return cell === null ? null : { x: cell.x + 0.5, y: cell.y + 1, z: cell.z + 0.5 }; })
 				.filter(row => row !== null && insideBoundary(row) && !attempted.has(`${row.x},${row.y},${row.z}`)
 					&& Math.hypot(row.x - at.x, row.y - at.y, row.z - at.z) <= Math.min(BUILD_LEG, BUILD_BUDGET - travelled)
-					&& visited.every(spot => Math.hypot(row.x - spot.x, row.y - spot.y, row.z - spot.z) > 2))
+					&& visited.every(spot => Math.hypot(row.x - spot.x, row.y - spot.y, row.z - spot.z) > 2));
+			// Wall breaker rods (b): no floor leg past a seen wither skeleton (they killed most on open walkways).
+			const withers = withersSeen(observation);
+			const floors = reachable.filter(row => witherOnLeg(at, row, withers) === null)
 				.sort((a, b) => Math.hypot(b.x - at.x, b.z - at.z) - Math.hypot(a.x - at.x, a.z - at.z));
 			const floor = floors[0];
+			if (floor === undefined && reachable.length > 0) {
+				const near = reachable.map(row => witherOnLeg(at, row, withers)).filter(Boolean).sort((a, b) => a.distance - b.distance)[0];
+				return handBack('FAILED', 'WITHER_ON_DECK', `Every visible fortress floor leg passes a wither skeleton (nearest ${Math.round(near.distance)} blocks away at ${Math.floor(near.x)},${Math.floor(near.y)},${Math.floor(near.z)}); 2.4 tall, it cannot enter a two-high gap: wait in cover, tunnel 2-high, or fight it from a 2-high doorway`);
+			}
 			if (floor === undefined) return handBack('FAILED', 'FIND_BLOCKED', 'No new visible fortress floor reachable by walking found here; choose the next walkway or vantage point');
 			attempted.add(`${floor.x},${floor.y},${floor.z}`);
-			const trip = await leg('along observed fortress floor', 'travel_to', { ...floor, tolerance: 1, build: false, stopWhenSeen: profile.stopId });
+			// A seen corridor (brick walls both sides) may be reached across a gap with carried blocks.
+			const bricks = new Set(seenBlocks.filter(row => row.blockId === 'minecraft:nether_bricks').map(row => cellOf(row)).filter(Boolean).map(c => `${c.x},${c.y},${c.z}`));
+			const trip = await leg('along observed fortress floor', 'travel_to', { ...floor, tolerance: 1, build: corridorFloor(floor, bricks), stopWhenSeen: profile.stopId });
 			const ended = await settle(trip);
 			if (ended !== null) return ended;
 			const after = bodyAt(observation);

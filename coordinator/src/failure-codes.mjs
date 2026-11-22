@@ -352,6 +352,14 @@ export const FAILURE_CODES = Object.freeze({
 	SPOT_UNREACHABLE: ['cell', null],
 	// roof:true against endermen: not enough carried blocks, the shelter build failed, the sill could not be aimed at.
 	ROOF_BLOCKS_MISSING: ['rule', null],
+	// fight_until blaze spawner hold (ServerSpawnerHoldController, wall breaker rods).
+	HOLD_BREACHED: ['threat', null],
+	OUT_OF_FOOD: ['item', null],
+	SPAWNER_GONE: ['cell', null],
+	SPAWNER_UNREACHABLE: ['cell', null],
+	SPAWNER_QUIET: ['body', null],
+	CANCEL_CONFIRM_REQUIRED: ['rule', null],
+	WITHER_ON_DECK: ['threat', null],
 	ROOF_NOT_BUILT: ['cell', null],
 	SILL_NOT_REACHED: ['cell', null],
 	RECIPE_GRID_MISMATCH: ['rule', 'the recipe fits the 2x2 inventory grid', ['recipe.table']],
