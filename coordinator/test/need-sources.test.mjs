@@ -947,3 +947,11 @@ test('pearlHuntLine names the nearest walkable enderman within 16 m while pearls
 	assert.doesNotMatch(pearlHuntLine({ observation: { ...observation([enderman(7, 50)], stone), player: { health: 20, armor: 15 } }, position, open }), /not geared/, 'stone with iron armour is enough');
 	assert.equal(pearlHuntLine({ observation: observation([{ ...enderman(5, 50), targetingAgent: true }], []), position, open }), 'enderman 5 m, level, angry at you; pearls 0/12 open');
 });
+
+test('the obsidian cave option is the cheapest seen cave, not the nearest', () => {
+	// A cave above the bot is never cheaper than digging from here; it must not hide a cave below that is.
+	const above = { kind: 'cave', what: 'cave', air: 60, x: 0, y: 78, z: 6 }, below = { kind: 'cave', what: 'cave', air: 60, x: 20, y: 30, z: 0 };
+	const line = obsidianOptions({ position: { x: 0, y: 70, z: 0 }, known: { sightings: [above, below], blocks: [] } });
+	assert.match(line, /cheapest first: cave 20m E dy-40 y30 ~\d+ \(travel_to @20,30,0, /);
+	assert.doesNotMatch(line, /y78/);
+});
