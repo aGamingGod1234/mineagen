@@ -23,6 +23,9 @@ case $cmd in
   ssh) id=$1; shift; [ "$1" = -- ] && shift; [ -f "$F/$id.deleted" ] && { echo gone >&2; exit 255; }
     # A STALLSSH file makes every ssh hang for minutes in a child that holds the pipes, as a stalled ssh under boat does.
     [ -f "$F/STALLSSH" ] && { sleep 300.5; exit 1; }
+    # A STALL_AT_SIGNOFF file makes every sign-in removal hang the same way (logged in stalled.log).
+    if [ -f "$F/STALL_AT_SIGNOFF" ] && printf '%s' "$*" | sed -n 's/.*echo \\([A-Za-z0-9+\/=]*\\) | base64 -d.*/\\1/p' | base64 -d 2>/dev/null | grep -q 'rm -f ~/.codex/auth.json'; then
+      echo "$id" >> "$F/stalled.log"; sleep 300.5; exit 1; fi
     # An OUTAGE_AT_SIGNOFF file starts a 3 s boat outage at the first sign-in removal (an outage as the batch ends).
     if [ -f "$F/OUTAGE_AT_SIGNOFF" ] && printf '%s' "$*" | sed -n 's/.*echo \\([A-Za-z0-9+\/=]*\\) | base64 -d.*/\\1/p' | base64 -d 2>/dev/null | grep -q 'rm -f ~/.codex/auth.json'; then
       rm -f "$F/OUTAGE_AT_SIGNOFF"; touch "$F/OUTAGE"; (sleep 3; rm -f "$F/OUTAGE") > /dev/null 2>&1 < /dev/null & echo "connection refused" >&2; exit 1; fi
@@ -407,4 +410,37 @@ test('checkpoint batch keeps the first cleanup pass inside the signal\'s budget 
 		for (const pattern of [`${root}/bin/boat`, '^sleep 300[.]5$', `${root}/bx_`]) { try { execFileSync('pkill', ['-f', pattern]); } catch {} }
 		rmSync(root, { recursive: true, force: true });
 	}
+});
+
+test('checkpoint batch cuts a stalled retirement on SIGTERM and still deletes the machines inside the budget', posixOnly, async () => {
+	const root = setup();
+	writeFileSync(path.join(root, 'STALL_AT_SIGNOFF'), '');
+	const child = spawn('node', [script, '--plan', path.join(root, 'plan.json'), '--out', path.join(root, 'out')], {
+		env: { ...process.env, PATH: `${path.join(root, 'bin')}:${process.env.PATH}`, BOAT_BIN: path.join(root, 'bin/boat'), FAKE_BOAT_ROOT: root, CHECKPOINT_POLL_MS: '200', CHECKPOINT_SIGNAL_BUDGET_MS: '12000' }, stdio: ['ignore', 'pipe', 'pipe'] });
+	try {
+		const exited = new Promise(resolve => child.on('exit', resolve));
+		// Every game ends quickly, so a machine with no further game is retired, and its sign-in removal stalls.
+		for (let i = 0; i < 600 && !existsSync(path.join(root, 'stalled.log')); i++) await new Promise(r => setTimeout(r, 100));
+		assert.ok(existsSync(path.join(root, 'stalled.log')), 'a retirement stalled');
+		const signalledAt = Date.now();
+		child.kill('SIGTERM');
+		await exited;
+		const took = Date.now() - signalledAt;
+		assert.ok(took < 25_000, `the stalled retirement did not hold back the cleanup (${took} ms)`);
+		assert.deepEqual(readFileSync(path.join(root, 'deleted.log'), 'utf8').trim().split('\n').sort(), ['bx_aaaaaaaa', 'bx_bbbbbbbb']);
+	} finally {
+		child.kill('SIGKILL');
+		for (const pattern of [`${root}/bin/boat`, '^sleep 300[.]5$', `${root}/bx_`]) { try { execFileSync('pkill', ['-f', pattern]); } catch {} }
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test('checkpoint batch treats an empty meter reading as unreadable and plays every game', posixOnly, () => {
+	const root = setup({ plan: { meter: { command: 'true', floorPercent: 10 } } });
+	try {
+		run(root);
+		assert.match(readFileSync(path.join(root, 'out/batch.log'), 'utf8'), /meter unreadable: no output/);
+		const state = JSON.parse(readFileSync(path.join(root, 'out/state.json'), 'utf8'));
+		assert.deepEqual(state.games.map(g => g.state), ['done', 'done', 'done', 'done']);
+	} finally { rmSync(root, { recursive: true, force: true }); }
 });

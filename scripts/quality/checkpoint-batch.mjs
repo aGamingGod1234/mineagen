@@ -119,7 +119,10 @@ async function meterOk() {
 	if (!plan.meter || Date.now() - meterAt < 5 * 60_000) return !meterLow;
 	meterAt = Date.now();
 	try {
-		const left = Number(execFileSync('bash', ['-c', plan.meter.command], { encoding: 'utf8', timeout: 60_000 }).trim().split(/\s+/).pop());
+		// Number('') is 0, so an empty reading would pass as 0% left and stop every start: it is unreadable instead.
+		const reading = execFileSync('bash', ['-c', plan.meter.command], { encoding: 'utf8', timeout: 60_000 }).trim().split(/\s+/).pop();
+		if (!reading) throw new Error('no output');
+		const left = Number(reading);
 		if (!Number.isFinite(left)) throw new Error('not a number');
 		if (left < plan.meter.floorPercent && !meterLow) await log(`meter ${left}% left, below the ${plan.meter.floorPercent}% floor: no new game starts`);
 		meterLow = left < plan.meter.floorPercent;
@@ -313,9 +316,10 @@ const noMoreGames = () => stopped || signInChanged || existsSync(path.join(out, 
 // plan.drain "delete": every machine is deleted once it has no further game and its sign-in is off (idle machines bill
 // in full). Otherwise only the machines this batch created are deleted, at the end; listed (reused) ones are kept.
 const deletes = vm => plan.drain === 'delete' || vm.created;
+// Its calls carry the abort signal, so a stalled one cannot hold a SIGTERM back from the cleanup, which redoes both steps.
 async function retire(vm) {
-	if (!vm.signInRemoved) { await removeCodexSignIn(vm.id); vm.signInRemoved = true; await log(`removed the sign-in from ${vm.id} (no further game for it)`); }
-	if (plan.drain === 'delete' && !vm.deleted) { await destroyMachine(vm.id); vm.deleted = true; await log(`deleted ${vm.id} (no further game for it)`); }
+	if (!vm.signInRemoved) { await removeCodexSignIn(vm.id, undefined, live); vm.signInRemoved = true; await log(`removed the sign-in from ${vm.id} (no further game for it)`); }
+	if (plan.drain === 'delete' && !vm.deleted) { await destroyMachine(vm.id, live); vm.deleted = true; await log(`deleted ${vm.id} (no further game for it)`); }
 }
 
 // One machine's turn in a pass: prepare, check its game, copy a finished one home and retire the machine when no game
