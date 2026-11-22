@@ -103,6 +103,8 @@ const GENERIC_WAKE_TRIGGERS = new Set(['attention', 'observation']);
 // Folded by a running step yet still named on the wake its end brings: what was seen, not how the body moved.
 // A running step's until "seen:<block>" came into view (a verb whose body does not stop itself on it).
 const STEP_UNTIL_TRIGGER = 'step_until_seen';
+// A running step's search has made no progress for minutes (wake-filter.mjs STEP_STALL_WAKE_MS).
+const STEP_STALLED_TRIGGER = 'step_stalled';
 const STEP_NAMED_TRIGGERS = new Set(['resource_discovery', 'structure_sighted', 'lava_heard', 'furnace_ready', 'heal_opportunity']);
 // Ordinary perception a running program already receives and answers through its own decisions (onObservation).
 const PROGRAM_OWNED_PERCEPTION_TRIGGERS = new Set(['attention', 'observation', 'resource_discovery', 'structure_sighted', 'lava_heard', 'heal_opportunity', 'projectile']);
@@ -1150,8 +1152,8 @@ export class DynamicCoordinator extends EventEmitter {
 						failureSteered: !failureSteerOwed,
 					};
 					// A step owns ordinary progress (wake-filter.mjs stepFolds): sightings, routine updates and the coordinator's
-					// loop and stall notes are folded into the wake its end brings, with no deadline. A major discovery and a failure
-					// still owed to the model wake as before.
+					// loop and stall notes are folded into the wake its end brings. A major discovery and a failure still owed to the
+					// model wake as before, and so does a search whose stall notes have run for minutes.
 					const step = forcedContinuation ? null : this.#nativeRuntime.runningStep(record);
 					// The step's own until "seen:<block>" sighting is the step's news, not ordinary: it wakes the model at once.
 					const untilSeen = step === null ? null : this.#nativeRuntime.stepSighting(record, observation);
@@ -1163,6 +1165,15 @@ export class DynamicCoordinator extends EventEmitter {
 					}
 					if (stepFolds(step, attention, observation) && !failureSteerOwed && this.#wakeFilter.discovery(record.agentId, { attention, observation, goalText: record.currentGoal }) === null) {
 						this.#wakeFilter.fold(record.agentId, attention.trigger, observation, this.#nativeRuntime.reflexEvents(record));
+						// A step stuck for minutes (its loop and stall notes keep coming, no item gained) wakes the model once
+						// with the folded counts, while the step keeps running (wake-filter.mjs stalled).
+						const stalledMs = this.#wakeFilter.stalled(record.agentId, attention.trigger, observation, finiteOrNull(observation?.observedAtEpochMs) ?? Date.now());
+						if (stalledMs !== null) {
+							this.#writeTrace('native_wake_filtered', { agentId: record.agentId, goalRevision: record.goalRevision, trigger: attention.trigger, verdict: 'wake', reason: `step ${step} stalled ${Math.round(stalledMs / 1_000)} s` });
+							this.#resumeDeferredWake(record, attention);
+							this.#scheduleNativeTurn(record, { ...wakeRequest, priority: 'urgent', trigger: STEP_STALLED_TRIGGER, nativeEvent: { ...wakeRequest.nativeEvent, trigger: STEP_STALLED_TRIGGER } });
+							return;
+						}
 						this.#writeTrace('native_wake_filtered', { agentId: record.agentId, goalRevision: record.goalRevision, trigger: attention.trigger, verdict: 'fold', reason: `step ${step} running` });
 						this.#holdWakeForModelAction(record, wakeRequest, { step: true });
 						return;

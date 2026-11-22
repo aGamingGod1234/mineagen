@@ -48,6 +48,15 @@ export function stepFolds(step, attention, observation = null) {
 export const ESCAPE_FOLDED_TRIGGERS = new Set(['drowning']);
 export const ESCAPE_FOLD_MIN_AIR_S = 4;
 
+// A step's stall notes: the plan clock's no-progress fact and the walk's movement loop. They are folded like other step
+// news, but a search stuck this long wakes the model once (fresh r5: obtain looked for wood 13.7 min and folded 852 loop
+// notes; the model was not woken from 0.8 to 14.6 min). A player checks a search going nowhere after a few minutes.
+export const STEP_STALL_TRIGGERS = new Set(['no_progress', 'movement_loop']);
+export const STEP_STALL_WAKE_MS = 180_000;
+// No stall note for this long: the step is moving again, so the next note starts a new clock (r5's longest quiet gap
+// inside its stalled search was about 1 min).
+export const STEP_STALL_QUIET_MS = 120_000;
+
 const typeOf = (value) => (typeof value === 'string' && value.length > 0 ? (value.includes(':') ? value : `minecraft:${value}`) : null);
 const short = (id) => String(id).replace(/^minecraft:/u, '');
 const rowsOf = (value) => (Array.isArray(value) ? value : []);
@@ -167,7 +176,7 @@ export class WakeFilter {
 	#agent(agentId) {
 		let agent = this.#agents.get(agentId);
 		if (agent === undefined) {
-			agent = { known: null, held: null, health: null, dimension: null };
+			agent = { known: null, held: null, health: null, dimension: null, stall: null };
 			this.#agents.set(agentId, agent);
 		}
 		return agent;
@@ -259,6 +268,28 @@ export class WakeFilter {
 		else held.folded.set(trigger, (held.folded.get(trigger) ?? 0) + 1);
 	}
 
+	/**
+	 * Whether a folded stall note (STEP_STALL_TRIGGERS) wakes the model: the milliseconds stalled once the step has gone
+	 * STEP_STALL_WAKE_MS since its first stall note without gaining an item, a quiet gap or a model wake, else null.
+	 * at: the observation's own time. The clock restarts after it fires, so a search still stuck wakes again 3 min later.
+	 */
+	stalled(agentId, trigger, observation, at) {
+		if (!STEP_STALL_TRIGGERS.has(trigger) || !Number.isFinite(at)) return null;
+		const agent = this.#agent(agentId);
+		const items = itemCounts(observation), stall = agent.stall;
+		const gained = stall !== null && [...items].some(([item, count]) => count > (stall.items.get(item) ?? 0));
+		if (stall === null || gained || at < stall.last || at - stall.last > STEP_STALL_QUIET_MS) {
+			agent.stall = { since: at, last: at, items };
+			return null;
+		}
+		stall.last = at;
+		if (at - stall.since < STEP_STALL_WAKE_MS) return null;
+		agent.stall = null;
+		const held = this.#held(agent, observation, []);
+		held.stalledMs = at - stall.since;
+		return held.stalledMs;
+	}
+
 	/** Burning is held only while an armed fire rule handles it and none of its firings failed since the hold began. */
 	#fireVerdict(agent, observation, held, reflexRules, reflexEvents) {
 		const fireRules = rowsOf(reflexRules).filter((rule) => FIRE_ACTIONS.has(rule?.do?.type) && rule.state !== 'disabled');
@@ -284,6 +315,8 @@ export class WakeFilter {
 		const agent = this.#agent(agentId);
 		const held = agent.held;
 		agent.held = null;
+		// The model hears of the stall in this wake, so a stall clock starts over.
+		agent.stall = null;
 		// Kinds stay known across wakes in one dimension (the model has fought them); a new dimension starts over.
 		const dimension = observation?.world?.dimension ?? null;
 		agent.known = new Set([...(dimension === agent.dimension ? agent.known ?? [] : []), ...shownKinds(observation)]);
@@ -291,6 +324,7 @@ export class WakeFilter {
 		agent.health = Number.isFinite(observation?.player?.health) ? observation.player.health : null;
 		if (held === null) return null;
 		const parts = [];
+		if (Number.isFinite(held.stalledMs)) parts.push(`the step made no progress for ${Math.max(1, Math.round(held.stalledMs / 60_000))} min (no item gained)`);
 		if (held.hits > 0) {
 			const by = [...held.by].map(([kind, count]) => `${kind === 'unknown' ? 'unseen attacker' : short(kind)} ${count}`).join(', ');
 			const health = Number.isFinite(held.healthFrom) && Number.isFinite(held.healthTo) ? `, health ${held.healthFrom} -> ${held.healthTo}` : '';

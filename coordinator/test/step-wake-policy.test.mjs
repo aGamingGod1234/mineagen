@@ -197,3 +197,44 @@ test('until "seen:<block>" on a verb that does not stop itself wakes the model a
 		assert.equal(planner.requests.length, 2, 'the step\'s sighting wakes once');
 	} finally { await run.coordinator.stop(); }
 });
+
+/** A walk that keeps looping: back and forth between two cells, one sample every stepMs from atMs on. */
+async function loopFor(run, { from, atMs, untilMs, stepMs = 5_000, items = () => [] }) {
+	let sequence = from;
+	for (let at = atMs, index = 0; at <= untilMs; at += stepMs, index += 1) {
+		const sample = observation(sequence++, { x: index % 2 });
+		sample.payload.observedAtEpochMs = at;
+		sample.payload.observation.inventory.items = items(at);
+		run.bridge.emit('observation', sample);
+		await tick();
+	}
+	await settle();
+	return sequence;
+}
+
+test('a step whose walk keeps looping for 3 min wakes the model once with the stall, and the step keeps running', async () => {
+	const { run, planner, rows } = await startWithStep();
+	try {
+		const start = 1_787_184_000_000;
+		const next = await loopFor(run, { from: 2, atMs: start, untilMs: start + 170_000 });
+		assert.equal(planner.requests.length, 1, 'under 3 min of loop notes still folds');
+		await loopFor(run, { from: next, atMs: start + 175_000, untilMs: start + 200_000 });
+		await eventually(() => planner.requests.length === 2);
+		await settle();
+		assert.equal(planner.requests.length, 2, 'one wake for the stall');
+		const event = wake(planner.requests[1]);
+		assert.equal(event.trigger, 'step_stalled');
+		assert.match(event.now.whileActing, /^not woken for: the step made no progress for 3 min \(no item gained\); movement loop \(the body kept going\) x\d+/);
+		assert.ok(rows.some(({ event: name, verdict, reason }) => name === 'native_wake_filtered' && verdict === 'wake' && /^step dig_to stalled 1\d\d s$/.test(reason)));
+		assert.equal(run.bridge.sent.filter(({ type }) => type === 'cancel_action').length, 0, 'the wake does not stop the step');
+	} finally { await run.coordinator.stop(); }
+});
+
+test('a looping step that keeps gaining items is not woken for a stall', async () => {
+	const { run, planner } = await startWithStep();
+	try {
+		const start = 1_787_184_000_000;
+		await loopFor(run, { from: 2, atMs: start, untilMs: start + 400_000, stepMs: 10_000, items: (at) => [{ slot: 0, itemId: 'minecraft:cobblestone', count: 1 + Math.floor((at - start) / 60_000) }] });
+		assert.equal(planner.requests.length, 1, 'a cobblestone gained every minute resets the stall clock');
+	} finally { await run.coordinator.stop(); }
+});

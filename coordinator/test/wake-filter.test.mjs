@@ -150,3 +150,36 @@ test('a running count skill holds its own mob\'s hits, threats and shots; anothe
 	assert.equal(filter.decide('a', { attention: urgent('damage'), observation: sample({ health: 8, attacker: 'minecraft:blaze' }), ownKinds: kinds }).reason, 'health at or below the low floor');
 	assert.match(filter.take('a', sample()), /2 hit\(s\)|1 hit\(s\)/u);
 });
+
+test('the stall clock: 3 min of stall notes wakes once; an item gained, a quiet gap or a model wake starts it over', () => {
+	const filter = new WakeFilter();
+	const empty = sample();
+	const t0 = 1_000_000;
+	assert.equal(filter.stalled('a', 'observation', empty, t0), null, 'routine updates are not stall notes');
+	for (let at = t0; at < t0 + 180_000; at += 30_000) assert.equal(filter.stalled('a', 'movement_loop', empty, at), null);
+	filter.fold('a', 'movement_loop', empty);
+	assert.equal(filter.stalled('a', 'no_progress', empty, t0 + 180_000), 180_000);
+	assert.equal(filter.stalled('a', 'movement_loop', empty, t0 + 190_000), null, 'the clock starts over after it fires');
+	assert.equal(filter.take('a', empty), 'not woken for: the step made no progress for 3 min (no item gained); movement loop (the body kept going)');
+	// A log gained part way starts the clock over.
+	const filterB = new WakeFilter();
+	filterB.stalled('b', 'movement_loop', empty, t0);
+	filterB.stalled('b', 'movement_loop', sample({ items: [{ itemId: 'minecraft:oak_log', count: 1 }] }), t0 + 120_000);
+	assert.equal(filterB.stalled('b', 'movement_loop', sample({ items: [{ itemId: 'minecraft:oak_log', count: 1 }] }), t0 + 200_000), null);
+	assert.equal(filterB.stalled('b', 'movement_loop', sample({ items: [{ itemId: 'minecraft:oak_log', count: 1 }] }), t0 + 300_000), 180_000);
+	// More than 2 min without a stall note: the step was moving again.
+	const filterC = new WakeFilter();
+	filterC.stalled('c', 'movement_loop', empty, t0);
+	assert.equal(filterC.stalled('c', 'movement_loop', empty, t0 + 130_000), null);
+	assert.equal(filterC.stalled('c', 'movement_loop', empty, t0 + 200_000), null, 'the gap restarted the clock at t0 + 130 s');
+	assert.equal(filterC.stalled('c', 'movement_loop', empty, t0 + 310_000), 180_000);
+	// A model wake (take) in between: it was just told.
+	const filterD = new WakeFilter();
+	filterD.stalled('d', 'movement_loop', empty, t0);
+	filterD.take('d', empty);
+	assert.equal(filterD.stalled('d', 'movement_loop', empty, t0 + 200_000), null);
+	assert.equal(filterD.stalled('d', 'movement_loop', empty, t0 + 290_000), null);
+	assert.equal(filterD.stalled('d', 'movement_loop', empty, t0 + 380_000), 180_000);
+	// A missing clock is never a stall.
+	assert.equal(new WakeFilter().stalled('e', 'movement_loop', empty, Number.NaN), null);
+});
