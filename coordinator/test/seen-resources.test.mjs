@@ -1,0 +1,55 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { observedResources, rememberResources, knownResources, knownResourceIds, newResourceMemory, RESOURCE_TTL_MS } from '../src/seen-resources.mjs';
+
+const at = (x, y, z, extra = {}) => ({ player: { x, y, z }, world: { dimension: 'minecraft:overworld' }, ...extra });
+
+test('placed blocks, containers and built mobs from one observation; terrain is left out', () => {
+	const o = at(311.5, 77, -241.5, {
+		blocks: [{ blockId: 'minecraft:grass_block', x: 311, y: 76, z: -241 }, { blockId: 'minecraft:oak_log', x: 299, y: 78, z: -229 }],
+		sighted: { resources: [{ blockId: 'minecraft:cobblestone', x: 305, y: 77, z: -236, count: 14 }, { blockId: 'minecraft:chest', x: 300, y: 77, z: -230, count: 1, opened: false },
+			{ blockId: 'minecraft:hay_block', x: 320, y: 77, z: -250, count: 5 }] },
+		entities: [{ type: 'minecraft:iron_golem', x: 302.9, y: 77, z: -224.1, stableId: 'g1' }, { type: 'minecraft:item', x: 1, y: 2, z: 3 }],
+	});
+	const rows = observedResources(o, { now: 1 });
+	const by = (id) => rows.find((row) => row.id === id);
+	assert.equal(by('minecraft:grass_block'), undefined, 'terrain is no row');
+	assert.equal(by('minecraft:cobblestone').kind, 'block');
+	assert.equal(by('minecraft:cobblestone').placed, true);
+	assert.equal(by('minecraft:cobblestone').count, 14);
+	assert.equal(by('minecraft:chest').kind, 'container');
+	assert.equal(by('minecraft:chest').opened, false);
+	assert.equal(by('minecraft:iron_golem').kind, 'mob');
+	assert.equal(by('minecraft:iron_golem').placed, true, 'a golem is a built mob');
+	assert.equal(by('minecraft:iron_golem').stableId, 'g1');
+	assert.equal(by('minecraft:item'), undefined);
+});
+
+test('remembered across observations, nearest first, merged per neighbourhood, dropped when mined or stale', () => {
+	const memory = newResourceMemory();
+	rememberResources(memory, at(311.5, 77, -241.5, { sighted: { resources: [{ blockId: 'minecraft:cobblestone', x: 305, y: 77, z: -236, count: 14 }] } }), { now: 1000 });
+	// Out of view later: still known, with distance from the new position.
+	let rows = knownResources(memory, at(320.5, 77, -241.5), { ids: ['cobblestone'] });
+	assert.equal(rows.length, 1);
+	assert.ok(rows[0].distance > 15 && rows[0].distance < 20, String(rows[0].distance));
+	assert.ok(knownResourceIds(memory, at(320.5, 77, -241.5)).has('cobblestone'));
+	// A nearer member of the same well refreshes the row rather than adding one.
+	rememberResources(memory, at(306.5, 77, -237.5, { sighted: { resources: [{ blockId: 'minecraft:cobblestone', x: 306, y: 77, z: -237, count: 10 }] } }), { now: 2000 });
+	assert.equal(knownResources(memory, at(306.5, 77, -237.5), { ids: ['minecraft:cobblestone'] }).length, 1);
+	// The cell now shows air: mined, so forgotten.
+	rememberResources(memory, at(306.5, 77, -237.5, { blocks: [{ blockId: 'minecraft:air', x: 306, y: 77, z: -237 }] }), { now: 3000 });
+	assert.equal(knownResources(memory, at(306.5, 77, -237.5), { ids: ['cobblestone'] }).length, 0);
+	// Stale rows go after the TTL.
+	rememberResources(memory, at(0.5, 64, 0.5, { sighted: { resources: [{ blockId: 'minecraft:oak_planks', x: 4, y: 64, z: 4, count: 20 }] } }), { now: 0 });
+	rememberResources(memory, at(0.5, 64, 0.5), { now: RESOURCE_TTL_MS + 1 });
+	assert.equal(knownResources(memory, at(0.5, 64, 0.5), { ids: ['oak_planks'] }).length, 0);
+});
+
+test('reads filter by kind, distance and opened containers', () => {
+	const memory = newResourceMemory();
+	rememberResources(memory, at(0.5, 64, 0.5, { sighted: { resources: [
+		{ blockId: 'minecraft:chest', x: 3, y: 64, z: 0, count: 1, opened: true }, { blockId: 'minecraft:barrel', x: 40, y: 64, z: 0, count: 1, opened: false }] } }), { now: 1 });
+	assert.deepEqual(knownResources(memory, at(0.5, 64, 0.5), { kinds: ['container'] }).map((row) => row.id), ['minecraft:chest', 'minecraft:barrel']);
+	assert.deepEqual(knownResources(memory, at(0.5, 64, 0.5), { kinds: ['container'], includeOpened: false }).map((row) => row.id), ['minecraft:barrel']);
+	assert.deepEqual(knownResources(memory, at(0.5, 64, 0.5), { maxDistance: 10 }).map((row) => row.id), ['minecraft:chest']);
+});

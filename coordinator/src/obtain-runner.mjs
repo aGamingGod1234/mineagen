@@ -100,7 +100,10 @@ const eyeDistance = (body, b) => Math.hypot(b.x + 0.5 - body.x, b.y + 0.5 - (bod
 const flatDistance = (body, b) => Math.hypot(b.x + 0.5 - body.x, b.z + 0.5 - body.z);
 
 function knownBlocks(o) {
-	return [...(o.blocks ?? []), ...(o.world?.landmarks ?? o.landmarks ?? []), ...(o.routeMemory?.seenResources ?? [])]
+	// seenResources (seen-resources.mjs): placed blocks seen so far (a village's cobblestone, a house's planks), nearest
+	// first. Remembered ore is the ore-memory lane's to use; here only what perception never listed as terrain or ore.
+	return [...(o.blocks ?? []), ...(o.world?.landmarks ?? o.landmarks ?? []), ...(o.routeMemory?.seenResources ?? []),
+		...(o.seenResources ?? []).filter((row) => row.kind === 'block' && row.placed === true).map((row) => ({ ...row, blockId: row.id }))]
 		.filter((row) => row && typeof row.blockId === 'string' && [row.x, row.y, row.z].every(Number.isSafeInteger));
 }
 

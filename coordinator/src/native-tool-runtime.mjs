@@ -1,3 +1,4 @@
+import { knownResources, newResourceMemory, rememberResources } from './seen-resources.mjs';
 import { createHash, randomUUID } from 'node:crypto';
 import { validateTraceId } from './control-latency-registry.mjs';
 import { ExplorationOccupancy, extractPosition as observationPosition, observationWorldId } from './explore-frontier.mjs';
@@ -188,6 +189,8 @@ export class NativeToolRuntime {
 	// Workstations obtain placed and has not picked up yet, per agent, across obtain calls.
 	#obtainPlaced = new Map();
 	#kitHabit = false;
+	/** Per agent: every source the body has seen (seen-resources.mjs), fed by each stored observation. */
+	#resources = new Map();
 	// Agents whose next blocking body tool starts already interrupted: a danger steer is waiting for a tool boundary the
 	// model has not reached, so the tool it issues next was chosen without the danger (see interruptBlockingTool).
 	#armedDangerInterrupts = new Set();
@@ -338,6 +341,19 @@ export class NativeToolRuntime {
 		await this.#occupancy.flush(agentId);
 	}
 
+	#rememberResources(agentId, observation) {
+		if (!this.#resources.has(agentId)) this.#resources.set(agentId, newResourceMemory());
+		try { rememberResources(this.#resources.get(agentId), observation, { now: Date.now() }); } catch { /* a malformed sample adds nothing */ }
+	}
+
+	/** The observation a helper reads, with the sources seen so far (seenResources, nearest first) attached. */
+	#withResources(agentId, observation) {
+		const memory = this.#resources.get(agentId);
+		if (!memory || !observation || typeof observation !== 'object') return observation;
+		this.#rememberResources(agentId, observation);
+		return { ...observation, seenResources: knownResources(memory, observation) };
+	}
+
 	updateObservation(record, observation, options = {}) {
 		const stored = this.#storeObservation(record, observation, options);
 		if (stored) this.#notePublishedSample(record);
@@ -402,6 +418,7 @@ export class NativeToolRuntime {
 		// A quiet heartbeat is a new sighting. Ingest only its supplied spatial
 		// facts (without a snapshot), so absent identities/properties keep their age.
 		this.#rememberSpatial(record.agentId, storedObservation);
+		this.#rememberResources(record.agentId, storedObservation);
 		const player = storedObservation.player;
 		if (player?.skyOpen === true && player.onGround !== false && [player.x, player.y, player.z].every(Number.isFinite)) {
 			this.#openSky.set(record.agentId, { x: player.x, y: player.y, z: player.z, dimension: storedObservation.world?.dimension ?? null });
@@ -2602,8 +2619,9 @@ export class NativeToolRuntime {
 				if (!current()) throw codedError('NATIVE_ACTION_CANCELLED', 'obtain cancelled');
 				const facts = await this.#observe(record, { includeMetadata: false, deliver: false });
 				if (facts.freshness?.fresh !== true) throw codedError('FRESH_OBSERVATION_REQUIRED', 'obtain needs a fresh observation at each step');
-				return facts.observation ?? {};
+				return this.#withResources(record.agentId, facts.observation ?? {});
 			},
+			resources: (query = {}) => knownResources(this.#resources.get(record.agentId) ?? newResourceMemory(), this.#observations.get(record.agentId)?.observation ?? {}, query),
 			act: (actionType, args) => run('act', { actionType, arguments: args }),
 			mine: (args) => run('mine', args),
 			moveTo: (args) => run('moveTo', args),
@@ -2843,8 +2861,9 @@ export class NativeToolRuntime {
 				live();
 				const facts = await this.#observe(record, { includeMetadata: false, deliver: false });
 				if (facts.freshness?.fresh !== true) throw codedError('FRESH_OBSERVATION_REQUIRED', `${label} needs a fresh observation at each step`);
-				return facts.observation ?? {};
+				return this.#withResources(agentId, facts.observation ?? {});
 			},
+			resources: (query = {}) => knownResources(this.#resources.get(agentId) ?? newResourceMemory(), latest(), query),
 			look: async ({ pitch, survey }) => {
 				live();
 				steps += 1;

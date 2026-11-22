@@ -115,6 +115,7 @@ public final class FarSight {
 	private static final int FAR_KINDS = BUILT | LAVA | POI;
 	private static final int NEAR_KINDS = BUILT | LAVA | POI | NOTABLE | ORE;
 
+	private static final Set<String> NOTABLE_BLOCK_IDS = Set.of("minecraft:chest", "minecraft:trapped_chest", "minecraft:barrel", "minecraft:vault");
 	private static final Set<Block> NOTABLE_BLOCKS = Set.of(Blocks.SPAWNER, Blocks.TRIAL_SPAWNER, Blocks.CHEST,
 			Blocks.TRAPPED_CHEST, Blocks.BARREL, Blocks.VAULT);
 	/** Built-looking blocks that terrain also makes: taiga boulders and pale moss. */
@@ -145,7 +146,8 @@ public final class FarSight {
 
 	/** Survey and passive sections. Threats are not a section: they are always reported. */
 	public enum Section {
-		STRUCTURES("structures"), POI("poi"), BIOMES("biomes"), BUILT("built"), BLOCKS("blocks"), CAVES("caves"), VEINS("veins");
+		STRUCTURES("structures"), POI("poi"), BIOMES("biomes"), BUILT("built"), BLOCKS("blocks"), CAVES("caves"), VEINS("veins"),
+		RESOURCES("resources");
 
 		final String key;
 
@@ -940,6 +942,10 @@ public final class FarSight {
 			sight.section(0.25D);
 			rows.addAll(builtRows(sight, cluster(gathered.built(), distance), request.rowsPerSection()));
 		}
+		if (request.wants(Section.RESOURCES)) {
+			sight.section(0.10D);
+			rows.addAll(resourceRows(level, sight, gathered.built(), gathered.notable(), distance, RESOURCE_ROWS));
+		}
 		if (request.wants(Section.BLOCKS)) {
 			sight.section(0.05D);
 			rows.addAll(notableRows(sight, gathered.notable(), distance, request.rowsPerSection()));
@@ -1314,6 +1320,54 @@ public final class FarSight {
 		return rows;
 	}
 
+	/** Resource rows per pass: distinct placed-block ids and containers, nearest first. */
+	static final int RESOURCE_ROWS = 16;
+
+	/**
+	 * Placed blocks and containers as sources: per block id (and per container), the nearest member the eye sees, with the
+	 * count of that id's members within {@link #SMALL_SIGHT} of it. A player takes a village's cobblestone, a house's planks
+	 * or a chest's loot from what is in view; the planner weighs these rows like any other seen source. {@code size} on a
+	 * container row is 1 once its loot table has been rolled (opened by anyone), 0 while it is still unopened.
+	 */
+	static List<Row> resourceRows(ServerLevel level, Sight sight, List<Found> built, List<Found> notable, ToDoubleFunction<Found> distance, int limit) {
+		List<Row> rows = new ArrayList<>();
+		Map<String, List<Found>> byId = new LinkedHashMap<>();
+		List<Found> all = new ArrayList<>(built);
+		all.addAll(notable);
+		all.sort(Comparator.comparingDouble(distance));
+		for (Found found : all) {
+			if (distance.applyAsDouble(found) > RANGE) break;
+			boolean container = NOTABLE_BLOCKS.contains(found.state().getBlock()) && !found.state().is(Blocks.SPAWNER) && !found.state().is(Blocks.TRIAL_SPAWNER);
+			// Each container is its own source; blocks of one id share one row.
+			String key = container ? blockId(found.state()) + "@" + found.position() : blockId(found.state());
+			byId.computeIfAbsent(key, ignored -> new ArrayList<>()).add(found);
+		}
+		int tests = 0;
+		for (var entry : byId.entrySet()) {
+			if (rows.size() >= limit || tests >= 64) break;
+			Found seen = null;
+			int tried = 0;
+			for (Found member : entry.getValue()) {
+				if (tests >= 64 || tried == 4) break;
+				tests++;
+				tried++;
+				if (sight.sees(member)) { seen = member; break; }
+			}
+			if (seen == null) continue;
+			BlockPos position = BlockPos.of(seen.position());
+			boolean container = entry.getKey().contains("@");
+			int count = 0;
+			for (Found member : entry.getValue()) if (BlockPos.of(member.position()).distSqr(position) <= (double) SMALL_SIGHT * SMALL_SIGHT) count++;
+			int opened = 0;
+			if (container && level.getBlockEntity(position) instanceof net.minecraft.world.level.block.entity.RandomizableContainerBlockEntity box) {
+				opened = box.getLootTable() == null ? 1 : 0;
+			}
+			rows.add(new Row(Section.RESOURCES, "res@" + entry.getKey() + "@" + seen.position(), blockId(seen.state()), List.of(), container ? 1 : count,
+					opened, Cell.of(position), distance.applyAsDouble(seen)));
+		}
+		return rows;
+	}
+
 	static List<Row> notableRows(Sight sight, List<Found> blocks, ToDoubleFunction<Found> distance, int limit) {
 		List<Row> rows = new ArrayList<>();
 		int tests = 0;
@@ -1495,6 +1549,11 @@ public final class FarSight {
 				case BUILT -> {
 					json.add("blocks", strings(row.blocks()));
 					json.addProperty("size", row.size());
+				}
+				case RESOURCES -> {
+					json.addProperty("blockId", row.label());
+					json.addProperty("count", row.count());
+					if (NOTABLE_BLOCK_IDS.contains(row.label())) json.addProperty("opened", row.size() == 1);
 				}
 				case BIOMES -> json.addProperty("biome", row.label());
 				case POI -> json.addProperty("blockId", row.label());
