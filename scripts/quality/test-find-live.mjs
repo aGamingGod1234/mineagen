@@ -146,7 +146,8 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 			if (ev.agentId !== record.agentId || !ev.payload.ready) return;
 			const observation = adaptObservation(ev.payload);
 			runtime.updateObservation(record, observation, { eventSequence: ev.payload.eventSequence });
-			if (spot.reachBiome && row.t0 && row.reachedAtS === undefined && observation.world?.biome === spot.reachBiome) {
+			// Standing in the biome, not passing through it: a body knocked or falling through it has not reached it.
+			if (spot.reachBiome && row.t0 && row.reachedAtS === undefined && observation.world?.biome === spot.reachBiome && observation.player?.onGround !== false) {
 				row.reachedAtS = Math.round((s.clock.now() - row.t0) / 1000);
 				row.reachedDuring = row.currentCall ?? null;
 				if (Number.isFinite(observation.world?.gameTime) && Number.isFinite(row.startTicks)) row.reachedTicks = observation.world.gameTime - row.startTicks;
