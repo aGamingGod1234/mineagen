@@ -1,5 +1,5 @@
 {
-	"note": "Night-1 respawn room (test-obtain-live.mjs, OBTAIN_HANDBACK=answer): three bodies per seed each respawn at dusk into the pack that killed it (2 zombies and 2 skeletons in helmets), then re-kit; judged on being alive after 10 game minutes.",
+	"note": "Night-1 respawn room (test-obtain-live.mjs, OBTAIN_HANDBACK=answer): three bodies per seed each respawn at dusk into the pack that killed it, 9-14 blocks off as in the from-scratch games (alive 0.5-1 min after respawn there) (2 zombies and 2 skeletons in helmets), then re-kit; judged on being alive after 10 game minutes.",
 	"seeds": [
 		8008,
 		1001
@@ -16,23 +16,23 @@
 			"respawnInto": [
 				[
 					"zombie",
-					5,
+					11,
 					0
 				],
 				[
 					"zombie",
-					-4,
-					4
+					-9,
+					8
 				],
 				[
 					"skeleton",
-					3,
-					-9
+					6,
+					-13
 				],
 				[
 					"skeleton",
-					-10,
-					-2
+					-14,
+					-3
 				]
 			]
 		},
@@ -46,23 +46,23 @@
 			"respawnInto": [
 				[
 					"zombie",
-					5,
+					11,
 					0
 				],
 				[
 					"zombie",
-					-4,
-					4
+					-9,
+					8
 				],
 				[
 					"skeleton",
-					3,
-					-9
+					6,
+					-13
 				],
 				[
 					"skeleton",
-					-10,
-					-2
+					-14,
+					-3
 				]
 			]
 		},
@@ -76,23 +76,23 @@
 			"respawnInto": [
 				[
 					"zombie",
-					5,
+					11,
 					0
 				],
 				[
 					"zombie",
-					-4,
-					4
+					-9,
+					8
 				],
 				[
 					"skeleton",
-					3,
-					-9
+					6,
+					-13
 				],
 				[
 					"skeleton",
-					-10,
-					-2
+					-14,
+					-3
 				]
 			]
 		}

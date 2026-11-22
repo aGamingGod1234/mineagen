@@ -426,7 +426,6 @@ async function respawnIntoPack(s, agent, pack, row) {
 	// The first call needs a live sample of the respawned body taken at the settled revision (a stale one failed
 	// FRESH_OBSERVATION_REQUIRED in 14 of 20 respawn runs).
 	for (let i = 0; i < 100 && !(agent.latest()?.ready && agent.latest()?.player?.dead === false && agent.latest()?.player?.health > 0); i++) await sleep(100);
-	await s.clock.sleep(1500);
 	for (let tries = 0; tries < 5; tries++) {
 		const seq = agent.latest()?.eventSequence ?? 0;
 		await s.bridge.send('request_observation', record.agentId, { goalRevision: record.goalRevision }).catch(() => {});
@@ -434,7 +433,6 @@ async function respawnIntoPack(s, agent, pack, row) {
 		for (let i = 0; i < 40 && !fresh; i++) { await sleep(100); fresh = (agent.latest()?.eventSequence ?? 0) > seq; }
 		if (fresh) break;
 	}
-	await s.clock.sleep(1500);
 	row.respawnedInto = pack.length;
 }
 
