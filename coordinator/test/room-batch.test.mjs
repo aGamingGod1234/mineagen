@@ -281,6 +281,16 @@ test('top-ups: copies finishing together keep each other\'s counts, multi-row co
 	assert.deepEqual((await topUp({ rooms: r, arms: ['new'], valid: 1, out: '/x', countValid: async () => ({ valid: 0, rows: 1 }) }).more(r[0], { lost: false, arms: {} })).map(copy => copy.room), ['tr-wastes-r2']);
 });
 
+test('a killed arm counts no valid run but its summary still sizes the copies', async () => {
+	const out = await mkdtemp(path.join(os.tmpdir(), 'room-batch-valid-killed-'));
+	try {
+		await writeRoom(out, 'k.c1', 'new', [1, 2, 3, 4, 5].map(n => row(`s${n}`)), 5);
+		const { armValidRuns } = await import('../../scripts/quality/lib/room-batch-core.mjs');
+		assert.deepEqual(await armValidRuns(path.join(out, 'rooms', 'k.c1', 'new'), { timedOut: true }), { valid: 0, rows: 5 });
+		assert.deepEqual(await armValidRuns(path.join(out, 'rooms', 'k.c1', 'new'), {}), { valid: 5, rows: 5 });
+	} finally { await rm(out, { recursive: true, force: true }); }
+});
+
 test('a stopped batch makes no top-ups and says its groups were short with copies left, not at the cap', async () => {
 	const out = await mkdtemp(path.join(os.tmpdir(), 'room-batch-valid-stop-'));
 	try {

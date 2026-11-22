@@ -298,9 +298,11 @@ export const repeatGroup = name => String(name).replace(/(?:\.c\d+|-r\d+)$/, '')
  * a copy of the room plays (its summary's planned), or null when that is unknown.
  */
 export async function armValidRuns(dir, run = {}) {
-	if (run.timedOut || run.signal || run.error) return { valid: 0, rows: null };
 	const found = await armRows(dir);
-	if (found.problem || !found.summary || !Number.isInteger(found.summary.planned) || found.summary.planned <= 0) return { valid: 0, rows: null };
+	const planned = Number.isInteger(found.summary?.planned) && found.summary.planned > 0 ? found.summary.planned : null;
+	// A killed arm counts no valid run, but the runs its summary planned still size the copies.
+	if (run.timedOut || run.signal || run.error) return { valid: 0, rows: planned };
+	if (found.problem || planned === null) return { valid: 0, rows: null };
 	return { valid: found.rows.filter(row => row && typeof row === 'object' && ['PASS', 'FAIL'].includes(roomVerdict(row).verdict)).length, rows: found.summary.planned };
 }
 
