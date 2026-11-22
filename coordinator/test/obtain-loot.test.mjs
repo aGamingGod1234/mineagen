@@ -2,9 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { planObtain } from '../src/obtain-plan.mjs';
 import { chestYield, lootSources, structureTables, lootYields } from '../src/loot-sources.mjs';
-import { lootChest } from '../src/loot-step.mjs';
-import { runObtain } from '../src/obtain-runner.mjs';
-import { checkedObtainBody } from './helpers/checked-body.mjs';
+import { checkedObtainBody, lootChest, runObtain } from './helpers/checked-body.mjs';
 
 const at = { x: 311.5, y: 77, z: -241.5 };
 const village = (x = 311, z = -239) => ({ player: { ...at }, world: { dimension: 'minecraft:overworld' }, sighted: { structures: [{ structure: 'village', size: 10, x, y: 78, z }] }, blocks: [] });

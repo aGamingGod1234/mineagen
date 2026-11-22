@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { searchFor } from '../src/find-search.mjs';
-import { checkedSearchBody } from './helpers/checked-body.mjs';
+import { checkedSearchBody, searchFor } from './helpers/checked-body.mjs';
 import { routeLine, ROUTE_BYTES } from '../src/skill-fits.mjs';
 
 const target = { block: 'minecraft:end_portal_frame' };

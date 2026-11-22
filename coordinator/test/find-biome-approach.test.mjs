@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { searchFor } from '../src/find-search.mjs';
-import { checkedSearchBody } from './helpers/checked-body.mjs';
+import { checkedSearchBody, searchFor } from './helpers/checked-body.mjs';
 
 // A forest whose ground starts at z >= 85; the body starts in basalt deltas at the origin.
 const FOREST_Z = 85;

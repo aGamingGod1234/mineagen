@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { KIT_MAX_STEPS, craftsFromHeld, ironReserved, keepKit, kitHabitEnabled, nextKitStep } from '../src/kit-habit.mjs';
-import { checkedObtainBody } from './helpers/checked-body.mjs';
+import { KIT_MAX_STEPS, craftsFromHeld, ironReserved, kitHabitEnabled, nextKitStep } from '../src/kit-habit.mjs';
+import { checkedObtainBody, keepKit } from './helpers/checked-body.mjs';
 
 const item = (itemId, slot, count = 1, extra = {}) => ({ itemId: `minecraft:${itemId}`, slot, count, ...extra });
 const sample = (items, { health = 20, selectedSlot = 0 } = {}) => ({ player: { health }, inventory: { items, selectedSlot } });

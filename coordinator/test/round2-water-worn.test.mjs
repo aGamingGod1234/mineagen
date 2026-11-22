@@ -4,8 +4,7 @@ import fs from 'node:fs';
 import { NativeToolRuntime } from '../src/native-tool-runtime.mjs';
 import { normalizeMinecraftToolCall } from '../src/native-minecraft-tools.mjs';
 import { adaptObservation } from '../src/observation-adapter.mjs';
-import { runObtain } from '../src/obtain-runner.mjs';
-import { checkedObtainBody } from './helpers/checked-body.mjs';
+import { checkedObtainBody, runObtain } from './helpers/checked-body.mjs';
 
 const fixture = JSON.parse(fs.readFileSync(new URL('./fixtures/round2-water-worn.json', import.meta.url)));
 const original = fixture.terminal;

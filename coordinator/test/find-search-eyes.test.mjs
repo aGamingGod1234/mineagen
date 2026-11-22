@@ -1,9 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { searchFor } from '../src/find-search.mjs';
 import { eyeBracket, eyeLeg, intersectEyes } from '../src/find-eyes.mjs';
 import { normalizeMinecraftToolCall } from '../src/native-minecraft-tools.mjs';
-import { checkedSearchBody } from './helpers/checked-body.mjs';
+import { checkedSearchBody, searchFor } from './helpers/checked-body.mjs';
 const flight = (extra = {}) => ({ type: 'eye_of_ender_flight', flightId: 17, from: { x: 0, y: 70, z: 0 }, to: { x: -12, y: 75, z: 0 }, yaw: 90, vertical: 'rose', flewBlocks: 12, outcome: 'shattered', ...extra });
 function fake({ eyes = 16, event = flight(), skyOpen = true, filled = [] } = {}) {
 	let clock = 0;

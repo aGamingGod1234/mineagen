@@ -1,14 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { keepPickaxeMakings, planObtain, resolveObtainItem } from '../src/obtain-plan.mjs';
-import { locate, runObtain as runObtainUnchecked, searchBlock, placementCell, placementCells } from '../src/obtain-runner.mjs';
-import { searchFor } from '../src/find-search.mjs';
+import { locate, searchBlock, placementCell, placementCells } from '../src/obtain-runner.mjs';
 import { normalizeMinecraftToolCall } from '../src/native-minecraft-tools.mjs';
 import { howtoIndex } from '../src/howto.mjs';
-import { checkedObtainBody, checkedSearchBody } from './helpers/checked-body.mjs';
+import { checkedObtainBody, checkedSearchBody, runObtain, searchFor } from './helpers/checked-body.mjs';
 
 // Every fake body a test hands obtain is checked at the call, after the test has swapped in its own act or mine.
-const runObtain = (target, body, options) => runObtainUnchecked(target, checkedObtainBody(body), options);
 
 const index = howtoIndex();
 const bare = (value) => String(value).replace(/^minecraft:/, '');

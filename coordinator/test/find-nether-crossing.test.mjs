@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { searchFor } from '../src/find-search.mjs';
-import { checkedSearchBody } from './helpers/checked-body.mjs';
+import { checkedSearchBody, searchFor } from './helpers/checked-body.mjs';
 
 const noRoute = { state: 'FAILED', reasonCode: 'NO_ROUTE', message: 'No seen standing spot ahead gets closer, and build is false' };
 const found = { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', seen: { id: 'fortress', x: 60, y: 43, z: 0, distance: 8, via: 'sight' } };

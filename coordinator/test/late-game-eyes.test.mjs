@@ -1,12 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { searchFor } from '../src/find-search.mjs';
 import { DROP_SEARCH_BLOCKS, trustedCross } from '../src/find-eyes.mjs';
 import { EYE_PLAN, FRAME_EYES, PEARL_PLAN, ROD_PLAN } from '../src/eye-plan.mjs';
 import { planObtain } from '../src/obtain-plan.mjs';
 import { routeLine } from '../src/skill-fits.mjs';
 import { emptyKnown, evaluatePlanCheck } from '../src/plan-checks.mjs';
-import { checkedSearchBody } from './helpers/checked-body.mjs';
+import { checkedSearchBody, searchFor } from './helpers/checked-body.mjs';
 
 // The late-game contract, part A: eye margin, eye pickup and stop-throwing (wall-breakers late-game-contract.md).
 const STRONGHOLD = { x: 300, z: 120 };

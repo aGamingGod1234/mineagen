@@ -4,8 +4,7 @@ import { blazeBlocksErrand, searchDanger } from '../src/search-danger.mjs';
 import { adaptObservation } from '../src/observation-adapter.mjs';
 import { factToWireObservation } from './fixtures/dynamic-main-fixture.mjs';
 import { DEFAULT_REFLEXES, MAX_REFLEXES, ReflexBook, normalizeReflexEntries } from '../src/reflexes.mjs';
-import { runObtain } from '../src/obtain-runner.mjs';
-import { checkedObtainBody } from './helpers/checked-body.mjs';
+import { checkedObtainBody, runObtain } from './helpers/checked-body.mjs';
 
 function view({visible=true,targeting=false,distance=10,items=[],blocks=[]}={}) {
  const w=factToWireObservation({player:{health:20},inventory:{items},blocks},1,1,false,1000);

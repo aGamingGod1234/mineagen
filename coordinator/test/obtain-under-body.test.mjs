@@ -2,8 +2,7 @@
 // obtain wrote the ore off as unreachable; the next iron trip saw it 2.9 blocks away and tunnelled past it.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { runObtain } from '../src/obtain-runner.mjs';
-import { checkedObtainBody } from './helpers/checked-body.mjs';
+import { checkedObtainBody, runObtain } from './helpers/checked-body.mjs';
 
 test('an ore under the body (VEIN_UNDER_BODY) is not written off as unreachable for later searches', async () => {
 	const missed = [];

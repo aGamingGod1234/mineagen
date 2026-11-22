@@ -1,8 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { searchDanger, searchHoldsSteer } from '../src/search-danger.mjs';
-import { searchFor } from '../src/find-search.mjs';
-import { checkedSearchBody } from './helpers/checked-body.mjs';
+import { checkedSearchBody, searchFor } from './helpers/checked-body.mjs';
 
 // The real fight_target takes a seen entity's stableId, a UUID.
 const Z1 = '00000000-0000-4000-8000-0000000000a1';

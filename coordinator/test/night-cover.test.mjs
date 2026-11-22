@@ -1,8 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { nightFor, nightMoveStop } from '../src/night-cover.mjs';
-import { searchFor } from '../src/find-search.mjs';
-import { checkedSearchBody } from './helpers/checked-body.mjs';
+import { checkedSearchBody, searchFor } from './helpers/checked-body.mjs';
 
 const at = (dayTime, player = {}, dimension = 'minecraft:overworld') => ({ world: { dimension, dayTime },
 	player: { x: 0.5, y: 70, z: 0.5, yaw: 0, health: 20, armor: 0, skyOpen: true, ...player } });

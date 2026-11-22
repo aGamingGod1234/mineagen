@@ -2,10 +2,8 @@
 // from that run's own positions and messages: a stop that comes back on the same spot moves the body on or hands back.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { searchFor } from '../src/find-search.mjs';
-import { runObtain } from '../src/obtain-runner.mjs';
 import { ObservedMemoryStore } from '../src/observed-memory-store.mjs';
-import { checkedObtainBody, checkedSearchBody } from './helpers/checked-body.mjs';
+import { checkedObtainBody, checkedSearchBody, searchFor, runObtain } from './helpers/checked-body.mjs';
 
 const sample = (player, extra = {}) => ({ player: { yaw: 0, health: 20, ...player }, world: { dimension: 'minecraft:overworld', biome: 'minecraft:plains' },
 	inventory: { items: [{ itemId: 'minecraft:stone_pickaxe', count: 1 }] }, ...extra });

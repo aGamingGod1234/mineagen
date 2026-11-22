@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { searchFor } from '../src/find-search.mjs';
-import { checkedSearchBody } from './helpers/checked-body.mjs';
+import { checkedSearchBody, searchFor } from './helpers/checked-body.mjs';
 
 const ok = (reasonCode = 'ARRIVED') => ({ state: 'SUCCEEDED', reasonCode });
 const stop = (reasonCode) => ({ state: 'FAILED', reasonCode });

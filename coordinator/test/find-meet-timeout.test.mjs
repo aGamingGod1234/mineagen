@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { searchFor } from '../src/find-search.mjs';
-import { checkedSearchBody } from './helpers/checked-body.mjs';
+import { checkedSearchBody, searchFor } from './helpers/checked-body.mjs';
 
 // The game names every seen entity by a UUID; fight_target refuses any other id.
 const ZOMBIE = '00000000-0000-4000-8000-0000000000a1';

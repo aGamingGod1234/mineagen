@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { searchFor } from '../src/find-search.mjs';
-import { checkedSearchBody } from './helpers/checked-body.mjs';
+import { checkedSearchBody, searchFor } from './helpers/checked-body.mjs';
 
 // K1 (issue #2): find's surface sweep. 1,358 of 1,662 NO_ROUTE results were its walk legs ({yaw, distance, build:false}):
 // several doomed walks per spot, one build leg, then the blocked set cleared and the sweep started again. It also looked

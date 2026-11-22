@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { runObtain } from '../src/obtain-runner.mjs';
-import { checkedObtainBody } from './helpers/checked-body.mjs';
+import { checkedObtainBody, runObtain } from './helpers/checked-body.mjs';
 
 // G2 receipt :485 broke the table after a replacement craft filled its old slot.
 // This body models that capacity boundary, not Minecraft pickup geometry.

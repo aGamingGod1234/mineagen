@@ -1,9 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { runObtain } from '../src/obtain-runner.mjs';
 const { NativeToolRuntime } = await import(process.env.IRON_RUNTIME ?? '../src/native-tool-runtime.mjs');
 import { normalizeMinecraftToolCall } from '../src/native-minecraft-tools.mjs';
-import { checkedObtainBody } from './helpers/checked-body.mjs';
+import { checkedObtainBody, runObtain } from './helpers/checked-body.mjs';
 
 const ore = { blockId: 'minecraft:deepslate_iron_ore', x: 24, y: 4, z: 172 };
 const sample = () => ({ world: { worldId: 'flood-world', dimension: 'minecraft:overworld' },

@@ -2,8 +2,8 @@
 // feet, and obtain wrote the ore off as unreachable; the next iron trip saw it 2.9 blocks away and tunnelled past it.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { locate, runObtain } from '../src/obtain-runner.mjs';
-import { checkedObtainBody } from './helpers/checked-body.mjs';
+import { locate } from '../src/obtain-runner.mjs';
+import { checkedObtainBody, runObtain } from './helpers/checked-body.mjs';
 
 const need = { kind: 'block', blocks: ['iron_ore', 'deepslate_iron_ore'], accept: ['raw_iron'], count: 3 };
 const at = (extra = {}) => ({ world: { dimension: 'minecraft:overworld' }, player: { x: 298.5, y: 15, z: -240.5, health: 20, onGround: true },

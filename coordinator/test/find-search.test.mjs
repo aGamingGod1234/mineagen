@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DESCENT_RESERVE, stepRow, UNREACHED, UNREACHED_SPOT, chooseHeading, pickaxeUses, stairBudget, findProfile, oreRockShare, rememberedPlaces, sameVein, searchFor, seenAtOf, sightingOf } from '../src/find-search.mjs';
+import { DESCENT_RESERVE, stepRow, UNREACHED, UNREACHED_SPOT, chooseHeading, pickaxeUses, stairBudget, findProfile, oreRockShare, rememberedPlaces, sameVein, seenAtOf, sightingOf } from '../src/find-search.mjs';
 import { normalizeMinecraftToolCall } from '../src/native-minecraft-tools.mjs';
 import { isNativeBodyTool } from '../src/codex-service.mjs';
-import { checkedSearchBody } from './helpers/checked-body.mjs';
+import { checkedSearchBody, searchFor } from './helpers/checked-body.mjs';
 
 const sample = (extra = {}) => ({ player: { x: 0.5, y: 70, z: 0.5, yaw: 0, health: 20 }, world: { dimension: 'minecraft:overworld', biome: 'minecraft:plains' },
 	inventory: { items: [{ itemId: 'minecraft:stone_sword', count: 1 }] }, ...extra });
