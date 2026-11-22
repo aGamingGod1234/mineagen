@@ -163,7 +163,15 @@ try{
  const start=s.inbox.wait('goal_control',e=>e.payload.operation==='start');await s.command('mineagen start Probe Survive for 7000 seconds.');s.record.goalRevision=(await start).payload.goalRevision;await s.bridge.send('agent_ready',s.record.agentId,{goalRevision:s.record.goalRevision,reconciled:false});
  const setup=await applyQualitySetup({...cp.setup,randomSalt:repeat},async command=>({text:await s.command(command)}),'Probe');
  await activateQualitySetup(setup,async command=>({text:await s.command(command)}),{stage:'goal-start'});await activateQualitySetup(setup,async command=>({text:await s.command(command)}),{stage:'first-decision'});
- s.bridge.on('observation',e=>{if(active&&e.agentId===s.record.agentId&&e.payload.status==='PLAYER_DEAD')dead=true;});
+ s.bridge.on('observation',e=>{
+  if(!active||e.agentId!==s.record.agentId)return;
+  if(e.payload.status==='PLAYER_DEAD'){dead=true;return;}
+  // Pearls are counted from every sample in the window, also those that arrive while a long fight runs.
+  if(!e.payload.ready||dead)return;
+  try{const f=adaptObservation(e.payload),gt=f.world?.gameTime;
+   if(startTicks!==undefined&&Number.isFinite(gt)&&gt-startTicks<=ticks){result.pearlsInWindow=f.inventory.items.filter(i=>i.itemId==='minecraft:ender_pearl').reduce((n,i)=>n+i.count,0);result.windowObservedTicks=gt-startTicks;}
+  }catch{}
+ });
  await s.command('tick unfreeze');await s.command('difficulty normal');await observe();
  const shield=facts.inventory.items.find(i=>i.itemId==='minecraft:shield');if(shield)await act('equip_item',{sourceSlot:shield.slot,targetSlot:'offhand',expectedItemId:'minecraft:shield'});
  // The window is play: raised to the fixture rate until it ends (see finally).
@@ -259,7 +267,9 @@ finally{
  if(timer){
   try{result.gameSeconds=Math.round((await timer.elapsed())/1000);result.rates=await timer.rates().catch(()=>null);await s.normalRate();
    recordDamageEvidence(result, damage0,await readDamage());result.tick={rate:s.tickRate,held:await s.tickReport()};}
-  catch(error){result.tickError=String(error.message??error);}
+  catch(error){result.tickError=String(error.message??error);
+   // No damage evidence read: the room has no verdict, never a pass.
+   (result.integrity??=[]).push({file:'damage_taken',error:`teardown failed before the damage counter was read: ${result.tickError}`});}
  }
  await s?.stop().catch(()=>{});
 }
