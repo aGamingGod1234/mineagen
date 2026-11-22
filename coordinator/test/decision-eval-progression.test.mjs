@@ -1,10 +1,11 @@
-import { privateInput } from '../scripts/private-inputs.mjs';
+import { privateInput, privateModule } from '../scripts/private-inputs.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gradeSample } from '../src/decision-eval/grade.mjs';
+await privateModule(import.meta.url);
 
 // Progression families (q9): the hard predicates decide only the unambiguous outcomes. These checks pin what they
 // decide on the committed cases with canonical calls: the stage's obvious next step is good, idling is bad, and a

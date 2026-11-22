@@ -1,8 +1,13 @@
 #!/usr/bin/env node
 // Writes the text a CI run must scan for private details into an empty folder, one file per piece, for
 // `node scripts/check-public-tree.mjs --text <folder>/*`:
-// - a pull request: its title, description, branch name and the message of every commit in it;
+// - a pull request: its title, description, branch name, and the message and author and committer email of every
+//   commit in it;
 // - a push: the message of every pushed commit.
+// A push to main is a squash merge, and GitHub writes its author email from the merging account's email setting
+// (keep my email private), which no file in this repository controls; so a push's emails are not scanned, or every
+// merge would turn main red until that setting changes. A pull request's own commits carry the email each author
+// committed with, which the commit-msg and pre-push hooks check, so CI scans those.
 // The pull request is read from the API, not the event, so a rerun after an edit scans the current title and
 // description. The API needs only read access, and the commits come from it, not from the shallow checkout.
 import { readFile, writeFile, readdir, mkdir } from 'node:fs/promises';
@@ -39,7 +44,12 @@ if (eventName === 'pull_request') {
   if (batch.length < 100) break;
  }
  if (commits.length !== pull.commits) throw Error(`The pull request has ${pull.commits} commits but the API listed ${commits.length}; it lists at most 250, so squash some commits`);
- for (const commit of commits) { await write('commit-' + commit.sha.slice(0, 12), commit.commit.message); pieces++; }
+ for (const commit of commits) {
+  await write('commit-' + commit.sha.slice(0, 12), commit.commit.message);
+  // Emails only: a display name is the account's public name.
+  await write('commit-' + commit.sha.slice(0, 12) + '-identity', 'author-email: ' + (commit.commit.author?.email ?? '') + '\ncommitter-email: ' + (commit.commit.committer?.email ?? ''));
+  pieces += 2;
+ }
 } else if (eventName === 'push') {
  for (const commit of event.commits ?? []) { await write('commit-' + commit.id.slice(0, 12), commit.message); pieces++; }
  if (event.head_commit && !(event.commits ?? []).some(c => c.id === event.head_commit.id)) { await write('commit-' + event.head_commit.id.slice(0, 12), event.head_commit.message); pieces++; }

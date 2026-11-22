@@ -1,4 +1,6 @@
 import { writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { attachHits } from './danger-rows.mjs';
 import { refusedBeforeRunning } from './room-evidence.mjs';
 
 const TERMINAL = new Set(['SUCCEEDED', 'FAILED', 'CANCELLED', 'TIMED_OUT']);
@@ -47,7 +49,8 @@ export function roomVerdict(row) {
 	if (row.cancelledBeforeStart === true) return { verdict: 'INVALID', reason: 'cancelled before it started' };
 	if (row.error) return { verdict: 'INVALID', reason: `error: ${firstLine(row.error)}` };
 	const integrity = [...(row.integrity ?? []), ...(row.tick?.integrity ?? []), ...(row.play?.integrity ?? [])];
-	if (integrity.length) return { verdict: 'INVALID', reason: `missing evidence: ${integrity.map(item => [item.file, item.error].filter(Boolean).join(' ')).join('; ')}` };
+	// An entry is { file, error }, or a plain string (the batch merge's room flags such as "arm killed (room timeout)").
+	if (integrity.length) return { verdict: 'INVALID', reason: `missing evidence: ${integrity.map(item => typeof item === 'string' ? item : [item.file, item.error].filter(Boolean).join(' ')).join('; ')}` };
 	if (row.measurementStatus === 'INVALID') return { verdict: 'INVALID', reason: firstLine(row.measurementReason ?? 'measurement status INVALID') };
 	if (row.notExercised) return { verdict: 'INVALID', reason: `not exercised: ${firstLine(row.notExercised)}` };
 	if (row.reflexHold?.verdict === 'INVALID') return { verdict: 'INVALID', reason: row.reflexHold.reason };
@@ -84,8 +87,13 @@ export function fixtureSummary(rows, { planned = rows.length } = {}) {
 	};
 }
 
-/** Reports survive failed rows; strict callers distinguish failed acceptance from invalid evidence. */
-export async function finishRun(rows, { file, planned = rows.length, strict = true, setExitCode = true } = {}) {
+/**
+ * Reports survive failed rows; strict callers distinguish failed acceptance from invalid evidence. With a file, each row
+ * that ran in a known window gets row.hits, what hit the bot by attacker, from the Watcher's danger rows under the
+ * file's folder (lib/danger-rows.mjs; a server booted by watch-replay.mjs boot() writes them).
+ */
+export async function finishRun(rows, { file, planned = rows.length, strict = true, setExitCode = true, hits = true } = {}) {
+	if (file && hits) await attachHits(rows, path.dirname(file)).catch(() => null);
 	const summary = fixtureSummary(rows, { planned });
 	if (file) await writeFile(file, JSON.stringify(rows, null, 2) + '\n');
 	const exitCode = strict ? summary.status === 'INVALID' ? 2 : summary.status === 'FAIL' ? 1 : 0 : 0;

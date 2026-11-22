@@ -23,6 +23,51 @@ public final class AgentControlPresentation {
 		};
 	}
 
+	/** The colour family a state is drawn in. */
+	public enum StateTone { POSITIVE, ACTIVE, PROBLEM, NEUTRAL }
+
+	/**
+	 * How a lifecycle state reads at a glance, chosen from the raw state (never from its label text), so the roster tile
+	 * and the selected-agent panel always agree.
+	 */
+	public enum StateCue {
+		READY(StateTone.POSITIVE),
+		STARTING(StateTone.ACTIVE),
+		THINKING(StateTone.ACTIVE),
+		WORKING(StateTone.ACTIVE),
+		PAUSED(StateTone.ACTIVE),
+		DONE(StateTone.POSITIVE),
+		NEEDS_ATTENTION(StateTone.PROBLEM),
+		DEAD(StateTone.PROBLEM),
+		DISCONNECTED(StateTone.PROBLEM),
+		UNKNOWN(StateTone.NEUTRAL);
+
+		private final StateTone tone;
+
+		StateCue(StateTone tone) {
+			this.tone = tone;
+		}
+
+		public StateTone tone() {
+			return tone;
+		}
+	}
+
+	public static StateCue stateCue(String state) {
+		return switch (state == null ? "" : state.trim().toUpperCase(Locale.ROOT)) {
+			case "IDLE" -> StateCue.READY;
+			case "STARTING" -> StateCue.STARTING;
+			case "PLANNING" -> StateCue.THINKING;
+			case "ACTING" -> StateCue.WORKING;
+			case "PAUSED" -> StateCue.PAUSED;
+			case "COMPLETED" -> StateCue.DONE;
+			case "ERROR" -> StateCue.NEEDS_ATTENTION;
+			case "DEAD" -> StateCue.DEAD;
+			case "DISCONNECTED" -> StateCue.DISCONNECTED;
+			default -> StateCue.UNKNOWN;
+		};
+	}
+
 	public static String profileLabel(AgentControlAgent agent) {
 		Objects.requireNonNull(agent, "agent must not be null");
 		return AgentModelNames.displayName(agent.provider(), agent.model()) + " | " + capitalize(agent.reasoning());

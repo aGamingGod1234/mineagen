@@ -28,7 +28,9 @@ test('a representative program wake stays inside its byte budget for every provi
 	assert.ok(sizes.eventEncodedRepeatBytes <= 7_500, `repeat encoded event ${sizes.eventEncodedRepeatBytes} bytes`);
 	assert.ok(sizes.eventEncodedRepeatBytes < sizes.eventEncodedFirstBytes / 2,
 		`repeated wake event delta ${sizes.eventEncodedRepeatBytes} bytes vs full ${sizes.eventEncodedFirstBytes} bytes`);
-	assert.ok(sizes.toolSchemaBytes <= 38_900, `tool schemas ${sizes.toolSchemaBytes} bytes`);
+	// Before: 38,540 bytes of tool schemas on every call, 99% of the old 38,900 cap; the program tools now need MINEAGEN_PROGRAM_TOOLS=on.
+	assert.ok(sizes.toolSchemaBytes <= 34_500, `tool schemas ${sizes.toolSchemaBytes} bytes`);
+	assert.ok(sizes.toolSchemaBytesWithPrograms <= 38_900, `tool schemas with the program tools ${sizes.toolSchemaBytesWithPrograms} bytes`);
 });
 
 test('a wake with the recorded section mix stays inside its byte budget, full and lean', () => {

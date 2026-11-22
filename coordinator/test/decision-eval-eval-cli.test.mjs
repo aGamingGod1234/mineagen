@@ -1,4 +1,4 @@
-import { privateInputUrl } from '../scripts/private-inputs.mjs';
+import { privateInputUrl, privateModule } from '../scripts/private-inputs.mjs';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+await privateModule(import.meta.url);
 
 // The whole eval.mjs flow (screen, redo into a new screen, confirmation with a manifest) on a scripted fake provider:
 // no model calls. Both arms run this checkout; the script decides each answer by arm, stage, case and sample.

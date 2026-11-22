@@ -38,6 +38,7 @@ import { DEFAULT_REFLEXES } from '../../coordinator/src/reflexes.mjs';
 import { boot, unshownTickRate } from './watch-replay.mjs';
 import { gameClockFromObservations } from '../../coordinator/src/game-clock.mjs';
 import { callObtain } from './obtain-handbacks.mjs';
+import { followGoalRevision, inspectionObserve, respawnBody } from './room-body-link.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { parseSavedWorldSpawn } from '../../coordinator/src/headless-world-spawn.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
@@ -171,12 +172,7 @@ async function joinAgent(s, lane, nextSpot) {
 	const runtime = new NativeToolRuntime({
 		trace: (event, fields) => { if (event === 'native_obtain_step' && fields?.agentId === record.agentId) log.push(`${Math.round((s.clock.now() - logStart) / 1000)}s ${fields.text}`); },
 		bridge: { send: async (type, agentId, payload) => { if (type === 'action_command') commands.set(payload.actionId, { actionType: payload.actionType, at: s.clock.now() }); return s.bridge.send(type, agentId, payload); } },
-		requestObservation: async () => {
-			const before = latest?.eventSequence ?? 0;
-			await s.bridge.send('request_observation', record.agentId, { goalRevision: record.goalRevision });
-			for (let i = 0; i < 400 && !(latest?.eventSequence > before); i++) await sleep(25);
-			return { eventSequence: latest.eventSequence, observation: adaptObservation(latest) };
-		},
+		requestObservation: inspectionObserve(inspections, record),
 		inspectObservation: async (rec, query) => ({ state: 'SUCCEEDED', reasonCode: 'INSPECTED', ...await inspections.request(rec, query) }),
 		// At a raised rate the runtime times obtain and its steps in game time (it feeds the clock its samples).
 		...(s.clock.rate === 20 ? {} : { clock: gameClockFromObservations({ tickRate: s.clock.rate }) }),
@@ -186,12 +182,7 @@ async function joinAgent(s, lane, nextSpot) {
 		latest = ev.payload;
 		runtime.updateObservation(record, adaptObservation(ev.payload), { eventSequence: ev.payload.eventSequence });
 	});
-	// A death and respawn move the goal revision: follow it, as the coordinator does, so the lane goes on.
-	s.bridge.on('message', ev => {
-		if (ev.type !== 'goal_control' || ev.agentId !== record.agentId || !['dead', 'respawn'].includes(ev.payload?.operation)) return;
-		if (Number.isSafeInteger(ev.payload.goalRevision)) record.goalRevision = ev.payload.goalRevision;
-		s.bridge.send('agent_ready', record.agentId, { goalRevision: record.goalRevision, reconciled: false }).catch(() => {});
-	});
+	followGoalRevision(s.bridge, record);
 	const where = () => {
 		const o = latest === null ? null : adaptObservation(latest), p = o?.player;
 		return p && [p.x, p.y, p.z].every(Number.isFinite) ? ` @${Math.floor(p.x)},${Math.floor(p.y)},${Math.floor(p.z)} ${o?.world?.biome ?? ''}` : '';
@@ -225,15 +216,7 @@ async function runLane(s, agent, queue, seed, seedIndex, nextSpot) {
 			// A body that died after the previous run handed back (no model here to answer the danger) respawns first;
 			// that death is the previous run's hand-back, recorded apart from deaths during an obtain.
 			const deadAtStart = !(await health() > 0);
-			if (deadAtStart) {
-				const started = s.inbox.wait('goal_control', g => g.agentId === record.agentId && g.payload.operation === 'start', 60_000).catch(() => null);
-				await s.command(`mineagen respawn ${name}`).catch(() => {});
-				for (let i = 0; i < 60 && !(await health() > 0); i++) await sleep(500);
-				await s.command(`mineagen start ${name} Survive for 36000 seconds.`).catch(() => {});
-				const goal = await started;
-				if (goal) record.goalRevision = goal.payload.goalRevision;
-				await s.bridge.send('agent_ready', record.agentId, { goalRevision: record.goalRevision, reconciled: false }).catch(() => {});
-			}
+			if (deadAtStart) await respawnBody({ command: s.command, health, sleep, send: (...args) => s.bridge.send(...args) }, record, name);
 			if (deadAtStart) { row.deadAtStart = true; if (previous) { previous.diedAfterHandBack = true; await appendFile(rowsFile, `${JSON.stringify({ amend: previous.item, seedIndex, lane, diedAfterHandBack: true })}\n`); } }
 			// A fresh start: daytime, nothing held, full health and food, standing on the surface of untouched land. Night
 			// ends for every lane when one starts a run in it (a new player starts in the morning).
@@ -290,35 +273,26 @@ async function runLane(s, agent, queue, seed, seedIndex, nextSpot) {
 			// The new respawn line at night says rest first; the stand-in follows it, as the model is told to. With
 			// MINEAGEN_NIGHT_COVER=off (the old code) that line is not shown, so the stand-in goes straight to obtain.
 			if (Array.isArray(entry.respawnInto) && String(process.env.MINEAGEN_NIGHT_COVER ?? '').toLowerCase() !== 'off') {
-				let ended = null;
-				// The goal revision can still move just after a respawn: a rest refused as stale is sent again.
-				for (let attempt = 0; attempt < 5 && (ended === null || /STALE_REVISION|STALE_GOAL_REVISION/.test(ended)); attempt++) {
-					if (attempt > 0) await s.clock.sleep(1000);
-					const before = agent.actions.length;
-					const rested = await runtime.execute({ agentId: record.agentId, goalRevision: record.goalRevision, turnId: `respawn-rest-${seedIndex}-${lane}-${index}-${attempt}`, callId: `respawn-rest-${index}-${attempt}`,
-						tool: normalizeMinecraftToolCall('do_step', { verb: 'rest', target: { timeoutMs: Math.max(60_000, (entry.playMs ?? entry.budgetMs) - (now() - t0)) }, why: 'respawned at night: rest first' }) }, record).catch((error) => ({ state: 'ERROR', reasonCode: error?.code, message: String(error?.message ?? error) }));
-					ended = rested?.state === 'RUNNING' ? null : `${rested?.state} ${rested?.reasonCode ?? ''} ${String(rested?.message ?? '').slice(0, 160)}`;
-					while (ended === null && now() - t0 < (entry.playMs ?? entry.budgetMs) && await health().catch(() => 0) > 0) {
-						ended = agent.actions.slice(before).find((line) => / rest /.test(line)) ?? null;
-						if (ended === null) await s.clock.sleep(1000);
-					}
+				const before = agent.actions.length;
+				const rested = await runtime.execute({ agentId: record.agentId, goalRevision: record.goalRevision, turnId: `respawn-rest-${seedIndex}-${lane}-${index}`, callId: `respawn-rest-${index}`,
+					tool: normalizeMinecraftToolCall('do_step', { verb: 'rest', target: { timeoutMs: Math.max(60_000, (entry.playMs ?? entry.budgetMs) - (now() - t0)) }, why: 'respawned at night: rest first' }) }, record).catch((error) => ({ state: 'ERROR', reasonCode: error?.code, message: String(error?.message ?? error) }));
+				let ended = rested?.state === 'RUNNING' ? null : `${rested?.state} ${rested?.reasonCode ?? ''} ${String(rested?.message ?? '').slice(0, 160)}`;
+				while (ended === null && now() - t0 < (entry.playMs ?? entry.budgetMs) && await health().catch(() => 0) > 0) {
+					ended = agent.actions.slice(before).find((line) => / rest /.test(line)) ?? null;
+					if (ended === null) await s.clock.sleep(1000);
 				}
 				row.respawnRest = String(ended ?? 'still resting at the end of the window').slice(0, 400);
+				// A rest the runtime never sent (an error, not the body's own result) leaves the room's point untested; it is
+				// recorded here and judged once the deaths are known.
+				if (rested?.state === 'ERROR') (row.unsentRest = { file: 'respawn-rest', error: `rest ${rested.reasonCode ?? 'ERROR'}: ${String(rested.message ?? '').slice(0, 160)}` });
 			}
 			const call = normalizeMinecraftToolCall('do_step', { verb: 'obtain', target: { item: entry.item, count: entry.count ?? 1, timeoutMs: entry.budgetMs }, why: `obtain ${entry.item}` });
 			const ran = await callObtain({ mode: process.env.OBTAIN_HANDBACK, budgetMs: entry.budgetMs, started: t0, now,
 				execute: async (attempt, left) => {
 					const again = attempt === 0 ? call : normalizeMinecraftToolCall('do_step', { verb: 'obtain', target: { item: entry.item, count: entry.count ?? 1, timeoutMs: Math.max(60_000, left) }, why: `obtain ${entry.item}` });
-					// A call refused for a stale sample or revision (just after a respawn) is sent again, up to 3 times.
-					let outcome = null;
-					for (let retry = 0; retry < 3; retry++) {
-						if (retry > 0) await s.clock.sleep(1000);
-						try {
-							outcome = await runtime.execute({ agentId: record.agentId, goalRevision: record.goalRevision, turnId: `obtain-${seedIndex}-${lane}-${index}-${attempt}-${retry}`, callId: `obtain-${index}-${attempt}-${retry}`, tool: again }, record);
-						} catch (error) { outcome = { state: 'ERROR', reasonCode: error?.code ?? 'ERROR', message: String(error?.message ?? error) }; }
-						if (!(outcome?.state === 'ERROR' && /FRESH_OBSERVATION_REQUIRED|STALE_GOAL_REVISION|STALE_REVISION/.test(`${outcome.reasonCode} ${outcome.message}`)) || !(await health().catch(() => 0) > 0)) break;
-					}
-					return outcome;
+					try {
+						return await runtime.execute({ agentId: record.agentId, goalRevision: record.goalRevision, turnId: `obtain-${seedIndex}-${lane}-${index}-${attempt}`, callId: `obtain-${index}-${attempt}`, tool: again }, record);
+					} catch (error) { return { state: 'ERROR', reasonCode: error?.code ?? 'ERROR', message: String(error?.message ?? error) }; }
 				},
 				alive: async () => await health() > 0,
 				// The simplest answer a model gives: flee a creeper 12 blocks, fight any other named hostile (20 s), else
@@ -384,6 +358,12 @@ async function runLane(s, agent, queue, seed, seedIndex, nextSpot) {
 			// alive at the end, it is invalid evidence, never a pass (review of #117). A death still counts as a death.
 			const errored = ran.results.find((one) => one?.state === 'ERROR');
 			if (entry.survive === true && errored && row.aliveAtEnd === true) (row.integrity ??= []).push({ file: 'obtain', error: `obtain ${errored.reasonCode ?? 'ERROR'}: ${String(errored.message ?? '').slice(0, 160)}` });
+			// An observation the bridge timed out (a server tick held past 10 s while another lane loads far chunks) says
+			// nothing about the bot: invalid evidence in any room, never a failure it is blamed for (review of the
+			// inspection observe). A death still counts as a death.
+			if (row.unsentRest && row.deaths === 0) (row.integrity ??= []).push(row.unsentRest);
+			const transport = ran.results.find((one) => one?.state === 'ERROR' && /^INSPECTION_(TIMEOUT|UNAVAILABLE|BUSY)$/.test(one.reasonCode ?? ''));
+			if (transport && row.deaths === 0 && !row.integrity?.some((one) => one.file === 'obtain')) (row.integrity ??= []).push({ file: 'obtain', error: `obtain ${transport.reasonCode}: ${String(transport.message ?? '').slice(0, 160)}` });
 			row.pass = entry.survive === true ? row.deaths === 0 && row.aliveAtEnd === true && !(row.integrity?.length)
 				: result?.state === 'SUCCEEDED' && row.seconds * 1000 <= entry.budgetMs + 15_000 && row.deaths === 0 && row.stationsLeft === 0;
 			row.outcome = row.pass ? 'held' : result?.state === 'INTERRUPTED' && row.deaths === 0 ? 'handed_back' : 'failed';
@@ -420,24 +400,12 @@ async function respawnIntoPack(s, agent, pack, row) {
 	}
 	await s.command(`kill ${name}`);
 	await s.clock.sleep(1500);
-	const started = s.inbox.wait('goal_control', g => g.agentId === record.agentId && g.payload.operation === 'start', 60_000).catch(() => null);
-	await s.command(`mineagen respawn ${name}`).catch(() => {});
-	for (let i = 0; i < 60 && !(number(await s.command(`data get entity ${name} Health`)) > 0); i++) await sleep(500);
-	await s.command(`mineagen start ${name} Survive for 36000 seconds.`).catch(() => {});
-	const goal = await started;
-	if (goal) record.goalRevision = goal.payload.goalRevision;
-	await s.bridge.send('agent_ready', record.agentId, { goalRevision: record.goalRevision, reconciled: false }).catch(() => {});
-	// The first call needs a live sample of the respawned body taken at the settled revision (a stale one failed
-	// FRESH_OBSERVATION_REQUIRED in 14 of 20 respawn runs).
+	const respawnedAt = Date.now();
+	await respawnBody({ command: s.command, health: async () => number(await s.command(`data get entity ${name} Health`)), sleep, send: (...args) => s.bridge.send(...args) }, record, name);
+	// The respawned body in the published samples before play starts (the runtime takes its own fresh one per call).
 	for (let i = 0; i < 100 && !(agent.latest()?.ready && agent.latest()?.player?.dead === false && agent.latest()?.player?.health > 0); i++) await sleep(100);
-	for (let tries = 0; tries < 5; tries++) {
-		const seq = agent.latest()?.eventSequence ?? 0;
-		await s.bridge.send('request_observation', record.agentId, { goalRevision: record.goalRevision }).catch(() => {});
-		let fresh = false;
-		for (let i = 0; i < 40 && !fresh; i++) { await sleep(100); fresh = (agent.latest()?.eventSequence ?? 0) > seq; }
-		if (fresh) break;
-	}
 	row.respawnedInto = pack.length;
+	row.respawnSetupMs = Date.now() - respawnedAt;
 }
 
 async function landSpot(s, nextSpot) {

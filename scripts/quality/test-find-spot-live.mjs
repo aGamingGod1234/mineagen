@@ -21,6 +21,7 @@ import { normalizeMinecraftToolCall } from '../../coordinator/src/native-minecra
 import { adaptObservation } from '../../coordinator/src/observation-adapter.mjs';
 import { InspectionClient } from '../../coordinator/src/inspection-client.mjs';
 import { shouldRepeat } from './lib/find-spot.mjs';
+import { inspectionObserve } from './room-body-link.mjs';
 
 const FIXTURES = {
 	'b1-aquifer': { seed: '5433312384530337025', cell: [12, 58, -45], target: { block: 'minecraft:iron_ore' }, timeoutMs: 180_000,
@@ -79,12 +80,8 @@ for (let run = 0; run < runs; run++) {
 		const t0 = { at: s.clock.now() };
 		const runtime = new NativeToolRuntime({
 			bridge: { send: async (type, agentId, payload) => { if (type === 'action_command') commands.set(payload.actionId, { actionType: payload.actionType, arguments: payload.arguments }); return s.bridge.send(type, agentId, payload); } },
-			requestObservation: async () => {
-				const before = latest?.eventSequence ?? 0;
-				await s.bridge.send('request_observation', record.agentId, { goalRevision: record.goalRevision });
-				for (let i = 0; i < 400 && !(latest?.eventSequence > before); i++) await sleep(25);
-				return { eventSequence: latest.eventSequence, observation: adaptObservation(latest) };
-			},
+			// boot() follows this body's goal revision (s.record); observations come by inspection as in production.
+			requestObservation: inspectionObserve(inspections, record),
 			inspectObservation: async (rec, query) => ({ state: 'SUCCEEDED', reasonCode: 'INSPECTED', ...await inspections.request(rec, query) }),
 			// At a raised rate the runtime times find in game time too (it feeds the clock its samples).
 			...(s.clock.rate === 20 ? {} : { clock: gameClockFromObservations({ tickRate: s.clock.rate }) }),
