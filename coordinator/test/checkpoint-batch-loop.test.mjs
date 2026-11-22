@@ -63,9 +63,11 @@ function setup({ refresh = false } = {}) {
 const run = root => execFileSync('node', [script, '--plan', path.join(root, 'plan.json'), '--out', path.join(root, 'out')], {
 	env: { ...process.env, PATH: `${path.join(root, 'bin')}:${process.env.PATH}`, BOAT_BIN: path.join(root, 'bin/boat'), FAKE_BOAT_ROOT: root, CHECKPOINT_POLL_MS: '200' },
 	encoding: 'utf8', timeout: 120_000 });
+// The fake boat CLI and fake games are bash scripts; the batch itself runs only from Linux or macOS hosts.
+const posixOnly = { skip: process.platform === 'win32' ? 'the fake boat CLI is a bash script' : false };
 const leftSignIns = root => execFileSync('bash', ['-c', `find ${root}/bx_* \\( -name auth.json -o -name .codex-home \\) | wc -l`], { encoding: 'utf8' }).trim();
 
-test('checkpoint batch copies every game home, writes each env switch on its own line, and deletes drained machines', () => {
+test('checkpoint batch copies every game home, writes each env switch on its own line, and deletes drained machines', posixOnly, () => {
 	const root = setup();
 	try {
 		run(root);
@@ -82,7 +84,7 @@ test('checkpoint batch copies every game home, writes each env switch on its own
 	} finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test('checkpoint batch stops starting games when the game\'s own sign-in copy was refreshed', () => {
+test('checkpoint batch stops starting games when the game\'s own sign-in copy was refreshed', posixOnly, () => {
 	const root = setup({ refresh: true });
 	try {
 		run(root);
