@@ -238,6 +238,14 @@ try {
 			// settle below (that read as "no skeleton in sight at the start": 48 of 188 trials INVALID on 22 Nov).
 			skeletonOnServer = /passed/i.test(String(await s.command('execute if entity @e[type=minecraft:skeleton]').catch(() => '')));
 			exposedAtStart = skeletonOnServer && !(await hiddenNow());
+			// The legacy arm names the skeleton in flee_from: take its UUID from the server when the body's view lacks it.
+			if (!skeleton && skeletonOnServer) {
+				const ints = String(await s.command('data get entity @e[type=minecraft:skeleton,limit=1] UUID').catch(() => '')).match(/\[I;\s*(-?\d+),\s*(-?\d+),\s*(-?\d+),\s*(-?\d+)\]/);
+				if (ints) {
+					const hex = ints.slice(1).map(v => (Number(v) >>> 0).toString(16).padStart(8, '0')).join('');
+					skeleton = { uuid: `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}` };
+				}
+			}
 		}
 		await sleep(1000 + drain);
 		const before = await health(), airBefore = await airLeft();
@@ -314,7 +322,8 @@ try {
 				: ['build', { structure: 'pillar', size: Math.max(1, F - Math.floor(p[1])), timeoutMs: Math.min(30_000, left) }];
 			else if (room === 'pitdig' || room === 'pitcreeper' || room === 'pitcreeper-rim') call = ['dig_to', { pattern: 'stairs_up', y: F, heading: 'east', timeoutMs: Math.min(60_000, left) }];
 			else if (room === 'pitskel') call = ['build', { structure: 'pillar', size: Math.max(1, F - Math.floor(p[1])), timeoutMs: Math.min(30_000, left) }];
-			else call = ['flee_from', { targetId: skeleton?.uuid ?? '', distance: 16, timeoutMs: Math.min(10_000, left) }];
+			else if (skeleton?.uuid) call = ['flee_from', { targetId: skeleton.uuid, distance: 16, timeoutMs: Math.min(10_000, left) }];
+			else { results.push('legacy:no skeleton to name'); break; }
 			calls++;
 			last = await s.act(call[0], call[1], left + 10_000).catch(error => ({ state: 'ERROR', reasonCode: error.message }));
 			results.push(`${call[0]}:${last.state}:${last.reasonCode}`);
