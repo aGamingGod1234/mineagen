@@ -340,8 +340,10 @@ public final class ServerSpawnerHoldController implements ServerController {
 					summary(player, elapsed)), progress(player)));
 		// fight_target form: below TURTLE_HEALTH the wall-in is the answer to low health while one is left (a hand-back at
 		// fleeAtHealth 12 would leave the hurt body in the open with no step taken); with none left the open fight's own
-		// floor and retreat apply. Its timeout is the check above.
-		float floor = target != null && wallInLeft(player) ? -1.0F : fleeAtHealth;
+		// floor and retreat apply: the open fight below runs then and owns that floor (its bailout retreats before it hands
+		// back), so the hold does not hand back first. Its timeout is the check above.
+		boolean openFightNext = SpawnerHold.OPEN_FIGHT && phase != Phase.HOLD && emergency == null;
+		float floor = target != null && (wallInLeft(player) || openFightNext) ? -1.0F : fleeAtHealth;
 		String code = SpawnerHold.handBack(new SpawnerHold.Sense(ServerFightUntilController.count(player, untilItem), untilCount, player.getHealth(),
 				floor, player.getFoodData().getFoodLevel(), foodSlot(player) >= 0, elapsed, target != null ? Long.MAX_VALUE : timeoutMs, spawnerGone,
 				phase == Phase.HOLD ? elapsed - lastBlazeMs : 0L, phase == Phase.HOLD || emergency != null, sitesFailed, noSiteLeft,
@@ -1006,8 +1008,8 @@ public final class ServerSpawnerHoldController implements ServerController {
 			emergencyFails++;
 			note("walling in where it stood failed (" + emergencyFails + "): " + built.reasonCode());
 			emergencyRetryTick = player.level().getGameTime() + 20L;
-			if (emergencyFails >= EMERGENCY_TRIES && doorwayClosed(player, emergencyCell, emergencyOpening, false)) {
-				// No tries left and part of the doorway placed (a blaze hovering in the window): the body would fight on boxed
+			if ((emergencyFails >= EMERGENCY_TRIES || !wallInLeft(player)) && doorwayClosed(player, emergencyCell, emergencyOpening, false)) {
+				// No tries (or too few blocks for another) left and part of the doorway placed (a blaze hovering in the window): the body would fight on boxed
 				// behind its own sill. It becomes the cell and is mined open first.
 				cell = emergencyCell;
 				opening = emergencyOpening;
