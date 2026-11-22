@@ -127,21 +127,56 @@ test('a leading urgent decision keeps its own program identity when another prog
 	assert.ok(payload.mergedEvents.some(event => event.program?.programId === 'program-2'));
 });
 
-test('shared historical context reconstructs exactly and every failed receipt survives the success tail', () => {
+test('an owed event keeps its own facts and failed receipts but not its copy of the world', () => {
 	const blocks = Array.from({ length: 32 }, (_, x) => ({ x, y: 64, z: 0, blockId: 'minecraft:stone' }));
 	const first = ended(1, 'FAILED'), next = ended(2);
 	first.nativeEvent.observation.blocks = blocks;
-	next.nativeEvent.observation.blocks = blocks;
+	first.nativeEvent.observation.lastResult = { actionId: 'action-1', state: 'FAILED', reasonCode: 'NO_PATH' };
+	next.nativeEvent.observation.blocks = blocks.slice(0, 8);
 	first.nativeEvent.result.receipts = Array.from({ length: 20 }, (_, index) => ({ actionId: `a-${index}`, state: index === 0 ? 'FAILED' : 'SUCCEEDED', reasonCode: `r-${index}`, message: `receipt-${index}` }));
 	const before = parse(buildNativeEventInput(record, first.nativeEvent));
 	const payload = parse(buildNativeEventInput(record, mergePlannerRequest(first, next).nativeEvent));
 	const history = payload.mergedEvents[0];
-	const reconstructed = { ...history.observation, ...Object.fromEntries(history.observationFieldsEqualToCurrent.map(key => [key, payload.observation[key]])) };
-	assert.deepEqual(reconstructed, before.observation);
-	assert.equal(history.observation.blocks, undefined);
+	assert.equal(history.observation.blocks, undefined, 'the owed event leaves its world rows out');
+	assert.deepEqual(history.observation.player, before.observation.player);
+	assert.deepEqual(history.observation.lastResult, before.observation.lastResult);
+	assert.equal(payload.observation.blocks.length, 8, 'the wake itself carries the newest world');
 	assert.equal(history.program.result.receipts.length, 9);
 	assert.equal(history.program.result.receipts[0].message, 'receipt-0');
 	assert.equal(history.program.result.omittedReceipts, 11);
+});
+
+test('older failed receipts of an owed result are capped at 8 beside its newest 8', () => {
+	const first = ended(1, 'FAILED'), next = wake('threat', 3);
+	first.nativeEvent.result.receipts = Array.from({ length: 64 }, (_, index) => ({ actionId: `a-${index}`, state: 'FAILED', reasonCode: `r-${index}` }));
+	first.nativeEvent.result.failure = 'the whole program failed';
+	const history = parse(buildNativeEventInput(record, mergePlannerRequest(next, first).nativeEvent)).mergedEvents.find((entry) => entry.program?.result !== undefined);
+	assert.equal(history.program.result.receipts.length, 16);
+	assert.equal(history.program.result.omittedReceipts, 48);
+	assert.equal(history.program.result.receipts.at(-1).actionId, 'a-63', 'the newest receipt is kept');
+	assert.equal(history.program.result.failure, 'the whole program failed');
+});
+
+test('86 owed danger wakes from a long step stay in order and the wake stays bounded', () => {
+	// Fresh r5: a 13.7 min obtain kept the model's turn open; 86 owed wakes reached the model at its end in one 1 MB wake.
+	const world = (sequence) => ({ blocks: Array.from({ length: 120 }, (_, x) => ({ x: x + sequence, y: 64, z: sequence, blockId: 'minecraft:stone' })),
+		entities: Array.from({ length: 12 }, (_, index) => ({ uuid: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`, type: 'minecraft:zombie', x: index + sequence, y: 64, z: 0, distance: 8 + index })),
+		inventory: { items: Array.from({ length: 30 }, (_, slot) => ({ slot, itemId: 'minecraft:cobblestone', count: 64 - slot })) } });
+	let merged = null;
+	for (let sequence = 1; sequence <= 86; sequence += 1) {
+		const next = wake('damage', sequence);
+		next.nativeEvent.observation.player.health = 20 - (sequence % 10);
+		Object.assign(next.nativeEvent.observation, world(sequence));
+		merged = merged === null ? next : mergePlannerRequest(merged, next);
+	}
+	const input = buildNativeEventInput(record, merged.nativeEvent);
+	const payload = parse(input);
+	assert.equal(payload.mergedEvents.length, 86, 'every owed event is still listed');
+	assert.deepEqual(payload.mergedEvents.map((entry) => entry.eventSequence ?? entry.observation?.eventSequence), Array.from({ length: 86 }, (_, index) => index + 1));
+	assert.ok(payload.mergedEvents.every((entry) => entry.observation.blocks === undefined && entry.observation.entities === undefined && entry.observation.inventory === undefined));
+	assert.ok(Buffer.byteLength(input) < 200_000, `wake ${Buffer.byteLength(input)} bytes`);
+	// The raw queue is untouched: steering still reads each owed event's full facts.
+	assert.equal(merged.nativeEvent.mergedEvents[0].observation.blocks.length, 120);
 });
 
 test('a promoted aiming threat row interrupts and reaches model input', () => {
