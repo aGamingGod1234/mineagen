@@ -30,7 +30,7 @@ export async function watchDirs(root, depth = 3) {
  * beside the server's copy) counts once.
  */
 export async function readDangerRows(root) {
-	let files = 0, dropped = 0, unreadable = 0;
+	let files = 0, dropped = 0, unreadable = 0, lostDamage = 0;
 	// Bodies watched, per server: a server folder's arena-watch and the copy boot() keeps beside it are one server.
 	const rows = [], seen = new Set(), servers = new Map();
 	for (const dir of await watchDirs(root)) {
@@ -47,8 +47,9 @@ export async function readDangerRows(root) {
 			for (const line of text.split('\n')) {
 				if (!line.trim()) continue;
 				let row;
-				try { row = JSON.parse(line); } catch { dropped++; continue; }
-				if (row?.schema !== SCHEMA) { dropped++; continue; }
+				// A cut line could have been a hit, and so could a damage row of another schema: both leave hits unknown.
+				try { row = JSON.parse(line); } catch { dropped++; lostDamage++; continue; }
+				if (row?.schema !== SCHEMA) { dropped++; if (row?.type === 'damage') lostDamage++; continue; }
 				if (row.type !== 'damage') continue;
 				const key = JSON.stringify([row.agentId, row.atMs, row.gameTime, row.attackerId, row.damageType, row.amount, row.lethal]);
 				if (seen.has(key)) continue;
@@ -58,7 +59,7 @@ export async function readDangerRows(root) {
 		}
 	}
 	// The most bodies one server watched: 1 for one body per server (travel boots one server per seed), 4 for 4 lanes.
-	return { files, rows, dropped, unreadable, bodies: Math.max(0, ...[...servers.values()].map(set => set.size)) };
+	return { files, rows, dropped, unreadable, lostDamage, bodies: Math.max(0, ...[...servers.values()].map(set => set.size)) };
 }
 
 const round = value => Math.round(value * 100) / 100;
@@ -106,7 +107,8 @@ export function foldHits(rows, { from = -Infinity, to = Infinity, agentId = null
 export async function attachHits(rows, root) {
 	const danger = await readDangerRows(root);
 	if (!danger.files) return { files: 0, attached: 0 };
-	const unknown = danger.unreadable ? `${danger.unreadable} danger file${danger.unreadable === 1 ? '' : 's'} could not be read` : null;
+	const unknown = danger.unreadable ? `${danger.unreadable} danger file${danger.unreadable === 1 ? '' : 's'} could not be read`
+		: danger.lostDamage ? `${danger.lostDamage} danger line${danger.lostDamage === 1 ? '' : 's'} that may be a hit could not be read` : null;
 	let attached = 0;
 	for (const row of rows) {
 		// A fold this function made earlier is made again: the server may have written more rows since.

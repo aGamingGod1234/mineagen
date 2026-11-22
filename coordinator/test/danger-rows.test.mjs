@@ -39,6 +39,11 @@ test('danger files are found under a room folder, a cut line or another schema i
 		assert.equal(read.files, 2);
 		assert.equal(read.rows.length, 1, 'the kept copy and the onset row add nothing');
 		assert.equal(read.dropped, 4, 'two cut lines and two rows of another schema, one of each per copy');
+		assert.equal(read.lostDamage, 4, 'a cut line and a damage row of another schema may each be a hit');
+		const rows = [{ name: 'r', startedAt: T0, finishedAt: T0 + 5_000 }];
+		await finishRun(rows, { file: path.join(out, 'result.json'), setExitCode: false });
+		assert.equal(rows[0].hits, undefined, 'an incomplete capture is unknown, never zero');
+		assert.match(rows[0].hitsUnknown, /4 danger lines that may be a hit could not be read/);
 		assert.equal(await keepDangerFiles(path.join(out, 'nowhere'), path.join(out, 'kept')), 0);
 	} finally { await rm(out, { recursive: true, force: true }); }
 });
