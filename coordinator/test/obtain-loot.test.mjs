@@ -269,3 +269,25 @@ test('the chest is opened by the face toward the body, and another face when tha
 	assert.equal(result.read, true);
 	assert.deepEqual(body.calls.filter(([type]) => type === 'interact_block').map(([, args]) => args.face), ['north', 'west']);
 });
+
+// Smoke 8: the chest opened but the step read no menu. A real chest inspection, through the runtime's own result path.
+test('a real chest inspection page keeps its menu through the tool-result path, named menuId; the loot step reads it', async () => {
+	const { toolResultContent } = await import('../src/native-minecraft-tools.mjs');
+	const slot = (i) => ({ itemId: i % 3 ? 'minecraft:bread' : 'minecraft:iron_ingot', count: 3, damage: 0, maxDamage: 0, maxStackSize: 64, displayName: i % 3 ? 'Bread' : 'Iron Ingot',
+		fingerprint: `sha256:${'a'.repeat(64)}`, tooltip: [i % 3 ? 'Bread' : 'Iron Ingot'], tooltipTruncated: false, slot: i, x: 8 + 18 * (i % 9), y: 18 + 18 * Math.floor(i / 9), pickupAllowed: true, slotLimit: 64 });
+	for (const [size, limit] of [[63, 32], [63, 9], [90, 32]]) {
+		const raw = { state: 'SUCCEEDED', reasonCode: 'INSPECTED', entries: Array.from({ length: limit }, (_, i) => slot(i)),
+			coverage: { offset: 0, limit, total: size, returned: limit, hasMore: true, nextOffset: limit, complete: false, byteLimited: false, source: 'open_menu' },
+			menu: { type: 'minecraft:generic_9x3', containerId: 7, stateId: 3, slotCount: size, cursor: { itemId: 'minecraft:air', count: 0 }, capabilities: ['menu_click', 'menu_close'], details: {} } };
+		const seen = JSON.parse(toolResultContent(raw).contentItems[0].text);
+		assert.equal(seen.menu?.menuId, 'minecraft:generic_9x3', `${size}/${limit}: the menu survives, renamed menuId`);
+		assert.equal(seen.menu?.type, undefined, 'and has no type field: the cause of "no chest menu open (none)"');
+	}
+	const body = chestBody([['iron_ingot', 2]]);
+	const menu = body.menu;
+	body.menu = async () => { const page = await menu(); return page.menu?.type === 'minecraft:generic_9x3' ? { ...page, menu: (({ type, ...rest }) => ({ menuId: type, ...rest }))(page.menu) } : page; };
+	const result = await lootChest(body, { x: 1, y: 64, z: 2 }, { wanted: ['iron_ingot'] });
+	assert.equal(result.ok, true, result.why);
+	assert.deepEqual(result.taken, { iron_ingot: 2 });
+	assert.equal(body.calls.find(([type]) => type === 'menu_click')[1].menuId, 'minecraft:generic_9x3');
+});

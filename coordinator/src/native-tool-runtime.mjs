@@ -9,7 +9,7 @@ import { DugStairs, PlacedWorkstations } from './resource-facts.mjs';
 import { howto, howtoHoldings } from './howto.mjs';
 import { minecraftCapabilities, normalizeMinecraftToolCall, toolAdjustments, toolResultContent, withAdjustments } from './native-minecraft-tools.mjs';
 import { rememberStructures, runObtain } from './obtain-runner.mjs';
-// Slots per menu page obtain's loot step reads: one chest row, small enough to come back whole.
+// Slots per menu page obtain's loot step asks for: one chest row.
 const MENU_PAGE = 9;
 import { resolveObtainItem } from './obtain-plan.mjs';
 import { KIT_CRAFT_TIMEOUT_MS, keepKit } from './kit-habit.mjs';
@@ -2665,18 +2665,22 @@ export class NativeToolRuntime {
 				return rows;
 			},
 			// The open menu (a chest obtain opened to loot): its identity and slots, one page.
-			// The open menu's identity and the container's own slots (all before the player's 36), in pages of MENU_PAGE: a
-			// detailed slot is large, and a page over the tool-result size is compacted without its menu identity.
+			// The open menu's identity and the container's own slots (all before the player's 36), page by page.
 			menu: async () => {
 				const rows = (page) => Array.isArray(page?.entries) ? page.entries : page?.entries?.$rows ? page.entries.$rows.rows.map((row) => Object.fromEntries(page.entries.$rows.columns.map((column, index) => [column, row[index]]))) : [];
 				const first = await this.#inspect({ kind: 'inspect', section: 'menu', offset: 0, limit: MENU_PAGE }, record, { withSearch: false });
 				const size = first?.menu?.slotCount;
 				const container = Number.isSafeInteger(size) ? Math.max(0, size - 36) : 0;
 				const entries = rows(first);
-				for (let offset = MENU_PAGE; offset < container; offset += MENU_PAGE) {
+				// The server also caps a page's bytes: follow its nextOffset, never a fixed stride, so no slot is skipped.
+				let offset = Number.isSafeInteger(first?.coverage?.nextOffset) ? first.coverage.nextOffset : entries.length;
+				for (let pages = 0; offset < container && pages < 12; pages++) {
 					const page = await this.#inspect({ kind: 'inspect', section: 'menu', offset, limit: Math.min(MENU_PAGE, container - offset) }, record, { withSearch: false });
 					if (page?.menu?.stateId !== first?.menu?.stateId) break;
-					entries.push(...rows(page));
+					const more = rows(page);
+					if (more.length === 0) break;
+					entries.push(...more);
+					offset = Number.isSafeInteger(page?.coverage?.nextOffset) ? page.coverage.nextOffset : offset + more.length;
 				}
 				return { ...first, entries };
 			},

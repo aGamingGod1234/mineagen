@@ -47,7 +47,8 @@ export async function lootChest(body, cell, { wanted = [], heldItem = 'minecraft
 	for (let turn = 0; turn < MAX_TAKES; turn++) {
 		let page;
 		try { page = await body.menu(); } catch (error) { stuck = `menu unreadable: ${String(error?.message ?? error).slice(0, 80)}`; break; }
-		menu = page?.menu ?? null;
+		// The runtime's player view names a container screen by menuId (visibleMenu); the raw inspection by type.
+		menu = page?.menu ? { ...page.menu, type: page.menu.menuId ?? page.menu.type } : null;
 		if (!menu || !/chest|generic_9x|barrel/.test(String(menu.type ?? ''))) { stuck = `no chest menu open (${menu?.type ?? 'none'}; page ${Object.keys(page ?? {}).slice(0, 8).join(',')}${page?.state ? ` ${page.state}` : ''})`; menu = null; break; }
 		read = true;
 		const chestSlots = Math.max(0, (menu.slotCount ?? 0) - PLAYER_SLOTS);
@@ -64,7 +65,7 @@ export async function lootChest(body, cell, { wanted = [], heldItem = 'minecraft
 	if (menu) {
 		try {
 			const last = await body.menu();
-			const m = last?.menu ?? menu;
+			const m = last?.menu ? { ...last.menu, type: last.menu.menuId ?? last.menu.type } : menu;
 			await body.act('menu_close', { menuId: m.type, containerId: m.containerId, stateId: m.stateId });
 		} catch { /* a menu that closed on its own needs no close */ }
 	}
