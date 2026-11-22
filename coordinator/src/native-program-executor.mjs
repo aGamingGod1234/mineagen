@@ -75,6 +75,8 @@ export class NativeProgramExecutor {
 		run.lagCreditMs = 0;
 		run.pauseCreditMs = 0;
 		run.urgentWaitSince = null;
+		// How far the work lease has been told to move out for reflex holds and urgent waits (see #takeLeaseCredit).
+		run.leaseCreditMs = 0;
 		run.timer = this.#pausedAt === null ? this.#setTimeout(() => this.#deadline(run), timeoutMs) : null;
 		run.timer?.unref?.();
 		try {
@@ -217,6 +219,30 @@ export class NativeProgramExecutor {
 	}
 
 	/**
+	 * The work-lease time owed for a reflex credit just granted by {@link extendDeadline} or an urgent wait (the coordinator
+	 * lease must not end the step before this deadline would). Returns the milliseconds to move the lease out, and counts
+	 * them as paid.
+	 */
+	takeLeaseCredit(agentId, programId) {
+		const run = this.#runs.get(agentId);
+		if (run === undefined || run.settled || run.stopping !== null || run.programId !== programId) return 0;
+		return this.#takeLeaseCredit(run);
+	}
+
+	/**
+	 * While an urgent answer is owed the routine may run to startedAt + 2 x timeoutMs (see #deadline), so the lease needs
+	 * the whole second timeoutMs at once: it began before the program and would otherwise end the step before the hold
+	 * starts. Otherwise it needs the credit granted so far. Paid at most once, so the lease never passes the 2 x bound; an
+	 * answer that came quickly leaves it later than the program's own deadline, which still ends the step first.
+	 */
+	#takeLeaseCredit(run) {
+		const owed = (run.decision?.priority === 'urgent' && run.urgentWaitSince !== null ? run.timeoutMs : run.creditMs) - run.leaseCreditMs;
+		if (!(owed > 0)) return 0;
+		run.leaseCreditMs += owed;
+		return owed;
+	}
+
+	/**
 	 * Moves the program's deadline out by wall time a lagging server fell behind the game clock (the body's time limits
 	 * count game ticks). A budget of its own, LAG_CREDIT_TIMEOUTS times the program's timeoutMs, apart from the reflex
 	 * and urgent-wait credit. Returns the credited milliseconds.
@@ -354,7 +380,14 @@ export class NativeProgramExecutor {
 		run.firstNotifiedDecision = null;
 		run.unseenAttention = true;
 		if (request.priority !== 'urgent') this.#settleUrgentWait(run);
-		else if (run.urgentWaitSince === null) run.urgentWaitSince = this.#now();
+		else if (run.urgentWaitSince === null) {
+			run.urgentWaitSince = this.#now();
+			const lease = this.#takeLeaseCredit(run);
+			if (lease > 0) {
+				try { run.context.onLeaseCredit?.(lease); }
+				catch { /* the lease is the coordinator's backstop; its bookkeeping cannot fail the program */ }
+			}
+		}
 		// The engine must finish applying the authored attention policy first.
 		if (notificationPriority === 'urgent') this.#scheduleUrgentNotification(run);
 		else {

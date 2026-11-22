@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { searchFor } from '../src/find-search.mjs';
-import { normalizeMinecraftToolCall } from '../src/native-minecraft-tools.mjs';
+import { checkedSearchBody, searchFor } from './helpers/checked-body.mjs';
 import { routeLine, ROUTE_BYTES } from '../src/skill-fits.mjs';
 
 const target = { block: 'minecraft:end_portal_frame' };
@@ -11,10 +10,9 @@ function body({ eyes = 8, x = 0, y = 32, z = 0 } = {}) {
 	let clock = 0;
 	const o = { player: { x, y, z, health: 20, threats: [] }, world: { dimension: 'minecraft:overworld' },
 		blocks: [brick(x, y - 1, z)], inventory: { selectedSlot: 0, items: [{ itemId: 'minecraft:ender_eye', count: eyes, slot: 0 }] } };
-	const b = { o, calls: [], eyeSearchState: {}, now: () => clock, observe: async () => structuredClone(o),
+	const b = checkedSearchBody({ o, calls: [], eyeSearchState: {}, now: () => clock, observe: async () => structuredClone(o),
 		look: async () => { clock += 100; return { survey: {} }; }, frontier: () => ({ candidates: [] }), known: () => ({ blocks: [] }),
 		act: async (type, args, options) => {
-			normalizeMinecraftToolCall('act', { actionType: type, arguments: args });
 			b.calls.push({ type, args }); clock += 1000;
 			const stop = b.stop?.(type, args);
 			if (stop) return stop;
@@ -22,7 +20,7 @@ function body({ eyes = 8, x = 0, y = 32, z = 0 } = {}) {
 			b.after?.(type, args);
 			return { state: 'SUCCEEDED', reasonCode: 'ARRIVED', ...(options?.watch?.(o) ? { seen: options.watch(o) } : {}) };
 		},
-	};
+	});
 	return b;
 }
 

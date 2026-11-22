@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { KIT_MAX_STEPS, craftsFromHeld, ironReserved, keepKit, kitHabitEnabled, nextKitStep } from '../src/kit-habit.mjs';
+import { KIT_MAX_STEPS, craftsFromHeld, ironReserved, kitHabitEnabled, nextKitStep } from '../src/kit-habit.mjs';
+import { checkedObtainBody, keepKit } from './helpers/checked-body.mjs';
 
 const item = (itemId, slot, count = 1, extra = {}) => ({ itemId: `minecraft:${itemId}`, slot, count, ...extra });
 const sample = (items, { health = 20, selectedSlot = 0 } = {}) => ({ player: { health }, inventory: { items, selectedSlot } });
@@ -70,14 +71,14 @@ test('the habit waits while the body is hurt or the sample has no inventory', ()
 test('keepKit crafts, then wears, then stops; a failed step ends it; it never runs past its cap', async () => {
 	let items = [...ironKit, item('iron_ingot', 1, 9), item('oak_planks', 2, 8)];
 	const calls = [];
-	const body = {
+	const body = checkedObtainBody({
 		observe: async () => sample(items),
 		act: async (type, args) => {
 			calls.push([type, args]);
 			items = items.map(row => row.slot === args.sourceSlot ? { ...row, slot: args.targetSlot } : row);
 			return { state: 'SUCCEEDED' };
 		},
-	};
+	});
 	const craft = async (itemId) => {
 		calls.push(['craft', itemId]);
 		const name = itemId.slice('minecraft:'.length);
@@ -98,7 +99,7 @@ test('keepKit crafts, then wears, then stops; a failed step ends it; it never ru
 test('a craft that leaves the item missing is not retried in the same run', async () => {
 	const items = [item('iron_pickaxe', 'mainhand'), item('iron_ingot', 1, 1), item('oak_log', 2, 3), item('crafting_table', 3)];
 	let crafts = 0;
-	const done = await keepKit({ observe: async () => sample(items), act: async () => ({ state: 'SUCCEEDED' }) }, async () => { crafts += 1; return { state: 'SUCCEEDED' }; });
+	const done = await keepKit(checkedObtainBody({ observe: async () => sample(items), act: async () => ({ state: 'SUCCEEDED' }) }), async () => { crafts += 1; return { state: 'SUCCEEDED' }; });
 	assert.equal(crafts, 1);
 	assert.deepEqual(done, ['crafted shield']);
 });
@@ -145,7 +146,7 @@ test('an off hand holding something else leaves the shield where it is and the r
 test('keepKit hands back the result of the step that stopped it', async () => {
 	const running = { state: 'RUNNING', actionId: 'a-7', recoveryHint: 'replaceAction with actionId a-7' };
 	const stop = {};
-	const done = await keepKit({ observe: async () => sample([item('shield', 20)]), act: async () => running }, async () => ({ state: 'SUCCEEDED' }), { stop });
+	const done = await keepKit(checkedObtainBody({ observe: async () => sample([item('shield', 20)]), act: async () => running }), async () => ({ state: 'SUCCEEDED' }), { stop });
 	assert.deepEqual(done, ['equip shield stopped (RUNNING)']);
 	assert.equal(stop.result, running);
 });

@@ -1,9 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { searchDanger, searchHoldsSteer } from '../src/search-danger.mjs';
-import { searchFor } from '../src/find-search.mjs';
+import { checkedSearchBody, searchFor } from './helpers/checked-body.mjs';
 
-const zombie = (extra = {}) => ({ uuid: 'z1', stableId: 'z1', type: 'minecraft:zombie', distance: 5, targeting: true, lineOfSight: true, signals: ['targeting'], ...extra });
+// The real fight_target takes a seen entity's stableId, a UUID.
+const Z1 = '00000000-0000-4000-8000-0000000000a1';
+const zombie = (extra = {}) => ({ uuid: Z1, stableId: Z1, type: 'minecraft:zombie', distance: 5, targeting: true, lineOfSight: true, signals: ['targeting'], ...extra });
 const view = (threats, { health = 20, items = ['minecraft:iron_pickaxe'], lastAttacker = undefined, hurtBy = undefined, inLava = undefined, entities = [] } = {}) => ({
 	player: { x: 0.5, y: -40, z: 0.5, yaw: 0, health, skyOpen: false, threats, ...(lastAttacker ? { lastAttacker } : {}), ...(hurtBy ? { hurtBy } : {}), ...(inLava ? { inLava } : {}) },
 	world: { dimension: 'minecraft:overworld', biome: 'minecraft:plains' }, inventory: { items: items.map((itemId) => ({ itemId, count: 1 })) }, entities,
@@ -41,7 +43,7 @@ test('gate run 3 forks go back with their reason: low health, a creeper, several
 
 test('a running search holds the steer for what it handles; a hit from any other source still steers', () => {
 	assert.match(searchHoldsSteer({ trigger: 'threat' }, view([zombie()])), /one zombie/);
-	const zombieHit = { lastAttacker: { uuid: 'z1', type: 'minecraft:zombie' }, hurtBy: 'mob_attack by minecraft:zombie', health: 17 };
+	const zombieHit = { lastAttacker: { uuid: Z1, type: 'minecraft:zombie' }, hurtBy: 'mob_attack by minecraft:zombie', health: 17 };
 	assert.match(searchHoldsSteer({ trigger: 'damage' }, view([zombie()], zombieHit)), /one zombie/);
 	assert.match(searchHoldsSteer({ trigger: 'damage' }, view([zombie()], { ...zombieHit, hurtBy: 'mob_attack' })), /one zombie/, 'the attacker out of view names no type');
 	assert.equal(searchHoldsSteer({ trigger: 'damage' }, view([zombie()])), null, 'a hit with no attacker (a fall) steers');
@@ -61,7 +63,7 @@ test('a running search holds the steer for what it handles; a hit from any other
 function fakeBody({ start, acts = {}, looks = [] }) {
 	let observation = structuredClone(start), clock = 0;
 	const calls = [];
-	return {
+	return checkedSearchBody({
 		calls,
 		now: () => clock,
 		progress: () => {},
@@ -77,7 +79,7 @@ function fakeBody({ start, acts = {}, looks = [] }) {
 		frontier: () => ({ candidates: [], coverage: { headings: {} } }),
 		known: () => null,
 		places: async () => [],
-	};
+	});
 }
 const lavaSeen = { result: { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', message: 'minecraft:lava seen at 8,-54,3, 9 blocks away' } };
 const stopFor = (who) => ({ result: { state: 'FAILED', reasonCode: 'HOSTILE_NEAR', message: `Stopped: minecraft:${who}` } });
@@ -85,23 +87,23 @@ const atDepth = (threats, extra) => ({ ...view(threats, extra), player: { ...vie
 
 test('fixture zombie in a tunnel: find lava meets the zombie coming at it before the first look, then digs on', async () => {
 	const killed = { result: { state: 'SUCCEEDED', reasonCode: 'TARGET_KILLED' }, then: () => ({ entities: [], player: { ...atDepth([]).player } }) };
-	const body = fakeBody({ start: atDepth([zombie({ distance: 3 })], { entities: [{ stableId: 'z1', type: 'minecraft:zombie', hostile: true, x: 3.5, y: -54, z: 0.5 }] }),
+	const body = fakeBody({ start: atDepth([zombie({ distance: 3 })], { entities: [{ stableId: Z1, type: 'minecraft:zombie', hostile: true, x: 3.5, y: -54, z: 0.5 }] }),
 		acts: { dig_to: [lavaSeen], fight_target: [killed] } });
 	const result = await searchFor({ block: 'minecraft:lava' }, body);
 	assert.equal(result.reasonCode, 'FIND_SEEN', result.message);
 	assert.equal(body.calls[0].actionType, 'fight_target', 'fought before the look turns its back (the live fixture lost 9 health to it during the look)');
-	assert.deepEqual([body.calls[0].args.targetId, body.calls[0].args.pursue, body.calls[0].args.timeoutMs], ['z1', false, 30_000]);
+	assert.deepEqual([body.calls[0].args.targetId, body.calls[0].args.pursue, body.calls[0].args.timeoutMs], [Z1, false, 30_000]);
 	assert.equal(body.calls.some((call) => call.actionType === 'build_shelter'), false);
 	const later = fakeBody({ start: atDepth([]), acts: {
-		dig_to: [{ ...stopFor('zombie z1 at 3,-54,0, 3.0 blocks away'), then: () => ({ player: { ...atDepth([zombie({ distance: 3 })]).player }, entities: [{ stableId: 'z1', type: 'minecraft:zombie', hostile: true, x: 3.5, y: -54, z: 0.5 }] }) }, lavaSeen],
+		dig_to: [{ ...stopFor(`zombie ${Z1} at 3,-54,0, 3.0 blocks away`), then: () => ({ player: { ...atDepth([zombie({ distance: 3 })]).player }, entities: [{ stableId: Z1, type: 'minecraft:zombie', hostile: true, x: 3.5, y: -54, z: 0.5 }] }) }, lavaSeen],
 		fight_target: [killed] } });
 	assert.equal((await searchFor({ block: 'minecraft:lava' }, later)).reasonCode, 'FIND_SEEN');
 	assert.equal(later.calls.filter((call) => call.actionType === 'fight_target').length, 1);
 });
 
 test('a zombie after the body but not in reach: the body stands for it, and one that never comes is passed by', async () => {
-	const body = fakeBody({ start: atDepth([zombie({ distance: 10 })], { entities: [{ stableId: 'z1', type: 'minecraft:zombie', hostile: true, x: 10.5, y: -54, z: 0.5 }] }),
-		acts: { dig_to: [stopFor('zombie z1 at 10,-54,0, 10.0 blocks away'), lavaSeen], fight_target: [{ result: { state: 'TIMED_OUT', reasonCode: 'FIGHT_TIMED_OUT' } }] } });
+	const body = fakeBody({ start: atDepth([zombie({ distance: 10 })], { entities: [{ stableId: Z1, type: 'minecraft:zombie', hostile: true, x: 10.5, y: -54, z: 0.5 }] }),
+		acts: { dig_to: [stopFor(`zombie ${Z1} at 10,-54,0, 10.0 blocks away`), lavaSeen], fight_target: [{ result: { state: 'TIMED_OUT', reasonCode: 'FIGHT_TIMED_OUT' } }] } });
 	const result = await searchFor({ block: 'minecraft:lava' }, body);
 	assert.equal(result.reasonCode, 'FIND_SEEN', result.message);
 	const fight = body.calls.find((call) => call.actionType === 'fight_target').args;
@@ -139,7 +141,7 @@ test('a fork hands back at once with its reason, walled in underground when safe
 	assert.equal(walled.calls.some((call) => call.actionType === 'fight_target' || call.actionType === 'build_shelter'), false);
 	const pair = atDepth([zombie({ distance: 3 }), zombie({ uuid: 'z2', stableId: 'z2', distance: 4 })]);
 	pair.inventory.items = start.inventory.items;
-	const two = fakeBody({ start: pair, acts: { dig_to: [stopFor('zombie z1')], build_shelter: [{ result: { state: 'SUCCEEDED', reasonCode: 'SHELTER_BUILT' } }] } });
+	const two = fakeBody({ start: pair, acts: { dig_to: [stopFor(`zombie ${Z1}`)], build_shelter: [{ result: { state: 'SUCCEEDED', reasonCode: 'SHELTER_BUILT' } }] } });
 	assert.match((await searchFor({ block: 'minecraft:lava' }, two)).message, /^Stopped for danger: 2 hostiles after it /);
 	assert.equal(two.calls.some((call) => call.actionType === 'fight_target' || call.actionType === 'build_shelter'), false);
 	const archer = atDepth([{ uuid: 's', type: 'minecraft:skeleton', distance: 9, targeting: true, lineOfSight: true }]);
@@ -150,7 +152,7 @@ test('a fork hands back at once with its reason, walled in underground when safe
 
 test('a zombie\'s hit on the dig is answered by fighting it; a fall is still handed back', async () => {
 	const hit = { result: { state: 'FAILED', reasonCode: 'DAMAGE_TAKEN', message: 'Took 3 damage (mob); health 17' } };
-	const body = fakeBody({ start: atDepth([zombie({ distance: 1.5 })], { health: 17, lastAttacker: { uuid: 'z1', type: 'minecraft:zombie' }, entities: [{ stableId: 'z1', type: 'minecraft:zombie', hostile: true, x: 1.5, y: -54, z: 0.5 }] }),
+	const body = fakeBody({ start: atDepth([zombie({ distance: 1.5 })], { health: 17, lastAttacker: { uuid: Z1, type: 'minecraft:zombie' }, entities: [{ stableId: Z1, type: 'minecraft:zombie', hostile: true, x: 1.5, y: -54, z: 0.5 }] }),
 		acts: { dig_to: [hit, lavaSeen], fight_target: [{ result: { state: 'SUCCEEDED', reasonCode: 'TARGET_KILLED' } }] } });
 	assert.equal((await searchFor({ block: 'minecraft:lava' }, body)).reasonCode, 'FIND_SEEN');
 	const gone = fakeBody({ start: atDepth([], { health: 14 }), acts: { dig_to: [hit, lavaSeen] } });
@@ -160,7 +162,7 @@ test('a zombie\'s hit on the dig is answered by fighting it; a fall is still han
 });
 
 test('a fight that leaves the mob alive hands the fork back walled in, never looks round or digs on with its back to it', async () => {
-	const coming = { entities: [{ stableId: 'z1', type: 'minecraft:zombie', hostile: true, x: 3.5, y: -54, z: 0.5 }] };
+	const coming = { entities: [{ stableId: Z1, type: 'minecraft:zombie', hostile: true, x: 3.5, y: -54, z: 0.5 }] };
 	const kit = (start) => { start.inventory.items = [{ itemId: 'minecraft:iron_pickaxe', count: 1 }, { itemId: 'minecraft:cobblestone', count: 32 }]; return start; };
 	const shelter = { result: { state: 'SUCCEEDED', reasonCode: 'SHELTER_BUILT' } };
 	// Bailed at fleeAtHealth with the zombie hitting: health 8 with it 2 blocks off is the model's fork.
@@ -177,7 +179,7 @@ test('a fight that leaves the mob alive hands the fork back walled in, never loo
 	assert.match(out.message, /^Stopped for danger: health 20 with a zombie it fought and did not kill \(fight FIGHT_TIMED_OUT\)/);
 	assert.equal(timed.calls.some((call) => call.look !== undefined || call.actionType === 'dig_to'), false);
 	const hit = { result: { state: 'FAILED', reasonCode: 'DAMAGE_TAKEN', message: 'Took 3 damage (mob); health 17' },
-		then: (now) => ({ player: { ...now.player, health: 17, threats: [zombie({ distance: 1.5 })], lastAttacker: { uuid: 'z1', type: 'minecraft:zombie' } }, ...coming }) };
+		then: (now) => ({ player: { ...now.player, health: 17, threats: [zombie({ distance: 1.5 })], lastAttacker: { uuid: Z1, type: 'minecraft:zombie' } }, ...coming }) };
 	const dug = fakeBody({ start: kit(atDepth([])), acts: { dig_to: [hit, lavaSeen], fight_target: [bailed], build_shelter: [shelter] } });
 	assert.match((await searchFor({ block: 'minecraft:lava' }, dug)).message, /^Stopped for danger: health 8 with a zombie/);
 	assert.equal(dug.calls.filter((call) => call.actionType === 'dig_to').length, 1);
