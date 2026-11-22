@@ -88,7 +88,7 @@ test('a row counts only its own body, never parallel lanes\' hits, and room setu
 		await finishRun(rows, { file: path.join(out, 'result.json'), setExitCode: false });
 		assert.deepEqual(Object.keys(rows[0].hits.byAttacker), ['minecraft:zombie'], 'lane 0 never gets lane 1\'s lava');
 		assert.equal(rows[0].hits.taken, 3);
-		assert.equal(rows[0].hits.setupDamage, 13, 'the room\'s own /damage is setup, not a hit');
+		assert.equal(rows[0].hits.commandDamage, 13, 'the room\'s own /damage is setup, not a hit');
 		assert.deepEqual(Object.keys(rows[1].hits.byAttacker), ['minecraft:lava']);
 		assert.equal(rows[2].hits, undefined, 'two bodies hit and the row names none: unknown');
 		assert.match(rows[2].hitsUnknown, /2 bodies were watched/);
@@ -131,5 +131,21 @@ test('stopping a fixture server keeps its danger files beside the world it will 
 		await stopReplayServer({ child: { exitCode: 0, signalCode: null }, log: { close: async () => {} }, watchFrom: from, watchTo: path.join(out, 'arena-watch') });
 		assert.equal(await readFile(path.join(out, 'arena-watch', 'a1-danger.jsonl'), 'utf8'), lines([hit(T0, 'minecraft:zombie', 2)]));
 		await assert.rejects(readFile(path.join(out, 'arena-watch', 'a1-progress.jsonl')), /ENOENT/, 'only the danger rows are copied');
+	} finally { await rm(out, { recursive: true, force: true }); }
+});
+
+test('a danger file that cannot be read leaves hits unknown, never zero', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async () => {
+	const { chmod } = await import('node:fs/promises');
+	const out = await mkdtemp(path.join(os.tmpdir(), 'danger-unreadable-'));
+	try {
+		await mkdir(path.join(out, 'arena-watch'), { recursive: true });
+		const file = path.join(out, 'arena-watch', 'a1-danger.jsonl');
+		await writeFile(file, lines([hit(T0 + 1_000, 'minecraft:zombie', 3)]));
+		await chmod(file, 0o000);
+		const rows = [{ name: 'a', startedAt: T0, finishedAt: T0 + 5_000 }];
+		await finishRun(rows, { file: path.join(out, 'result.json'), setExitCode: false });
+		assert.equal(rows[0].hits, undefined);
+		assert.match(rows[0].hitsUnknown, /1 danger file could not be read/);
+		await chmod(file, 0o644);
 	} finally { await rm(out, { recursive: true, force: true }); }
 });

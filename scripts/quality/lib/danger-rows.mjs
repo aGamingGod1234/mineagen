@@ -30,7 +30,7 @@ export async function watchDirs(root, depth = 3) {
  * beside the server's copy) counts once.
  */
 export async function readDangerRows(root) {
-	let files = 0, dropped = 0;
+	let files = 0, dropped = 0, unreadable = 0;
 	// Bodies watched, per server: a server folder's arena-watch and the copy boot() keeps beside it are one server.
 	const rows = [], seen = new Set(), servers = new Map();
 	for (const dir of await watchDirs(root)) {
@@ -41,7 +41,9 @@ export async function readDangerRows(root) {
 			files++;
 			// The Watcher makes <agentId>-danger.jsonl, empty, when it starts watching a body: a file is a watched body.
 			bodies.add(name.slice(0, -'-danger.jsonl'.length));
-			const text = await readFile(path.join(dir, name), 'utf8').catch(() => '');
+			// A file that is there but cannot be read is unknown evidence, never an empty file that reads as no hits.
+			const text = await readFile(path.join(dir, name), 'utf8').catch(() => null);
+			if (text === null) { unreadable++; continue; }
 			for (const line of text.split('\n')) {
 				if (!line.trim()) continue;
 				let row;
@@ -56,7 +58,7 @@ export async function readDangerRows(root) {
 		}
 	}
 	// The most bodies one server watched: 1 for one body per server (travel boots one server per seed), 4 for 4 lanes.
-	return { files, rows, dropped, bodies: Math.max(0, ...[...servers.values()].map(set => set.size)) };
+	return { files, rows, dropped, unreadable, bodies: Math.max(0, ...[...servers.values()].map(set => set.size)) };
 }
 
 const round = value => Math.round(value * 100) / 100;
@@ -65,23 +67,24 @@ const attackerOf = row => row.attacker ?? row.damageType ?? row.kind ?? 'unknown
 
 /**
  * A fixture's own /damage command (no attacker, damage type minecraft:generic): how rooms set a body's health before
- * play. It is the room's setup, not something that hit the bot, and is counted apart in setupDamage.
+ * play, or hurt it on cue during play (the archer-resume escape room). It is damage the room dealt, not a mob or the
+ * world hitting the bot, so it is counted apart in commandDamage, never dropped.
  */
-export const setupHit = row => !row.attacker && row.damageType === 'minecraft:generic';
+export const commandHit = row => !row.attacker && row.damageType === 'minecraft:generic';
 
 /**
  * The hits from `from` to `to` (epoch ms, inclusive), by attacker: { hits, taken, blocked, lethal, agents, byAttacker,
- * setupDamage }. taken is health and absorption lost after armour and shield; the lethal hit has no taken, so it is
+ * commandDamage }. taken is health and absorption lost after armour and shield; the lethal hit has no taken, so it is
  * counted in lethal and its amount (before armour) in lethalAmount. agentId, when given, keeps only that body's rows.
  */
 export function foldHits(rows, { from = -Infinity, to = Infinity, agentId = null } = {}) {
 	const empty = () => ({ hits: 0, taken: 0, blocked: 0, lethal: 0, lethalAmount: 0 });
 	const total = empty(), byAttacker = {}, agents = new Set();
-	let setupDamage = 0;
+	let commandDamage = 0;
 	for (const row of rows) {
 		if (!Number.isFinite(row.atMs) || row.atMs < from || row.atMs > to) continue;
 		if (agentId && row.agentId !== agentId) continue;
-		if (setupHit(row)) { if (Number.isFinite(row.taken)) setupDamage = round(setupDamage + row.taken); continue; }
+		if (commandHit(row)) { if (Number.isFinite(row.taken)) commandDamage = round(commandDamage + row.taken); continue; }
 		agents.add(row.agentId);
 		for (const into of [total, byAttacker[attackerOf(row)] ??= empty()]) {
 			into.hits++;
@@ -90,7 +93,7 @@ export function foldHits(rows, { from = -Infinity, to = Infinity, agentId = null
 			if (row.lethal) { into.lethal++; if (Number.isFinite(row.amount)) into.lethalAmount = round(into.lethalAmount + row.amount); }
 		}
 	}
-	return { ...total, agents: agents.size, byAttacker, setupDamage };
+	return { ...total, agents: agents.size, byAttacker, commandDamage };
 }
 
 /**
@@ -103,6 +106,7 @@ export function foldHits(rows, { from = -Infinity, to = Infinity, agentId = null
 export async function attachHits(rows, root) {
 	const danger = await readDangerRows(root);
 	if (!danger.files) return { files: 0, attached: 0 };
+	const unknown = danger.unreadable ? `${danger.unreadable} danger file${danger.unreadable === 1 ? '' : 's'} could not be read` : null;
 	let attached = 0;
 	for (const row of rows) {
 		// A fold this function made earlier is made again: the server may have written more rows since.
@@ -112,6 +116,7 @@ export async function attachHits(rows, root) {
 		const hits = foldHits(danger.rows, { from, to: row.finishedAt, agentId });
 		// A row that names no body can only be read where one body was watched: with several, the hits in its window may
 		// be a sibling lane's, even when only one of them was hit.
+		if (unknown) { delete row.hits; row.hitsUnknown = unknown; continue; }
 		if (!agentId && danger.bodies > 1) { delete row.hits; row.hitsUnknown = `${danger.bodies} bodies were watched on one server and the row names none`; continue; }
 		delete row.hitsUnknown;
 		row.hits = { source: 'watch', ...hits };
