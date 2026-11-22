@@ -89,6 +89,11 @@ public final class TravelVerification {
 		check(!TravelCheckpoints.closer(4.8D, 3.0D, 0.0D) && TravelCheckpoints.closer(4.8D, 3.0D, 3.0D) && !TravelCheckpoints.closer(4.8D, 3.5D, 3.0D)
 				&& TravelCheckpoints.closer(9.0D, 7.0D, 3.0D) && !TravelCheckpoints.closer(2.5D, 2.8D, 3.0D),
 				"a spot 1.8 closer counts only when it is within the arrival distance (a ledge beside the iron, not a tunnel to it)");
+		check(ServerTravelController.heightTolerance(true, 1.0D) == 0.6D && ServerTravelController.heightTolerance(false, 1.0D) == 1.0D
+				&& ServerTravelController.heightTolerance(false, 0.5D) == 1.0D && ServerTravelController.heightTolerance(false, 2.0D) == 2.0D
+				&& ServerTravelController.heightTolerance(false, 3.0D) == 3.0D && ServerTravelController.heightTolerance(false, 8.0D) == 8.0D
+				&& ServerTravelController.heightTolerance(false, 2.5D) == 3.0D,
+				"a trip aimed at a cell (tolerance 2 or less) ends within its own tolerance of the target y, at least a block; looser trips keep 3");
 		TravelCheckpoints.Checkpoint refused = TravelCheckpoints.pick(flat, 0.5, 64, 0.5, 200.5, Double.NaN, 0.5, 26,
 				cell -> cell.x() >= 20 && Math.abs(cell.z()) <= 8);
 		check(refused != null && !(refused.feet().x() >= 20 && Math.abs(refused.feet().z()) <= 8), "a refused leg is not picked again: " + refused);
