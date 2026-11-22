@@ -15,11 +15,11 @@
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { boot } from './watch-replay.mjs';
-import { finishRun } from './lib/fixture-run.mjs';
+import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 
 const USAGE = 'Usage: test-water-exit-live.mjs OUT_DIR JAR [runs] [afloat;standing;wading] under slot.sh live';
 const cli = process.argv.slice(2);
-if (cli.includes('--help')) { console.log(USAGE); process.exit(0); }
+if (cli.includes('--help')) { console.log(USAGE + '\n' + EDIT_LOOP_HELP + '\n' + FIXTURE_OUTCOME_HELP); process.exit(0); }
 const [outArg, jarArg, runsArg, statesArg] = cli;
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port = Number(process.env.SLOT_PORT_BASE);
 if (!outArg || !jarArg || !template || !port) { console.error(USAGE); process.exit(2); }
@@ -105,7 +105,7 @@ try {
 			const push = await control(1, 60);
 			const ticks = (await s.gameTicks()) - t0;
 			// Let go and land before judging: with jump held the body is in the air over the ledge as often as on it.
-			await control(0, 10, false);
+			const release = await control(0, 10, false);
 			const end = await pos(), ground = await onGround();
 			// The walls leave only the ledge east of the pool, so a body past its face with feet at its top is on it.
 			const climbed = end !== null && end[0] >= X + 1.3 && end[1] >= top - 0.05;
@@ -113,7 +113,10 @@ try {
 				overWater: Math.round((top - F) * 10000) / 10000, feet0: Math.round((p0[1] - B) * 1000) / 1000, dy: Math.round((top - p0[1]) * 1000) / 1000,
 				climbed, endFeet: end ? Math.round((end[1] - B) * 1000) / 1000 : null, endDx: end ? Math.round((end[0] - X) * 100) / 100 : null, onGround: ground,
 				pushTicks: ticks, push: `${push.state}:${push.reasonCode ?? ''}`, settle: settle ? `${settle.state}:${settle.reasonCode ?? ''}` : null, startedAt, finishedAt: Date.now() };
-			if (push.state === 'ERROR' || settle?.state === 'ERROR') row.error = `control never returned: ${push.reasonCode ?? settle?.reasonCode}`;
+			// A push, settle or release that did not run in full is no evidence either way: invalid, never "did not climb".
+			const notRun = [['push', push], ['settle', settle], ['release', release]].find(([, r]) => r !== null && r.state !== 'SUCCEEDED');
+			if (notRun) row.error = `${notRun[0]} did not run: ${notRun[1].state} ${notRun[1].reasonCode ?? ''}`;
+			else if (end === null) row.error = 'end position unreadable';
 			row.pass = !row.error;
 			rows.push(row);
 			console.log(`[${state} top=${row.ledgeTop} run ${run}] dy=${row.dy} overWater=${row.overWater} ${climbed ? 'CLIMBED' : 'stayed'} end feet ${row.endFeet} dx ${row.endDx}`);
