@@ -351,8 +351,16 @@ const near = (a, b, horizontal, vertical) => Math.hypot(a.x - b.x, a.z - b.z) <=
 const isSource = (block) => block.blockId === 'minecraft:lava' && /"level":"0"/.test(block.blockState ?? '');
 const isFlowing = (block) => block.blockId === 'minecraft:lava' && /"level":"[1-9]/.test(block.blockState ?? '');
 
-/** Walking into a seen cave: its opening is open air, so going down it digs nothing (straight-line walk). */
-const caveWalk = (position, row) => Math.hypot(row.x - position.x, row.y - position.y, row.z - position.z) / WALK_MPS / 60;
+/**
+ * Getting into a seen cave. The row is one open air cell the sight rays crossed, with no floor or route under it, so
+ * only a walkable slope (one block of height per block across) is priced as a walk; height past that is dug (a
+ * staircase, or a shaft with water held), the same as reaching any other place below or above.
+ */
+function caveWalk(position, row, shaft = false) {
+	const horizontal = Math.hypot(row.x - position.x, row.z - position.z), rise = Math.abs(row.y - position.y);
+	const dug = minutes(rise - horizontal);
+	return Math.hypot(horizontal, rise - dug) / WALK_MPS / 60 + dug * (shaft && row.y < position.y ? SHAFT_MIN : STAIR_MIN);
+}
 
 /** Walking, or staircase digging for the part below, from the agent to a remembered place. */
 function reach(position, row) {
@@ -455,9 +463,11 @@ export function obsidianOptions({ position, known = null, placed = [], items = [
 	// A seen cave is a way down: walking in costs no digging, and the rest of the descent starts from its floor, with the
 	// same search at the floors. The old "search caves and surface above y-20 ~1780 min" figure measured our own bot,
 	// which rarely entered a cave, so it said nothing about caves as a source (19 Nov round: 98 of 315 digs were for lava).
-	for (const row of sightings.filter((row) => row.kind === 'cave' && [row.x, row.y, row.z].every(Number.isFinite) && row.y > FLOOR_Y + 5)
+	// Only a cave in walking reach: a farther remembered one may lie behind rock (CAVE_WALK_REACH, as the ready step).
+	for (const row of sightings.filter((row) => row.kind === 'cave' && [row.x, row.y, row.z].every(Number.isFinite) && row.y > FLOOR_Y + 5
+		&& Math.hypot(row.x - position.x, row.y - position.y, row.z - position.z) <= CAVE_WALK_REACH)
 		.sort((a, b) => Math.hypot(a.x - position.x, a.y - position.y, a.z - position.z) - Math.hypot(b.x - position.x, b.y - position.y, b.z - position.z)).slice(0, CAVE_ROWS)) {
-		const walk = caveWalk(position, row), estimate = walk + floorFrom(row.y, water) + build(casts);
+		const walk = caveWalk(position, row, water), estimate = walk + floorFrom(row.y, water) + build(casts);
 		add(estimate, `cave ${where(position, row)} y${Math.round(row.y)} ~${round(estimate)} (travel_to @${row.x},${row.y},${row.z}, look in ${round(walk + LOOK_MIN)}, pools sit in caves; then dig_to from there ${round(digFrom(row.y, water))}; ${buildText(casts)})`);
 	}
 	// Deep down the surface is the far option; up here it is the surface walk the cave and floor options already pass.

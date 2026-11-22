@@ -868,6 +868,20 @@ test('a seen cave is a way down to lava, priced as a walk in plus the descent fr
 	assert.doesNotMatch(obsidianOptions({ position, items: held(['water_bucket']), cap: 2000, known: { sightings: [{ what: 'cave', kind: 'cave', air: 60, x: 5, y: -52, z: 0 }] } }), /cave 5m/);
 });
 
+test('a seen cave air cell far below is not a free drop, and a cave out of walking reach is no obsidian option', () => {
+	const position = { x: 0, y: 64, z: 0 };
+	const cave = (x, y, z) => ({ what: 'cave', kind: 'cave', air: 60, x, y, z });
+	const estimateOf = (line) => Number(/cheapest first: .*?cave [^~]*~(\d+)/.exec(line)?.[1]);
+	// 30 blocks straight down, 4 across: no floor or route is seen under that cell, so the 26 blocks past a walkable
+	// slope are a staircase, as digging there from here would be; the same drop over 30 blocks across is a walk.
+	const below = obsidianOptions({ position, items: held(['iron_pickaxe']), cap: 2000, known: { sightings: [cave(4, 34, 0)] } });
+	const sloped = obsidianOptions({ position, items: held(['iron_pickaxe']), cap: 2000, known: { sightings: [cave(30, 34, 0)] } });
+	assert.ok(estimateOf(below) >= estimateOf(sloped) + 1, `${estimateOf(below)} vs ${estimateOf(sloped)}`);
+	assert.match(needOptions({ resources: ['iron'], known: { sightings: [cave(4, 34, 0)], blocks: [] }, position }) ?? '', /travel_to cave @4,34,0 and look in ~2 min/);
+	const far = obsidianOptions({ position, items: held(['iron_pickaxe'], ['water_bucket']), cap: 2000, known: { sightings: [cave(200, 40, 0)] } });
+	assert.doesNotMatch(far, /cave 200m/, 'a cave 200 blocks off may lie behind rock');
+});
+
 test('above y-20 no surface search is priced; at the floors the nearby-pool fact leads the notes', () => {
 	const high = obsidianOptions({ position: { x: 0, y: 64, z: 0 }, items: held(['iron_pickaxe'], ['water_bucket']), cap: 2000 });
 	assert.doesNotMatch(high, /search caves and surface|unseen surface lava lake/);

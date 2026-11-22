@@ -55,17 +55,24 @@ export function sightingRows(observation) {
 }
 
 /**
+ * The sighting rows that could wake a step now: a vein within reach, or a roomy Overworld cave within its shorter reach.
+ * Only these become known: a vein first seen 27 blocks off, or a cave seen small, can still wake once it is close.
+ */
+export function eligibleSightingRows(observation) {
+	const overworld = (observation?.world?.dimension ?? 'minecraft:overworld') === 'minecraft:overworld';
+	return sightingRows(observation).filter((row) => Number.isFinite(row.distance) && row.distance <= SIGHTING_REACH
+		&& (row.kind === 'vein' || overworld && Number.isFinite(row.air) && row.air >= SIGHTING_CAVE_AIR && row.distance <= SIGHTING_CAVE_REACH));
+}
+
+/**
  * Why a running step's sample should wake the model at once, or null: a row in reach that is new against `known` (rows
  * already seen during this step) and that `needed` accepts (needed(kind, row) from the plan's open needs). The 19 Nov
  * games dug on past listed caves and ore: discovery wakes were folded while dig_to and travel_to ran.
  */
 export function stepSightingReason({ step, observation, known = [], needed }) {
 	if (!SIGHTING_STEPS.has(step) || typeof needed !== 'function') return null;
-	const overworld = (observation?.world?.dimension ?? 'minecraft:overworld') === 'minecraft:overworld';
-	const fresh = sightingRows(observation).filter((row) => Number.isFinite(row.distance) && row.distance <= SIGHTING_REACH
-		&& (row.kind === 'vein' || overworld && Number.isFinite(row.air) && row.air >= SIGHTING_CAVE_AIR && row.distance <= SIGHTING_CAVE_REACH)
-		&& !known.some((other) => other.kind === row.kind && (row.kind !== 'vein' || other.blockId === row.blockId)
-			&& Math.hypot(other.x - row.x, other.y - row.y, other.z - row.z) < SIGHTING_SAME));
+	const fresh = eligibleSightingRows(observation).filter((row) => !known.some((other) => other.kind === row.kind && (row.kind !== 'vein' || other.blockId === row.blockId)
+		&& Math.hypot(other.x - row.x, other.y - row.y, other.z - row.z) < SIGHTING_SAME));
 	if (fresh.length === 0) return null;
 	const vein = fresh.find((row) => row.kind === 'vein' && needed('vein', row));
 	if (vein) return `${short(vein.blockId ?? 'ore')} in view ${Math.round(vein.distance)} blocks away`;

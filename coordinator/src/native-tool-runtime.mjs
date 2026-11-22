@@ -24,7 +24,7 @@ import { compileProgramPrecondition, evaluateProgramPrecondition } from './progr
 import { MAX_STANDING_SOURCE_BYTES, StandingOrderBook, standingOrderCause, guardEpisodeFacts } from './standing-orders.mjs';
 import { ReflexBook } from './reflexes.mjs';
 import { searchFor } from './find-search.mjs';
-import { SIGHTING_COOLDOWN_MS, SIGHTING_GRACE_MS, SIGHTING_STEPS, STEP_ACTIONS, sightingRows, stepSightingReason } from './wake-filter.mjs';
+import { SIGHTING_COOLDOWN_MS, SIGHTING_GRACE_MS, SIGHTING_STEPS, STEP_ACTIONS, eligibleSightingRows, stepSightingReason } from './wake-filter.mjs';
 import { stepChange } from './step-progress.mjs';
 import { CONTEXT_TRIGGERS, SURVIVAL_TRIGGERS } from './arena-script/program-engine.mjs';
 import { defaultServiceTier } from './constants.mjs';
@@ -1233,10 +1233,10 @@ export class NativeToolRuntime {
 		entry.intentId = actionId;
 		entry.actionId = actionId;
 
-		// What was in view when the model chose this step is not news to it.
+		// What was in reach when the model chose this step is not news to it; a vein or cave still out of reach is, once close.
 		const latest = this.#observations.get(record.agentId);
 		// The grace starts at the first sample after the step began (stepNeedSighting), not at this possibly old one.
-		if (latest?.goalRevision === record.goalRevision) entry.sightingsKnown = sightingRows(latest.observation);
+		if (latest?.goalRevision === record.goalRevision) entry.sightingsKnown = eligibleSightingRows(latest.observation);
 		this.#stepRuns.set(record.agentId, entry);
 		if (this.#taskPlan !== null) {
 			// No world observation yet or no goal: the step still runs; the intent is only its label.
@@ -1301,7 +1301,8 @@ export class NativeToolRuntime {
 		// A leg being cancelled is ending: its sightings are not worth a wake or the cooldown.
 		if (entry?.goalRevision !== record.goalRevision || entry.sightingWoken || !SIGHTING_STEPS.has(entry.verb)
 			|| active?.actionId !== entry.actionId || active.cancelling === true || active.cancellationUncertain === true) return null;
-		const rows = sightingRows(observation);
+		// Known means seen while it could already wake the step; a row out of reach (or a small cave) stays news until then.
+		const rows = eligibleSightingRows(observation);
 		const at = Number.isFinite(observation?.observedAtEpochMs) ? observation.observedAtEpochMs : null;
 		if (entry.sightingsKnown === undefined) { entry.sightingsKnown = rows; entry.sightingsFrom ??= at; return null; }
 		entry.sightingsFrom ??= at;
