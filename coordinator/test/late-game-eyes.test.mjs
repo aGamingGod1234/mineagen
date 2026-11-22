@@ -160,6 +160,15 @@ test('a throw taken every time hands back in the throw phase, and the next find 
 	assert.doesNotMatch(second.message, /Eye flight not observed/);
 });
 
+test('the turn aside after a taken click stays a valid heading when the last eye flew past 90 degrees', async () => {
+	const b = takenBody(n => n === 2, { flight: () => ({ yaw: 135 }) });
+	const r = await searchFor({ structure: 'stronghold', throwCap: 2 }, b);
+	assert.equal(uses(b), 3, 'the taken second throw is tried again');
+	const turn = b.calls.find(c => c.type === 'control' && c.args.pitch <= -60);
+	assert.equal(turn.args.yaw, -135);
+	assert.equal(r.find.eyes.throwsMade, 2);
+});
+
 test('a use refused outright throws no eye and is tried again', async () => {
 	let refused = 0;
 	const b = body({ onAct: type => type === 'use_item' && ++refused === 1 ? { state: 'FAILED', reasonCode: 'USE_NOT_ACCEPTED' } : null });

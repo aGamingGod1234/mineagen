@@ -471,7 +471,7 @@ export async function followEyes(target, body, { observation: initial, deadline,
 		if (blocked > 0) {
 			// The last click was taken at eye level: turn aside and look well up, over what took it.
 			const faced = await act('control', { forward: 0, strafe: 0, jump: false, sneak: false, sprint: false, attack: false, use: false,
-				yaw: (Number.isFinite(previous?.yaw) ? previous.yaw : o.player.yaw ?? 0) + 90 * blocked, pitch: CLEAR_THROW_PITCH,
+				yaw: (((Number.isFinite(previous?.yaw) ? previous.yaw : o.player.yaw ?? 0) + 90 * blocked + 180) % 360 + 360) % 360 - 180, pitch: CLEAR_THROW_PITCH,
 				selectedSlot: o.inventory.selectedSlot ?? 0, hand: 'main', ticks: 2 });
 			if (faced) return faced;
 		} else if (Number.isFinite(previous?.yaw)) {
