@@ -1887,7 +1887,9 @@ public final class ServerActionExecutor {
 				&& player.level().dimension() == net.minecraft.world.level.Level.NETHER;
 		// pursue:false (stay put) and sneak:true (crouch on an edge) keep the ordinary fight: the hold walks to its cell
 		// site and on rod trips, and does not crouch.
-		boolean constrained = arguments.has("pursue") && !bool(arguments, "pursue") || arguments.has("sneak") && bool(arguments, "sneak");
+		// An explicit spot (x, y, z) also keeps it: the ordinary fight hunts and returns there, the hold would pick its own cell.
+		boolean constrained = arguments.has("pursue") && !bool(arguments, "pursue") || arguments.has("sneak") && bool(arguments, "sneak")
+				|| arguments.has("x") || arguments.has("y") || arguments.has("z");
 		if (!constrained && dev.agaminggod.mineagen.server.runtime.controller.SpawnerHold.applies(nether, blaze, roof, true))
 			return new dev.agaminggod.mineagen.server.runtime.controller.ServerSpawnerHoldController(player, arguments, protection, spawner,
 					roofing(request), GameClock.nowMs());
