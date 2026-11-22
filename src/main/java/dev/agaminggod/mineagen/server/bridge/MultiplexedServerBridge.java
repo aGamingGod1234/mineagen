@@ -1580,10 +1580,13 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		AgentId id = AgentId.parse(envelope.agentId());
 		AgentRecord record = manager.registry().require(id);
 		JsonObject payload = envelope.payload();
-		requireKeys(payload, Set.of("goalRevision"), "request_observation");
+		requireKeysAllowing(payload, Set.of("goalRevision"), Set.of("resync"), "request_observation");
 		if (requiredLong(payload, "goalRevision") != record.goalRevision()) {
 			throw new AgentDomainException("STALE_REVISION", "Coordinator observation request revision is stale");
 		}
+		// The coordinator dropped an observation it could not validate: the next one must be the whole current state, not a
+		// change list against the dropped one, or a wake (a creeper starting to swell) it announced would be lost.
+		if (payload.has("resync") && requiredBoolean(payload, "resync")) observationPublication.forgetDelivered(id);
 		observations.invalidate(id);
 		observationPublication.markAttention(id);
 		queueUrgentObservation(id);
@@ -1638,7 +1641,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 			JsonObject error = new JsonObject();
 			error.addProperty("code", exception instanceof AgentDomainException domain ? domain.code()
 					: exception instanceof BridgeProtocolException protocol ? protocol.code() : "INVALID_INSPECTION");
-			error.addProperty("message", exception.getMessage() == null ? "Inspection unavailable" : exception.getMessage());
+			error.addProperty("message", boundedMessage(exception.getMessage(), "Inspection unavailable"));
 			reply.remove("result");
 			reply.add("error", error);
 		}
@@ -2575,7 +2578,11 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 	private record PendingRespawnPublication(ServerActionResult result, AgentTransition transition, Runnable commit) { }
 
 	static String boundedRejectionMessage(String message) {
-		String fallback = "Action rejected";
+		return boundedMessage(message, "Action rejected");
+	}
+
+	/** A message within the coordinator's 1 to 2048 character bound, never cut inside a surrogate pair. */
+	static String boundedMessage(String message, String fallback) {
 		if (message == null || message.isBlank()) return fallback;
 		int end = Math.min(message.length(), ProtocolConstants.MAX_RESULT_MESSAGE_LENGTH);
 		if (end < message.length() && end > 0 && Character.isHighSurrogate(message.charAt(end - 1))
@@ -4053,6 +4060,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		}
 		boolean markDirty(AgentId agentId) { return published.markDirty(agentId); }
 		boolean markAttention(AgentId agentId) { return published.markAttention(agentId); }
+		void forgetDelivered(AgentId agentId) { published.forgetDelivered(agentId); }
 		boolean markSample(AgentId agentId) { return published.markSample(agentId); }
 		void requireObservedTarget(AgentId agentId, long eventSequence, String targetId) {
 			published.requireObservedTarget(agentId, eventSequence, targetId);
@@ -4445,6 +4453,15 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 			Set<String> trustedSources = conversationSources.get(agentId);
 			if (trustedSources != null && trustedSources.contains(recipientId)) return;
 			requireObservedTarget(agentId, eventSequence, recipientId);
+		}
+
+		/** Forgets what was last delivered, so the next publication is the whole current state, as the first of a session is. */
+		public synchronized void forgetDelivered(AgentId agentId) {
+			Objects.requireNonNull(agentId, "agentId must not be null");
+			delivered.remove(agentId);
+			deliveredFooting.remove(agentId);
+			deliveredThreatSignals.remove(agentId);
+			threatRepublish.remove(agentId);
 		}
 
 		public synchronized boolean markAttention(AgentId agentId) {

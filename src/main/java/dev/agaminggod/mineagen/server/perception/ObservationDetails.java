@@ -47,7 +47,7 @@ public final class ObservationDetails {
 			}
 			item.add("tooltip", tooltip);
 			item.addProperty("tooltipTruncated", lines.size() > tooltip.size()
-					|| lines.stream().limit(tooltip.size()).anyMatch(line -> line.getString().codePointCount(0, line.getString().length()) > 256));
+					|| lines.stream().limit(tooltip.size()).anyMatch(line -> line.getString().length() > 256));
 		}
 		return item;
 	}

@@ -5023,6 +5023,12 @@ public final class MultiplexedServerBridgeVerification {
 		repeat = first.deepCopy();
 		state.omitUnchangedFooting(agent, repeat);
 		assertEquals(false, repeat.getAsJsonObject("player").has("footing"), "omitted event retains last delivered footing");
+		state.forgetDelivered(agent);
+		JsonObject resynced = first.deepCopy();
+		state.omitUnchangedFooting(agent, resynced);
+		assertEquals(true, resynced.getAsJsonObject("player").has("footing"), "a resync delivers footing again");
+		assertEquals(null, state.threatBaseline(agent), "a resync forgets the delivered baseline");
+		state.commit(agent, first);
 		for (String field : new String[] {"drop", "atLeast", "into", "yaw"}) {
 			JsonObject changed = first.deepCopy();
 			JsonObject footing = changed.getAsJsonObject("player").getAsJsonObject("footing");

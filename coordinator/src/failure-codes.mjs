@@ -650,6 +650,7 @@ export const FAILURE_CODES = Object.freeze({
 	ILLEGAL_STATE_TRANSITION: ['internal', 'agent lifecycle bookkeeping'],
 	INACTIVE_LIFECYCLE: ['internal', 'script host lifecycle ordering'],
 	INBOUND_MESSAGE_REJECTED: ['internal', 'bridge protocol plumbing, not the request'],
+	REPEATED_SNAPSHOT_REJECTION: ['internal', 'bridge protocol plumbing, not the request'],
 	INCOMPLETE_FRAME: ['internal', 'bridge transport framing fault'],
 	INPUT_MUTATED_DURING_OBSERVATION: ['internal', 'observation publication invariant'],
 	INSPECTION_BUSY: ['internal', 'inspection queue saturated, plumbing'],

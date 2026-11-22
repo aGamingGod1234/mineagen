@@ -3243,6 +3243,7 @@ test('one observation with an invalid payload is dropped and reported without cl
 	assert.deepEqual(fixture.protocolErrors, []);
 	assert.equal(fixture.bridge.ready, true);
 	assert.deepEqual(fixture.observations.map((envelope) => envelope.messageId), ['server-good']);
+	assert.equal(fixture.socket.writes.some((line) => JSON.parse(line).type === 'request_observation'), false, 'drift alone keeps the existing behaviour');
 	// Reported on the 1st, 2nd and 4th repeat: visible, bounded, never silent.
 	assert.deepEqual(fixture.rejections.map((rejection) => rejection.count), [1, 2, 4]);
 	const [first] = fixture.rejections;
@@ -3325,6 +3326,9 @@ test('a malformed or oversized fact in one snapshot drops that snapshot and keep
 			assert.equal(fixture.rejections[0].error.code, 'INBOUND_MESSAGE_REJECTED', label);
 			assert.notEqual(fixture.rejections[0].error.cause.code, 'INVALID_PAYLOAD_FIELD', `${label}: reports the corruption, not the drift`);
 			assert.deepEqual(fixture.observations.map((envelope) => envelope.messageId), ['server-good'], label);
+			// The server counted the dropped snapshot as delivered: ask it for the whole state, not changes against it.
+			const resyncs = fixture.socket.writes.map((line) => JSON.parse(line)).filter((envelope) => envelope.type === 'request_observation');
+			assert.deepEqual(resyncs.map((envelope) => [envelope.agentId, envelope.payload]), [['agent-a', { goalRevision: 4, resync: true }]], label);
 		}
 	}
 	for (const invalid of [{ traceId: null }, { progress: 2 }, { elapsedMs: -1 }, { commandId: 'wrong-action' }]) {

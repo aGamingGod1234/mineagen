@@ -431,8 +431,11 @@ function normalizeProtocolV2Payload(type, value) {
 				goalRevision: revision(value.goalRevision, 'goalRevision'),
 			};
 		case 'request_observation':
-			exactKeys(value, ['goalRevision'], ['goalRevision'], type);
-			return { goalRevision: revision(value.goalRevision, 'goalRevision') };
+			exactKeys(value, ['goalRevision', 'resync'], ['goalRevision'], type);
+			// resync: the coordinator dropped an observation, so the next one must be the whole state, not changes against it.
+			if (value.resync !== undefined && value.resync !== true) throw new ProtocolV2Error('INVALID_PAYLOAD', 'request_observation resync is only true');
+			return value.resync === undefined ? { goalRevision: revision(value.goalRevision, 'goalRevision') }
+				: { goalRevision: revision(value.goalRevision, 'goalRevision'), resync: true };
 		case 'inspection_request':
 			exactKeys(value, ['goalRevision', 'requestId', 'query'], ['goalRevision', 'requestId', 'query'], type);
 			return { goalRevision: revision(value.goalRevision, 'goalRevision'), requestId: requireIdentifier(value.requestId, 'requestId'), query: normalizeInspectionQuery(value.query) };
@@ -879,11 +882,18 @@ export class MultiplexedServerBridge extends EventEmitter {
 				this.#snapshotRejectionStreaks.delete(streak);
 				if (this.#snapshotRejectionStreaks.size >= MAX_TRACKED_PAYLOAD_REJECTIONS) this.#snapshotRejectionStreaks.delete(this.#snapshotRejectionStreaks.keys().next().value);
 				this.#snapshotRejectionStreaks.set(streak, inARow);
+				// The server counts the dropped snapshot as delivered and would send the next one as changes against it, so a
+				// wake it carried (a creeper starting to swell) would never come. Ask for the whole current state instead.
+				void this.send('request_observation', envelope.agentId, { goalRevision: envelope.payload.goalRevision, resync: true },
+					{ connectionEpoch }).catch(() => {});
 			}
 			this.#reportRejectedPayload(envelope, value, payloadError, connectionEpoch);
 			return;
 		}
 		this.#snapshotRejectionStreaks.delete(streak);
+		if (envelope.type === 'agent_registered' || envelope.type === 'agent_removed') {
+			for (const type of SUPERSEDED_INBOUND_TYPES) this.#snapshotRejectionStreaks.delete(`${envelope.agentId}\0${type}`);
+		}
 		if (envelope.type === 'agent_removed') {
 			rememberBounded(this.#retiredAgentIds, envelope.agentId, MAX_TRACKED_TERMINAL_ACTION_IDS);
 			this.#knownAgentIds.delete(envelope.agentId);
