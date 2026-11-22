@@ -14,11 +14,11 @@ const tick = () => new Promise((resolve) => setImmediate(resolve));
 const settle = async () => { for (let index = 0; index < 6; index += 1) await tick(); };
 const wake = (request) => JSON.parse(request.input.split('\n')[1]);
 
-function observation(sequence, { attention = false, health = 20, x = sequence % 7, changedFacts, trigger, lastAttacker, inLava, blocks = [] } = {}) {
-	return { agentId: 'agent-a', payload: { goalRevision: 1, eventSequence: sequence, attention, observedAtEpochMs: sequence, ...(changedFacts === undefined ? {} : { changedFacts }),
+function observation(sequence, { attention = false, health = 20, x = sequence % 7, changedFacts, trigger, lastAttacker, inLava, blocks = [], sighted, items = [], at = sequence } = {}) {
+	return { agentId: 'agent-a', payload: { goalRevision: 1, eventSequence: sequence, attention, observedAtEpochMs: at, ...(changedFacts === undefined ? {} : { changedFacts }),
 		...(trigger === undefined ? {} : { trigger }),
 		observation: { player: { x, y: 64, z: 0, health, ...(lastAttacker === undefined ? {} : { lastAttacker }), ...(inLava === undefined ? {} : { inLava }) },
-			items: [], entities: [], blocks, inventory: { items: [], tagCounts: {} } } } };
+			items: [], entities: [], blocks, inventory: { items, tagCounts: {} }, ...(sighted === undefined ? {} : { sighted }) } } };
 }
 
 /** The first turn starts one do_step (a background dig_to) and ends; the body keeps digging until the test ends it. */
@@ -196,4 +196,86 @@ test('until "seen:<block>" on a verb that does not stop itself wakes the model a
 		await settle();
 		assert.equal(planner.requests.length, 2, 'the step\'s sighting wakes once');
 	} finally { await run.coordinator.stop(); }
+});
+
+test('the needed ore coming into view wakes a running dig once; ore the goal does not need stays folded', async () => {
+	const { run, planner, rows } = await startWithStep();
+	try {
+		const vein = (blockId, x) => ({ sighted: { veins: [{ x, y: 60, z: 2, distance: 9, bearing: 0, blockId, visible: 2 }] } });
+		// Seen while the body turns to its step (the first 5 s): what it already faced, not news.
+		run.bridge.emit('observation', observation(2, { attention: true, changedFacts: ['sighted'], ...vein('minecraft:iron_ore', 30), at: 2_000 }));
+		await settle();
+		assert.equal(planner.requests.length, 1, 'a sighting in the first seconds of the step does not wake');
+		run.bridge.emit('observation', observation(3, { attention: true, changedFacts: ['sighted'], ...vein('minecraft:coal_ore', 4), at: 20_000 }));
+		await settle();
+		assert.equal(planner.requests.length, 1, 'coal is not what "get iron" needs');
+		run.bridge.emit('observation', observation(4, { attention: true, changedFacts: ['sighted'], ...vein('minecraft:iron_ore', 9), at: 25_000 }));
+		await eventually(() => planner.requests.length === 2);
+		assert.equal(wake(planner.requests[1]).trigger, 'needed_sighting');
+		assert.ok(rows.some(({ event, reason }) => event === 'native_wake_filtered' && /step dig_to: iron_ore in view 9 blocks away/.test(reason ?? '')));
+		run.bridge.emit('observation', observation(5, { attention: true, changedFacts: ['sighted'], ...vein('minecraft:iron_ore', -20), at: 30_000 }));
+		await settle();
+		assert.equal(planner.requests.length, 2, 'one sighting wake per step');
+	} finally { await run.coordinator.stop(); }
+});
+
+test('the wake after a step ends says what the step gained, spent and wore', async () => {
+	const { run, planner, end } = await startWithStep();
+	try {
+		const pick = (damage) => ({ itemId: 'minecraft:stone_pickaxe', count: 1, damage, maxDamage: 131, slot: 'mainhand' });
+		run.bridge.emit('observation', observation(2, { items: [pick(40)] }));
+		await settle();
+		end('SUCCEEDED', 'DIG_DONE');
+		run.bridge.emit('observation', observation(60, { attention: true, changedFacts: ['inventory'], items: [pick(75), { itemId: 'minecraft:raw_iron', count: 3 }, { itemId: 'minecraft:cobblestone', count: 20 }] }));
+		await eventually(() => planner.requests.length === 2);
+		// The step began on the first sample (nothing held); the wear arithmetic itself is covered in step-search.test.mjs.
+		assert.equal(wake(planner.requests[1]).now.stepChanged, 'dig_to step: held +3 raw_iron, +1 stone_pickaxe, +20 stone/dirt');
+	} finally { await run.coordinator.stop(); }
+});
+
+test('danger in the same sample as a needed sighting keeps its own wake', async () => {
+	const sighted = { veins: [{ x: 9, y: 60, z: 2, distance: 9, bearing: 0, blockId: 'minecraft:iron_ore', visible: 2 }] };
+	// The grace runs from the first sample after the step began; a quiet one at 2 s means the iron at 30 s qualifies.
+	const after = async (sample) => {
+		const { run, planner } = await startWithStep();
+		try {
+			run.bridge.emit('observation', observation(2, { at: 2_000 }));
+			await settle();
+			run.bridge.emit('observation', observation(3, { attention: true, sighted, at: 30_000, ...sample }));
+			await eventually(() => planner.requests.length === 2);
+			return wake(planner.requests[1]).trigger;
+		} finally { await run.coordinator.stop(); }
+	};
+	assert.equal(await after({ changedFacts: ['sighted'] }), 'needed_sighting', 'the same iron alone wakes for the sighting');
+	const danger = await after({ changedFacts: ['health'], health: 6 });
+	assert.notEqual(danger, 'needed_sighting');
+	assert.equal(danger, 'damage');
+});
+
+test('a vein or cave first seen out of reach still wakes the step once it comes close', async () => {
+	const { run, planner, rows } = await startWithStep();
+	try {
+		const vein = (distance) => ({ sighted: { veins: [{ x: 30, y: 60, z: 2, distance, bearing: 0, blockId: 'minecraft:iron_ore', visible: 2 }] } });
+		run.bridge.emit('observation', observation(2, { at: 2_000 }));
+		await settle();
+		run.bridge.emit('observation', observation(3, { attention: true, changedFacts: ['sighted'], ...vein(27), at: 20_000 }));
+		await settle();
+		assert.equal(planner.requests.length, 1, 'iron 27 blocks off is out of reach');
+		run.bridge.emit('observation', observation(4, { attention: true, changedFacts: ['sighted'], ...vein(20), at: 25_000 }));
+		await eventually(() => planner.requests.length === 2);
+		assert.equal(wake(planner.requests[1]).trigger, 'needed_sighting');
+		assert.ok(rows.some(({ event, reason }) => event === 'native_wake_filtered' && /iron_ore in view 20 blocks away/.test(reason ?? '')));
+	} finally { await run.coordinator.stop(); }
+	const second = await startWithStep();
+	try {
+		const cave = (air, distance) => ({ sighted: { caves: [{ x: 10, y: 60, z: 2, distance, bearing: 0, air, visible: true }] } });
+		second.run.bridge.emit('observation', observation(2, { at: 2_000 }));
+		await settle();
+		second.run.bridge.emit('observation', observation(3, { attention: true, changedFacts: ['sighted'], ...cave(40, 10), at: 20_000 }));
+		await settle();
+		assert.equal(second.planner.requests.length, 1, 'a small cave is not worth the wake');
+		second.run.bridge.emit('observation', observation(4, { attention: true, changedFacts: ['sighted'], ...cave(90, 10), at: 25_000 }));
+		await eventually(() => second.planner.requests.length === 2);
+		assert.equal(wake(second.planner.requests[1]).trigger, 'needed_sighting', 'the same cave seen roomy wakes');
+	} finally { await second.run.coordinator.stop(); }
 });

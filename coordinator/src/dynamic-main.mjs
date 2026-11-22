@@ -68,7 +68,8 @@ import { dragonPerchEdge, noteCombatDispatch, rememberEndCrystals, settleCombatR
 import { heldToolBreak } from './held-tool-break.mjs';
 import { SituationChangeTracker } from './situation-changes.mjs';
 import { ContextEntryTracker, uncoveredDangers } from './danger-contexts.mjs';
-import { WakeFilter, countSkillKinds, stepFolds } from './wake-filter.mjs';
+import { SIGHTING_STEPS, WakeFilter, countSkillKinds, stepFolds } from './wake-filter.mjs';
+import { needResources, sightingNeeded, textResources } from './need-sources.mjs';
 import { searchHoldsSteer } from './search-danger.mjs';
 import { carriedFoodToEat, naturalRegeneration } from './fork-rule.mjs';
 // Danger triggers a running count skill handles itself when they come from its own mob (see countSkillKinds).
@@ -103,6 +104,7 @@ const GENERIC_WAKE_TRIGGERS = new Set(['attention', 'observation']);
 // Folded by a running step yet still named on the wake its end brings: what was seen, not how the body moved.
 // A running step's until "seen:<block>" came into view (a verb whose body does not stop itself on it).
 const STEP_UNTIL_TRIGGER = 'step_until_seen';
+const STEP_SIGHTING_TRIGGER = 'needed_sighting';
 const STEP_NAMED_TRIGGERS = new Set(['resource_discovery', 'structure_sighted', 'lava_heard', 'furnace_ready', 'heal_opportunity']);
 // Ordinary perception a running program already receives and answers through its own decisions (onObservation).
 const PROGRAM_OWNED_PERCEPTION_TRIGGERS = new Set(['attention', 'observation', 'resource_discovery', 'structure_sighted', 'lava_heard', 'heal_opportunity', 'projectile']);
@@ -1159,6 +1161,22 @@ export class DynamicCoordinator extends EventEmitter {
 						this.#writeTrace('native_wake_filtered', { agentId: record.agentId, goalRevision: record.goalRevision, trigger: attention.trigger, verdict: 'wake', reason: `step ${step} until seen:${untilSeen}` });
 						this.#resumeDeferredWake(record, attention);
 						this.#scheduleNativeTurn(record, { ...wakeRequest, priority: 'urgent', trigger: STEP_UNTIL_TRIGGER, nativeEvent: { ...wakeRequest.nativeEvent, trigger: STEP_UNTIL_TRIGGER } });
+						return;
+					}
+					// The plan's needed ore, or a new roomy cave while an ore or lava is needed, in reach of a running dig_to or
+					// travel_to: a player stops and looks. Once per step (native-tool-runtime.mjs stepNeedSighting).
+					// Only a sample the step would fold (an ordinary trigger, no failure owed): danger keeps its own path.
+					const needSighting = step === null || !SIGHTING_STEPS.has(step) || !stepFolds(step, attention, observation) || failureSteerOwed ? null
+						: this.#nativeRuntime.stepNeedSighting(record, observation, () => {
+							// The plan's open needs (a frame still to cast counts as obsidian, an unmet iron pickaxe as iron); without a
+							// plan, what the goal itself asks to acquire ("get iron").
+							const names = needResources(this.#taskViews.toolNeeds(record).map((need) => need.id));
+							return sightingNeeded(names.length ? names : textResources(record.currentGoal ?? ''));
+						});
+					if (needSighting !== null) {
+						this.#writeTrace('native_wake_filtered', { agentId: record.agentId, goalRevision: record.goalRevision, trigger: attention.trigger, verdict: 'wake', reason: `step ${step}: ${needSighting}` });
+						this.#resumeDeferredWake(record, attention);
+						this.#scheduleNativeTurn(record, { ...wakeRequest, priority: 'urgent', trigger: STEP_SIGHTING_TRIGGER, nativeEvent: { ...wakeRequest.nativeEvent, trigger: STEP_SIGHTING_TRIGGER } });
 						return;
 					}
 					if (stepFolds(step, attention, observation) && !failureSteerOwed && this.#wakeFilter.discovery(record.agentId, { attention, observation, goalText: record.currentGoal }) === null) {
@@ -4388,10 +4406,12 @@ export class DynamicCoordinator extends EventEmitter {
 			const reflexes = this.#nativeRuntime.reflexReport(record);
 			// Facts the wake filter held while the model's action ran (hits absorbed, items gained, routine updates).
 			const whileActing = this.#wakeFilter.take(record.agentId, observation);
+			// What the step that just ended gained, spent and wore, so the model needs no inventory inspect for it.
+			const stepChanged = isPlanning ? null : this.#nativeRuntime.stepChangeLine?.(record) ?? null;
 			const pace = continuity === null ? null : this.#bodyPace.line(record.agentId);
 			const input = buildNativeEventInput(record, {
 				...nativeEvent, movementLoop, taskMemory, progress: this.#taskViews.progress(record), goalNow: this.#taskViews.goalLine(record), doing: this.#taskViews.doingLine(record), skillFits: this.#taskViews.skillLine?.(record) ?? null,
-				continuity: guardOutcome || reflexes || pace || whileActing ? { ...continuity, ...(guardOutcome ? { guardOutcome } : {}), ...(reflexes ? { reflexes } : {}), ...(whileActing ? { whileActing } : {}), ...(pace ? { pace } : {}) } : continuity, dangerSummary: request.dangerSummary,
+				continuity: guardOutcome || reflexes || pace || whileActing || stepChanged ? { ...continuity, ...(guardOutcome ? { guardOutcome } : {}), ...(reflexes ? { reflexes } : {}), ...(whileActing ? { whileActing } : {}), ...(stepChanged ? { stepChanged } : {}), ...(pace ? { pace } : {}) } : continuity, dangerSummary: request.dangerSummary,
 				awaitingConfirmation: this.#awaitingNativeConfirmation(record, request.lifecycleGeneration),
 				confirmationFacts: this.#nativeConfirmationWaits.get(record.agentId)?.facts ?? null,
 				observation, actionReceipt: request.nativeEvent.observation?.lastResult, newContext: this.#pendingAssessment(record, request, nativeEvent, observation), changed, strategy, contexts, uncovered,

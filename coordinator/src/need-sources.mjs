@@ -96,6 +96,16 @@ const NEGATION = /^(not|no|never|without|avoid|avoiding|skip|ignore|stop|don|don
  * with an acquisition verb, unless a negation precedes that verb or the word ("avoid iron golems", "do not mine any more
  * iron" and "inspect server logs" name none). Namespaced ids ("minecraft:iron_ingot") stay whole.
  */
+/**
+ * For base resources still needed (needResources names), which sighted rows supply one: a vein of the needed ore, or a
+ * cave where a needed resource takes caves as a lead (iron, coal, diamond below y0) or lava is needed for obsidian.
+ */
+export function sightingNeeded(names) {
+	const rows = names.map((name) => RESOURCES.find((row) => row.name === name)).filter(Boolean);
+	return (kind, row) => kind === 'vein' ? rows.some((resource) => resource.blocks?.test(row.blockId ?? ''))
+		: kind === 'cave' && rows.some((resource) => resource.name === 'obsidian' || resource.sighting({ ...row, what: 'cave' }, 'cave'));
+}
+
 /** The vanilla ways to get a named resource (iron, flint...), or null. */
 export function resourceWays(name) {
 	return RESOURCES.find((row) => row.name === name)?.ways ?? null;

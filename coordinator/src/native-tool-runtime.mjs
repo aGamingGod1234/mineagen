@@ -27,7 +27,8 @@ import { compileProgramPrecondition, evaluateProgramPrecondition } from './progr
 import { MAX_STANDING_SOURCE_BYTES, StandingOrderBook, standingOrderCause, guardEpisodeFacts } from './standing-orders.mjs';
 import { ReflexBook } from './reflexes.mjs';
 import { searchFor } from './find-search.mjs';
-import { STEP_ACTIONS } from './wake-filter.mjs';
+import { SIGHTING_COOLDOWN_MS, SIGHTING_GRACE_MS, SIGHTING_STEPS, STEP_ACTIONS, eligibleSightingRows, stepSightingReason } from './wake-filter.mjs';
+import { stepChange } from './step-progress.mjs';
 import { CONTEXT_TRIGGERS, SURVIVAL_TRIGGERS } from './arena-script/program-engine.mjs';
 import { defaultServiceTier } from './constants.mjs';
 import { actionLeaseTimeoutMs, requestedActionTimeoutMs } from './work-lease-supervisor.mjs';
@@ -78,6 +79,8 @@ export const MAX_KEEP_GOING_LEGS = 8;
 // A leg that moved the body less than this is no progress (blocked heading), so the chain stops and hands back.
 const KEEP_GOING_MIN_PROGRESS_BLOCKS = 1;
 const RUNNING_ACTION_STATES = new Set(['RUNNING', 'PREPARING', 'CANCELLING', 'CANCELLATION_UNCONFIRMED']);
+/** Item rows with the fields stepChange reads, or null without a list. */
+const heldRows = (items) => Array.isArray(items) ? items.map(({ itemId, count, damage, maxDamage, usesLeft }) => ({ itemId, count, damage, maxDamage, usesLeft })) : null;
 // Body calls that may carry reflex rules to install before they act (run_program installs its own).
 const REFLEX_CARRIER_KINDS = new Set(['action', 'sequence', 'gather', 'find', 'obtain', 'standing_order']);
 // Firing outcomes during which the reflex held the body (a paused program's action was not running).
@@ -192,6 +195,10 @@ export class NativeToolRuntime {
 	#steps = new Map();
 	// The admitted background do_step per agent: its intent's action id, the leg running now and its until sighting.
 	#stepRuns = new Map();
+	// The last background step that ended, until its inventory change reaches a wake (stepChangeLine).
+	#endedSteps = new Map();
+	// When each agent was last woken for a step sighting (sample time), for SIGHTING_COOLDOWN_MS.
+	#lastSightingWake = new Map();
 	// Workstations obtain placed and has not picked up yet, per agent, across obtain calls.
 	#obtainPlaced = new Map();
 	#kitHabit = false;
@@ -476,6 +483,9 @@ export class NativeToolRuntime {
 			observation: storedObservation,
 			...(conversation === undefined ? {} : { conversation: structuredClone(conversation) }),
 		});
+		// The first sample after a background step ended holds its last pickups: that is the step's end inventory.
+		const ended = this.#endedSteps.get(record.agentId);
+		if (ended?.goalRevision === record.goalRevision && ended.itemsAfter === null) ended.itemsAfter = heldRows(storedObservation?.inventory?.items);
 		// The bridge also wakes the planner after a receipt or an explicit sample.
 		// Those empty deltas must not interrupt the routine that requested them.
 		// Preserve real fact changes, explicit triggers, and urgent notifications.
@@ -1221,7 +1231,9 @@ export class NativeToolRuntime {
 		const { step, reflexes: entries, ...tool } = request.tool;
 		const reflexes = entries === undefined ? null : await this.#setReflexes(record, entries);
 		const background = tool.kind === 'start_action';
-		const entry = { goalRevision: record.goalRevision, verb: step.verb, ...(step.seen === undefined ? {} : { seen: step.seen }), intentId: null, actionId: null, seenWoken: false };
+		// A step queued after another (after:) starts from that one's end, so its start inventory is unknown here.
+		const entry = { goalRevision: record.goalRevision, verb: step.verb, ...(step.seen === undefined ? {} : { seen: step.seen }), intentId: null, actionId: null, seenWoken: false,
+			itemsBefore: tool.after === undefined ? this.#heldItems(record) : null };
 		if (!background) this.#steps.set(record.agentId, entry);
 		// An emergency arrives mid-step (drowning under a dig, a skeleton during travel): escape stops the running body
 		// action itself instead of being refused as busy, which would cost the model a cancel call first.
@@ -1244,12 +1256,41 @@ export class NativeToolRuntime {
 		const admitted = background && RUNNING_ACTION_STATES.has(result.state) && typeof result.actionId === 'string';
 		if (admitted) await this.#beginStep(record, entry, result.actionId, step);
 		const { seen: _seen, ...shown } = step;
-		return { ...result, step: { ...shown, ...(admitted ? { started: true, next: STEP_RUNNING_NOTE } : {}) }, ...(reflexes === null ? {} : { reflexes }), ...(replaced === null ? {} : { replacedAction: replaced }) };
+		// A step that ended inside this call says what it changed, from the fresh sample taken after it when there is one;
+		// a running one says it on the first wake after it ends.
+		// A craft or furnace transaction without that fresh sample would compare against a sample from before it.
+		const post = result.postAction?.observation?.inventory?.items ?? result.postAction?.inventory?.items;
+		const after = post !== undefined ? heldRows(post) : result.postAction === undefined && !['craft', 'smelt'].includes(step.verb) ? this.#heldItems(record) : null;
+		const changed = admitted || RUNNING_ACTION_STATES.has(result.state) ? null : stepChange(entry.itemsBefore, after);
+		return { ...result, ...(changed === null ? {} : { changed }), step: { ...shown, ...(admitted ? { started: true, next: STEP_RUNNING_NOTE } : {}) }, ...(reflexes === null ? {} : { reflexes }), ...(replaced === null ? {} : { replacedAction: replaced }) };
+	}
+
+	/** Items the latest sample of this goal shows held, or null. */
+	#heldItems(record) {
+		const latest = this.#observations.get(record.agentId);
+		return latest?.goalRevision === record.goalRevision ? heldRows(latest.observation?.inventory?.items) : null;
+	}
+
+	/**
+	 * What the last background step changed in the inventory (step-progress.mjs stepChange), once, on the first wake
+	 * after it ended; null while it runs or after it was reported.
+	 */
+	stepChangeLine(record) {
+		const entry = this.#endedSteps.get(record.agentId);
+		if (entry === undefined || entry.goalRevision !== record.goalRevision) return null;
+		this.#endedSteps.delete(record.agentId);
+		const changed = stepChange(entry.itemsBefore, entry.itemsAfter ?? this.#heldItems(record));
+		return changed === null ? null : `${entry.verb} step: ${changed}`;
 	}
 
 	async #beginStep(record, entry, actionId, step) {
 		entry.intentId = actionId;
 		entry.actionId = actionId;
+
+		// What was in reach when the model chose this step is not news to it; a vein or cave still out of reach is, once close.
+		const latest = this.#observations.get(record.agentId);
+		// The grace starts at the first sample after the step began (stepNeedSighting), not at this possibly old one.
+		if (latest?.goalRevision === record.goalRevision) entry.sightingsKnown = eligibleSightingRows(latest.observation);
 		this.#stepRuns.set(record.agentId, entry);
 		if (this.#taskPlan !== null) {
 			// No world observation yet or no goal: the step still runs; the intent is only its label.
@@ -1277,7 +1318,13 @@ export class NativeToolRuntime {
 	}
 
 	async #retireStep(record, entry) {
-		if (this.#stepRuns.get(record.agentId) === entry) this.#stepRuns.delete(record.agentId);
+		// Only the step still current when it ended reports: one replaced, or disposed with its body, does not. The end
+		// inventory is the first sample after its end (#storeObservation), so a later step's gains are never charged to it.
+		if (this.#stepRuns.get(record.agentId) === entry) {
+			this.#stepRuns.delete(record.agentId);
+			entry.itemsAfter = null;
+			if (Array.isArray(entry.itemsBefore)) this.#endedSteps.set(record.agentId, entry);
+		}
 		if (this.#taskPlan === null || entry.intentId === null) return;
 		try { await this.#taskPlan(record, { kind: 'task_plan', operation: 'retire_intent', actionId: entry.intentId }); }
 		catch { /* a changed goal already retired it */ }
@@ -1295,6 +1342,34 @@ export class NativeToolRuntime {
 		if (!shown) return null;
 		entry.seenWoken = true;
 		return entry.seen;
+	}
+
+	/**
+	 * Why a running dig_to or travel_to should wake the model for a sighting the plan needs (wake-filter.mjs
+	 * stepSightingReason), at most once per step. Rows in view when the step began, and every row seen since, are known;
+	 * needed() is asked only when a new row in reach appears. Null otherwise.
+	 */
+	stepNeedSighting(record, observation, needed) {
+		const entry = this.#stepRuns.get(record.agentId);
+		const active = this.#actions.get(record.agentId);
+		// A leg being cancelled is ending: its sightings are not worth a wake or the cooldown.
+		if (entry?.goalRevision !== record.goalRevision || entry.sightingWoken || !SIGHTING_STEPS.has(entry.verb)
+			|| active?.actionId !== entry.actionId || active.cancelling === true || active.cancellationUncertain === true) return null;
+		// Known means seen while it could already wake the step; a row out of reach (or a small cave) stays news until then.
+		const rows = eligibleSightingRows(observation);
+		const at = Number.isFinite(observation?.observedAtEpochMs) ? observation.observedAtEpochMs : null;
+		if (entry.sightingsKnown === undefined) { entry.sightingsKnown = rows; entry.sightingsFrom ??= at; return null; }
+		entry.sightingsFrom ??= at;
+		const early = at === null || entry.sightingsFrom === null || at - entry.sightingsFrom < SIGHTING_GRACE_MS;
+		const cooling = at !== null && at - (this.#lastSightingWake.get(record.agentId) ?? -Infinity) < SIGHTING_COOLDOWN_MS;
+		let need = null;
+		const reason = early || cooling ? null : stepSightingReason({ step: entry.verb, observation, known: entry.sightingsKnown, needed: (kind, row) => (need ??= needed())(kind, row) });
+		// Each place once, so rows seen again and again never push an early one out of the bounded history.
+		for (const row of rows) if (!entry.sightingsKnown.some((other) => other.kind === row.kind && other.blockId === row.blockId
+			&& Math.hypot(other.x - row.x, other.y - row.y, other.z - row.z) < 8)) entry.sightingsKnown.push(row);
+		entry.sightingsKnown = entry.sightingsKnown.slice(-64);
+		if (reason !== null) { entry.sightingWoken = true; this.#lastSightingWake.set(record.agentId, at); }
+		return reason;
 	}
 
 	/** The request with any earlier keepGoing leg handle mapped to the leg running now (or the chain's last leg). */
@@ -3572,6 +3647,8 @@ export class NativeToolRuntime {
 		this.#blockingToolRuns.delete(agentId);
 		this.#steps.delete(agentId);
 		this.#stepRuns.delete(agentId);
+		this.#endedSteps.delete(agentId);
+		this.#lastSightingWake.delete(agentId);
 		this.#armedDangerInterrupts.delete(agentId);
 		this.#sequenceFinishReservations.delete(agentId);
 		const chain = this.#legChains.get(agentId);
