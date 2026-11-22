@@ -30,7 +30,7 @@ Paths below are relative to the repository root. Java paths beginning with `serv
 | Provider transport | `coordinator/src/codex-app-server.mjs` launches `codex app-server --stdio`; `claude-service.mjs` builds the `claude --print` stream-json command; `claude-tool-server.mjs` serves its native tools over loopback MCP HTTP. `provider-registry.mjs` lists the shipped adapters. |
 | Instructions | `coordinator/src/minecraft-agent-workspace.mjs` prepares the templates under `coordinator/config/minecraft-agent/`, including `AGENTS.md` and `.codex/skills/minecraft-control/`. These are the in-game model's instructions. |
 | Tool admission | `coordinator/src/native-minecraft-tools.mjs` defines `MINECRAFT_DYNAMIC_TOOLS` and `STEP_VERBS`. `native-tool-runtime.mjs` handles calls and dispatches body work. |
-| Compound operations | `coordinator/src/obtain-runner.mjs` exports `runObtain`; `obtain-plan.mjs` plans resource work. `find-search.mjs` exports `searchFor`, which can invoke `followEyes` in `find-eyes.mjs` or `findPortalRoom` in `find-portal-room.mjs`. |
+| Compound operations | `coordinator/src/obtain-runner.mjs` exports `runObtain`; `obtain-plan.mjs` plans resource work. `find-search.mjs` exports `searchFor`, which can invoke `walkFortressFloor` in `find-fortress.mjs` (the Nether fortress walk toward a spawner), `followEyes` in `find-eyes.mjs` or `findPortalRoom` in `find-portal-room.mjs`. |
 | Bridge | `server/bridge/MultiplexedServerBridge.java` and `coordinator/src/protocol-v2.mjs` implement the authenticated JSON-line connection. The server's default listener is `127.0.0.1:25570`. |
 | Body | `server/AgentManager.java` manages agents. `server/runtime/ServerActionExecutor.java` dispatches actions to controllers under `server/runtime/controller/`. The wire enum is `src/main/java/dev/agaminggod/mineagen/protocol/ActionType.java`. |
 | Perception | `server/perception/ServerObservationCollector.java` collects player state, inventory and world observations. Its entity/block caps are 64 and 128; these are collection limits, not promises that every sample contains that many rows. |
@@ -73,7 +73,7 @@ The model can start body work through native actions or model-authored programs.
 
 These are suggestions that the model may take or ignore. The actual helpers and controllers can stop for danger, missing resources, blocked routes or exhausted budgets. Their existence does not certify that the sequence succeeds in one fresh game.
 
-For the model-facing tool contract, read [the control reference](../coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md). For the edit and acceptance path, read [the quality guide](../scripts/quality/README.md#edit-loop). Historical measured results retained for video material are in `docs/technical-catalogue.md` and `docs/technical-catalogue/` in the working repository.
+For the model-facing tool contract, read [the control reference](../coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md). For the edit and acceptance path, read [the quality guide](../scripts/quality/README.md#edit-loop). Measured results kept for video material are in `docs/technical-catalogue/`, one file per pull request. The latest full-game results are on [the goal page](goal-progress.md).
 
 ## Where a run from spawn stands (results up to 15 Nov 2026)
 
