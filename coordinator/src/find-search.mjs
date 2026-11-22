@@ -109,7 +109,7 @@ export function sparePickaxe(observation) {
 		&& !(item.maxDamage > 0 && item.maxDamage - (item.damage ?? 0) <= 2))
 		.sort((a, b) => PICK_TIERS.indexOf(b.itemId.replace(/^minecraft:/, '').split('_')[0]) - PICK_TIERS.indexOf(a.itemId.replace(/^minecraft:/, '').split('_')[0]))[0] ?? null;
 }
-const TIMED = new Set(['travel_to', 'dig_to', 'fight_target', 'break_block', 'build_shelter']);
+const TIMED = new Set(['travel_to', 'dig_to', 'fight_target', 'break_block', 'build_shelter', 'escape']);
 const SHELTER_BLOCKS = new Set(['minecraft:cobblestone', 'minecraft:cobbled_deepslate', 'minecraft:dirt', 'minecraft:stone', 'minecraft:deepslate', 'minecraft:andesite', 'minecraft:diorite', 'minecraft:granite', 'minecraft:tuff', 'minecraft:netherrack']);
 const MAX_PEEKS = 2;
 // Falls or spills of the target fluid seen with no source (far sight's flowing rows) a search walks over to, and the
@@ -1162,7 +1162,8 @@ export async function searchFor(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT
 		const escapeWater = async () => {
 			if (!inWater() || escapes >= MAX_ESCAPES) return null;
 			escapes += 1;
-			return settle(await leg('escape the water', 'escape', {}));
+			// At most do_step escape's own 60 s, and never past the search's budget (leg caps a timed action by what is left).
+			return settle(await leg('escape the water', 'escape', { timeoutMs: 60_000 }));
 		};
 		const climbOut = async (top, away, label) => {
 			const up = await leg(label, 'travel_to', { x: top.x, y: top.y, z: top.z, retrace: true, tolerance: 3, stopWhenSeen: profile.stopId });
