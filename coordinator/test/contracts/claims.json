@@ -37704,6 +37704,11 @@
           "file": "coordinator/test/wake-body-facts-e2e.test.mjs",
           "test": "under cover the provider wake carries now.up with the last open sky and the retrace hint",
           "type": "node-behavior"
+        },
+        {
+          "file": "coordinator/test/wake-body-facts.test.mjs",
+          "test": "a queued underground sample keeps its own last open sky, not a later one",
+          "type": "node-behavior"
         }
       ],
       "id": "control:e2c1a93886a46505:21bd6a532a0182a7",
@@ -44957,6 +44962,11 @@
         {
           "file": "coordinator/test/wake-body-facts-e2e.test.mjs",
           "test": "under cover the provider wake carries now.up with the last open sky and the retrace hint",
+          "type": "node-behavior"
+        },
+        {
+          "file": "coordinator/test/wake-body-facts.test.mjs",
+          "test": "a queued underground sample keeps its own last open sky, not a later one",
           "type": "node-behavior"
         }
       ],

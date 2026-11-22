@@ -1376,12 +1376,12 @@ const SAMPLE_HISTORY = 8;
 function rememberSample(state, observation) {
  if (!Number.isFinite(observation?.observedAtEpochMs)) return;
  state.samples.push({ at: observation.observedAtEpochMs, observation, statuses: new Map((state.plan?.steps ?? []).map(s => [s.id, s.status])),
-  early: [...(state.early ?? [])], results: [...state.results], effect: state.effect, deaths: state.deaths });
+  early: [...(state.early ?? [])], results: [...state.results], effect: state.effect, deaths: state.deaths, openSky: state.openSky ?? null });
  if (state.samples.length > SAMPLE_HISTORY) state.samples.splice(0, state.samples.length - SAMPLE_HISTORY);
 }
 function sampleView(state, sample) {
  const plan = state.plan ? { steps: state.plan.steps.map(s => sample.statuses.has(s.id) ? { ...s, status: sample.statuses.get(s.id) } : s) } : null;
- return { ...state, plan, observation: sample.observation, early: sample.early, results: sample.results, effect: sample.effect, deaths: sample.deaths };
+ return { ...state, plan, observation: sample.observation, early: sample.early, results: sample.results, effect: sample.effect, deaths: sample.deaths, openSky: sample.openSky };
 }
 function intentFacts(f) {
  return { ...(typeof f.inPlan === 'boolean' ? { inPlan: f.inPlan } : {}), ...(Number.isSafeInteger(f.deaths) && f.deaths >= 0 ? { deaths: f.deaths } : {}), ...(identifier(f.dimension) ? { dimension: f.dimension } : {}), ...(Number.isSafeInteger(f.at) ? { at: f.at } : {}) };
