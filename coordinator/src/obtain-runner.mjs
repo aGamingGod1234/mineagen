@@ -255,6 +255,8 @@ export function isDanger(result, observation) {
 	return code === 'HOSTILE_NEAR' && hostileIsDanger(observation);
 }
 
+const RANGED_KINDS = new Set(['skeleton', 'stray', 'bogged', 'parched', 'pillager', 'witch', 'blaze', 'ghast', 'breeze', 'drowned'].map(id));
+
 /**
  * A mob to hunt seen (not heard or remembered) within the hunt's reach and about the body's height: under cover it is
  * fought there. A cow heard through a cave ceiling still means climbing out to the surface first.
@@ -273,7 +275,9 @@ function huntHere(need, o, budget) {
  */
 function withoutQuarry(o, quarry) {
 	if (quarry === null || o === null || threatRows(o) === null) return o;
-	const other = (row) => row?.type !== quarry;
+	// An archer drawing on the body is danger whatever its kind (a second skeleton on a bone hunt): only the hunted kind's
+	// melee rows are left out.
+	const other = (row) => row?.type !== quarry || RANGED_KINDS.has(row.type) && (row.targeting === true || (Array.isArray(row.signals) && row.signals.includes('targeting')));
 	return { ...o, player: { ...o.player, ...(Array.isArray(o.player?.threats) ? { threats: o.player.threats.filter(other) } : {}) },
 		...(Array.isArray(o.threats?.entries) ? { threats: { ...o.threats, entries: o.threats.entries.filter(other) } } : {}),
 		...(Array.isArray(o.entities) ? { entities: o.entities.filter(other) } : {}) };
@@ -1206,9 +1210,11 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			const health = (await body.observe()).player?.health;
 			if (food && foodFlee === null && Number.isFinite(health) && health <= LOW_HEALTH) foodFlee = Math.max(0.5, health - 1);
 			const flee = foodFlee !== null ? { fleeAtHealth: foodFlee } : {};
+			const underCover = (await body.observe()).player?.skyOpen === false;
 			const fought = await act('fight_until', { mob: mob.mob, untilItem: id(need.accept[0]), untilCount: total, radius: 24, timeoutMs: 180_000, ...flee });
-			// A hunt under cover that found no way to its mob: the next round climbs out instead of trying it again.
-			if (fought?.state !== 'SUCCEEDED' && /^(NO_TARGET_SEEN|TARGET_OUT_OF_REACH|SPOT_UNREACHABLE)$/.test(fought?.reasonCode ?? '') && (await body.observe()).player?.skyOpen === false) budget.herds.push({ x: mob.x, z: mob.z });
+			// A hunt under cover that ended without the item (no route to the mob, no sight of it, out of time), not for
+			// danger: the next round climbs out instead of trying the same mob again.
+			if (underCover && fought?.state !== 'SUCCEEDED' && fought?.state !== 'INTERRUPTED' && !body.interrupted()) budget.herds.push({ x: mob.x, z: mob.z });
 			return fought?.state === 'SUCCEEDED' ? null : `fight_until ${bare(mob.mob)}: ${fought?.reasonCode ?? 'failed'}`;
 		}
 		budget.lastSearch = null;
