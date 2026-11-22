@@ -27,6 +27,7 @@ public final class PovClientStateVerification {
 		verifyBodyMonitor();
 		verifyBodyPosition();
 		verifyLatencyProbe();
+		verifyCornerLabel();
 		return checks;
 	}
 
@@ -371,6 +372,23 @@ public final class PovClientStateVerification {
 
 	private static boolean near(float actual, float expected) {
 		return Math.abs(actual - expected) < 1.0E-4F;
+	}
+
+	private static void verifyCornerLabel() {
+		check(PovCornerLabel.lines(false, false, false, false).isEmpty(), "no agent view draws no corner label");
+		check(PovCornerLabel.lines(false, true, true, false).isEmpty(), "an ended takeover draws no corner label");
+		check(PovCornerLabel.lines(true, false, false, false)
+				.equals(java.util.List.of(PovCornerLabel.LEAVE_KEY, PovCornerLabel.LOOK_AROUND)), "spectate names the exit key and free look");
+		check(PovCornerLabel.lines(true, true, false, false).equals(java.util.List.of(PovCornerLabel.LEAVE_KEY)),
+				"takeover names only the exit key, since the mouse drives the body");
+		check(PovCornerLabel.lines(true, false, true, false).get(0).equals(PovCornerLabel.LEAVE_COMMAND),
+				"an unbound exit key falls back to the chat command");
+		check(PovCornerLabel.lines(true, true, true, false).equals(java.util.List.of(PovCornerLabel.LEAVE_COMMAND)),
+				"an unbound exit key in takeover still shows the command");
+		check(PovCornerLabel.lines(true, false, false, true).isEmpty() && PovCornerLabel.lines(true, true, true, true).isEmpty(),
+				"the F3 screen in the same corner hides the label");
+		check(PovCornerLabel.commandMode(false).equals("spectate") && PovCornerLabel.commandMode(true).equals("takeover"),
+				"the command fallback names the view's own exit command");
 	}
 
 	private static void check(boolean condition, String label) {

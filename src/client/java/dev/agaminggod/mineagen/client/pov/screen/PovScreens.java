@@ -81,6 +81,7 @@ public final class PovScreens {
 		ScreenEvents.AFTER_INIT.register((client, screen, width, height) -> {
 			adoptCreativeInventory(client, screen);
 			if (screen instanceof AgentPovDeathScreen) ScreenKeyboardEvents.allowKeyPress(screen).register((target, event) -> !operatorKey(client, target, event));
+			PovPauseMenu.addLeaveButton(client, screen, width, height);
 			if (screen != mirrorScreen) return;
 			// Spectators look but never click or scroll; in a takeover bundle scrolling is relayed to the agent.
 			ScreenMouseEvents.allowMouseClick(screen).register((target, event) -> PovClient.isTakeover());
