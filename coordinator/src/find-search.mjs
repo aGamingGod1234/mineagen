@@ -126,9 +126,43 @@ export function sparePickaxe(observation) {
 		&& !(item.maxDamage > 0 && item.maxDamage - (item.damage ?? 0) <= 2))
 		.sort((a, b) => PICK_TIERS.indexOf(b.itemId.replace(/^minecraft:/, '').split('_')[0]) - PICK_TIERS.indexOf(a.itemId.replace(/^minecraft:/, '').split('_')[0]))[0] ?? null;
 }
-const TIMED = new Set(['travel_to', 'dig_to', 'fight_target', 'break_block', 'build_shelter', 'escape']);
+/**
+ * The row a step out of the water is laid and cut from: the feet's row, or, on a sample clear of the water at the top of a
+ * bob with water right under the feet, the water's row below it (else the step is laid and cut a block above the lip).
+ */
+export function stepRow(feetY, inWater, bobbing) {
+	return Math.floor(feetY + 1e-3) - (!inWater && bobbing ? 1 : 0);
+}
+/** Uses left on every carried pickaxe, each above the 2 a dig keeps back (dig_to stops at 2 or fewer). */
+export function pickaxeUses(observation) {
+	const picks = (observation?.inventory?.items ?? []).filter((item) => /_pickaxe$/.test(item?.itemId ?? '') && item.maxDamage > 0);
+	// No wear reported (no pickaxe, or an observation without durability): unknown, never a reason to change the way down.
+	if (picks.length === 0) return Infinity;
+	return picks.reduce((sum, item) => sum + Math.max(0, item.maxDamage - (item.damage ?? 0) - 2) * Math.max(1, item.count ?? 1), 0);
+}
+/**
+ * Pickaxe uses a lava find keeps for the search at depth (tunnel legs, a carved cast site) after the way down: the
+ * stairs cost about 2 per block of depth against the shaft's 1. On the lava-gate rooms' kit (an iron and a stone
+ * pickaxe, about 380 uses) stairs from y71 wore both out at y-54 before the pool was found (lava-gate-3: 10 of 10 runs
+ * TOOL_WORN after 597 s); a winning run there spent about 150 uses at depth after the stairs.
+ */
+export const DESCENT_RESERVE = 160;
+/**
+ * Blocks of stairs a descent can afford: stairs while the uses left still cover a shaft for the rest of the depth and
+ * {@link DESCENT_RESERVE}. Each stair block takes one use and half a block of depth, so the stairs may spend
+ * 2 x (uses - depth - reserve) blocks.
+ */
+export function stairBudget(uses, depthLeft, reserve = DESCENT_RESERVE) {
+	if (!Number.isFinite(uses)) return Infinity;
+	return Math.max(0, 2 * (uses - Math.max(0, depthLeft) - reserve));
+}
+const TIMED = new Set(['travel_to', 'dig_to', 'fight_target', 'break_block', 'build_shelter', 'escape', 'flee_from']);
 const SHELTER_BLOCKS = new Set(['minecraft:cobblestone', 'minecraft:cobbled_deepslate', 'minecraft:dirt', 'minecraft:stone', 'minecraft:deepslate', 'minecraft:andesite', 'minecraft:diorite', 'minecraft:granite', 'minecraft:tuff', 'minecraft:netherrack']);
 const MAX_PEEKS = 2;
+// Shafts a lava find short of pickaxe uses may start: one, and one more after a stop (a cave, water) turned it.
+const MAX_SHORT_SHAFTS = 2;
+// Retreats up its own stairs from a mob cave a lava find makes before it fights on where it stands.
+const MAX_MOB_RETREATS = 1;
 // Falls or spills of the target fluid seen with no source (far sight's flowing rows) a search walks over to, and the
 // missed-place reason that keeps a later search from walking to one again.
 const MAX_SPILLS = 3;
@@ -201,6 +235,18 @@ const MAX_RETRACES = 3;
 // The last open-sky spot a wet or flooded body climbs back to: only one this close (a retrace along its own path).
 const SKY_REACH = 48;
 const FLOODED_REACH = 96;
+// The way up a flooded 1-wide shaft open to the sky, in blocks above the water, when no spot under open sky is remembered
+// above the body: about the depth a shaft from the surface meets an aquifer or a flooded cave (lava-gate-1: 14).
+const SHAFT_UP = 12;
+/**
+ * A lava find's first descent is the bucket shaft (main's way) unless MINEAGEN_LAVA_STAIRS=on. Stairs from the surface won
+ * lava-gate-8 (0 to 7 of 10, deaths 7 to 1) but lost lava-gate-3 (8 to 0 of 10: the room's two pickaxes wear out
+ * tunnelling at depth) and walked lava-gate-6 into a zombie spawner room (deaths 0 to 7 of 10, the defend reflex fighting
+ * in place), so stairs wait behind the switch until tool wear and the spawner fight are answered.
+ * MINEAGEN_LAVA_SHAFT=on keeps forcing the shaft.
+ */
+export const lavaStairs = () => process.env.MINEAGEN_LAVA_STAIRS === 'on' && process.env.MINEAGEN_LAVA_SHAFT !== 'on';
+export const lavaShaft = () => !lavaStairs();
 // Swimming up a flooded stair: pulses of this many ticks, at most this many (the stair from y16 to the surface is ~50 up).
 const STAIR_PULSE_TICKS = 40;
 const MAX_WATER_STEPS = 6;
@@ -525,9 +571,19 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 	// runtime keeps it from every sample), when that is above it and close enough to walk back to.
 	const skyAbove = (here, reach) => {
 		const sky = body.openSky?.() ?? null;
-		return sky !== null && [sky.x, sky.y, sky.z].every(Number.isFinite) && here !== null && sky.y > here.y + 3
-			&& Math.hypot(sky.x - here.x, sky.z - here.z) <= reach ? sky : null;
+		if (sky !== null && [sky.x, sky.y, sky.z].every(Number.isFinite) && here !== null && sky.y > here.y + 3
+			&& Math.hypot(sky.x - here.x, sky.z - here.z) <= reach) return sky;
+		// Afloat at the bottom of its own 1-wide shaft, open to the sky: the last spot under open sky is the body's own, so
+		// the way up is straight up its column. lava-gate-1: the shaft broke the roof of a flooded cave at y56 and the body
+		// trod water there for 12 minutes, every way off judged "already at the surface" (10 of 10 runs).
+		if (here !== null && observation?.player?.skyOpen === true && afloat() && (sky === null || Math.hypot(sky.x - here.x, sky.z - here.z) <= 1.5)) {
+			return { x: Math.floor(here.x) + 0.5, y: Math.floor(here.y + 1e-3) + SHAFT_UP, z: Math.floor(here.z) + 0.5 };
+		}
+		return null;
 	};
+	// Water seen at a cell: the sample's own block rows or the water the runtime remembers.
+	const waterAt = (cell) => [...(observation?.blocks ?? []), ...(body.known?.(observation, /(^|:)water$/)?.blocks ?? [])]
+		.some((row) => /(^|:)water$/.test(String(row?.blockId ?? '')) && row.x === cell.x && row.y === cell.y && row.z === cell.z);
 	const swimUpStair = async (sky, failed = null) => {
 		const next = /toward Point\[[^\]]*?x=(-?\d+), y=(-?\d+), z=(-?\d+)\]/.exec(String(failed?.result?.message ?? ''));
 		const via = next === null ? null : { x: Number(next[1]) + 0.5, y: Number(next[2]), z: Number(next[3]) + 0.5 };
@@ -537,7 +593,7 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 		for (let pulse = 0, stalls = 0; pulse < MAX_STAIR_PULSES && stalls < 2; pulse += 1) {
 			const at = bodyAt(observation);
 			const player = observation?.player;
-			if (at === null || (player?.inWater !== true && player?.underWater !== true)) return null;
+			if (at === null || !afloat()) return null;
 			if (player.underWater !== true) { breathed = at; since = 0; }
 			else if ((Number.isFinite(player.air) ? player.air : 0) - STAIR_PULSE_TICKS < (since + 1) * STAIR_PULSE_TICKS) return backToBreath(breathed, since);
 			toward = via !== null && (at.y < via.y - 0.5 || Math.hypot(via.x - at.x, via.z - at.z) > 0.8) ? via : sky;
@@ -554,7 +610,7 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 		// under and back, and there is no lower breath to sink back to.
 		const breathedAtTop = breathed !== null && breathed.y >= top - 1;
 		if (observation?.player?.underWater === true && since > 0 && !breathedAtTop) { const back = await backToBreath(breathed, since); if (back !== null) return back; }
-		return from !== null && (top < from.y + 1 || (inWater() && breathedAtTop)) ? stepOut(toward) : null;
+		return from !== null && (top < from.y + 1 || (afloat() && breathedAtTop)) ? stepOut(toward) : null;
 	};
 	let stepOuts = 0;
 	const stepOut = async (toward) => {
@@ -563,11 +619,22 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 		stepOuts += 1;
 		for (let step = 0; step < MAX_WATER_STEPS; step += 1) {
 			const at = bodyAt(observation), player = observation?.player;
-			if (at === null || (player?.inWater !== true && player?.underWater !== true) || !breathing(player)) return null;
+			// A sample clear of the water mid-bob is still in it (afloat): stopping there skips the step and the body sinks back.
+			if (at === null || !afloat() || !breathing(player)) return null;
 			const flat = Math.hypot(toward.x - at.x, toward.z - at.z) > 0.5;
 			const dir = nearestCardinal(flat ? Math.atan2(-(toward.x - at.x), toward.z - at.z) * 180 / Math.PI : Number.isFinite(player.yaw) ? player.yaw : 0);
 			const dx = Math.round(-Math.sin(dir.yaw * Math.PI / 180)), dz = Math.round(Math.cos(dir.yaw * Math.PI / 180));
-			const fx = Math.floor(at.x), fy = Math.floor(at.y + 1e-3), fz = Math.floor(at.z);
+			// Clear of the water at the top of a bob (feet in the row over it): the step is cut from the water's row, not the
+			// row the bob lifted the feet into, or it is laid and cut a block above the lip.
+			const fx = Math.floor(at.x), fz = Math.floor(at.z), fy = stepRow(at.y, inWater(), bobbing());
+			// Water under the step too (a flooded cave below the shaft, water up to its roof): a block laid into it first,
+			// against the rock over it, is the step's floor, as a player lays one before climbing out.
+			const block = (observation?.inventory?.items ?? []).find((item) => SHELTER_BLOCKS.has(item?.itemId) && item.count >= 1)?.itemId;
+			if (block !== undefined && waterAt({ x: fx + dx, y: fy, z: fz + dz })) {
+				const laid = await leg('lay a step in the water', 'place_block', { x: fx + dx, y: fy, z: fz + dz, face: 'down', itemId: block });
+				if (laid.seen || laid.interrupted) return settle(laid);
+				if (laid.result?.state !== 'SUCCEEDED') return null;
+			}
 			for (const [x, y, z] of [[fx + dx, fy + 1, fz + dz], [fx + dx, fy + 2, fz + dz], [fx + dx, fy + 3, fz + dz], [fx, fy + 2, fz], [fx, fy + 3, fz]]) {
 				if (!breathing(observation?.player)) return null;
 				const cut = await leg('cut a step out of the water', 'break_block', { x, y, z });
@@ -587,6 +654,15 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 		return null;
 	};
 	const inWater = () => observation?.player?.inWater === true || observation?.player?.underWater === true;
+	// In the water or bobbing just over it: a jump pulse at the top of a 1-wide flooded shaft lifts the body clear of the
+	// water for a sample (lava-gate-6: the swim read that as out and stopped, and the body sank back), so out of the water
+	// counts only with footing under it.
+	const afloat = () => inWater() || (observation?.player?.onGround === false && observation?.player?.inLava !== true);
+	// Clear of the water for a sample with water right under the feet: the top of a bob in a flooded hole, not dry ground.
+	const bobbing = () => {
+		const at = bodyAt(observation);
+		return at !== null && observation?.player?.onGround === false && waterAt({ x: Math.floor(at.x), y: Math.floor(at.y + 1e-3) - 1, z: Math.floor(at.z) });
+	};
 	// Back down to where it last breathed, sinking (sneak) toward it, a pulse for each it swam up; then the search goes
 	// on from there, as from any stair the swim could not climb.
 	const backToBreath = async (breathed, pulses) => {
@@ -1252,7 +1328,11 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 		let rockLegs = 0;
 		const water = (observation?.inventory?.items ?? []).some((item) => item?.itemId === 'minecraft:water_bucket');
 		let heading = nearestCardinal(chooseHeading(body.frontier(observation)?.coverage?.headings));
-		let descentStops = 0, lookedAt = rock ? bodyAt(observation) : null;
+		// A descent stopped for a mob (stairs into a mob cave): later descents stop at cave openings, never walking or
+		// dropping across the cave floor (lava-gate-6: the next stair leg crossed 22 blocks of a zombie spawner room in
+		// 10 s with nothing mined, and the bot died there in 7 of 10 runs).
+		let mobCave = false, mobRetreats = 0;
+		let descentStops = 0, shaftStops = 0, lookedAt = rock ? bodyAt(observation) : null;
 		// Turns after a stop: from the last heading that went its full leg, right, then left, then back; never to and fro.
 		let base = null, turns = 0;
 		const turn = () => { base ??= heading; turns += 1; heading = CARDINALS[(CARDINALS.indexOf(base) + [1, 3, 2][(turns - 1) % 3]) % 4]; };
@@ -1298,9 +1378,14 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 		// Out of its own wet hole the way it came; still in the water when that way is shut, the escape job (escapeWater).
 		const climbOut = async (top, away, label) => {
 			const up = await leg(label, 'travel_to', { x: top.x, y: top.y, z: top.z, retrace: true, tolerance: 3, stopWhenSeen: profile.stopId });
-			if (!up.seen && !up.interrupted && SHUT_WAY.has(up.result?.reasonCode) && inWater()) {
+			if (!up.seen && !up.interrupted && SHUT_WAY.has(up.result?.reasonCode) && afloat()) {
+				// Afloat in its own flooded hole: up the water and out onto a step cut beside it, then the stairs from there;
+				// still in the water after that, the escape body job.
+				const swum = await swimUpStair(top, up);
+				if (swum !== null) return swum;
 				const ended = await escapeWater();
 				if (ended !== null) return ended;
+				if (afloat()) return settle(up);
 			}
 			const at = bodyAt(observation);
 			if (up.seen || up.interrupted || !SHUT_WAY.has(up.result?.reasonCode) || observation?.player?.underWater === true || at === null || at.y >= top.y - 3) return settle(up);
@@ -1507,12 +1592,24 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 				if (stepsLeft(heading) < 4) return handBack('FAILED', 'FIND_NOT_FOUND', `Searched to ${within} blocks from the start`);
 				const from = bodyAt(observation);
 				// In water (its own flooded tunnels), a walk off swims in place: out the way it came instead.
-				const wetSky = observation?.player?.inWater === true || observation?.player?.underWater === true ? skyAbove(from, FLOODED_REACH) : null;
+				const wetSky = inWater() || bobbing() ? skyAbove(from, FLOODED_REACH) : null;
 				const out = wetSky !== null ? await leg('out of the water the way it came', 'travel_to', { x: wetSky.x, y: wetSky.y, z: wetSky.z, retrace: true, tolerance: 3, stopWhenSeen: profile.stopId })
 					: await leg('off this spot', 'travel_to', { yaw: heading.yaw, distance: Math.min(RELOCATE, stepsLeft(heading)), stopWhenSeen: profile.stopId });
 				let ended = await settle(out);
 				if (ended !== null) return ended;
-				if (wetSky !== null && out.result?.state !== 'SUCCEEDED') { ended = await swimUpStair(wetSky, out); if (ended !== null) return ended; }
+				if (wetSky !== null && out.result?.state !== 'SUCCEEDED') {
+					ended = await swimUpStair(wetSky, out);
+					if (ended !== null) return ended;
+					// Out onto the step beside its flooded shaft: stairs on up from there, not another dig down into the water.
+					const stepped = bodyAt(observation);
+					if (!afloat() && stepped !== null && stepped.y < wetSky.y - 3) {
+						const up = await leg('stairs up out of the flooded shaft', 'dig_to', { pattern: 'stairs_up', y: Math.floor(wetSky.y),
+							heading: nearestCardinal(Number.isFinite(observation?.player?.yaw) ? observation.player.yaw : 0).name,
+							maxBlocks: Math.min(MAX_DIG_BLOCKS, STEP_CELLS.stairs_up * (Math.ceil(wetSky.y - stepped.y) + 4)), stopWhenSeen: profile.stopId, discard: DISCARD });
+						ended = await settle(up);
+						if (ended !== null) return ended;
+					}
+				}
 				ended = await escapeWater();
 				if (ended !== null) return ended;
 				previous = bodyAt(observation);
@@ -1587,26 +1684,72 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 			}
 			if (profile.depth !== null && !level && at.y > profile.depth + 3 && descentStops < MAX_DESCENT_STOPS) {
 				const wetGround = wetSpots().some((spot) => Math.hypot(spot.x + 0.5 - at.x, spot.z + 0.5 - at.z) <= WET_REGION);
-				const pattern = water && descentStops === 0 && !wetGround ? 'shaft' : 'steep_down';
+				// A lava find digs stairs, not a 1-wide shaft, as a player does: on the wall-portal rooms the bucket shaft from
+				// spawn broke into a flooded cave and left the body afloat in its own hole (lava-gate-1 and -6, 20 of 20 runs), or
+				// broke a cave roof and dropped the body 28 blocks among mobs (lava-gate-8, 6 of its 11 deaths). Stairs lead back up
+				// out of a flood and stop at a cave's lip. MINEAGEN_LAVA_SHAFT=on keeps the shaft (for an A/B or a rollback).
+				const lava = profile.ids.has('minecraft:lava');
+				// Stairs only as far as the pickaxes last: when they cannot also cover the rest of the depth and the search
+				// there, the rest goes down the cheaper bucket shaft, as a player short of tools does.
+				const stairs = lava && profile.depth !== null ? stairBudget(pickaxeUses(observation), Math.floor(at.y + 1e-3) - profile.depth) : Infinity;
+				const short = lava && !lavaShaft() && stairs < STEP_CELLS.steep_down * 2 && water && !wetGround && shaftStops < MAX_SHORT_SHAFTS;
+				const pattern = short || ((!lava || lavaShaft()) && water && descentStops === 0 && !wetGround) ? 'shaft' : 'steep_down';
+				if (short) shaftStops += 1;
 				// At the edge of within, the stairs turn back toward the start and go on down inside it.
 				if (pattern !== 'shaft') {
 					inward();
 					if (stepsLeft(heading) < 1) return handBack('FAILED', 'FIND_NOT_FOUND', `Searched to ${within} blocks from the start`);
 				}
-				if (pattern === 'shaft') await bucketToHotbar();
-				const outcome = await leg(`dig ${pattern} to y${profile.depth}`, 'dig_to', { pattern, y: profile.depth, heading: heading.name, ...descentCap(pattern), stopWhenSeen: profile.stopId, discard: DISCARD });
+				if (pattern === 'shaft' || (lava && water)) await bucketToHotbar();
+				const descentFrom = bodyAt(observation);
+				const limit = descentCap(pattern);
+				if (pattern === 'steep_down' && Number.isFinite(stairs) && stairs >= STEP_CELLS.steep_down * 2) limit.maxBlocks = Math.min(limit.maxBlocks ?? MAX_DIG_BLOCKS, stairs);
+				const outcome = await leg(`dig ${pattern} to y${profile.depth}`, 'dig_to', { pattern, y: profile.depth, heading: heading.name, ...limit, ...(mobCave ? { throughCaves: false } : {}), stopWhenSeen: profile.stopId, discard: DISCARD });
+				// Stairs that opened into a mob cave (a spawner room keeps sending more): flee the mob, not fight it, then back up
+				// the stairs just dug and go down another way, as a player does. lava-gate-6: fighting at the cave's edge, the
+				// bot died in 9 of 10 runs; walking back with travel_to, the defend reflex paused the walk and fought (7 of 10).
+				// flee_from is the body's own flight, which the defend reflex stands aside for.
+				const mobStop = outcome.result?.reasonCode === 'HOSTILE_NEAR' && !outcome.seen && !outcome.ended && !outcome.interrupted;
+				const here = bodyAt(observation);
+				if (mobStop && lava && pattern !== 'shaft' && descentFrom !== null && here !== null && descentFrom.y > here.y + 6 && mobRetreats < MAX_MOB_RETREATS) {
+					mobRetreats += 1;
+					mobCave = true;
+					descentStops += 1;
+					const mob = String(outcome.result?.message ?? '').match(/minecraft:[a-z_]+ ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/);
+					if (mob !== null) {
+						const fled = await leg('flee the mob cave', 'flee_from', { targetId: mob[1], distance: 16 });
+						if (fled.seen || fled.interrupted || fled.ended) return settle(fled);
+					}
+					const back = await leg('back up the stairs away from the mob cave', 'travel_to', { x: descentFrom.x, y: descentFrom.y, z: descentFrom.z, retrace: true, tolerance: 3, stopWhenSeen: profile.stopId });
+					const backEnded = await settle(back);
+					if (backEnded !== null) return backEnded;
+					// Neither the flee nor the walk back up got the body away from the cave: digging on from the same exposed
+					// spot is no retreat. The danger goes back to the model.
+					const after = bodyAt(observation);
+					if (back.result?.state !== 'SUCCEEDED' && (after === null || after.y < here.y + 3))
+						return handBack('FAILED', 'FIND_DANGER', `Stopped for danger: the stairs opened into a mob cave at y${Math.floor(here.y)} and neither the flee nor the walk back up the stairs got away (${back.result?.reasonCode ?? back.result?.state})`);
+					heading = CARDINALS[(CARDINALS.indexOf(heading) + 2) % 4];
+					base = heading; turns = 0;
+					continue;
+				}
 				const ended = await settle(outcome);
 				if (ended !== null) return ended;
 				const code = outcome.result?.reasonCode;
 				if (code === 'DIG_GOAL_REACHED') reversals = 0;
 				if (code === 'DIG_GOAL_REACHED' || code === 'DIG_LIMIT_REACHED') continue;
 				descentStops += 1;
+				if (code === 'HOSTILE_NEAR') mobCave = true;
 				if (code === 'CAVE_OPENING') {
 					const cave = await look(25);
 					if (cave.interrupted || cave.seen || cave.ended) return settle(cave);
 					// A cave going down is a way to the depth with no digging: its lowest seen floor.
 					const floor = String(outcome.result?.message ?? '').match(/lowest floor[^-\d]*(-?\d+),\s*(-?\d+),\s*(-?\d+)/i);
-					if (floor !== null && Number(floor[2]) < bodyAt(observation).y - 3) {
+					// Not to a floor with a hostile or water by it: the same rule a cave-first walk keeps.
+					const low = floor === null ? null : { x: Number(floor[1]), y: Number(floor[2]), z: Number(floor[3]) };
+					const hostiles = [...(observation?.entities ?? []).filter((row) => row?.hostile === true && row.alive !== false), ...sweepHostiles].filter((row) => [row?.x, row?.y, row?.z].every(Number.isFinite));
+					const fit = low !== null && !mobCave && !hostiles.some((mob) => Math.hypot(mob.x - low.x - 0.5, mob.y - low.y, mob.z - low.z - 0.5) <= CAVE_MOB_CLEAR)
+						&& !waterCells().some((cell) => Math.hypot(cell.x - low.x, cell.y - low.y, cell.z - low.z) <= CAVE_WATER_NEAR);
+					if (fit && Number(floor[2]) < bodyAt(observation).y - 3) {
 						const walk = await leg('down the cave', 'travel_to', { x: Number(floor[1]) + 0.5, y: Number(floor[2]), z: Number(floor[3]) + 0.5, tolerance: 2, stopWhenSeen: profile.stopId });
 						const walkEnded = await settle(walk);
 						if (walkEnded !== null) return walkEnded;

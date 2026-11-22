@@ -2150,6 +2150,9 @@ public final class ServerActionExecutor {
 				}
 			}
 			public String useBucket(ServerPlayer body, BlockPos clicked, Direction face) {
+				return useBucket(body, clicked, face, -1.0D);
+			}
+			public String useBucket(ServerPlayer body, BlockPos clicked, Direction face, double lavaGraceSeconds) {
 				ItemStack held = body.getMainHandItem();
 				if (!BucketUse.is(held)) return "not holding a bucket";
 				boolean empty = held.is(net.minecraft.world.item.Items.BUCKET);
@@ -2160,6 +2163,11 @@ public final class ServerActionExecutor {
 				BlockPos cell = empty ? clicked : clicked.relative(face);
 				if (!protection.mayModifyBlock(body, body.level(), cell) || !body.level().mayInteract(body, cell)) return "PROTECTION_DENIED at " + coordinates(cell);
 				String guard = BucketUse.lavaPourAtBody(body, held);
+				// The cast's own lava, which its water follows within the grace: refused only where its flow meets the body sooner.
+				if (guard != null && lavaGraceSeconds > 0.0D) {
+					double seconds = BucketUse.lavaReachSecondsAtLook(body);
+					if (seconds < 0.0D || seconds >= lavaGraceSeconds) guard = null;
+				}
 				if (guard != null) return "LAVA_POUR_AT_BODY: " + guard;
 				ServerLevel level = (ServerLevel) body.level();
 				InteractionResult result = body.gameMode.useItemOn(body, level, held, InteractionHand.MAIN_HAND, hit);

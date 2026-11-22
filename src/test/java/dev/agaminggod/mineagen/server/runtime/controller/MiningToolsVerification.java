@@ -73,6 +73,17 @@ public final class MiningToolsVerification {
 		check(MiningTools.forBreak(inventory, stone).slot() == 3, "stone is mined with the faster stone pickaxe");
 		check(!MiningTools.wastesOre(inventory, iron), "a carried stone pickaxe harvests iron ore: it is swung");
 
+		// Gravel, dirt, sand: a held pickaxe is no faster than the hand and would spend a use; an empty slot or a plain item takes it.
+		inventory = inventory();
+		inventory.setItem(0, new ItemStack(Items.IRON_PICKAXE));
+		inventory.setItem(1, new ItemStack(Items.STONE_PICKAXE));
+		inventory.setSelectedSlot(0);
+		BlockState gravel = Blocks.GRAVEL.defaultBlockState();
+		check(MiningTools.sparingSlot(inventory, gravel, 0) == 2, "gravel: the first empty hotbar slot, not the iron pickaxe");
+		check(MiningTools.sparingSlot(inventory, stone, 0) == 0, "stone: the pickaxe stays (it is faster and needed)");
+		for (int slot = 2; slot < 9; slot++) inventory.setItem(slot, new ItemStack(Items.STONE_PICKAXE));
+		check(MiningTools.sparingSlot(inventory, dirt, 0) == 0, "dirt, every slot a tool: the held one, as before");
+
 		// The right pick only in the main inventory: it is swapped in (dig_to, hotbar only, refuses the same block).
 		inventory = inventory();
 		inventory.setItem(0, new ItemStack(Items.WOODEN_PICKAXE));
