@@ -165,7 +165,7 @@ try {
 		await s.command(`effect give ${NAME} minecraft:instant_health 1 10 true`);
 		if (archer) {
 			await s.command('difficulty normal');
-			await s.command(`summon minecraft:skeleton ${X + 10.5} ${F} ${Z + 0.5} {NoAI:1b,PersistenceRequired:1b,equipment:{mainhand:{id:"minecraft:bow",count:1}}}`);
+			await s.command(`summon minecraft:skeleton ${X + 10.5} ${F} ${Z + 0.5} {NoAI:1b,PersistenceRequired:1b,equipment:{mainhand:{id:"minecraft:bow",count:1},head:{id:"minecraft:leather_helmet",count:1}}}`);
 			if (room === 'archer-direction') await s.command(`summon minecraft:zombie ${X - 3.5} ${F} ${Z + 1.5} {NoAI:1b,PersistenceRequired:1b}`);
 			await sleep(500);
 			const deathsBefore = await readDeaths();
@@ -211,12 +211,14 @@ try {
 		if (room === 'pitskel') {
 			await s.command('difficulty normal');
 			await s.command(`damage ${NAME} 13 minecraft:generic`);
-			await s.command(`summon minecraft:skeleton ${X + 1.5} ${F - 2} ${Z + 0.5} {PersistenceRequired:1b,equipment:{mainhand:{id:"minecraft:bow",count:1}}}`);
+			await s.command(`summon minecraft:skeleton ${X + 1.5} ${F - 2} ${Z + 0.5} {PersistenceRequired:1b,equipment:{mainhand:{id:"minecraft:bow",count:1},head:{id:"minecraft:leather_helmet",count:1}}}`);
 			await sleep(500);
 		}
 		if (room === 'skeleton') {
+			// A leather helmet keeps the skeleton out of the sun's fire: burning, it walked into the only shade on the pad,
+			// behind the wall, so the body counted as already hidden and the trial was INVALID (48 of 188 on 22 Nov).
 			await s.command('difficulty normal');
-			await s.command(`summon minecraft:skeleton ${X + 10.5} ${F} ${Z + 0.5} {PersistenceRequired:1b,equipment:{mainhand:{id:"minecraft:bow",count:1}}}`);
+			await s.command(`summon minecraft:skeleton ${X + 10.5} ${F} ${Z + 0.5} {PersistenceRequired:1b,equipment:{mainhand:{id:"minecraft:bow",count:1},head:{id:"minecraft:leather_helmet",count:1}}}`);
 			await sleep(1500);
 			skeleton = (await s.observe()).entities?.find(entity => entity.type === 'minecraft:skeleton' && entity.alive !== false) ?? null;
 		}
