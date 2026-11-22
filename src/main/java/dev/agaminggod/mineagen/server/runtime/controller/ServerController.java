@@ -27,8 +27,8 @@ public interface ServerController {
 	}
 
 	/**
-	 * {@code nextWaypoint} is the cell a controller was heading for when it stopped, in the body's dimension, or null. It is
-	 * structured so a caller need not read it back out of the message (retrace sets it on a failed leg).
+	 * {@code nextWaypoint} is the cell a controller was heading for when it stopped, or null. It is structured so a caller
+	 * need not read it back out of the message (retrace sets it on a failed leg, whose legs never cross a dimension).
 	 */
 	record TickResult(State state, String reasonCode, String message, double progress, BlockPos nextWaypoint) {
 		public TickResult(State state, String reasonCode, String message, double progress) {
@@ -42,10 +42,11 @@ public interface ServerController {
 			if (!Double.isFinite(progress) || progress < 0.0D || progress > 1.0D) {
 				throw new IllegalArgumentException("controller progress must be in [0, 1]");
 			}
+			if (nextWaypoint != null) nextWaypoint = nextWaypoint.immutable();
 		}
 
 		public TickResult withNextWaypoint(BlockPos waypoint) {
-			return new TickResult(state, reasonCode, message, progress, waypoint == null ? null : waypoint.immutable());
+			return new TickResult(state, reasonCode, message, progress, waypoint);
 		}
 
 		public static TickResult running(double progress) {
