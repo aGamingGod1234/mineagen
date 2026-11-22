@@ -26,7 +26,7 @@ import { callObtain } from './obtain-handbacks.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 import { deathCounter, deathEvidence } from './lib/damage-counter.mjs';
-import { kitMinutes, kitStatTotal, routeCall, routeToolTimeout } from './lib/iron-kit-route.mjs';
+import { kitHeld, kitMinutes, kitStatTotal, routeCall, routeToolTimeout } from './lib/iron-kit-route.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const USAGE = 'Usage: test-iron-kit-live.mjs SEEDS.json OUT_DIR [JAR] [--coordinator TGZ|DIR] [--strict|--descriptive] under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME';
@@ -94,6 +94,12 @@ for (const [seedIndex, seed] of seeds.entries()) {
 	let s;
 	try {
 		s = current = await boot(dir, { jar: path.resolve(jarArg ?? path.join(root, MOD_JAR)), template, port: port + (seedIndex % 20) * 4, world: null, seed, spawnMonsters: true, goalTicks: 2_000_000, extraProperties: 'max-tick-time=-1\n' });
+		// Why a lane stalls: the coordinator side of the bridge dropping or rejecting a message is otherwise silent (the
+		// server only says "Connection lost"); lanes copy these into their result.
+		s.bridgeEvents = [];
+		for (const kind of ['disconnected', 'recovered', 'protocolError', 'transportError', 'heartbeatLate', 'messageRejected', 'listenerError']) {
+			s.bridge.on(kind, (event) => { if (s.bridgeEvents.length < 200) s.bridgeEvents.push({ at: Date.now(), kind, detail: String(event?.error?.message ?? event?.message ?? event?.type ?? '').slice(0, 200) }); });
+		}
 		const secret = (await readFile(path.join(dir, 'secret.txt'), 'utf8')).trim();
 		const once = s.command;
 		s.command = async (text) => {
@@ -178,11 +184,12 @@ async function joinAgent(s, lane, nextSpot) {
 	const t0 = Date.now();
 	const inspections = new InspectionClient({ send: (type, agentId, payload) => s.bridge.send(type, agentId, payload) });
 	s.bridge.on('inspection_result', message => { if (message.agentId === record.agentId) inspections.accept(message); });
+	// As the production coordinator asks (dynamic-main requestObservation): an observation inspection the server answers.
+	// The old stand-in polled 10 s for a newer published sample and handed back the stale one, which the runtime refuses
+	// (FRESH_OBSERVATION_REQUIRED, in 4 old and 7 new lanes of the shield-first round).
 	const observe = async () => {
-		const before = latest?.eventSequence ?? 0;
-		await s.bridge.send('request_observation', record.agentId, { goalRevision: record.goalRevision });
-		for (let i = 0; i < 400 && !(latest?.eventSequence > before); i++) await sleep(25);
-		return { eventSequence: latest.eventSequence, observation: adaptObservation(latest) };
+		const result = await inspections.request(record, { section: 'observation' });
+		return { ...result, observation: adaptObservation(result.observation) };
 	};
 	// The kit habit is on in production (MINEAGEN_KIT_HABIT unset): equip the shield and armour, food in reach.
 	const runtime = new NativeToolRuntime({
@@ -228,7 +235,7 @@ async function playLane(s, agent, seed, seedIndex, dir) {
 	for (let i = 0; i < 300 && !(agent.latest()?.ready && (agent.latest()?.inventory?.items?.length ?? 0) === 0); i++) await sleep(100);
 	const start = await pos();
 	const startY = start?.[1] ?? 64;
-	const result = { lane, seed, spot: agent.spot, start, kitMinutes: null, climbs: [], descents: 0, deathsAt: [], calls: [] };
+	const result = { lane, seed, spot: agent.spot, start, kitMinutes: null, climbs: [], descents: 0, deathsAt: [], calls: [], firsts: {} };
 	const deathsBefore = await deaths();
 	const t0 = Date.now();
 	const minutes = () => Math.round((Date.now() - t0) / 600) / 100;
@@ -241,6 +248,14 @@ async function playLane(s, agent, seed, seedIndex, dir) {
 		while (sampling) {
 			const o = agent.latest() ? adaptObservation(agent.latest()) : null;
 			const p = o?.player;
+			// Minutes to the first time each kit item is held, the shield and any armour worn, and the whole kit held.
+			for (const item of o?.inventory?.items ?? []) {
+				const id = String(item?.itemId ?? '').replace(/^minecraft:/, '');
+				if (['iron_ingot', 'iron_pickaxe', 'shield', 'bucket', 'flint_and_steel', 'iron_chestplate', 'iron_boots'].includes(id) && item.count > 0) result.firsts[id] ??= minutes();
+				if (id === 'shield' && item.slot === 'offhand') result.firsts.shieldWorn ??= minutes();
+				if (['head', 'chest', 'legs', 'feet'].includes(item.slot) && item.count > 0) result.firsts.armorWorn ??= minutes();
+			}
+			if (o && kitHeld(o)) result.firsts.kit ??= minutes();
 			if (p && Number.isFinite(p.y) && !(p.health <= 0)) {
 				const deep = p.y < MINE_Y && p.skyOpen === false;
 				const up = p.skyOpen === true && p.y >= startY - 8;
@@ -279,12 +294,23 @@ async function playLane(s, agent, seed, seedIndex, dir) {
 		const answered = await execute(normalizeMinecraftToolCall('act', act), `answer-${tag}`);
 		return `answered ${act.actionType} ${named[1]}: ${answered?.state} ${answered?.reasonCode ?? ''}`;
 	};
-	let turn = 0;
+	let turn = 0, aliveSinceDeath = true;
 	while (remaining() > 0) {
 		turn += 1;
-		if (!(await health() > 0)) {
-			result.deathsAt.push(minutes());
-			lastDeaths += 1;
+		const hp = await health();
+		// Unreadable health (the body gone from the server, or RCON failing) is not a death; a body that stays dead because
+		// its respawn did not take (the bridge down) is one death, not one per pass of this loop (two lanes logged 36 each).
+		if (!Number.isFinite(hp)) { result.unreadableHealth = (result.unreadableHealth ?? 0) + 1; await sleep(Math.min(3000, Math.max(0, remaining()))); continue; }
+		if (hp > 0) aliveSinceDeath = true;
+		if (!(hp > 0)) {
+			if (aliveSinceDeath) {
+				result.deathsAt.push(minutes()); lastDeaths += 1;
+				// Where and when, from the last sample alive: a surface death at night is the night-cover question.
+				const last = agent.latest() ? adaptObservation(agent.latest()) : null;
+				const worn = (last?.inventory?.items ?? []).filter(i => ['head', 'chest', 'legs', 'feet'].includes(i?.slot) && i.count > 0).map(i => String(i.itemId).replace(/^minecraft:/, ''));
+				(result.deathContext ??= []).push({ at: minutes(), daylight: last?.perception?.daylight ?? null, timeOfDay: last?.perception?.timeOfDay ?? null, skyOpen: last?.player?.skyOpen ?? null, y: last?.player?.y ?? null, worn });
+			} else result.stuckDead = (result.stuckDead ?? 0) + 1;
+			aliveSinceDeath = false;
 			foodHandedBack = false; woodHandedBack = false;
 			const started = s.inbox.wait('goal_control', g => g.agentId === record.agentId && g.payload.operation === 'start', 60_000).catch(() => null);
 			await s.command(`mineagen respawn ${name}`).catch(() => {});
@@ -374,7 +400,10 @@ async function playLane(s, agent, seed, seedIndex, dir) {
 	sampling = false; clearInterval(stepWatch); await sampler;
 	result.minutes = minutes();
 	const deathResult = deathEvidence(deathsBefore, await deaths());
-	result.deaths = deathResult.valid ? Math.max(deathResult.deaths, result.deathsAt.length) : null;
+	// The server's own death counter is the count; the loop's sightings are only a fallback when it cannot be read.
+	result.deaths = deathResult.valid ? deathResult.deaths : result.deathsAt.length;
+	result.deathsCounted = deathResult.valid ? 'server' : 'loop';
+	result.bridgeEvents = (s.bridgeEvents ?? []).map((event) => ({ ...event, at: Math.round((event.at - t0) / 600) / 100 }));
 	result.end = await pos();
 	result.inventory = String(await s.command(`data get entity ${name} Inventory`)).slice(0, 1500);
 	// Blocks mined and pickaxe uses from the body's vanilla statistics (scores: a fake player's stats file is never saved).
