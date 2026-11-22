@@ -12,4 +12,4 @@ When no direction leads away, the flee plans a route over the ground the bot has
 
 **Result**
 
-On Portal's spawner room, runs with a death fell from 9 of 10 to 3 of 10, and total damage from 261 to 156 HP (measured, 10 paired runs per arm).
+On Portal's spawner room, runs with a death fell from 9 of 10 to 3 of 10 with the first version (Fisher p = 0.02), and from 7 of 10 to 4 of 10 with the final version after its safety review (p = 0.37, not significant alone); measured, 10 paired runs per arm per round.
