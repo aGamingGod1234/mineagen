@@ -476,3 +476,23 @@ test('codex: a village no house of which pays for this goal stays a source for t
 	assert.deepEqual(looted.searched, [], 'not written off for later goals');
 	assert.equal(lootSources(village(), { searched: new Set(looted.searched), structures: looted.structures }).some((row) => row.kind === 'structure'), true);
 });
+
+test('codex: a house never entered (a hostile by its door) stays eligible for a later call; one entered is not visited again', async () => {
+	const door = [{ id: 'minecraft:oak_door', kind: 'block', x: 300, y: 77, z: -230, count: 1, placed: true }];
+	const looted = { opened: [], searched: [], structures: [], doors: [] };
+	const zombie = villageRun({ seenResources: door, entities: [{ type: 'minecraft:zombie', x: 301, y: 77, z: -230 }] });
+	await runObtain({ item: 'iron_ingot', count: 3, timeoutMs: 30_000 }, zombie.body, { now: (() => { let t = 0; return () => (t += 100); })(), looted });
+	assert.deepEqual(looted.doors, [], 'not entered, not written off');
+	const clear = villageRun({ seenResources: door });
+	await runObtain({ item: 'iron_ingot', count: 3, timeoutMs: 30_000 }, clear.body, { now: (() => { let t = 0; return () => (t += 100); })(), looted });
+	assert.equal(looted.doors.length, 1, 'entered on the later call');
+});
+
+test("codex: an open chest gives every item the plan needs, not only the visit's own", async () => {
+	const src = await import('../src/loot-step.mjs');
+	const body = chestBody([['stick', 4], ['iron_ingot', 2]]);
+	await src.lootChest(body, { x: 1, y: 64, z: 2 }, { wanted: ['iron_ingot', 'stick'] });
+	assert.deepEqual(body.calls.filter(([type]) => type === 'menu_click').map(([, a]) => a.expectedItemId).sort(), ['minecraft:iron_ingot', 'minecraft:stick']);
+	const runner = (await import('node:fs')).readFileSync(new URL('../src/obtain-runner.mjs', import.meta.url), 'utf8');
+	assert.match(runner, /wanted: planWanted\(need\)/);
+});

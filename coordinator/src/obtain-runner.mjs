@@ -564,7 +564,7 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 	// Blocks and mobs of needs out of tries: seen, but no source the body reached. The plan no longer counts them as
 	// seen, so it turns to another way (planks for fuel when the coal ore it saw stays out of reach).
 	const spent = new Set();
-	const budget = { failed: new Set(), dug: 0, herds: [], approaches, veins: new Set(), passed: new Set() };
+	const budget = { failed: new Set(), dug: 0, herds: [], approaches, veins: new Set(), passed: new Set(), doorsSkipped: [] };
 	const rememberFlood = (result, source, o) => {
 		if (result?.reasonCode !== 'TUNNEL_FLOODED' || !['FAILED', 'INTERRUPTED'].includes(result.state)
 			|| result.executionStarted !== true || result.physicalAttempted !== true || rawBody.stopped()) return false;
@@ -1343,6 +1343,9 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		const cost = (at ? Math.hypot(door.x + 0.5 - at.x, door.z + 0.5 - at.z) : 0) / 20 + HOUSE_LOOK;
 		return { job, saving, cost, gain: saving - cost };
 	};
+	// Everything the current plan still needs (every need's items, every craft's output, the target), the visit's own
+	// first: an open chest gives what any of them asks for.
+	const planWanted = (need) => [...new Set([...need.accept, ...(lastPlan?.needs ?? []).flatMap((n) => n.accept), ...(lastPlan?.ops ?? []).flatMap((op) => op.outputs), ...target.ids].map(bare))];
 	const lootOnce = async (need) => {
 		const source = need.sources?.[0];
 		if (!source) return `no chest left for ${need.accept[0]}`;
@@ -1376,7 +1379,7 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 				// chests it may lack included, against the walk and the look inside. The best first; none once none pays.
 				const jobs = rows.filter((row) => JOB_BLOCK.test(row.blockId ?? '') && [row.x, row.y, row.z].every(Number.isFinite));
 				const priced = rows.filter((row) => DOOR.test(row.blockId ?? '') && [row.x, row.y, row.z].every(Number.isFinite)
-					&& Math.hypot(row.x - source.x, row.z - source.z) <= reach && !looted.doors.some((d) => sameDoor(d, row)))
+					&& Math.hypot(row.x - source.x, row.z - source.z) <= reach && !looted.doors.some((d) => sameDoor(d, row)) && !budget.doorsSkipped.some((d) => sameDoor(d, row)))
 					.map((row) => ({ row, ...housePrice(row, jobs, at, need) }))
 					.sort((a, b) => b.gain - a.gain);
 				const best = priced[0];
@@ -1384,7 +1387,10 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 				const door = best?.row ?? await doorInSight(source, reach);
 				if (!door) break;
 				if (best) step(`house by the ${best.job} door at ${cellKey(door)}: ${best.saving.toFixed(1)} saved for ${best.cost.toFixed(1)}`);
-				looted.doors.push({ x: door.x, y: door.y, z: door.z, dimension });
+				// A house counts as looked into (for good) only once the body stood in its doorway; one it never entered (no way
+				// there, a hostile by the door) is passed over for this call only.
+				const doorAt = { x: door.x, y: door.y, z: door.z, dimension };
+				budget.doorsSkipped.push(doorAt);
 				step(`look into the house through the door at ${cellKey(door)}`);
 				if (!(await walk(door, 2))) { if (body.interrupted() || body.stopped()) return 'stopped'; continue; }
 				// The way in is away from where the body stands outside the door.
@@ -1409,7 +1415,8 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 				const into = { x: Math.floor(door.x) + 0.5 + (axisX ? 2 * Math.sign(dx || 1) : 0), z: Math.floor(door.z) + 0.5 + (axisX ? 0 : 2 * Math.sign(dz || 1)) };
 				// travel_to settles within a block across, at any height (a house up a step stays out of sight): navigate_to
 				// takes the body into the doorway cell itself, then a step inside.
-				await act('navigate_to', { x: Math.floor(door.x) + 0.5, y: Math.floor(door.y), z: Math.floor(door.z) + 0.5, tolerance: 0.6, sprint: false, timeoutMs: 10_000 });
+				const inDoorway = await act('navigate_to', { x: Math.floor(door.x) + 0.5, y: Math.floor(door.y), z: Math.floor(door.z) + 0.5, tolerance: 0.6, sprint: false, timeoutMs: 10_000 });
+				if (inDoorway?.state === 'SUCCEEDED') looted.doors.push(doorAt);
 				if (body.interrupted() || body.stopped()) return 'stopped';
 				// From the doorway a small house is in view already; a step further in only when it shows no chest.
 				const seenFromDoor = lootSources(await body.observe(), { opened: new Set([...looted.opened, ...budget.failed]), searched: new Set([...looted.searched, ...budget.passed]), structures: looted.structures, partial: new Set(looted.partial ?? []) })
@@ -1474,7 +1481,7 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		const close = rawBody.closeMenu ?? ((args) => rawBody.act('menu_close', args));
 		const hands = { menu: body.menu, act: (type, args) => (type === 'menu_close' ? close(args) : body.act(type, args)) };
 		const result = typeof body.menu === 'function'
-			? await lootChest(hands, chest, { wanted: need.accept.map(bare), heldItem, from: bodyAt(o) })
+			? await lootChest(hands, chest, { wanted: planWanted(need), heldItem, from: bodyAt(o) })
 			: { ok: false, read: false, taken: {}, why: 'this body cannot read an open chest' };
 		// A take a stop cut short leaves the chest a source to come back to; one fully read and taken from is done.
 		looted.partial ??= [];
