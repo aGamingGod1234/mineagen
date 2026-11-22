@@ -164,7 +164,12 @@ async function surfaceAt(s, x, z) {
 	for (let wait = 0; wait < 60 && !/time is/i.test(await s.command(`execute if loaded ${x} 0 ${z} run time query gametime`)); wait++) await sleep(1000);
 	const top = async (test) => /passed/i.test(await s.command(`execute positioned ${x} 0 ${z} positioned over motion_blocking if block ~ ~-1 ~ ${test}`).catch(() => ''));
 	const wet = await top('minecraft:water') || await top('minecraft:lava') || await top('#minecraft:ice') || await top('minecraft:powder_snow');
-	return { x, z, wet };
+	// The body is summoned over motion_blocking_no_leaves: under a tree that is the ground inside the canopy, with leaves in
+	// its feet or head cell, where no player can stand and every dig sightline starts inside a leaf (seed 31005 lane 1 made
+	// no armour in 35 min: every search ended FIND_BLOCKED after 0 blocks walked).
+	const inLeaves = async (dy) => /passed/i.test(await s.command(`execute positioned ${x} 0 ${z} positioned over motion_blocking_no_leaves if block ~ ~${dy} ~ #minecraft:leaves`).catch(() => ''));
+	const leaves = await inLeaves(0) || await inLeaves(1);
+	return { x, z, wet: wet || leaves, leaves };
 }
 
 async function landSpot(s, nextSpot) {
@@ -172,6 +177,7 @@ async function landSpot(s, nextSpot) {
 		const [x, z] = nextSpot();
 		const surface = await surfaceAt(s, x, z).catch(() => ({ wet: true }));
 		if (!surface.wet) return [x, z];
+		if (surface.leaves) console.log(`[spot] ${x},${z} skipped: leaves in the body's feet or head cell`);
 		await s.command(`forceload remove ${x} ${z}`).catch(() => {});
 	}
 	throw new Error('no dry soil found in 48 spots round the spawn');
