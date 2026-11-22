@@ -66,23 +66,31 @@ export function baseState(report) {
  * covered" (the green it posts says only that nothing it replays changed), and a mixed diff is "partly covered".
  * changed: the diff's file paths, or null when the diff could not be read.
  */
+/**
+ * The coordinator code a stake replay can reach: coordinator/src, without the parts it never loads (traced 23 Nov:
+ * benchmark harnesses, the decision-eval tooling, the simulator, voice, headless launchers, process helpers, scripts).
+ */
+export const decisionCode = file => /^coordinator\/src\//.test(file) && !/\.ps1$/.test(file)
+	&& !/^coordinator\/src\/(benchmark|decision-eval|simulator|voice)\//.test(file) && !/^coordinator\/src\/(headless-[^/]*|posix-process-[^/]*)$/.test(file);
+
 export function stakeCoverage(changed) {
 	if (!Array.isArray(changed)) return { state: 'unknown', short: 'coverage unknown', line: 'Coverage unknown: the changed files could not be listed.' };
-	const covered = changed.filter(file => /^coordinator\/src\//.test(file));
-	const java = changed.filter(file => /\.java$/.test(file));
-	// Docs and notes change no behaviour; everything else is code or data the stake does not run. The in-game agent's
-	// instructions (coordinator/config: AGENTS.md, SKILL.md, references) are Markdown that changes how the bot plays.
-	const code = changed.filter(file => /^coordinator\/config\//.test(file) || (!/\.md$/i.test(file) && !/^docs\//.test(file)));
+	// Tests and docs change no behaviour. The in-game agent's instructions (coordinator/config: AGENTS.md, SKILL.md,
+	// references) are Markdown that changes how the bot plays, so they count as code.
+	const neutral = file => /^(coordinator\/test|src\/test|src\/compat\/[^/]+\/test)\//.test(file) || /^docs\//.test(file) || (/\.md$/i.test(file) && !/^coordinator\/config\//.test(file));
+	const code = changed.filter(file => !neutral(file));
+	const covered = code.filter(decisionCode);
+	const java = code.filter(file => /\.java$/.test(file));
 	const count = (n, what) => `${n} ${what}${n === 1 ? '' : 's'}`;
-	if (!code.length) return { state: 'no code change', covered: 0, code: 0, java: 0, short: 'no code change', line: `Coverage: no code change (${count(changed.length, 'file')}, docs only).` };
+	if (!code.length) return { state: 'no code change', covered: 0, code: 0, java: 0, short: 'no code change', line: `Coverage: no code change (${count(changed.length, 'file')}: tests and docs only).` };
 	if (!covered.length) {
 		const javaOnly = java.length === code.length;
-		return { state: 'not covered', covered: 0, code: code.length, java: java.length, short: `not covered (${javaOnly ? 'Java-only diff' : 'no coordinator/src change'})`,
-			line: `Coverage: **not covered**. ${count(code.length, 'changed code file')}${java.length ? ` (${java.length} Java)` : ''}, none in coordinator/src, which is all the stake replays. A pass here says nothing about this change.` };
+		return { state: 'not covered', covered: 0, code: code.length, java: java.length, short: `not covered (${javaOnly ? 'Java-only diff' : 'no decision-code change'})`,
+			line: `Coverage: **not covered**. ${count(code.length, 'changed code file')}${java.length ? ` (${java.length} Java)` : ''}, none in the coordinator decision code, which is all the stake replays. A pass here says nothing about this change.` };
 	}
 	if (covered.length < code.length) return { state: 'partly covered', covered: covered.length, code: code.length, java: java.length, short: `partly covered (${covered.length} of ${code.length} code files)`,
-		line: `Coverage: **partly covered**. ${covered.length} of ${count(code.length, 'changed code file')} are in coordinator/src, which the stake replays; the other ${code.length - covered.length}${java.length ? ` (${java.length} Java)` : ''} are not exercised.` };
-	return { state: 'covered', covered: covered.length, code: code.length, java: 0, short: `covers ${count(covered.length, 'coordinator/src file')}`, line: `Coverage: every changed code file (${covered.length}) is in coordinator/src, which the stake replays.` };
+		line: `Coverage: **partly covered**. ${covered.length} of ${count(code.length, 'changed code file')} ${covered.length === 1 ? 'is' : 'are'} coordinator decision code, which the stake replays; ${code.length - covered.length === 1 ? 'the other is' : `the other ${code.length - covered.length} are`} not exercised${java.length ? ` (${java.length} Java)` : ''}.` };
+	return { state: 'covered', covered: covered.length, code: code.length, java: 0, short: `covers ${count(covered.length, 'decision-code file')}`, line: `Coverage: every changed code file (${covered.length}) is coordinator decision code, which the stake replays.` };
 }
 
 export function stakeHeadline(report) {

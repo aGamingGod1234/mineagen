@@ -12,22 +12,27 @@ test('a Java-only diff reads "not covered" first in the status, though the stake
 	const headline = stakeHeadline(java);
 	assert.equal(headline.description, 'not covered (Java-only diff) · head passes · 4/4 same · 0 diffs · 168 ms');
 	assert.equal(headline.coverage.state, 'not covered');
-	assert.equal(headline.coverage.java, 2);
-	assert.match(formatStake(java), /Coverage: \*\*not covered\*\*\. 2 changed code files \(2 Java\), none in coordinator\/src, which is all the stake replays\. A pass here says nothing about this change\./);
+	assert.equal(headline.coverage.java, 1, 'the Java test file is a test, not code');
+	assert.match(formatStake(java), /Coverage: \*\*not covered\*\*\. 1 changed code file \(1 Java\), none in the coordinator decision code, which is all the stake replays\. A pass here says nothing about this change\./);
 	assert.ok(headline.description.length <= 140);
 	const scripts = stakeHeadline(report(['scripts/quality/lib/room-batch-core.mjs']));
-	assert.match(scripts.description, /^not covered \(no coordinator\/src change\) · head passes/);
+	assert.match(scripts.description, /^not covered \(no decision-code change\) · head passes/);
 });
 
 test('a coordinator diff is covered, a mixed diff partly covered, docs alone no code change, an unread diff unknown', () => {
 	const coordinator = stakeHeadline(report(['coordinator/src/search-danger.mjs', 'coordinator/src/reflexes.mjs', 'README.md']));
-	assert.equal(coordinator.description, 'covers 2 coordinator/src files · head passes · 4/4 same · 0 diffs · 168 ms');
+	assert.equal(coordinator.description, 'covers 2 decision-code files · head passes · 4/4 same · 0 diffs · 168 ms');
 	const mixed = stakeCoverage(['coordinator/src/search-danger.mjs', 'src/main/java/A.java', 'scripts/quality/x.mjs']);
 	assert.deepEqual([mixed.state, mixed.short], ['partly covered', 'partly covered (1 of 3 code files)']);
-	assert.match(mixed.line, /the other 2 \(1 Java\) are not exercised/);
+	assert.match(mixed.line, /1 of 3 changed code files is coordinator decision code, which the stake replays; the other 2 are not exercised \(1 Java\)/);
 	assert.equal(stakeCoverage(['docs/a.md', 'AGENTS.md']).state, 'no code change');
 	// The in-game agent's instructions are gameplay, not docs: not covered alone, partly covered beside coordinator code.
-	assert.equal(stakeCoverage(['coordinator/config/minecraft-agent/AGENTS.md']).short, 'not covered (no coordinator/src change)');
+	assert.equal(stakeCoverage(['coordinator/config/minecraft-agent/AGENTS.md']).short, 'not covered (no decision-code change)');
+	// A fix with its own test is covered; coordinator code the stake never loads is not.
+	assert.equal(stakeCoverage(['coordinator/src/obtain-runner.mjs', 'coordinator/test/obtain-placement-support.test.mjs']).short, 'covers 1 decision-code file');
+	for (const file of ['coordinator/src/posix-process-group.mjs', 'coordinator/src/decision-eval/judge.mjs', 'coordinator/src/benchmark/long-run-artifacts.mjs', 'coordinator/src/voice/x.mjs', 'coordinator/src/headless-runner.mjs'])
+		assert.equal(stakeCoverage([file]).state, 'not covered', file);
+	assert.equal(stakeCoverage(['coordinator/test/a.test.mjs']).state, 'no code change');
 	assert.equal(stakeCoverage(['coordinator/config/minecraft-agent/.codex/skills/minecraft-control/SKILL.md', 'coordinator/src/reflexes.mjs']).state, 'partly covered');
 	assert.equal(stakeCoverage(null).short, 'coverage unknown');
 	assert.equal(stakeHeadline(report(null)).description, 'head passes · 4/4 same · 0 diffs · 168 ms', 'unknown coverage makes no claim in the status');
