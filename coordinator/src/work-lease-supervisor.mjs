@@ -55,6 +55,8 @@ export class WorkLeaseSupervisor {
 	#onStuck;
 	#closed = false;
 	#lastNow = 0;
+	/** When the Minecraft server reported a pause (single-player Esc), or null: no deadline runs out while paused. */
+	#pausedAt = null;
 
 	constructor({
 		clock = Date.now,
@@ -116,6 +118,39 @@ export class WorkLeaseSupervisor {
 		lease.lastProgressAt = this.#now();
 		lease.deadline = lease.lastProgressAt + lease.timeoutMs;
 		this.#armLease(entry, lease);
+		return true;
+	}
+
+	/**
+	 * The Minecraft server is paused (a single-player Esc) or running again. While paused no work lease expires and no goal
+	 * reads as stuck; on resume every deadline and progress mark moves out by the time paused, so a step resumes where it
+	 * was instead of being cancelled (playtest: a 13 s pause cancelled the bot's running obtain).
+	 */
+	serverPaused(paused) {
+		if (this.#closed || paused === (this.#pausedAt !== null)) return false;
+		const now = this.#now();
+		if (paused) {
+			this.#pausedAt = now;
+			for (const entry of this.#entries.values()) {
+				for (const lease of entry.leases.values()) this.#cancelLeaseTimer(lease);
+				if (entry.stuckHandle !== null) { this.#cancelStuckSchedule(entry.stuckHandle); entry.stuckHandle = null; }
+			}
+			return true;
+		}
+		const pausedAt = this.#pausedAt;
+		this.#pausedAt = null;
+		for (const entry of this.#entries.values()) {
+			for (const lease of entry.leases.values()) {
+				const held = Math.max(0, now - Math.max(pausedAt, lease.lastProgressAt));
+				lease.deadline += held;
+				lease.lastProgressAt += held;
+				this.#armLease(entry, lease);
+			}
+			if (entry.state !== 'suspended' && entry.state !== 'terminated') {
+				entry.lastFactualProgressAt += Math.max(0, now - Math.max(pausedAt, entry.lastFactualProgressAt));
+				this.#armStuck(entry);
+			}
+		}
 		return true;
 	}
 
@@ -248,6 +283,8 @@ export class WorkLeaseSupervisor {
 	}
 
 	#armLease(entry, lease) {
+		// Paused: armed again on resume with the paused time added.
+		if (this.#pausedAt !== null) return;
 		const delay = Math.max(0, lease.deadline - this.#now());
 		const generation = ++lease.timerGeneration;
 		lease.handle = this.#schedule(() => {
@@ -273,6 +310,7 @@ export class WorkLeaseSupervisor {
 
 	#armStuck(entry) {
 		if (entry.stuckHandle !== null) this.#cancelStuckSchedule(entry.stuckHandle);
+		if (this.#pausedAt !== null) { entry.stuckHandle = null; return; }
 		const expectedProgressAt = entry.lastFactualProgressAt;
 		entry.stuckHandle = this.#stuckSchedule(() => {
 			entry.stuckHandle = null;

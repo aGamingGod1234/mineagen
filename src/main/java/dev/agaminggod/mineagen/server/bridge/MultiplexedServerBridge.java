@@ -190,6 +190,8 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 	private final int port;
 	private final ServerSocketFactory serverSockets;
 	private final LongSupplier nanoTime;
+	/** When the server thread last began a tick ({@link #nanoTime}); 0 before the first. Read by the reader thread. */
+	private volatile long lastTickNanos;
 	private final GoalVerificationDedupe goalVerifications;
 	private final BoundedServerTaskQueue serverTasks = new BoundedServerTaskQueue(
 			SERVER_TASK_BULK_CAP + SERVER_TASK_URGENT_RESERVE + SERVER_TASK_CONTROL_RESERVE,
@@ -437,6 +439,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 	 * Every callback in this method must run on the server thread.
 	 */
 	public void startTick() {
+		lastTickNanos = nanoTime.getAsLong();
 		admissionTicks++;
 		flushPublicChat();
 		drainServerTasks();
@@ -1002,6 +1005,17 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		if (!serverInstanceId.equals(envelope.serverInstanceId())) {
 			throw new BridgeProtocolException("SERVER_INSTANCE_MISMATCH", "Authenticated session changed serverInstanceId");
 		}
+		// Answered on this reader thread, which keeps running while a single-player game is paused. Queued for the server
+		// thread, a paused game sent no reply, the coordinator called the link dead after 15 s and cancelled the bot's step
+		// (playtest: Esc for 13 s). The reply says how long ago the server last ticked and whether it is paused, so a hung
+		// server still reads as dead to a coordinator that announced tickClock; an older one gets the empty reply, on time.
+		if ("heartbeat".equals(envelope.type())) {
+			synchronized (publicationLock) {
+				if (session == source && source.open.get() && source.authenticated.get())
+					send("heartbeat", "server", source.tickClock ? heartbeatPayload() : new JsonObject());
+			}
+			return;
+		}
 		if (!serverTasks.offer(inboundLane(envelope.type()), () -> {
 			synchronized (publicationLock) {
 				if (session != source || !source.open.get() || !source.authenticated.get()) return;
@@ -1010,6 +1024,17 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		})) {
 			throw new BridgeProtocolException("SERVER_TASK_QUEUE_FULL", "Coordinator exceeded the bounded server task queue");
 		}
+	}
+
+	/** How long ago the server thread last began a tick, and whether the server is paused (a single-player pause). */
+	JsonObject heartbeatPayload() {
+		long last = lastTickNanos;
+		long ageMs = last == 0L ? 0L : Math.max(0L, (nanoTime.getAsLong() - last) / 1_000_000L);
+		net.minecraft.server.MinecraftServer server = manager.server();
+		JsonObject payload = new JsonObject();
+		payload.addProperty("tickAgeMs", ageMs);
+		payload.addProperty("paused", server != null && server.isPaused());
+		return payload;
 	}
 
 	static BoundedServerTaskQueue.Lane inboundLane(String type) {
@@ -1101,6 +1126,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		source.dropAheadFacts = announcedCapability(envelope.payload(), "dropAheadFacts");
 		source.pausedByFacts = announcedCapability(envelope.payload(), "pausedByFacts");
 		source.killFacts = announcedCapability(envelope.payload(), "killFacts");
+		source.tickClock = announcedCapability(envelope.payload(), "tickClock");
 		source.actionIssuer = announcedCapability(envelope.payload(), "actionIssuer");
 
 		while (true) {
@@ -4515,6 +4541,8 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		private volatile boolean placementFacts;
 		private volatile boolean dropAheadFacts;
 		private volatile boolean pausedByFacts;
+		/** The coordinator reads heartbeat tickAgeMs and paused (see {@link #heartbeatPayload}); an older one rejects them. */
+		private volatile boolean tickClock;
 		private volatile boolean killFacts;
 		private volatile boolean actionIssuer;
 		private volatile String clientNonce;

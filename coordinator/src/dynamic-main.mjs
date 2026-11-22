@@ -1527,6 +1527,12 @@ export class DynamicCoordinator extends EventEmitter {
 		}, { lifecycle: true });
 		this.#listen('transportError', (error) => this.emit('runtimeError', error), { lifecycle: true });
 		this.#listen('heartbeatLate', (event) => this.#writeTrace('bridge_heartbeat_late', { lateMs: event?.lateMs ?? null }), { lifecycle: true });
+		// A single-player pause stops the game, not the bot's work: its deadlines wait and the running step resumes after.
+		this.#listen('serverPause', (event) => {
+			const paused = event?.paused === true;
+			this.#goalSupervisor.serverPaused?.(paused);
+			this.#writeTrace(paused ? 'bridge_server_paused' : 'bridge_server_resumed', { tickAgeMs: event?.tickAgeMs ?? null });
+		}, { lifecycle: true });
 	}
 
 	#beginReconciliation(registry, connectionEpoch, { providerOnly = false } = {}) {

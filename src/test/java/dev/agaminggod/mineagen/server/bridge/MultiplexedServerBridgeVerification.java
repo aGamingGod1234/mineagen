@@ -125,6 +125,7 @@ public final class MultiplexedServerBridgeVerification {
 		verifyActionProgressReachesCoordinator();
 		verifyBlockTagCapability();
 		verifyPlanFactsWireCapability();
+		verifyHeartbeatAnsweredWithoutTicks();
 		verifyPlanFactsBackpressureSnapshot();
 		verifyBodyFactsCapability();
 		verifyBreakExposureCapability();
@@ -1743,6 +1744,53 @@ public final class MultiplexedServerBridgeVerification {
 				} catch (java.io.IOException exception) {
 					throw new AssertionError("could not remove atomic-pending secret", exception);
 				}
+			}
+		}
+	}
+
+	/**
+	 * Playtest: a single-player pause stops server ticks, the heartbeat reply waited for one, and the coordinator dropped
+	 * the link after 15 s, cancelling the bot's step. The reply now comes from the bridge's reader thread with no server
+	 * tick at all; a coordinator that announced tickClock also gets the tick age and pause state, an older one the empty
+	 * reply its strict schema accepts.
+	 */
+	private static void verifyHeartbeatAnsweredWithoutTicks() {
+		for (boolean tickClock : List.of(false, true)) {
+			MultiplexedServerBridge bridge = null;
+			Path secretFile = null;
+			try {
+				String secret = "0123456789abcdef0123456789abcdef";
+				secretFile = Files.createTempFile("mineagen-heartbeat-secret-", ".txt");
+				Files.writeString(secretFile, secret);
+				AgentManager manager = uninitializedManager();
+				bridge = new MultiplexedServerBridge(manager, 0, secretFile);
+				bridge.start();
+				BridgeEnvelopeCodec codec = new BridgeEnvelopeCodec();
+				try (Socket socket = new Socket(MultiplexedServerBridge.LOOPBACK_HOST, bridge.boundPortForVerification());
+					 BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8))) {
+					socket.setSoTimeout(2_000);
+					AuthenticationExchange exchange = beginAuthentication(socket, reader, codec, secret, "hello-heartbeat");
+					writeAuthenticatedHello(socket, codec, secret, null, "hello-heartbeat", exchange, false, false, tickClock ? "tickClock" : null);
+					BridgeEnvelope hello = codec.decode(reader.readLine());
+					assertEquals("hello_ack", hello.type(), "the coordinator authenticates");
+					writeEnvelope(socket, codec, new BridgeEnvelope(2, hello.serverInstanceId(), "server", "heartbeat", "paused-heartbeat", new JsonObject()));
+					// No startTick or endTick runs here: a paused game ticks nothing, and the reply must still come.
+					BridgeEnvelope reply = codec.decode(reader.readLine());
+					// Publications the handshake queued may come first; only the heartbeat is waited for.
+					for (int skipped = 0; !"heartbeat".equals(reply.type()) && skipped < 8; skipped++) reply = codec.decode(reader.readLine());
+					assertEquals("heartbeat", reply.type(), "the heartbeat is answered without a server tick");
+					if (tickClock) {
+						assertTrue(reply.payload().has("tickAgeMs") && reply.payload().get("tickAgeMs").getAsLong() >= 0L, "the reply carries the tick age");
+						assertTrue(reply.payload().has("paused") && !reply.payload().get("paused").getAsBoolean(), "no server, not paused");
+					} else {
+						assertTrue(reply.payload().size() == 0, "an older coordinator gets the empty heartbeat its schema accepts");
+					}
+				}
+			} catch (Exception exception) {
+				throw new AssertionError("heartbeat without ticks verification failed", exception);
+			} finally {
+				if (bridge != null) bridge.close();
+				deleteIfExists(secretFile);
 			}
 		}
 	}
@@ -4116,6 +4164,13 @@ public final class MultiplexedServerBridgeVerification {
 			Socket socket, BridgeEnvelopeCodec codec, String secret, String launchId,
 			String messageId, AuthenticationExchange exchange, boolean actionTiming, boolean planFacts
 	) throws Exception {
+		writeAuthenticatedHello(socket, codec, secret, launchId, messageId, exchange, actionTiming, planFacts, null);
+	}
+
+	private static void writeAuthenticatedHello(
+			Socket socket, BridgeEnvelopeCodec codec, String secret, String launchId,
+			String messageId, AuthenticationExchange exchange, boolean actionTiming, boolean planFacts, String extraCapability
+	) throws Exception {
 		String clientNonce = exchange.clientNonce();
 		String serverNonce = exchange.serverNonce();
 		BridgeEnvelope response = exchange.response();
@@ -4129,6 +4184,7 @@ public final class MultiplexedServerBridgeVerification {
 		if (launchId != null) payload.addProperty("launchId", launchId);
 		if (actionTiming) payload.addProperty("actionTiming", true);
 		if (planFacts) payload.addProperty("planFacts", true);
+		if (extraCapability != null) payload.addProperty(extraCapability, true);
 		socket.getOutputStream().write(codec.encode(new BridgeEnvelope(
 				2, response.serverInstanceId(), "server", "hello", messageId, payload
 		)).getBytes(StandardCharsets.UTF_8));
