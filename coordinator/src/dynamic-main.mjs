@@ -2727,16 +2727,19 @@ export class DynamicCoordinator extends EventEmitter {
 		const record = this.#registry.get(work.agentId);
 		const open = this.#choiceMoments?.offered(work.agentId) ?? null;
 		let signals = open?.signals ?? null;
+		let emergency = null;
 		const latest = record === null ? null : this.#nativeRuntime.latestObservation(record)?.observation ?? null;
 		if (open !== null && latest !== null) {
 			try {
 				const fresh = momentSignals({ observation: latest });
+				emergency = fresh.emergency;
 				// No targeting hostile in the latest observation is a real update: fight or flee then goes back to the model.
 				signals = { ...signals, threats: fresh.threats, position: fresh.position ?? signals.position,
 					block: fresh.block ?? signals.block, facing: fresh.facing ?? signals.facing, foodToHotbar: open.kind === 'food_stored' ? fresh.foodToHotbar : signals.foodToHotbar };
 			} catch { /* the offer's own facts stand */ }
 		}
-		const planned = open === null ? { kind: 'invalid' } : planChoice(open.kind, key, signals);
+		// An emergency since the offer outranks every answer: no fight, carry-on or lava use takes the body from escape.
+		const planned = open === null ? { kind: 'invalid' } : emergency !== null ? { kind: 'emergency', emergency } : planChoice(open.kind, key, signals);
 		const running = record === null ? null : this.#nativeRuntime.runningAction(record);
 		const { plan, cancel } = againstRunning(planned, running, work.goalRevision);
 		if (planned.kind !== 'invalid') this.#choiceMoments.clear(work.agentId);

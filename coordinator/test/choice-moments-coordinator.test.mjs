@@ -116,3 +116,18 @@ test('if the hostile is gone by the time the bot answers, back off goes back to 
 	assert.match(result.choice, /make the tool call that does it now/, result.choice);
 	assert.equal(run.bridge.sent.some(x => x.type === 'action_command'), false);
 });
+
+test('an emergency after the offer stops the chosen fight: drowning keeps the body for escape', async t => {
+	const { run, request, traces } = await launch(t, { MINEAGEN_CHOICE_TOOL: 'on' });
+	run.bridge.emit('observation', { agentId: 'agent-a', payload: { ready: true, position: { x: 0, y: 50, z: 0 }, view: { yaw: 0, pitch: 0 },
+		inventory: { items: [] }, entities: [], blocks: [], world: { dimension: 'minecraft:overworld', gameTime: 40, dayTime: 1040, raining: false, thundering: false },
+		goalRevision: 1, eventSequence: 2, observedAtEpochMs: 2, attention: false, changedFacts: [], threats: { entries: [zombie] },
+		player: { health: 6, maxHealth: 20, air: 40, maxAir: 300, underWater: true, foodLevel: 20, onGround: false } } });
+	await new Promise(resolve => setTimeout(resolve, 20));
+	const pending = choose(request, 'fight');
+	await new Promise(resolve => setTimeout(resolve, 30));
+	assert.equal(run.bridge.sent.some(x => x.type === 'action_command'), false, 'no fight is sent to the body');
+	const result = await pending;
+	assert.match(result.choice, /running out of air comes first/, result.choice);
+	assert.deepEqual(traces.filter(x => x.event === 'choice_made').map(x => x.plan), ['emergency']);
+});

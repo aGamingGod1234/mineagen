@@ -51,6 +51,10 @@ const CAVE_NEAR_BLOCKS = 32;
 const LAVA_CLOSE_BLOCKS = 4;
 // An open offer is answered from the facts of its own moment; after this the moment is over.
 const OFFER_TTL_MS = 60_000;
+// The drowning wake line's own threshold (dynamic-main survivalFactLine): 7.5 s, 150 air ticks at 20 a second.
+const AIR_EMERGENCY_SECONDS = 7.5;
+// Vanilla fall damage starts past 3 blocks.
+const FALL_EMERGENCY_BLOCKS = 3;
 
 export const CHOOSE_RESPONSE_TOOL = Object.freeze({
 	type: 'function', name: 'choose_response',
@@ -74,6 +78,7 @@ export function momentSignals({ observation = {}, trigger = null, changed = null
 		? [...taskFacts.matchAll(CAVE_LEAD)].find((m) => Number(m[1]) <= CAVE_NEAR_BLOCKS) ?? null : null;
 	const contexts = safe(() => activeContexts(observation)) ?? new Set();
 	return {
+		emergency: emergencyNow(player),
 		health: Number.isFinite(player.health) ? player.health : null,
 		threats,
 		// The death screen is not the respawn: only respawn acts while dead, so the choice waits for the living body.
@@ -98,6 +103,9 @@ export function momentSignals({ observation = {}, trigger = null, changed = null
 /** The one moment kind these signals flag, most urgent first, or null. */
 export function flagMoment(s) {
 	if (s.dead) return null;
+	// Air, lava, fire, a fall or a block at the head kill in seconds: the wake's own emergency line and do_step escape
+	// answer those, and no menu (fight, use lava, carry on) may run ahead of them or take the body.
+	if (s.emergency) return null;
 	if (s.respawned) return 'respawned';
 	if (s.health !== null && s.health <= 8) return 'low_health';
 	if (s.threats.length > 0) return 'threat';
@@ -206,6 +214,7 @@ const BACKGROUND_VERBS = new Set(['travel_to', 'build_shelter']);
 export function choiceResultText(kind, key, plan, body = null) {
 	const meaning = CHOICE_MENUS[kind]?.[key];
 	if (plan.kind === 'invalid') return `${JSON.stringify(key)} is not a listed response${kind ? ` (keys: ${Object.keys(CHOICE_MENUS[kind]).join(', ')})` : '; no moment is open'}. Carry on with your next call.`;
+	if (plan.kind === 'emergency') return `Not carried out: ${EMERGENCY_TEXT[plan.emergency] ?? 'an emergency'} comes first. Deal with it now (do_step escape gets you out of water, lava, fire or a hole); the menu is closed.`;
 	if (plan.kind === 'carry_on') return `Chosen: ${meaning}. The running step goes on; make your next call as usual.`;
 	if (plan.kind === 'hand_back') return `Chosen: ${meaning}. No body step does this by itself: make the tool call that does it now.`;
 	const what = plan.name === 'do_step' ? plan.args.verb : plan.args.actionType;
@@ -235,6 +244,22 @@ function facing(yaw) {
 function blockPosition(o) {
 	const p = o?.position ?? o?.player ?? {};
 	return [p.x, p.y, p.z].every(Number.isFinite) ? { x: Math.floor(p.x), y: Math.floor(p.y), z: Math.floor(p.z) } : null;
+}
+const EMERGENCY_TEXT = Object.freeze({ air: 'you are running out of air', lava: 'you are in lava', fire: 'you are burning', falling: 'you are falling', suffocation: 'you are suffocating in a block' });
+/** The emergency the body is in now ('air', 'lava', 'fire', 'falling', 'suffocation'), or null. */
+export function emergencyNow(player = {}) {
+	if (player == null || typeof player !== 'object' || player.dead === true) return null;
+	const fireproof = Array.isArray(player.effects) && player.effects.some((e) => e?.effectId === 'minecraft:fire_resistance' || e?.[0] === 'minecraft:fire_resistance');
+	if (player.suffocating === true) return 'suffocation';
+	if (player.underWater === true) {
+		const seconds = Number.isFinite(player.airSecondsLeft) ? player.airSecondsLeft : Number.isFinite(player.air) ? player.air / 20 : null;
+		if (seconds !== null && seconds <= AIR_EMERGENCY_SECONDS) return 'air';
+	}
+	if (!fireproof && (player.inLava === true || player.hazard === 'lava')) return 'lava';
+	if (!fireproof && (player.onFire === true || player.fire === true || player.hazard === 'fire')) return 'fire';
+	if (player.onGround === false && Number.isFinite(player.fallDistance) && player.fallDistance > FALL_EMERGENCY_BLOCKS
+		&& player.inWater !== true && player.gliding !== true && player.onClimbable !== true) return 'falling';
+	return null;
 }
 function threatId(t) { return t?.uuid ?? t?.id ?? t?.stableId ?? null; }
 function safeKitStep(observation) { return safe(() => nextKitStep(observation)); }

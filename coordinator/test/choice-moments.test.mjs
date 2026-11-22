@@ -116,6 +116,22 @@ test('each body plan is a valid model tool call', () => {
 	assert.equal(planChoice('threat', 'retreat_cover', { ...s, threats: [] }).kind, 'hand_back');
 });
 
+test('air, lava, fire and falls outrank every menu, so the emergency line and escape lead the wake', () => {
+	const drowned = { ...zombie, type: 'minecraft:drowned' };
+	const drowning = momentSignals({ observation: observation({ health: 6, threats: [drowned], underWater: true, air: 60 }) });
+	assert.equal(drowning.emergency, 'air');
+	assert.equal(flagMoment(drowning), null, 'drowning at 6 HP with a drowned on it is not a fight-or-run menu');
+	assert.equal(flagMoment(momentSignals({ observation: observation({ health: 6, underWater: true, airSecondsLeft: 12 }) })), 'low_health', 'plenty of air left is not an emergency');
+	const lavaBlocks = { blocks: [{ blockId: 'minecraft:lava', x: 0, y: 64, z: 0 }] };
+	assert.equal(flagMoment(momentSignals({ observation: observation({ x: 0, y: 64, z: 0, inLava: true }, lavaBlocks) })), null, 'touching lava offers no use_lava or carry_on');
+	assert.equal(flagMoment(momentSignals({ observation: observation({ x: 0, y: 64, z: 0, hazard: 'lava' }, lavaBlocks) })), null);
+	assert.equal(flagMoment(momentSignals({ observation: observation({ onFire: true, threats: [zombie] }) })), null, 'burning outranks a threat menu');
+	assert.equal(flagMoment(momentSignals({ observation: observation({ onGround: false, fallDistance: 9, threats: [zombie] }) })), null, 'falling outranks a threat menu');
+	assert.equal(flagMoment(momentSignals({ observation: observation({ onGround: false, fallDistance: 1, threats: [zombie] }) })), 'threat', 'a hop is not a fall');
+	assert.equal(flagMoment(momentSignals({ observation: observation({ x: 0, y: 64, z: 0, inLava: true, effects: [{ effectId: 'minecraft:fire_resistance' }] }, lavaBlocks) })), 'lava_seen', 'fire resistance makes lava harmless');
+	assert.match(choiceResultText('low_health', 'fight', { kind: 'emergency', emergency: 'air' }), /running out of air comes first/);
+});
+
 test('lava is a moment only within 4 blocks', () => {
 	const lava = (d) => observation({ x: 0, y: 64, z: 0 }, { blocks: [{ blockId: 'minecraft:lava', x: d, y: 64, z: 0 }] });
 	assert.equal(flagMoment(momentSignals({ observation: lava(2) })), 'lava_seen');
