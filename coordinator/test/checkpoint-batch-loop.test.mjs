@@ -33,6 +33,8 @@ id=$1; dir=$HOME/ck/games/$id; raw=$HOME/ck/arms/runs/$id; mkdir -p "$raw/.codex
 [ -f "$FAKE_BOAT_ROOT/NODONE" ] && [ ! -f "$FAKE_BOAT_ROOT/nodone-$id" ] && { touch "$FAKE_BOAT_ROOT/nodone-$id"; exit 0; }
 # A BROKEN file in a machine's home makes every launch there end without a done file (a full disk, a wiped ~/ck).
 [ -f "$HOME/BROKEN" ] && exit 0
+# A SLOW file keeps each game on that machine running across a few passes.
+[ -f "$HOME/SLOW" ] && sleep 1
 cp "$HOME/.codex/auth.json" "$raw/.codex-home/auth.json"; [ -f "$FAKE_BOAT_ROOT/REFRESH" ] && echo refreshed >> "$raw/.codex-home/auth.json"
 echo '{"event":"native_token_usage"}' > "$raw/coordinator.jsonl"
 echo "Running q: $raw" > "$dir/run.log"; echo '{}' > "$dir/ledger.json"
@@ -150,5 +152,17 @@ test('checkpoint batch drops a machine whose launches end without a done file tw
 		assert.equal(state.machines.find(m => m.id === 'bx_bbbbbbbb').lost, true);
 		assert.match(readFileSync(path.join(root, 'out/batch.log'), 'utf8'), /dropping bx_bbbbbbbb: 2 launches in a row/);
 		assert.equal(leftSignIns(root), '0');
+	} finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('checkpoint batch does not hand a game back to the machine it just died on while another machine can take it', posixOnly, () => {
+	const root = setup();
+	writeFileSync(path.join(root, 'bx_bbbbbbbb/BROKEN'), ''); writeFileSync(path.join(root, 'bx_aaaaaaaa/SLOW'), '');
+	try {
+		run(root);
+		const state = JSON.parse(readFileSync(path.join(root, 'out/state.json'), 'utf8'));
+		assert.deepEqual(state.games.map(g => g.state), ['done', 'done', 'done', 'done']);
+		assert.ok(state.games.every(g => g.machine === 'bx_aaaaaaaa' && g.attempts <= 2));
+		assert.equal(state.machines.find(m => m.id === 'bx_bbbbbbbb').lost, true);
 	} finally { rmSync(root, { recursive: true, force: true }); }
 });

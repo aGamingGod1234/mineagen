@@ -96,7 +96,7 @@ const gameScript = path.join(out, 'pkg', 'game.sh');
 await writeFile(gameScript, `#!/bin/bash
 # game.sh ID ARM SAVEPOINT_FILE MINUTES SALT MODEL EFFORT: one game on this machine; writes ~/ck/games/ID/done when it ends.
 id=$1 arm=$2 sp=$3 mins=$4 salt=$5 model=$6 effort=$7
-dir=$HOME/ck/games/$id; mkdir -p "$dir"
+dir=$HOME/ck/games/$id; mkdir -p "$dir"; echo $$ > "$dir/sid"
 unset OPENAI_API_KEY CODEX_API_KEY ANTHROPIC_API_KEY CODEX_HOME
 while IFS='=' read -r key value; do [ -n "$key" ] && export "$key=$value"; done < "$HOME/ck/arms/$arm/env"
 export PATH=$HOME/.local/bin:$PATH JAVA_HOME=$HOME/rooms/jdk ARENA_HEADLESS_SERVER_TEMPLATE=$HOME/rooms/template-26.3
@@ -130,10 +130,11 @@ let created = 0, spares = plan.spares ?? 0, stopped = false, aborted = false, si
 // The first signal starts no new game and lets running ones finish; a second ends the running games and goes straight
 // to the cleanup (sign-ins off, created machines deleted). A hang-up counts as a signal too.
 const onSignal = () => { if (stopped) aborted = true; stopped = true; };
-// After a hang-up the terminal is gone and a write to it fails; batch.log still gets every line, and the runner must
-// live on to its cleanup.
+for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, onSignal);
+// A hang-up (one terminal close can send two) only stops new starts: running games finish and are copied home. The
+// terminal is gone, so writes to it fail; those are ignored and batch.log still gets every line.
+process.on('SIGHUP', () => { stopped = true; });
 for (const stream of [process.stdout, process.stderr]) stream.on('error', () => {});
-for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(signal, onSignal);
 // A created machine's boat deadline: the whole game window plus an hour for setup and copy-back, at least 2 hours.
 const TTL_SECONDS = Math.max(2 * 3600, (plan.minutes + 60) * 60);
 async function destroyWithRetry(id, tries = 3) {
@@ -187,6 +188,7 @@ async function start(vm, game) {
 	const copied = (await remote(vm.id, 'chmod 600 ~/.codex/auth.json; sha256sum ~/.codex/auth.json | cut -c1-64')).trim();
 	if (copied !== authShas[game.account]) throw new Error(`sign-in ${game.account + 1} did not copy intact to ${vm.id}`);
 	game.state = 'running'; game.attempts++; game.machine = vm.id; game.startedAt = new Date().toISOString(); vm.game = game.id; vm.signInRemoved = false;
+	game.timingOut = false; game.localCopyFailures = 0;
 	await remote(vm.id, `rm -rf ~/ck/games/${game.id}; mkdir -p ~/ck/games/${game.id}\nsetsid nohup ~/ck/game.sh ${game.id} ${game.arm} "$HOME/ck/sp/${game.savepoint}.json" ${plan.minutes} ${game.salt} ${quote(plan.model ?? 'gpt-6.2-sol')} ${quote(plan.effort ?? 'low')} > /dev/null 2>&1 < /dev/null &\necho started`);
 	await log(`started ${game.id} on ${vm.id} (salt ${game.salt}, sign-in ${game.account + 1}, attempt ${game.attempts})`);
 }
@@ -304,9 +306,13 @@ async function check(vm) {
 	// pgrep first, the done file second: game.sh writes done as it exits, so the other order can miss both.
 	const status = await remote(vm.id, `if pgrep -f 'ck/game.sh ${game.id} ' >/dev/null; then echo RUNNING; elif test -f ~/ck/games/${game.id}/done; then echo DONE; else echo GONE; fi`, { timeoutMs: 120_000 });
 	if (/GONE/.test(status) && game.timingOut) {
-		// The hang timeout's kill ended the game but its own call dropped before it wrote done: finish it the same way,
-		// so the partial report is copied home, not wiped by a replay.
-		await remote(vm.id, `mkdir -p ~/ck/games/${game.id}; echo "exit timeout $(date -Is)" > ~/ck/games/${game.id}/done`);
+		// The hang timeout's kill ended game.sh but its own call dropped before it wrote done. run-long may still be
+		// writing its report in the same session (game.sh's pid, which setsid made the session id): wait for that session
+		// to end (up to 5 min), kill what is left, then finish the game the same way, so the report is copied home whole
+		// and no next game starts beside the old one.
+		await remote(vm.id, `d=~/ck/games/${game.id}; sid=$(cat "$d/sid" 2>/dev/null)
+if [ -n "$sid" ]; then for i in $(seq 1 60); do pgrep -s "$sid" >/dev/null || break; sleep 5; done; pkill -KILL -s "$sid"; sleep 2; fi
+mkdir -p "$d"; echo "exit timeout $(date -Is)" > "$d/done"`, { timeoutMs: 10 * 60_000 });
 		await fetch(vm, game); vm.game = null; vm.goneInRow = 0;
 		return;
 	}
@@ -316,6 +322,8 @@ async function check(vm) {
 		// machine (a full disk, a wiped ~/ck) drop the machine, so it cannot lose game after game.
 		const g = loseGame(games, game.id, `game process on ${vm.id} ended without a done file`);
 		await log(`${g.id} is not running on ${vm.id} and wrote no done file; it is ${g.state}`);
+		// The game does not go back to this machine while another can take it (see the start loop).
+		g.avoid = vm.id;
 		vm.game = null;
 		vm.goneInRow = (vm.goneInRow ?? 0) + 1;
 		if (vm.goneInRow >= 2) { await log(`dropping ${vm.id}: ${vm.goneInRow} launches in a row ended without a done file`); await dropMachine(vm); }
@@ -329,9 +337,11 @@ async function check(vm) {
 if [ -n "$sid" ]; then pkill -TERM -s "$sid"; for i in $(seq 1 60); do pgrep -s "$sid" >/dev/null || break; sleep 5; done; pkill -KILL -s "$sid"; sleep 2; fi
 mkdir -p ~/ck/games/${game.id}; echo "exit timeout $(date -Is)" > ~/ck/games/${game.id}/done`, { timeoutMs: 10 * 60_000 });
 		await log(`timed out ${game.id} on ${vm.id}`);
-		await fetch(vm, game); vm.game = null;
+		await fetch(vm, game); vm.game = null; vm.goneInRow = 0;
 		return;
 	}
+	// A running game proves the machine launches games: only launches that die in a row count against it.
+	vm.goneInRow = 0;
 	if (/DONE/.test(status)) { await fetch(vm, game); vm.game = null; vm.goneInRow = 0; }
 }
 // Copies home run in parallel (each is one scp of about 100 MB): a wave that ends together comes back in minutes, not
@@ -361,12 +371,17 @@ try {
 	// Starts stay one at a time, so two machines never take the same game.
 	for (const vm of machines.filter(m => !m.lost && !m.deleted && m.prepared && !m.game)) {
 		if (noMoreGames()) { await tend(vm, () => retire(vm)); continue; }
-		if (underCap() && await meterOk()) await tend(vm, async () => { const game = nextGame(games); if (game) await start(vm, game); });
+		// A game that went GONE on a machine waits for another one, unless no other live machine is left.
+		const others = machines.some(m => m !== vm && !m.lost && !m.deleted);
+		if (underCap() && await meterOk()) await tend(vm, async () => { const game = nextGame(others ? games.filter(g => g.avoid !== vm.id) : games); if (game) await start(vm, game); });
 	}
 	// A failed local write (a full disk) is retried next pass; the state in memory is complete.
 	await save().then(() => writeSummary(out, state)).catch(error => log(`could not write the state: ${error.message}`));
 	const running = machines.some(m => m.game && !m.lost);
-	const startable = !stopped && !signInChanged && !meterLow && !existsSync(path.join(out, 'STOP')) && canStart(Date.now(), plan) && nextGame(games);
+	// With no live machine left and no spare to make, a queued game can never start: the batch ends instead of waiting
+	// for the deadline.
+	const usable = machines.some(m => !m.lost && !m.deleted) || spares > 0;
+	const startable = usable && !stopped && !signInChanged && !meterLow && !existsSync(path.join(out, 'STOP')) && canStart(Date.now(), plan) && nextGame(games);
 	if (!running && !startable) break;
 	await new Promise(resolve => setTimeout(resolve, POLL_MS));
 	}
