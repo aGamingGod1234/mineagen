@@ -1,0 +1,51 @@
+// Playtest 22 Nov (lane 2): the bot stood on an iron ore at the end of a tunnel, mine_vein refused the block under its
+// feet, and obtain wrote the ore off as unreachable; the next iron trip saw it 2.9 blocks away and tunnelled past it.
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { locate, runObtain } from '../src/obtain-runner.mjs';
+
+const need = { kind: 'block', blocks: ['iron_ore', 'deepslate_iron_ore'], accept: ['raw_iron'], count: 3 };
+const at = (extra = {}) => ({ world: { dimension: 'minecraft:overworld' }, player: { x: 298.5, y: 15, z: -240.5, health: 20, onGround: true },
+	blocks: [], ...extra });
+const ore = { id: 'minecraft:iron_ore', kind: 'block', x: 298, y: 14, z: -261, count: 1, source: 'local', placed: false, dimension: 'minecraft:overworld' };
+
+test('an ore seen earlier and out of view now is walked back to before any new search', async () => {
+	let searched = 0;
+	const body = { observe: async () => at({ seenResources: [ore] }), search: async () => { searched++; return { reasonCode: 'FIND_NOT_FOUND' }; } };
+	const where = await locate(need, body, { budget: { failed: new Set() }, timeoutMs: 60_000 });
+	assert.deepEqual([where?.x, where?.y, where?.z, where?.blockId], [298, 14, -261, 'minecraft:iron_ore']);
+	assert.equal(where.remembered, true);
+	assert.equal(searched, 0, 'no search while a known ore is in walking range');
+});
+
+test('a remembered ore a search found unreachable, or one this run failed at, is not walked back to', async () => {
+	for (const [budget, missed] of [[{ failed: new Set(['298,14,-261']) }, []], [{ failed: new Set() }, [{ x: 298, y: 14, z: -261, why: 'unreachable' }]]]) {
+		let searched = 0;
+		const body = { observe: async () => at({ seenResources: [ore] }), missedPlaces: () => missed,
+			search: async () => { searched++; return { reasonCode: 'FIND_NOT_FOUND' }; } };
+		assert.equal(await locate(need, body, { budget, timeoutMs: 60_000 }), null);
+		assert.equal(searched, 1, 'searches anew instead');
+	}
+});
+
+test('a remembered ore past walking range, a placed block row, or another ore is not picked', async () => {
+	for (const row of [{ ...ore, z: -340 }, { ...ore, id: 'minecraft:gold_ore' }, { ...ore, kind: 'mob' }]) {
+		const body = { observe: async () => at({ seenResources: [row] }), search: async () => ({ reasonCode: 'FIND_NOT_FOUND' }) };
+		assert.equal(await locate(need, body, { budget: { failed: new Set() }, timeoutMs: 60_000 }), null, JSON.stringify(row));
+	}
+});
+
+test('an ore under the body (VEIN_UNDER_BODY) is not written off as unreachable for later searches', async () => {
+	const missed = [];
+	const o = () => ({ world: { dimension: 'minecraft:overworld' }, player: { x: 298.5, y: 15, z: -260.5, health: 20, food: 20, onGround: true },
+		inventory: { selectedSlot: 0, items: [{ itemId: 'minecraft:stone_pickaxe', slot: 0, count: 1, remainingDurability: 100 }] },
+		blocks: [{ blockId: 'minecraft:iron_ore', x: 298, y: 14, z: -261 }, { blockId: 'minecraft:stone', x: 298, y: 14, z: -260 }] });
+	const body = { observe: async () => o(), stopped: () => false, interrupted: () => false, note: () => {},
+		act: async () => ({ state: 'SUCCEEDED', reasonCode: 'DIG_GOAL_REACHED' }),
+		mine: async () => ({ state: 'FAILED', reasonCode: 'VEIN_UNDER_BODY', message: 'every seen block lies under the body' }),
+		search: async () => ({ reasonCode: 'FIND_NOT_FOUND', message: 'not found' }),
+		missPlace: (place, why) => missed.push({ ...place, why }) };
+	let t = 0;
+	await runObtain({ item: 'raw_iron', count: 1, timeoutMs: 60_000 }, body, { now: () => (t += 1000) });
+	assert.deepEqual(missed.filter((row) => row.why === 'unreachable'), [], 'the ore stays a known source');
+});

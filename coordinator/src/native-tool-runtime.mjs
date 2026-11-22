@@ -2678,6 +2678,7 @@ export class NativeToolRuntime {
 			// A place obtain could not reach (an ore across a cave): kept with the searches' missed places, so find no longer
 			// reports it or its vein as a sighting.
 			missPlace: (place, why) => this.#searchBody(request, record, executionEpoch, blockingRun, 'obtain').missPlace(place, why),
+			missedPlaces: () => this.#searchBody(request, record, executionEpoch, blockingRun, 'obtain').missedPlaces(),
 			// A look round before deciding where a source is: what it shows joins the seen resources (seen-resources.mjs).
 			look: (args) => this.#searchBody(request, record, executionEpoch, blockingRun, 'obtain').look(args),
 			// The last open-sky spot the body stood on (kept from every sample): a way out of water it filled in with no dry
