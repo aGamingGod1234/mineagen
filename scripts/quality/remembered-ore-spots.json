@@ -57,8 +57,7 @@
   "expectCode": "OBTAINED",
   "forbid": [
    {
-    "actionType": "dig_to",
-    "pattern": "tunnel"
+    "actionType": "control"
    },
    {
     "actionType": "dig_to",
@@ -67,6 +66,10 @@
    {
     "actionType": "dig_to",
     "pattern": "stairs_down"
+   },
+   {
+    "actionType": "dig_to",
+    "pattern": "stairs_up"
    }
   ],
   "finalProbe": [
