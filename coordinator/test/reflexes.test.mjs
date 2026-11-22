@@ -22,6 +22,12 @@ test('runProgram({reflexes}) alone installs rules in canonical wire form; with s
 	assert.equal(program.kind, 'run_program');
 	assert.deepEqual(program.reflexes, [{ id: 'swap', remove: true }]);
 	assert.throws(() => normalizeMinecraftToolCall('runProgram', { reflexes: [SHIELD], background: true }), /takes only reflexes/);
+	// The reflexes tool is the same rules-only install, offered even when the program tools are not.
+	assert.deepEqual(normalizeMinecraftToolCall('reflexes', { reflexes: [SHIELD, SWAP] }), tool);
+	assert.deepEqual(normalizeMinecraftToolCall('reflexes', { reflexes: [] }), { kind: 'reflexes', reflexes: [] }, 'an empty list only lists the set');
+	assert.deepEqual(normalizeMinecraftToolCall('reflexes', { reflexes: [{ id: 'swap', remove: true }] }).reflexes, [{ id: 'swap', remove: true }]);
+	assert.throws(() => normalizeMinecraftToolCall('reflexes', { reflexes: [SHIELD], source: 'await player.wait(1);' }), { code: 'INVALID_MINECRAFT_TOOL_ARGUMENTS' });
+	assert.throws(() => normalizeMinecraftToolCall('reflexes', {}), { code: 'INVALID_MINECRAFT_TOOL_ARGUMENTS' });
 });
 
 test('act, sequence and a standing order carry reflexes, so the call answering a danger also arms its rules', () => {

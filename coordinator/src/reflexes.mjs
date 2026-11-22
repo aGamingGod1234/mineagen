@@ -17,7 +17,7 @@ export const DEFAULT_REFLEXES = Object.freeze([
 	{ id: 'default-suffocate', kind: 'trigger', priority: 9, when: [{ type: 'suffocating' }], do: { type: 'dig_out' }, ttlMs: 3_600_000 },
 	{ id: 'default-fireball', kind: 'trigger', priority: 8, when: [{ type: 'fireball_incoming', withinS: 1.5, deflectable: true }], do: { type: 'deflect' }, ttlMs: 3_600_000 },
 	// Item-dependent defaults sleep while the item is missing (ReflexEngine), so they never fire empty-handed.
-	// drawn: also a bow drawn at you, as the arrow alone came too late (CP2r: started 2 ticks before impact, 28 of 36
+	// drawn: also a bow drawn at you (or a loaded crossbow aimed at you), as the arrow alone came too late (CP2r: started 2 ticks before impact, 28 of 36
 	// hits with a shield in hand unblocked). 10 s, not the 4 s trigger default: two skeletons drawing in turn hold the
 	// condition true, and four timed-out firings in a row would switch the rule off.
 	{ id: 'default-arrow', kind: 'trigger', priority: 7, when: [{ type: 'incoming_projectile', withinS: 0.6, drawn: true }], do: { type: 'shield' }, maxMs: 10_000, ttlMs: 3_600_000 },
@@ -153,7 +153,7 @@ const COORDINATE = 30_000_000;
 
 /** Condition type -> parameters. Every value is something a player perceives (sight, hearing, the HUD). */
 export const REFLEX_CONDITIONS = Object.freeze({
-	// drawn: also true while a visible mob holds a bow drawn at you, before its arrow flies.
+	// drawn: also true while a visible mob holds a bow drawn at you, or a loaded crossbow while it targets you, before its arrow flies.
 	incoming_projectile: { withinS: number(0.05, 2), projectiles: ids(), drawn: bool() },
 	hostile_near: { within: number(1, 32, true), mobs: ids(), targetId: entityId() },
 	target_in_reach: { mobs: ids() },

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { searchFor } from '../src/find-search.mjs';
+import { checkedSearchBody, searchFor } from './helpers/checked-body.mjs';
 
 const ok = (reasonCode = 'ARRIVED') => ({ state: 'SUCCEEDED', reasonCode });
 const stop = (reasonCode) => ({ state: 'FAILED', reasonCode });
@@ -12,7 +12,7 @@ function transitionBody(next, { skyOpen = false, unknownSky = false, known, hear
 	let player = { x: 0.5, y: 67, z: 0.5, yaw: 0, health: 20, skyOpen: true }, blocks = [], clock = 0;
 	const calls = [];
 	let descended = false;
-	return {
+	return checkedSearchBody({
 		calls, now: () => clock, places: async () => [],
 		observe: async () => ({ player: { ...player }, blocks, inventory: { items: [] }, world: { dimension: 'minecraft:overworld' } }),
 		frontier: () => ({ candidates: [], coverage: { headings: {} } }),
@@ -32,7 +32,7 @@ function transitionBody(next, { skyOpen = false, unknownSky = false, known, hear
 			clock += row.ms ?? 0;
 			return row.result ?? stop('NO_TOOL');
 		},
-	};
+	});
 }
 const movements = (body) => body.calls.filter(({ actionType }) => ['travel_to', 'dig_to'].includes(actionType));
 const run = (body, options = {}) => searchFor({ block: 'minecraft:water' }, body, { timeoutMs: 120_000, ...options });
@@ -166,7 +166,7 @@ test('initial cover near remembered sky still listens for nearby water before wa
 	let clock = 0, blocks = [];
 	const calls = [], player = { x: 0.5, y: 67, z: 0.5, yaw: 0, health: 20, skyOpen: false,
 		heard: [{ sound: 'block.water.ambient', direction: 'right', elevation: 'below', distance: 6 }] };
-	const body = {
+	const body = checkedSearchBody({
 		calls, now: () => clock, places: async () => [], known: () => ({ blocks: [] }),
 		observe: async () => ({ player, blocks, inventory: { items: [] }, world: { dimension: 'minecraft:overworld' } }),
 		openSky: () => ({ x: 0.5, y: 67, z: 0.5 }),
@@ -177,7 +177,7 @@ test('initial cover near remembered sky still listens for nearby water before wa
 			if (actionType === 'look_at') { blocks = [{ ...source, x: -5, y: 63, z: 0 }]; return ok(); }
 			return stop('NO_TOOL');
 		},
-	};
+	});
 	assert.equal((await run(body)).reasonCode, 'FIND_SEEN');
 	assert.deepEqual(calls.map(({ actionType }) => actionType), ['look_at']);
 });

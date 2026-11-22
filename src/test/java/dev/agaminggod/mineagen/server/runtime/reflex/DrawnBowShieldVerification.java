@@ -23,6 +23,7 @@ public final class DrawnBowShieldVerification {
 		defaultArrowSensesTheDraw();
 		modelRulesKeepTheArrowOnly();
 		raiseLeavesTimeBeforeTheRelease();
+		loadedCrossbowAimedAtTheBodyIsDrawn();
 		headFacingIsHorizontal();
 		bouncedArrowIsNoShot();
 		grazingArrowIsMetWhereItStrikes();
@@ -50,6 +51,22 @@ public final class DrawnBowShieldVerification {
 		// Vanilla bow mobs release at 20 ticks of draw; a shield blocks 5 ticks after it rises and turns 180 degrees in about 5.
 		check(ReflexSensors.DRAW_RAISE_TICKS + 5 + 5 <= 20, "the shield is up and turned before the release");
 		check(ReflexSensors.DRAW_RAISE_TICKS >= 5, "a draw a skeleton drops at once does not raise it");
+	}
+
+	/**
+	 * COMBAT-5: piglin crossbow shots were blocked 61% of the time against 73% for skeletons, since only a bow draw read as
+	 * drawn. Vanilla crossbow mobs (CrossbowAttack, RangedCrossbowAttackGoal) load for 25 ticks and then hold the loaded
+	 * crossbow 20 + random(20) ticks before firing: a loaded crossbow aimed at the body is the warning.
+	 */
+	private static void loadedCrossbowAimedAtTheBodyIsDrawn() {
+		check(ReflexSensors.aims(false, 0, true, true), "a loaded crossbow held by a mob targeting the body reads as drawn");
+		check(!ReflexSensors.aims(false, 0, true, false), "a loaded crossbow whose holder targets nothing (a bartering piglin) does not");
+		check(!ReflexSensors.aims(false, 0, false, true), "a crossbow still loading does not: the loaded hold that follows is the warning");
+		check(ReflexSensors.aims(true, ReflexSensors.DRAW_RAISE_TICKS, false, false) && !ReflexSensors.aims(true, ReflexSensors.DRAW_RAISE_TICKS - 1, false, true),
+				"a bow is read as before: drawn 8+ ticks, whatever its target");
+		check(ReflexSensors.CROSSBOW_RANGE == 8.0D, "a loaded crossbow is read only inside vanilla's crossbow range, where a piglin fires");
+		// The shortest loaded hold (20 ticks) still leaves the 5-tick raise and about 5 ticks to turn.
+		check(20 >= 5 + 5, "the shield is up and turned before the crossbow fires");
 	}
 
 	private static void headFacingIsHorizontal() {

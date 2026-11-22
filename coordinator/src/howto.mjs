@@ -763,8 +763,11 @@ function mineText(route, holdings, index, visited) {
 	const generated = route.blocks.find(block => index.worldgen[block]);
 	const place = generated ? worldgenPlace(index.worldgen[generated], visited) : '';
 	const seen = route.blocks.map(block => holdings.stations.get(block)).filter(row => row?.kind === 'visible' && row.distance !== null).sort((a, b) => a.distance - b.distance)[0];
+	// An Overworld ore is first taken where it shows (cave walls, ravines, cliffs) and only then dug for at its band: the
+	// band alone read as "dig to y16" (19 Nov round: the plan line arrived 0.1-0.2 min before each blind dig_to y16).
+	const approach = generated && /_ore$/.test(generated) && index.worldgen[generated].d.includes('overworld') && place ? ' exposed/cave first, else' : '';
 	// Keep alternative generation bands: the first band is data order, not a ranking of the fastest source.
-	return `mine ${blocks.slice(0, 2).join('|')}${tool && !tool.met ? ` needs ${tool.id}+` : ''}${place}${seen ? ` seen ${seen.distance}m` : ''}`;
+	return `mine ${blocks.slice(0, 2).join('|')}${tool && !tool.met ? ` needs ${tool.id}+` : ''}${approach}${place}${seen ? ` seen ${seen.distance}m` : ''}`;
 }
 
 /**

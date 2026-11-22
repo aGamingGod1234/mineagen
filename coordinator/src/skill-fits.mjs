@@ -215,14 +215,18 @@ function armourStep(f) {
 	if (carried) return [`equip_item ${carried.id} to ${carried.piece.slot}`, `${carried.id} carried, not worn`];
 	const next = missing.find(piece => !f.count(piece.part));
 	if (!next) return null;
-	// Before the kit is done, only from iron it leaves (the kit habit's rule); after it, the step mines its own.
-	if (f.kitOther > 0 && f.iron - f.kitOther < next.iron) return null;
-	return [`obtain ${next.id}, then equip_item it to ${next.slot}`, `iron ${f.iron} held${f.kitOther > 0 ? `, ${f.kitOther} kept for the rest of the kit` : ', kit made'}; ${next.id} takes ${next.iron}, no ${next.slot} armour worn`];
+	// Before the kit is done, only from iron it leaves (the kit habit's rule); after it, the step mines its own. A re-kit
+	// after a death mines its own too: the buckets and light it lost are not needed to go back through a lit portal.
+	const kept = f.rekit === true ? 0 : f.kitOther;
+	if (kept > 0 && f.iron - kept < next.iron) return null;
+	return [`obtain ${next.id}, then equip_item it to ${next.slot}`, `iron ${f.iron} held${kept > 0 ? `, ${kept} kept for the rest of the kit` : f.rekit === true ? '' : ', kit made'}; ${next.id} takes ${next.iron}, no ${next.slot} armour worn`];
 }
 const ROUTE = [
 	// Food at spawn from the nearest passive animal. Optional: once the first pickaxe is made (a seed with no animal in view
 	// moves on), the portal is lit or the Nether visited, the route no longer holds it up. held: any food carried ends it too (eating it down to one piece keeps it ended; all of it eaten before a pickaxe brings it back).
-	{ id: 'food', done: 'tool:pickaxe:wooden+ | frame:lit | visited:minecraft:the_nether', held: f => f.food >= 1 || !f.foodNeeded,
+	// rekit: the row's done-condition in a re-kit after a death past the portal stage (routeLine diedSincePortal), where
+	// the lit frame and the visit no longer say the kit is held; false: only its held fact ends it there.
+	{ id: 'food', done: 'tool:pickaxe:wooden+ | frame:lit | visited:minecraft:the_nether', rekit: 'tool:pickaxe:wooden+', held: f => f.food >= 1 || !f.foodNeeded,
 		next: f => [`obtain beef count ${MEAT} (or porkchop, mutton or chicken from the nearest animal; skip if none in view)`, 'no food held, health regrows only at hunger 18+'] },
 	{ id: 'wood', done: 'tool:pickaxe:wooden+', next: f => [`obtain wooden_pickaxe`, f.wood ? `${f.wood} logs/planks held` : 'no tools yet'] },
 	// R6G5: food after casting meant a 95-block climb. Bite before stone/furnace acquisition can enter a mine.
@@ -247,7 +251,7 @@ const ROUTE = [
 	{ id: 'iron_pickaxe', done: 'tool:pickaxe:iron+', next: f => ['obtain iron_pickaxe', f.iron ? `stone tools, ${f.iron}/3 iron held` : 'stone tools, no iron yet'] },
 	// Skeletons killed 8 of 12 scripted deaths; a shield in the off hand blocks their arrows.
 	// A shield lost after the portal is lit (or the Nether visited) no longer holds the route back.
-	{ id: 'shield', done: 'offhand:minecraft:shield | frame:lit | visited:minecraft:the_nether', next: f => f.count(/^minecraft:shield$/) ? ['equip_item shield to offhand', 'shield held, not in the off hand']
+	{ id: 'shield', done: 'offhand:minecraft:shield | frame:lit | visited:minecraft:the_nether', rekit: 'offhand:minecraft:shield', next: f => f.count(/^minecraft:shield$/) ? ['equip_item shield to offhand', 'shield held, not in the off hand']
 		: ['obtain shield, then equip_item it to offhand', `iron ${f.iron} held, shield takes 1`] },
 	{ id: 'iron_kit', done: `${BUCKETS} & has:minecraft:flint_and_steel*1`,
 		held: f => f.count(/^minecraft:obsidian$/) >= 10 && f.count(/^minecraft:flint_and_steel$/) > 0, next: f => {
@@ -263,7 +267,7 @@ const ROUTE = [
 	} },
 	// Armour once the kit is made, before the portal: the Nether and the nights after the kit are where it keeps the body
 	// alive (the day's games died at night with none). Before the kit is done it is made only from iron the kit leaves.
-	{ id: 'armour', done: 'frame:lit | visited:minecraft:the_nether', held: f => armourStep(f) === null, next: armourStep },
+	{ id: 'armour', done: 'frame:lit | visited:minecraft:the_nether', rekit: false, held: f => armourStep(f) === null, next: armourStep },
 	// Without a diamond pickaxe the frame is cast in place: build nether_portal does it beside a seen lava pool.
 	{ id: 'portal', done: 'frame:lit | visited:minecraft:the_nether', next: f => {
 		const kit = `plain blocks ${f.blocks}/${CAST_BLOCKS}, lava pools seen ${f.pools}`;
@@ -278,9 +282,31 @@ const ROUTE = [
 
 // Step 2 item 5 (instincts arm): the weapon habit is a route step, because a reflex cannot craft. Wooden and golden do not
 // count; a lit portal or a Nether visit ends it, as it does the shield.
-const WEAPON = { id: 'weapon', done: 'tool:sword:stone+ | tool:axe:stone+ | frame:lit | visited:minecraft:the_nether',
+const WEAPON = { id: 'weapon', done: 'tool:sword:stone+ | tool:axe:stone+ | frame:lit | visited:minecraft:the_nether', rekit: 'tool:sword:stone+ | tool:axe:stone+',
 	next: () => ['obtain stone_sword', 'no stone-or-better sword or axe; defend and fights swing the best one held'] };
 const INSTINCT_ROUTE = ROUTE.flatMap(row => row.id === 'stone' ? [row, WEAPON] : [row]);
+// EV-KIT-4: the kit a death past the portal stage takes and the route asks for again before the body goes (back) in. In
+// the checkpoint round, the 108 first deaths were all at armour 15 and 89 of the 136 later ones at armour 0: a lit frame or
+// a Nether visit ended the shield and armour rows for good, and a known portal sent the respawn straight back. The trip's
+// one-obtain iron and wood rows stay out: they plan the buckets and light a lit portal does not need. The cooked-meat
+// quota stays out as well: held as a quota it once headed the route for 31 minutes and hid the kit steps. Food is the
+// hunger check the portal return already makes, carried on each re-kit line.
+const REKIT = new Set(['food', 'wood', 'stone', 'weapon', 'furnace', 'iron_pickaxe', 'shield', 'armour']);
+
+/**
+ * The deaths counted at the portal stage, for routeLine diedSincePortal (died = deaths > the mark): the count while the
+ * body stands alive in the Nether, else the count when the portal stage is first seen (a lit frame, or a visit from before
+ * this view, such as a staged save's advancement). mark: the previous mark (null before the stage); deaths: the death
+ * count so far; observation: a live sample; known: plan-check facts. Not saved: after a restart it starts again from
+ * the restored count.
+ */
+export function portalDeathMark(mark, deaths, observation, known) {
+	if (!Number.isSafeInteger(deaths)) return mark ?? null;
+	if (observation?.world?.dimension === 'minecraft:the_nether') return deaths;
+	if (Number.isSafeInteger(mark)) return mark;
+	const entered = [...(known?.advancements ?? []), ...(observation?.advancements ?? [])].some(id => /^(minecraft:)?story\/enter_the_nether$/.test(id));
+	return (known?.frames ?? []).some(f => f?.lit === true) || (known?.visitedDimensions ?? []).includes('minecraft:the_nether') || entered ? deaths : null;
+}
 
 // Step 2 item 6 (instincts arm): the eat reflex reads only the hotbar and offhand (ReflexActions.lacks), so food in the
 // main inventory is food the body cannot eat in a fight. Rows with no slot facts count as in reach.
@@ -319,9 +345,10 @@ function foodSource(o) {
  * newest live sample; known: plan-checks facts (visited dimensions, lit frames, lava pools, placements); evaluate: the
  * plan-check evaluator (evaluatePlanCheck); memory: scoped, contradiction-aware source facts from LiveTaskViews;
  * foodHandedBack: a food hand-back this life (foodStockHandback) released the cooked-meat stock; woodHandedBack: a wood
- * hand-back this life (woodStockHandback) released the trip's wood step.
+ * hand-back this life (woodStockHandback) released the trip's wood step; diedSincePortal: the body died after it last
+ * stood in the Nether, or after the portal stage was first seen (a lit frame or a visit), so the kit comes back first.
  */
-export function routeLine({ observation: o = null, known = null, memory = null, foodHandedBack = false, woodHandedBack = false, kitHandedBack = new Set(), evaluate, instincts = false } = {}) {
+export function routeLine({ observation: o = null, known = null, memory = null, foodHandedBack = false, woodHandedBack = false, kitHandedBack = new Set(), diedSincePortal = false, evaluate, instincts = false } = {}) {
 	if (!live(o) || !Array.isArray(o.inventory?.items) || remembered(o, 'inventory') || known === null || typeof evaluate !== 'function') return null;
 	const items = o.inventory.items.filter(i => i?.count > 0);
 	const count = re => items.filter(i => re.test(i.itemId ?? '')).reduce((n, i) => n + i.count, 0);
@@ -357,6 +384,18 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 	Object.assign(facts, { kitIron: kit.iron, kitParts: kit.parts, kitOther: kit.other });
 	// Planned only when the route reaches the step: a whole-kit obtain plan per wake is not free.
 	Object.defineProperty(facts, 'tripLogs', { get: () => tripLogs(o, kit) });
+	// The re-kit after a death past the portal stage: the kit rows in route order, each ended by its rekit condition.
+	const kitFacts = Object.create(facts, { rekit: { value: true } });
+	const rekit = () => {
+		if (diedSincePortal !== true) return null;
+		const row = (instincts === true ? INSTINCT_ROUTE : ROUTE).filter(r => REKIT.has(r.id))
+			.find(r => !(r.held?.(kitFacts) === true || r.rekit !== false && ok(r.rekit ?? r.done)));
+		if (row === undefined) return null;
+		const [next, why] = row.next(kitFacts);
+		// The food check the portal return makes: when hungry or hurt, food on the way (eaten where it is down a mine).
+		const restock = row.id !== 'food' && foodNote === '' && (facts.below ? food === 0 : food < 10) && foodAdviceNeeded(o) ? `; low hunger/health, food ${food} held: obtain cooked_beef on the way` : '';
+		return line(`${next}${restock}`, `${why}; re-kit after a death`);
+	};
 	// Instincts arm: food first in every dimension (C27), before more resource travel.
 	let foodNote = '';
 	if (instincts === true) {
@@ -421,6 +460,9 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 		// At the frames with eyes in hand, set them first: an observation lists at most 8 blocks of a kind, so the filled
 		// count seen here is a lower bound and must not send the agent back to the Nether while it still holds eyes.
 		if (eyesHeld > 0 && frames.some(b => b?.blockId === 'minecraft:end_portal_frame')) return line(`set the ender_eyes in the empty End portal frames${first}`, `${eyeFacts}${lacks}`);
+		// A death since the visit lost the kit: it comes back before the portal return or the rebuild below.
+		const again = rekit();
+		if (again !== null) return again;
 		const portal = overworldPortal(o, memory);
 		if ((rodsMissing > 0 || pearlsMissing > 0) && portal) {
 			const survival = foodAdviceNeeded(o) ? `low health/hunger, food ${food} held: recover first; ` : 'food stocking optional while healthy; ';
@@ -444,6 +486,8 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 	// Round1 games6/8 lit portals, then spent the rest of the game on optional surface preparation; the portal bed is the
 	// one step allowed there, and only from what is in reach.
 	if (ok('frame:lit')) {
+		const again = rekit();
+		if (again !== null) return again;
 		const bed = portalBed(o, known, { lit: true, frame: litFrame(o, known) });
 		return bed.step ? line(...bed.step) : line(PORTAL_ENTRY_NEXT, `${bed.skip}; ${ENTRY_FOOD}`);
 	}

@@ -64,22 +64,28 @@ export function decisionFiles(raw) {
 		.sort((a, b) => (b.endsWith('.1') - a.endsWith('.1')) || a.localeCompare(b)).map((name) => path.join(raw, name));
 }
 
-/** First lava shown to the model and first PORTAL_LIT result, in ms since the epoch, from the decision log. */
-function logMilestones(raw) {
+/**
+ * Earliest lava shown to the model and earliest PORTAL_LIT result, in ms since the epoch, from the decision log. With
+ * agentId only that agent's files count; inWindow(time) drops events outside a scored window. A cut-off line is skipped.
+ */
+export function logMilestones(raw, { agentId = null, inWindow = () => true } = {}) {
 	let lavaSeen = null, portalLit = null;
-	for (const file of decisionFiles(raw)) {
+	const earliest = (current, time) => Number.isFinite(time) && inWindow(time) && (current === null || time < current) ? time : current;
+	const parse = (line) => { try { return JSON.parse(line); } catch { return null; } };
+	for (const file of decisionFiles(raw).filter((file) => !agentId || path.basename(file).includes(`--${agentId}-`))) {
 		for (const line of readFileSync(file, 'utf8').split('\n')) {
 			if (!line) continue;
-			if (lavaSeen === null && LAVA.test(line)) lavaSeen = JSON.parse(line).time ?? null;
-			if (portalLit === null && line.includes('PORTAL_LIT')) {
+			if (LAVA.test(line)) lavaSeen = earliest(lavaSeen, parse(line)?.time);
+			if (line.includes('PORTAL_LIT')) {
 				// Contract text in every prompt names PORTAL_LIT; only a result's own reason code counts.
-				const record = JSON.parse(line);
+				const record = parse(line);
+				if (!record) continue;
 				let code = record.type === 'action_result' ? record.result?.reasonCode : null;
 				if (record.type === 'tool_result') {
 					const text = typeof record.result === 'string' ? record.result : JSON.stringify(record.result);
 					try { code = JSON.parse(text.split(BOUNDARY)[0]).reasonCode; } catch { code = null; }
 				}
-				if (code === 'PORTAL_LIT') portalLit = record.time;
+				if (code === 'PORTAL_LIT') portalLit = earliest(portalLit, record.time);
 			}
 		}
 	}

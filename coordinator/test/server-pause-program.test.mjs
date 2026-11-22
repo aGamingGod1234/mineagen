@@ -156,9 +156,8 @@ test('a program started while the game is already paused gets only the part of t
 
 // The model can answer an urgent decision while the game is paused. Through the production coordinator: a 1 s program,
 // an urgent decision ~0.1 s before a 1.5 s pause, answered 1 s into the pause. The step is not ended during the pause,
-// and after the resume it runs on for the time it had left at the pause. The outer program work lease ends it: that
-// lease is sized to timeoutMs and moves out for reflex holds, lag and pauses, not for urgent waits, so this test cannot
-// tell whether the executor counted the pause twice. native-program-executor.test.mjs checks that arithmetic.
+// and after the resume it runs on for the time it had left at the pause plus the unpaused urgent wait. The program's
+// own deadline ends it: the work lease moved out when the urgent wait opened (CRIT-LEASE-1).
 test('an urgent decision answered during a pause past the deadline does not end the step in the pause; after the resume it gets its remaining time', async (t) => {
 	const { start: startDynamic, FakePlanner: DynamicPlanner, eventually: until, resolveNativeSteerInput } = await import('./fixtures/dynamic-main-fixture.mjs');
 	const { AgentRegistry: Registry } = await import('../src/agent-registry.mjs');
@@ -178,9 +177,17 @@ test('an urgent decision answered during a pause past the deadline does not end 
 		return new Promise((resolve) => { completions.push(resolve); });
 	};
 	const traces = [];
-	const run = await startDynamic({ registry, planner, traceWriter: { write: (event, fields) => traces.push({ event, ...fields }) }, config: { bridge: { port: 25570, secret: 's'.repeat(32) }, codex: { controlProtocol: 'native_tools' } } });
+	const run = await startDynamic({ registry, planner, traceWriter: { write: (event, fields) => traces.push({ event, at: Date.now(), ...fields }) }, config: { bridge: { port: 25570, secret: 's'.repeat(32) }, codex: { controlProtocol: 'native_tools' } } });
 	t.after(async () => { await run.coordinator.stop(); for (const resolve of completions) resolve({ status: 'completed', toolCalls: 0 }); });
 	const cancelled = () => run.bridge.sent.some((message) => message.type === 'action_cancel');
+	// The server acknowledges a cancel with the action's result, as a live one does.
+	const send = run.bridge.send.bind(run.bridge);
+	let cancelSentAt = null;
+	run.bridge.send = async (type, agentId, payload, options) => {
+		if (type === 'action_cancel') cancelSentAt ??= Date.now();
+		await send(type, agentId, payload, options);
+		if (type === 'action_cancel') queueMicrotask(() => run.bridge.emit('action_result', { agentId, payload: { goalRevision: 1, actionId: payload.actionId, actionType: 'wait', state: 'CANCELLED', reasonCode: 'ACTION_CANCELLED', executionStarted: true, eventSequence: 10 } }));
+	};
 	run.bridge.emit('goal_control', { agentId: 'agent-a', payload: { operation: 'start', goalRevision: 1, goal: 'Explore safely.' } });
 	run.bridge.emit('observation', { agentId: 'agent-a', payload: { goalRevision: 1, eventSequence: 1, attention: false, changedFacts: [], observation: { player: { x: 0, y: 64, z: 0, health: 20 } } } });
 	await until(() => run.bridge.sent.some((message) => message.type === 'action_command'));
@@ -200,9 +207,15 @@ test('an urgent decision answered during a pause past the deadline does not end 
 	run.bridge.emit('serverPause', { paused: false, tickAgeMs: 0 });
 	const resumedAt = Date.now();
 	await until(cancelled);
-	const after = Date.now() - resumedAt, left = 1_000 - (pausedAt - startedAt);
-	// The lease began at or after startedAt, so it has at least `left` after the resume (less timer slack).
+	// Left at the pause, plus the urgent wait before the pause (credited when answered). startedAt is taken before the
+	// tool call, so the true deadline is at or after this, less timer slack. The wait opened when the lease was paid for
+	// it, and the step ended when the cancel was sent (a loaded runner takes samples and polls late).
+	const openedAt = traces.find((row) => row.event === 'urgent_wait_lease_credited').at;
+	const after = cancelSentAt - resumedAt, left = 1_000 - (pausedAt - startedAt) + (pausedAt - openedAt);
 	assert.ok(after >= left - 50, `the step keeps the ${left} ms it had left at the pause (cancelled ${after} ms after the resume)`);
+	// The pause is 1.5 s, so a second credit of it would land well past this bound.
 	assert.ok(after < left + 1_000, `and is not given the pause again on top (cancelled ${after} ms after the resume)`);
-	assert.ok(traces.some((row) => row.event === 'work_lease_expired' && row.kind === 'program'), 'the program lease ends the step');
+	await until(() => traces.some((row) => row.event === 'native_program_ended'));
+	assert.equal(traces.some((row) => row.event === 'work_lease_expired' && row.kind === 'program'), false, 'the work lease does not end the step');
+	assert.equal(traces.find((row) => row.event === 'native_program_ended').reasonCode, 'PROGRAM_DEADLINE', 'the program deadline does');
 });

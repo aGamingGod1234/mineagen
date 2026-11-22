@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import http from 'node:http';
 
-import { MINECRAFT_DYNAMIC_TOOLS } from './native-minecraft-tools.mjs';
+import { offeredMinecraftTools } from './native-minecraft-tools.mjs';
 
 const MCP_PATH = '/mcp';
 const MAX_REQUEST_BYTES = 1_024 * 1_024;
@@ -26,7 +26,7 @@ export class ClaudeToolServer {
 	#port = null;
 	// Each stop starts a new generation so listens and registrations begun earlier cannot outlive it.
 	#generation = 0;
-	#tools = MINECRAFT_DYNAMIC_TOOLS.map(({ name, description, inputSchema }) => ({ name, description, inputSchema }));
+	#tools = offeredMinecraftTools().map(({ name, description, inputSchema }) => ({ name, description, inputSchema }));
 
 	/** Registers one agent route. `callTool(name, args, meta)` returns MCP tool-call content. */
 	async register({ callTool, onToolsListed = () => {}, onToolResponded = () => {} }) {
