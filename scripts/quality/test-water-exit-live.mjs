@@ -71,7 +71,7 @@ try {
 	await s.setReflexes([]);
 	const pos = async () => String(await s.command(`data get entity ${NAME} Pos`)).match(/\[\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?\]/)?.slice(1).map(Number) ?? null;
 	const onGround = async () => /1b\s*$/.test(String(await s.command(`data get entity ${NAME} OnGround`)).trim());
-	const control = (forward, ticks) => s.act('control', { forward, strafe: 0, jump: true, sneak: false, sprint: false, attack: false, use: false,
+	const control = (forward, ticks, jump = true) => s.act('control', { forward, strafe: 0, jump, sneak: false, sprint: false, attack: false, use: false,
 		yaw: -90, pitch: 0, selectedSlot: 0, hand: 'main', ticks }, 30_000).catch(error => ({ state: 'ERROR', reasonCode: error.message }));
 	// One pad, rebuilt each run. The pool is x X-2..X, the ledge x X+1..X+3, both z Z-1..Z+1, walled 4 above the ledge's
 	// highest top so the only way out is the ledge. Bed at B = F - depth; the water's top block is F - 1.
@@ -103,9 +103,12 @@ try {
 			if (!p0) throw new Error(`${state} ${ledge.above}: body position unreadable`);
 			const t0 = await s.gameTicks();
 			const push = await control(1, 60);
-			const end = await pos(), ground = await onGround();
 			const ticks = (await s.gameTicks()) - t0;
-			const climbed = end !== null && ground && end[0] >= X + 1.3 && end[1] >= top - 0.05;
+			// Let go and land before judging: with jump held the body is in the air over the ledge as often as on it.
+			await control(0, 10, false);
+			const end = await pos(), ground = await onGround();
+			// The walls leave only the ledge east of the pool, so a body past its face with feet at its top is on it.
+			const climbed = end !== null && end[0] >= X + 1.3 && end[1] >= top - 0.05;
 			const row = { state, depth, run, ledgeTop: Math.round(ledge.above * 10000) / 10000, partial: ledge.partial?.block ?? null,
 				overWater: Math.round((top - F) * 10000) / 10000, feet0: Math.round((p0[1] - B) * 1000) / 1000, dy: Math.round((top - p0[1]) * 1000) / 1000,
 				climbed, endFeet: end ? Math.round((end[1] - B) * 1000) / 1000 : null, endDx: end ? Math.round((end[0] - X) * 100) / 100 : null, onGround: ground,
