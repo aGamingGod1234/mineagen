@@ -287,6 +287,19 @@ async function runLane(s, agent, queue, seed, seedIndex, nextSpot) {
 			let sampling = true;
 			const sampler = (async () => { while (sampling) { const h = await health().catch(() => NaN); if (Number.isFinite(h)) minHealth = Math.min(minHealth, h); await s.clock.sleep(2000); } })();
 			agent.resetLog();
+			// The new respawn line at night says rest first; the stand-in follows it, as the model is told to. With
+			// MINEAGEN_NIGHT_COVER=off (the old code) that line is not shown, so the stand-in goes straight to obtain.
+			if (Array.isArray(entry.respawnInto) && String(process.env.MINEAGEN_NIGHT_COVER ?? '').toLowerCase() !== 'off') {
+				const before = agent.actions.length;
+				const rested = await runtime.execute({ agentId: record.agentId, goalRevision: record.goalRevision, turnId: `respawn-rest-${seedIndex}-${lane}-${index}`, callId: `respawn-rest-${index}`,
+					tool: normalizeMinecraftToolCall('do_step', { verb: 'rest', target: { timeoutMs: Math.max(60_000, (entry.playMs ?? entry.budgetMs) - (now() - t0)) }, why: 'respawned at night: rest first' }) }, record).catch((error) => ({ state: 'ERROR', message: String(error?.message ?? error) }));
+				let ended = rested?.state === 'RUNNING' ? null : `${rested?.state} ${rested?.reasonCode ?? ''} ${String(rested?.message ?? '').slice(0, 160)}`;
+				while (ended === null && now() - t0 < (entry.playMs ?? entry.budgetMs) && await health().catch(() => 0) > 0) {
+					ended = agent.actions.slice(before).find((line) => / rest /.test(line)) ?? null;
+					if (ended === null) await s.clock.sleep(2000);
+				}
+				row.respawnRest = String(ended ?? 'still resting at the end of the window').slice(0, 400);
+			}
 			const call = normalizeMinecraftToolCall('do_step', { verb: 'obtain', target: { item: entry.item, count: entry.count ?? 1, timeoutMs: entry.budgetMs }, why: `obtain ${entry.item}` });
 			const ran = await callObtain({ mode: process.env.OBTAIN_HANDBACK, budgetMs: entry.budgetMs, started: t0, now,
 				execute: async (attempt, left) => {
