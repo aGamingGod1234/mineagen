@@ -77,6 +77,16 @@ public final class ConsoleSegmented<T> extends AbstractWidget implements Console
 		}
 	}
 
+	/** Whether every option's label fits its segment; callers fall back to a cycle control when it doesn't. */
+	public static <T> boolean fits(Font font, int width, List<T> values, Function<T, String> formatter) {
+		if (values.isEmpty()) return true;
+		float segment = (width - 4) / (float) values.size();
+		for (T value : values) {
+			if (ConsoleText.strongWidth(font, formatter.apply(value)) > segment - 8) return false;
+		}
+		return true;
+	}
+
 	private int segmentAt(double mouseX) {
 		float segment = (getWidth() - 4) / (float) values.size();
 		return Math.clamp((int) Math.floor((mouseX - getX() - 2) / segment), 0, values.size() - 1);

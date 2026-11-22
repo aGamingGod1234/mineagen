@@ -585,33 +585,26 @@ public final class AgentControlScreen extends Screen {
 				}, this.width, height);
 		modelDropdown.active = canControl();
 		addRenderableWidget(modelDropdown);
-		ConsoleSegmented<String> thinking = new ConsoleSegmented<>(font, x + half + FORM_GAP, y, width - half - FORM_GAP, 22,
-				"Thinking", AgentControlCatalog.reasoningEfforts(provider, model), reasoning, AgentControlScreen::capitalize,
-				value -> reasoning = value);
-		thinking.active = canControl();
-		addRenderableWidget(thinking);
+		addChoice(x + half + FORM_GAP, y, width - half - FORM_GAP, "Thinking", AgentControlCatalog.reasoningEfforts(provider, model),
+				reasoning, AgentControlScreen::capitalize, value -> reasoning = value, true, canControl());
 		y += 22 + FORM_GAP;
 
 		addFormLabel("Speed", x, y);
 		addFormLabel("Plays in", x + half + FORM_GAP, y);
 		y += LABEL_HEIGHT;
-		ConsoleSegmented<String> speed;
 		if (AgentControlCatalog.hasSpeedMode(provider, model)) {
-			speed = new ConsoleSegmented<>(font, x, y, half, 22, "Speed", AgentControlCatalog.serviceTiers(provider, model),
-					serviceTier, value -> AgentControlPresentation.speedLabel(provider, value), value -> serviceTier = value);
-			speed.active = canControl();
+			addChoice(x, y, half, "Speed", AgentControlCatalog.serviceTiers(provider, model), serviceTier,
+					value -> AgentControlPresentation.speedLabel(provider, value), value -> serviceTier = value, true, canControl());
 		} else {
-			speed = new ConsoleSegmented<>(font, x, y, half, 22, "Speed", List.of("normal"), "normal",
+			ConsoleSegmented<String> speed = new ConsoleSegmented<>(font, x, y, half, 22, "Speed", List.of("normal"), "normal",
 					value -> "Normal", value -> { });
 			speed.active = false;
 			speed.setTooltip(net.minecraft.client.gui.components.Tooltip.create(
 					Component.translatable("screen.mineagen.speed_unavailable")));
+			addRenderableWidget(speed);
 		}
-		addRenderableWidget(speed);
-		ConsoleSegmented<AgentGameMode> mode = new ConsoleSegmented<>(font, x + half + FORM_GAP, y, width - half - FORM_GAP, 22,
-				"Game mode", List.of(AgentGameMode.values()), gameMode, AgentGameMode::displayName, value -> gameMode = value);
-		mode.active = canControl();
-		addRenderableWidget(mode);
+		addChoice(x + half + FORM_GAP, y, width - half - FORM_GAP, "Game mode", List.of(AgentGameMode.values()), gameMode,
+				AgentGameMode::displayName, value -> gameMode = value, false, canControl());
 		y += 22 + FORM_GAP;
 
 		addFormLabel("Name", x, y);
@@ -645,6 +638,26 @@ public final class AgentControlScreen extends Screen {
 		return false;
 	}
 
+	/**
+	 * A segmented control when every option's label fits its segment; otherwise (many thinking levels on a narrow
+	 * GUI) a cycle control, so labels never overlap a neighbour's click target.
+	 */
+	private <T> void addChoice(int x, int y, int width, String label, List<T> values, T current,
+			java.util.function.Function<T, String> formatter, java.util.function.Consumer<T> changed, boolean ranked, boolean active) {
+		AbstractWidget widget;
+		if (ConsoleSegmented.fits(font, width, values, formatter)) {
+			widget = new ConsoleSegmented<>(font, x, y, width, 22, label, values, current, formatter, changed);
+		} else if (ranked) {
+			widget = ConsoleCycleButton.ranked(font, x, y, width, 22, Component.literal(label), values, current,
+					value -> Component.literal(formatter.apply(value)), changed);
+		} else {
+			widget = new ConsoleCycleButton<>(font, x, y, width, 22, Component.literal(label), values, current,
+					value -> Component.literal(formatter.apply(value)), changed);
+		}
+		widget.active = active;
+		addRenderableWidget(widget);
+	}
+
 	/** Top of the message shown in place of the form when no tool offers a model yet. */
 	private int emptyCreateTop;
 
@@ -662,7 +675,10 @@ public final class AgentControlScreen extends Screen {
 	/** Small Rescan action whose text ends at {@code right}, on the same line as a field label. */
 	private void addRescanButton(int right, int y) {
 		int width = ConsoleButton.fittedWidth(font, "Rescan", true, true);
-		ConsoleButton rescan = ghostButton("Rescan", right - width + 8, y, width, 14, () -> {
+		// Compact layouts start the body right at the content top; keep the unscrolled button inside it so it is never
+		// clipped. Once the form scrolls, the button scrolls away with the Brain label like any other control.
+		int top = createScroll == 0 ? Math.max(layout().contentTop(), y) : y;
+		ConsoleButton rescan = ghostButton("Rescan", right - width + 8, top, width, 14, () -> {
 			AgentControlClient.requestProviderRescan();
 			setFeedback("Checking the server machine for model tools...", false);
 		}).withIcon(ConsoleDraw.Icon.REFRESH).small();
@@ -690,7 +706,9 @@ public final class AgentControlScreen extends Screen {
 						else if (row.apiKeySuffix() != null) submitProviderKey(id, "");
 						else { clearKeyDraft(); editingKeyProvider = id; rebuildWidgets(); }
 					});
-			action.active = canControl() && (editing || localKeys) && !Boolean.FALSE.equals(row.installed());
+			// A missing tool can't use a new key, but a key saved earlier must stay removable.
+			action.active = canControl() && (editing || localKeys)
+					&& (row.apiKeySuffix() != null || !Boolean.FALSE.equals(row.installed()));
 			action.setTooltip(net.minecraft.client.gui.components.Tooltip.create(Component.literal(localKeys
 					? "A key set in the server's environment overrides a key saved here."
 					: AgentControlClient.LOCAL_KEY_ONLY_REASON + " On a dedicated server, use the tool's own login or environment variables there.")));
