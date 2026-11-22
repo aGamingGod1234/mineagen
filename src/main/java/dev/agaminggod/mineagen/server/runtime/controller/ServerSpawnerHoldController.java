@@ -289,7 +289,8 @@ public final class ServerSpawnerHoldController implements ServerController {
 		HOLDING.add(player.getUUID());
 		senseHits(player, inCell);
 		senseCharges(player);
-		if (blazeSeen(player)) lastBlazeMs = elapsed;
+		// No spawner yet (looking round for one): nothing to centre the blaze sense on.
+		if (spawner != null && blazeSeen(player)) lastBlazeMs = elapsed;
 		var seenSpawner = spawner == null ? null : SeenTerrain.of(player).known(spawner.getX(), spawner.getY(), spawner.getZ());
 		boolean spawnerGone = seenSpawner != null && !seenSpawner.is(Blocks.SPAWNER);
 		// The fight_target form ends at its own timeout with fight_target's code (the hold's own is FIGHT_UNTIL_TIMED_OUT).
@@ -390,6 +391,8 @@ public final class ServerSpawnerHoldController implements ServerController {
 			}
 			if (attacker == null) return null;
 			cancelWalk(player);
+			// The open-fight engine is put down too: left unticked through the defend its input leases would lapse.
+			stopEngine(player);
 			if (work != null) { work.cancel(player); work = null; }
 			if (collector != null) { collector.cancel(player); collector = null; returning = true; }
 			if (ledge != null) { ledge.cancel(player); ledge = null; returning = true; }
