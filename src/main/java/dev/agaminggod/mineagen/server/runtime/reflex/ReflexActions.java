@@ -986,11 +986,12 @@ final class ReflexActions {
 			if (state.is(net.minecraft.tags.BlockTags.DOORS) || state.is(net.minecraft.tags.BlockTags.TRAPDOORS)
 					|| state.is(net.minecraft.tags.BlockTags.FENCE_GATES) || state.is(net.minecraft.tags.BlockTags.BUTTONS)
 					|| state.is(net.minecraft.tags.BlockTags.BEDS)) return true;
-			return USE_BLOCKS.contains(state.getBlock());
+			return USE_BLOCKS.contains(BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString());
 		}
 
-		private static final Set<net.minecraft.world.level.block.Block> USE_BLOCKS = Set.of(Blocks.LEVER, Blocks.COMPOSTER, Blocks.CAKE,
-				Blocks.NOTE_BLOCK, Blocks.REPEATER, Blocks.COMPARATOR, Blocks.RESPAWN_ANCHOR, Blocks.DRAGON_EGG);
+		// Ids, not Blocks fields: a static Blocks reference would load the registries with this class in pure tests.
+		private static final Set<String> USE_BLOCKS = Set.of("minecraft:lever", "minecraft:composter", "minecraft:cake",
+				"minecraft:note_block", "minecraft:repeater", "minecraft:comparator", "minecraft:respawn_anchor", "minecraft:dragon_egg");
 
 		private static boolean edible(ServerPlayer player, FoodProperties food) {
 			return food != null && player.canEat(food.canAlwaysEat());
