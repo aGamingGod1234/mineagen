@@ -57,16 +57,25 @@ const round = value => Math.round(value * 100) / 100;
 const attackerOf = row => row.attacker ?? row.damageType ?? row.kind ?? 'unknown';
 
 /**
- * The hits from `from` to `to` (epoch ms, inclusive), by attacker: { hits, taken, blocked, lethal, agents, byAttacker }.
- * taken is health and absorption lost after armour and shield; the lethal hit has no taken, so it is counted in lethal
- * and its amount (before armour) in lethalAmount.
+ * A fixture's own /damage command (no attacker, damage type minecraft:generic): how rooms set a body's health before
+ * play. It is the room's setup, not something that hit the bot, and is counted apart in setupDamage.
  */
-export function foldHits(rows, { from = -Infinity, to = Infinity } = {}) {
+export const setupHit = row => !row.attacker && row.damageType === 'minecraft:generic';
+
+/**
+ * The hits from `from` to `to` (epoch ms, inclusive), by attacker: { hits, taken, blocked, lethal, agents, byAttacker,
+ * setupDamage }. taken is health and absorption lost after armour and shield; the lethal hit has no taken, so it is
+ * counted in lethal and its amount (before armour) in lethalAmount. agentId, when given, keeps only that body's rows.
+ */
+export function foldHits(rows, { from = -Infinity, to = Infinity, agentId = null } = {}) {
 	const empty = () => ({ hits: 0, taken: 0, blocked: 0, lethal: 0, lethalAmount: 0 });
 	const total = empty(), byAttacker = {}, agents = new Set();
+	let setupDamage = 0;
 	for (const row of rows) {
 		if (!Number.isFinite(row.atMs) || row.atMs < from || row.atMs > to) continue;
+		if (agentId && row.agentId !== agentId) continue;
 		agents.add(row.agentId);
+		if (setupHit(row)) { if (Number.isFinite(row.taken)) setupDamage = round(setupDamage + row.taken); continue; }
 		for (const into of [total, byAttacker[attackerOf(row)] ??= empty()]) {
 			into.hits++;
 			if (Number.isFinite(row.taken)) into.taken = round(into.taken + row.taken);
@@ -74,13 +83,15 @@ export function foldHits(rows, { from = -Infinity, to = Infinity } = {}) {
 			if (row.lethal) { into.lethal++; if (Number.isFinite(row.amount)) into.lethalAmount = round(into.lethalAmount + row.amount); }
 		}
 	}
-	return { ...total, agents: agents.size, byAttacker };
+	return { ...total, agents: agents.size, byAttacker, setupDamage };
 }
 
 /**
  * Each row with its own epoch-ms startedAt and finishedAt and no hits of its own gets row.hits (source 'watch') from the
- * danger rows under root that fall in its time window. With no danger file under root the rows are left alone: no watch,
- * no claim. Several bodies on one server add up (hits.agents says how many were hit).
+ * danger rows under root that fall in its time window (from row.hitsFrom instead of startedAt when the fixture marks
+ * where play began). With no danger file under root the rows are left alone: no watch, no claim. A row that names its
+ * body (agentId) counts only that body's hits; a row that does not, in a window where several bodies were hit (parallel
+ * lanes on one server), gets no hits, never another body's.
  */
 export async function attachHits(rows, root) {
 	const danger = await readDangerRows(root);
@@ -90,7 +101,11 @@ export async function attachHits(rows, root) {
 		// A fold this function made earlier is made again: the server may have written more rows since.
 		if (!row || typeof row !== 'object' || (row.hits !== undefined && row.hits?.source !== 'watch')) continue;
 		if (!(row.startedAt > 1e12) || !(row.finishedAt >= row.startedAt)) continue;
-		row.hits = { source: 'watch', ...foldHits(danger.rows, { from: row.startedAt, to: row.finishedAt }) };
+		const from = row.hitsFrom > 1e12 ? row.hitsFrom : row.startedAt, agentId = typeof row.agentId === 'string' ? row.agentId : null;
+		const hits = foldHits(danger.rows, { from, to: row.finishedAt, agentId });
+		if (!agentId && hits.agents > 1) { delete row.hits; row.hitsUnknown = `${hits.agents} bodies were hit in this window and the row names none`; continue; }
+		delete row.hitsUnknown;
+		row.hits = { source: 'watch', ...hits };
 		if (danger.dropped) row.hits.droppedLines = danger.dropped;
 		attached++;
 	}

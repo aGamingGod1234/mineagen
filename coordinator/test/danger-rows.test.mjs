@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { attachHits, foldHits, keepDangerFiles, readDangerRows, watchDirs } from '../../scripts/quality/lib/danger-rows.mjs';
 import { finishRun } from '../../scripts/quality/lib/fixture-run.mjs';
-import { watchArgs } from '../../scripts/quality/watch-replay.mjs';
+import { stopReplayServer, watchArgs } from '../../scripts/quality/watch-replay.mjs';
 
 const T0 = 1_795_000_000_000;
 // Rows shaped as DangerLog writes them (schema 1).
@@ -74,4 +74,38 @@ test('fixture servers run with the Watcher on unless FIXTURE_WATCH turns it off'
 	assert.deepEqual(watchArgs(undefined), ['-Dmineagen.watch=true']);
 	assert.deepEqual(watchArgs('1'), ['-Dmineagen.watch=true']);
 	for (const off of ['0', 'false', 'OFF', ' off ']) assert.deepEqual(watchArgs(off), []);
+});
+
+test('a row counts only its own body, never parallel lanes\' hits, and room setup damage is set apart', async () => {
+	const out = await mkdtemp(path.join(os.tmpdir(), 'danger-lanes-'));
+	try {
+		const dir = path.join(out, 'seed-1', 'arena-watch');
+		await mkdir(dir, { recursive: true });
+		await writeFile(path.join(dir, 'a1-danger.jsonl'), lines([hit(T0 + 1_000, null, 13, { damageType: 'minecraft:generic', kind: 'other' }), hit(T0 + 2_000, 'minecraft:zombie', 3)]));
+		await writeFile(path.join(dir, 'a2-danger.jsonl'), lines([hit(T0 + 3_000, null, 8, { agentId: 'a2', damageType: 'minecraft:lava', kind: 'block' })]));
+		const rows = [{ name: 'lane0', agentId: 'a1', pass: true, startedAt: T0, finishedAt: T0 + 10_000 }, { name: 'lane1', agentId: 'a2', pass: true, startedAt: T0, finishedAt: T0 + 10_000 },
+			{ name: 'nameless', pass: true, startedAt: T0, finishedAt: T0 + 10_000 }, { name: 'late', agentId: 'a1', pass: true, startedAt: T0, hitsFrom: T0 + 2_500, finishedAt: T0 + 10_000 }];
+		await finishRun(rows, { file: path.join(out, 'result.json'), setExitCode: false });
+		assert.deepEqual(Object.keys(rows[0].hits.byAttacker), ['minecraft:zombie'], 'lane 0 never gets lane 1\'s lava');
+		assert.equal(rows[0].hits.taken, 3);
+		assert.equal(rows[0].hits.setupDamage, 13, 'the room\'s own /damage is setup, not a hit');
+		assert.deepEqual(Object.keys(rows[1].hits.byAttacker), ['minecraft:lava']);
+		assert.equal(rows[2].hits, undefined, 'two bodies hit and the row names none: unknown');
+		assert.match(rows[2].hitsUnknown, /2 bodies/);
+		assert.equal(rows[3].hits.hits, 0, 'hitsFrom starts the window after setup');
+	} finally { await rm(out, { recursive: true, force: true }); }
+});
+
+test('stopping a fixture server keeps its danger files beside the world it will delete', async () => {
+	const out = await mkdtemp(path.join(os.tmpdir(), 'danger-stop-'));
+	try {
+		const from = path.join(out, 'server', 'arena-watch');
+		await mkdir(from, { recursive: true });
+		await writeFile(path.join(from, 'a1-danger.jsonl'), lines([hit(T0, 'minecraft:zombie', 2)]));
+		await writeFile(path.join(from, 'a1-progress.jsonl'), '{}\n');
+		// A server that has already exited: stop only closes the log and keeps the rows.
+		await stopReplayServer({ child: { exitCode: 0, signalCode: null }, log: { close: async () => {} }, watchFrom: from, watchTo: path.join(out, 'arena-watch') });
+		assert.equal(await readFile(path.join(out, 'arena-watch', 'a1-danger.jsonl'), 'utf8'), lines([hit(T0, 'minecraft:zombie', 2)]));
+		await assert.rejects(readFile(path.join(out, 'arena-watch', 'a1-progress.jsonl')), /ENOENT/, 'only the danger rows are copied');
+	} finally { await rm(out, { recursive: true, force: true }); }
 });
