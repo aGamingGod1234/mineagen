@@ -458,11 +458,18 @@ public final class ServerActionExecutor {
 					// A fight or hazard floor holds as long as its danger lasts; any other firing that keeps the body this
 					// long is stuck, and the action's result is what brings the model back.
 					action.pausedSpanMs = stuckPauseSpan(action.pausedSpanMs, sinceLastLoop, holdsOnPurpose.test(action.request().agentId()));
-					if (action.pausedSpanMs >= REFLEX_HOLD_LIMIT_MS && !hasPendingPublication(action.request().agentId())
-							&& pendingCompletions.get(action.request().agentId()) == null) {
-						action.pausedSpanMs = 0L;
-						finish(action, action.result(ServerActionState.FAILED, "HELD_BY_REFLEX", String.format(java.util.Locale.ROOT,
-								"Reflexes held the body for %d s in a row and this action could not run", action.pausedSpanMs / 1000L), now));
+					if (!hasPendingPublication(action.request().agentId())) {
+						CleanupRetry<ServerActionResult> retained = pendingCompletions.get(action.request().agentId());
+						// A hold-limit end whose cleanup threw is retried here: the firing still holds the body, so the normal
+						// retry below is never reached and the action would be stuck again.
+						if (retained != null && action.endedByHoldLimit) finish(action, retained.pending());
+						else if (retained == null && action.pausedSpanMs >= REFLEX_HOLD_LIMIT_MS) {
+							long heldSeconds = action.pausedSpanMs / 1000L;
+							action.pausedSpanMs = 0L;
+							action.endedByHoldLimit = true;
+							finish(action, action.result(ServerActionState.FAILED, "HELD_BY_REFLEX", String.format(java.util.Locale.ROOT,
+									"Reflexes held the body for %d s in a row and this action could not run", heldSeconds), now));
+						}
 					}
 					continue;
 				}
@@ -3314,6 +3321,8 @@ public final class ServerActionExecutor {
 		private boolean pausedNow;
 		/** Game time paused since the action last ticked; reset on every resume. */
 		private long pausedSpanMs;
+		/** The reflex hold limit ended this action; its completion is retried even while the firing still holds the body. */
+		private boolean endedByHoldLimit;
 		private int resumes;
 		private long lastLoopMs;
 		private long startedAtEpochMs;
