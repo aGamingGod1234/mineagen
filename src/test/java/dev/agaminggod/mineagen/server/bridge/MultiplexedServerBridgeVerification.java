@@ -120,6 +120,7 @@ public final class MultiplexedServerBridgeVerification {
 		verifyStaleCancellationOutcome();
 		verifyAcceptedTapFollowsAdmission();
 		verifyObsoletePlannerReadinessIsIgnored();
+		verifyPlanningStateStepStatus();
 		verifyAgentErrorRevisionGate();
 		verifyRespawnContinuationPayload();
 		verifyActionProgressReachesCoordinator();
@@ -1676,6 +1677,97 @@ public final class MultiplexedServerBridgeVerification {
 					Files.deleteIfExists(secretFile);
 				} catch (java.io.IOException exception) {
 					throw new AssertionError("could not remove obsolete readiness secret", exception);
+				}
+			}
+		}
+	}
+
+	/** coordinator/test/protocol-v2.test.mjs checks the Node sanitiser against the same vectors. */
+	private static void verifyPlanningStateStepStatus() {
+		String[][] vectors = {
+				{"Mining iron: need 3", "Mining iron: need 3"},
+				{"  a\n\tb\r\n  c  ", "a b c"},
+				{"\u00a7cRed\u00a7r text", "cRedr text"},
+				{"x\u2028y\u0085z\u007f", "x y z"},
+				{"a\u2029b\u2029", "a b"},
+				{"\u00a7\n ", ""},
+				{"a".repeat(100), "a".repeat(80)},
+				{"a".repeat(79) + "\uD83D\uDE00b", "a".repeat(79)},
+				{"a".repeat(78) + "\uD83D\uDE00b", "a".repeat(78) + "\uD83D\uDE00"},
+				{"a".repeat(79) + " bbbbb", "a".repeat(79)},
+		};
+		for (String[] vector : vectors) {
+			assertEquals(vector[1], MultiplexedServerBridge.sanitizeStepStatus(vector[0]), "step status sanitiser for <" + vector[0] + ">");
+		}
+		assertEquals("", MultiplexedServerBridge.sanitizeStepStatus(null), "a null step status is empty");
+		assertEquals(80, MultiplexedServerBridge.STEP_STATUS_MAX_LENGTH, "step status bound matches the coordinator");
+		assertEquals("stepStatus", MultiplexedServerBridge.STEP_STATUS_FIELD, "step status field matches the coordinator");
+
+		MultiplexedServerBridge bridge = null;
+		Path secretFile = null;
+		try {
+			secretFile = Files.createTempFile("mineagen-step-status-secret-", ".txt");
+			Files.writeString(secretFile, "0123456789abcdef0123456789abcdef");
+			AgentManager manager = uninitializedManager();
+			AgentRecord created = manager.registry().create("gpt-5.6-sol", "high", Optional.of("StepStatus"), 1_800L);
+			AgentRecord started = manager.registry().start(created.agentId(), "keep working", 1_801L).after();
+			bridge = new MultiplexedServerBridge(manager, 0, secretFile);
+			assertTrue(bridge.stepStatus(started.agentId()) == null, "no step status before the coordinator sends one");
+
+			JsonObject withStatus = new JsonObject();
+			withStatus.addProperty("goalRevision", started.goalRevision());
+			withStatus.addProperty("state", "PLANNING");
+			withStatus.addProperty("stepStatus", "Doing: mine \u00a7citer\non");
+			invokePlannerReady(bridge, new BridgeEnvelope(2, "coordinator", started.agentId().toString(), "planning_state", "step-status-1", withStatus));
+			assertEquals("Doing: mine citer on", bridge.stepStatus(started.agentId()), "planning_state stores the sanitised step status");
+
+			JsonObject withoutStatus = new JsonObject();
+			withoutStatus.addProperty("goalRevision", started.goalRevision());
+			withoutStatus.addProperty("state", "PLANNING");
+			invokePlannerReady(bridge, new BridgeEnvelope(2, "coordinator", started.agentId().toString(), "planning_state", "step-status-2", withoutStatus));
+			assertEquals("Doing: mine citer on", bridge.stepStatus(started.agentId()), "a planning_state without the field keeps the status");
+
+			JsonObject wrongType = withoutStatus.deepCopy();
+			wrongType.addProperty("stepStatus", 42);
+			invokePlannerReady(bridge, new BridgeEnvelope(2, "coordinator", started.agentId().toString(), "planning_state", "step-status-3", wrongType));
+			assertEquals("Doing: mine citer on", bridge.stepStatus(started.agentId()), "a non-string step status is ignored, not fatal");
+
+			JsonObject readyWithStatus = new JsonObject();
+			readyWithStatus.addProperty("goalRevision", started.goalRevision());
+			readyWithStatus.addProperty("stepStatus", "ignored on agent_ready");
+			invokePlannerReady(bridge, new BridgeEnvelope(2, "coordinator", started.agentId().toString(), "agent_ready", "step-status-4", readyWithStatus));
+			assertEquals("Doing: mine citer on", bridge.stepStatus(started.agentId()), "agent_ready never sets the step status");
+
+			JsonObject cleared = withoutStatus.deepCopy();
+			cleared.addProperty("stepStatus", "");
+			invokePlannerReady(bridge, new BridgeEnvelope(2, "coordinator", started.agentId().toString(), "planning_state", "step-status-5", cleared));
+			assertTrue(bridge.stepStatus(started.agentId()) == null, "an empty step status clears it");
+
+			JsonObject again = withoutStatus.deepCopy();
+			again.addProperty("stepStatus", "Doing: smelt iron");
+			invokePlannerReady(bridge, new BridgeEnvelope(2, "coordinator", started.agentId().toString(), "planning_state", "step-status-6", again));
+			assertEquals("Doing: smelt iron", bridge.stepStatus(started.agentId()), "a new step status is stored after a clear");
+			AgentRecord paused = manager.registry().stop(started.agentId(), 1_802L).after();
+			assertTrue(paused.goalRevision() != started.goalRevision(), "stopping the agent moves its goal revision");
+			assertTrue(bridge.stepStatus(started.agentId()) == null, "a goal revision change drops the previous step status");
+
+			JsonObject pausedStatus = new JsonObject();
+			pausedStatus.addProperty("goalRevision", paused.goalRevision());
+			pausedStatus.addProperty("state", "PLANNING");
+			pausedStatus.addProperty("stepStatus", "Doing: wait");
+			invokePlannerReady(bridge, new BridgeEnvelope(2, "coordinator", started.agentId().toString(), "planning_state", "step-status-7", pausedStatus));
+			assertEquals("Doing: wait", bridge.stepStatus(started.agentId()), "a step status for the current revision is stored");
+			manager.registry().remove(started.agentId());
+			assertTrue(bridge.stepStatus(started.agentId()) == null, "removing the agent drops its step status");
+		} catch (java.io.IOException exception) {
+			throw new AssertionError("could not prepare step status verification", exception);
+		} finally {
+			if (bridge != null) bridge.close();
+			if (secretFile != null) {
+				try {
+					Files.deleteIfExists(secretFile);
+				} catch (java.io.IOException exception) {
+					throw new AssertionError("could not remove step status secret", exception);
 				}
 			}
 		}

@@ -124,6 +124,42 @@ const PENDING_SERVER_INSTANCE_ID = 'pending';
 const MAX_CATALOG_MODELS = 512;
 /** The task view carries the selected agent's plan and events plus every agent's usage; Minecraft enforces the same bound. */
 export const TASK_VIEW_MAX_BYTES = 49_152;
+/**
+ * planning_state.stepStatus: one line saying what the current step is doing, for the player's display. Minecraft
+ * (MultiplexedServerBridge.STEP_STATUS_MAX_LENGTH) applies the same bound in UTF-16 units and the same sanitiser.
+ */
+export const STEP_STATUS_FIELD = 'stepStatus';
+export const STEP_STATUS_MAX_LENGTH = 80;
+
+/**
+ * The display-safe form of a step status: control characters and line separators become one space, the section sign
+ * (Minecraft's formatting code) is dropped, runs of spaces collapse, ends are trimmed, and the text is clipped to
+ * STEP_STATUS_MAX_LENGTH UTF-16 units without ending on a high surrogate. '' means no status.
+ * MultiplexedServerBridge.sanitizeStepStatus mirrors this loop exactly.
+ */
+export function sanitizeStepStatus(value) {
+	const raw = typeof value === 'string' ? value : value == null ? '' : String(value);
+	let out = '';
+	for (let index = 0; index < raw.length; index++) {
+		const code = raw.charCodeAt(index);
+		if (code === 0xa7) continue;
+		if (code <= 0x20 || (code >= 0x7f && code <= 0x9f) || code === 0x2028 || code === 0x2029) {
+			if (out.length > 0 && !out.endsWith(' ')) out += ' ';
+			if (out.length > STEP_STATUS_MAX_LENGTH) break;
+			continue;
+		}
+		out += raw[index];
+		if (out.length > STEP_STATUS_MAX_LENGTH) break;
+	}
+	let end = Math.min(out.length, STEP_STATUS_MAX_LENGTH);
+	if (end < out.length && end > 0 && isHighSurrogateCode(out.charCodeAt(end - 1))) end -= 1;
+	while (end > 0 && out.charCodeAt(end - 1) === 0x20) end -= 1;
+	return out.slice(0, end);
+}
+
+function isHighSurrogateCode(code) {
+	return code >= 0xd800 && code <= 0xdbff;
+}
 const MAX_MODEL_CAPABILITIES = 32;
 const MAX_REGISTRY_SNAPSHOT_AGENTS = 1_024;
 // Covers 256 queued goals, each with escaped request text, 64 item identifiers and
@@ -348,9 +384,16 @@ function normalizeProtocolV2Payload(type, value) {
 			return value.reconciled === undefined
 				? { goalRevision: revision(value.goalRevision, 'goalRevision') }
 				: { goalRevision: revision(value.goalRevision, 'goalRevision'), reconciled: boolean(value.reconciled, 'reconciled') };
-		case 'planning_state':
-			exactKeys(value, ['goalRevision', 'state'], ['goalRevision', 'state'], type);
-			return { goalRevision: revision(value.goalRevision, 'goalRevision'), state: boundedText(value.state, 'state', MAX_REASON_CODE_LENGTH) };
+		case 'planning_state': {
+			// stepStatus is optional: absent leaves Minecraft's stored status unchanged, '' clears it. Servers that predate it
+			// ignore the key (plannerReady reads only goalRevision), so no capability gate is needed.
+			exactKeys(value, ['goalRevision', 'state', STEP_STATUS_FIELD], ['goalRevision', 'state'], type);
+			const normalized = { goalRevision: revision(value.goalRevision, 'goalRevision'), state: boundedText(value.state, 'state', MAX_REASON_CODE_LENGTH) };
+			if (value.stepStatus === undefined) return normalized;
+			const stepStatus = boundedText(value.stepStatus, STEP_STATUS_FIELD, STEP_STATUS_MAX_LENGTH, 0);
+			if (sanitizeStepStatus(stepStatus) !== stepStatus) throw new ProtocolV2Error('INVALID_PAYLOAD', `${STEP_STATUS_FIELD} must be sanitised with sanitizeStepStatus`);
+			return { ...normalized, stepStatus };
+		}
 		case 'goal_completed':
 			return normalizeGoalCompletionRequest(value);
 		case 'goal_completion_result':

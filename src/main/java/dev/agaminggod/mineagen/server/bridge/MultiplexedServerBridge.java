@@ -109,6 +109,9 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 	public static final int AGENT_QUEUE_CAP = 32;
 	/** Default idle heartbeat spacing; urgent and explicitly requested observations are unaffected. */
 	public static final int DEFAULT_HEARTBEAT_MIN_INTERVAL_TICKS = 10;
+	/** planning_state's optional step status; coordinator/src/protocol-v2.mjs exports the same name and bound. */
+	public static final String STEP_STATUS_FIELD = "stepStatus";
+	public static final int STEP_STATUS_MAX_LENGTH = 80;
 	private static final int OBSERVATIONS_PER_TICK = AgentConstants.DEFAULT_AGENT_LIMIT;
 	private static final int HANDSHAKE_TIMEOUT_MS = 5_000;
 	private static final int PREAUTH_SESSION_CAP = 8;
@@ -220,6 +223,8 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 	private final Map<UUID, ActivatedGoalSpecRequest> activatedGoalSpecRequests = new LinkedHashMap<>();
 	// Latest launch notice per agent, replayed to players who join after it was broadcast.
 	private final Map<AgentId, AgentNotice> latestAgentNotices = new java.util.concurrent.ConcurrentHashMap<>();
+	// Latest step status per agent, kept with the goal revision it was sent for so a goal change makes it stale.
+	private final Map<AgentId, StepStatus> stepStatuses = new java.util.concurrent.ConcurrentHashMap<>();
 	private volatile java.util.function.Consumer<AcceptedAgentNotice> agentNoticeHook = ignored -> { };
 	private volatile Runnable handshakeSnapshotHook = () -> { };
 	private volatile Runnable observationEnqueueHook = () -> { };
@@ -867,6 +872,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		programActions.remove(agentId);
 		terminalResults.remove(agentId);
 		latestAgentNotices.remove(agentId);
+		stepStatuses.remove(agentId);
 		actionJournal.removeForTick(agentId);
 		observationPublication.remove(agentId);
 		forgetDeliveredInventory(agentId);
@@ -1296,6 +1302,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 					source.completeHandshake(handshake, suppliedLaunchId, sessionGenerations.incrementAndGet(), source.registryFragments ? visibleRecords : null);
 					handshakeCommittedHook.accept(source);
 					latestAgentNotices.clear();
+					stepStatuses.clear();
 					coordinatorLifecycleGeneration++;
 				} catch (RuntimeException exception) {
 					for (ServerActionResult result : claimedReplay) terminalResults.release(result, source);
@@ -2440,6 +2447,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 			throw new AgentDomainException("STALE_REVISION", "Coordinator planning revision is stale");
 		}
 		boolean agentReady = "agent_ready".equals(envelope.type());
+		if (!agentReady) rememberStepStatus(id, revision, envelope.payload());
 		if (agentReady) { coordinatorReadyAgentIds.add(id); publishKnownProgress(id); }
 		boolean recoveryReady = agentReady
 				&& envelope.payload().has("reconciled")
@@ -2455,6 +2463,62 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 			observationPublication.markAttention(id);
 			queueUrgentObservation(id);
 		}
+	}
+
+	/**
+	 * What the coordinator last said the agent's current step is doing (planning_state.stepStatus), sanitised and at most
+	 * STEP_STATUS_MAX_LENGTH characters, or null when it sent none for the agent's current goal revision or the agent
+	 * has no current goal.
+	 */
+	public String stepStatus(AgentId agentId) {
+		Objects.requireNonNull(agentId, "agentId must not be null");
+		StepStatus status = stepStatuses.get(agentId);
+		if (status == null) return null;
+		AgentRecord record;
+		try {
+			record = manager.registry().contains(agentId) ? manager.registry().require(agentId) : null;
+		} catch (RuntimeException exception) {
+			record = null;
+		}
+		if (record == null || record.goalRevision() != status.goalRevision() || record.currentGoal().isEmpty()) {
+			stepStatuses.remove(agentId, status);
+			return null;
+		}
+		return status.text();
+	}
+
+	// A display-only field: a missing or non-string value leaves the stored status alone and never fails planning_state.
+	private void rememberStepStatus(AgentId agentId, long goalRevision, JsonObject payload) {
+		JsonElement value = payload.get(STEP_STATUS_FIELD);
+		if (value == null || !value.isJsonPrimitive() || !value.getAsJsonPrimitive().isString()) return;
+		String text = sanitizeStepStatus(value.getAsString());
+		if (text.isEmpty()) stepStatuses.remove(agentId);
+		else stepStatuses.put(agentId, new StepStatus(goalRevision, text));
+	}
+
+	/**
+	 * The same loop as sanitizeStepStatus in coordinator/src/protocol-v2.mjs: control characters and line separators
+	 * become one space, the section sign (formatting code) is dropped, spaces collapse, ends are trimmed, and the text is
+	 * clipped to STEP_STATUS_MAX_LENGTH UTF-16 units without ending on a high surrogate. An empty result means no status.
+	 */
+	static String sanitizeStepStatus(String raw) {
+		if (raw == null) return "";
+		StringBuilder out = new StringBuilder(Math.min(raw.length(), STEP_STATUS_MAX_LENGTH + 1));
+		for (int index = 0; index < raw.length(); index++) {
+			char code = raw.charAt(index);
+			if (code == 0xa7) continue;
+			if (code <= 0x20 || (code >= 0x7f && code <= 0x9f) || code == 0x2028 || code == 0x2029) {
+				if (out.length() > 0 && out.charAt(out.length() - 1) != ' ') out.append(' ');
+				if (out.length() > STEP_STATUS_MAX_LENGTH) break;
+				continue;
+			}
+			out.append(code);
+			if (out.length() > STEP_STATUS_MAX_LENGTH) break;
+		}
+		int end = Math.min(out.length(), STEP_STATUS_MAX_LENGTH);
+		if (end < out.length() && end > 0 && Character.isHighSurrogate(out.charAt(end - 1))) end -= 1;
+		while (end > 0 && out.charAt(end - 1) == ' ') end -= 1;
+		return out.substring(0, end);
 	}
 
 	private boolean shouldRequestReadyObservation(AgentId agentId, long goalRevision, boolean recoveryReady) {
@@ -2591,6 +2655,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 
 	private record RejectionIdentity(String agentId, long goalRevision, String actionId, String actionType, String traceId) { }
 	private record RecoveryObservationIdentity(long coordinatorLifecycleGeneration, long goalRevision) { }
+	private record StepStatus(long goalRevision, String text) { }
 	private record PendingRespawnPublication(ServerActionResult result, AgentTransition transition, Runnable commit) { }
 
 	static String boundedRejectionMessage(String message) {
@@ -4900,6 +4965,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 					session = null;
 					protocolKnownAgentIds.clear();
 					coordinatorReadyAgentIds.clear();
+					stepStatuses.clear();
 					catalogProfiles = Set.of();
 					catalogModels = List.of();
 					catalogLoaded = false;

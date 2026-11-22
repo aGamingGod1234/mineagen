@@ -150,3 +150,98 @@ test('a running count skill holds its own mob\'s hits, threats and shots; anothe
 	assert.equal(filter.decide('a', { attention: urgent('damage'), observation: sample({ health: 8, attacker: 'minecraft:blaze' }), ownKinds: kinds }).reason, 'health at or below the low floor');
 	assert.match(filter.take('a', sample()), /2 hit\(s\)|1 hit\(s\)/u);
 });
+
+// One sample at game second `s` (20 ticks each); the stall clock runs on game time.
+const at = (s, { items = [], wallMs = 1_000_000 + s * 1_000 } = {}) => ({ ...sample({ items }), world: { gameTime: s * 20 }, observedAtEpochMs: wallMs });
+const LOG = [{ itemId: 'minecraft:oak_log', count: 1 }];
+/** Loop notes every `every` s from `from` to `to` (inclusive); returns the first verdict that is not null. */
+function loopNotes(filter, step, from, to, { every = 30, items = [], events = () => [] } = {}) {
+	for (let s = from; s <= to; s += every) {
+		const verdict = filter.stalled('a', step, 'movement_loop', at(s, { items }), events(s));
+		if (verdict !== null) return { s, ...verdict };
+	}
+	return null;
+}
+
+test('a stalled obtain is stopped after 3 min of game time; a stalled background walk wakes the model', () => {
+	const filter = new WakeFilter();
+	assert.equal(filter.stalled('a', 'obtain', 'observation', at(0)), null, 'routine updates are not stall notes');
+	assert.deepEqual(loopNotes(filter, 'obtain', 0, 400), { s: 180, stalledMs: 180_000, notes: 7, stop: true });
+	assert.deepEqual(loopNotes(filter, 'obtain', 210, 400), { s: 390, stalledMs: 180_000, notes: 7, stop: true }, 'a step still stuck is judged again 3 min later');
+	assert.equal(loopNotes(new WakeFilter(), 'travel_to', 0, 400).stop, false);
+	assert.equal(loopNotes(new WakeFilter(), 'mine', 0, 400).stop, false);
+	filter.noteStall('a', 180_000, at(390));
+	filter.fold('a', 'movement_loop', at(390));
+	assert.equal(filter.take('a', at(390)), 'not woken for: the step made no progress for 3 min (no item gained); movement loop (the body kept going)');
+});
+
+test('steps that work for minutes without new items are never judged stalled', () => {
+	for (const step of ['fight_until', 'rest', 'cast_obsidian', 'build', 'build_shelter', 'barter_until', 'escape', 'find', 'gather', 'craft', 'smelt', 'furnace_transaction', null]) {
+		assert.equal(loopNotes(new WakeFilter(), step, 0, 900, { every: 5 }), null, String(step));
+	}
+});
+
+test('the stall clock starts over on progress, a quiet gap, a new step, a model wake or a model call', () => {
+	// Each case would fire at 180 s without its reset (see the first obtain case above).
+	const gain = new WakeFilter();
+	assert.equal(loopNotes(gain, 'obtain', 0, 150), null);
+	assert.equal(gain.stalled('a', 'obtain', 'movement_loop', at(160, { items: LOG })), null, 'a log gained');
+	assert.equal(loopNotes(gain, 'obtain', 180, 330, { items: LOG }), null);
+	assert.equal(loopNotes(gain, 'obtain', 340, 340, { items: LOG }).s, 340);
+	const mining = new WakeFilter();
+	assert.equal(loopNotes(mining, 'mine', 0, 900, { every: 10, items: [] }) !== null, true, 'the same cadence with no item fires');
+	const vein = new WakeFilter();
+	assert.equal([...Array(90).keys()].some((i) => vein.stalled('a', 'mine', 'movement_loop', at(i * 10, { items: [{ itemId: 'minecraft:raw_iron', count: 1 + Math.floor(i / 6) }] })) !== null), false,
+		'a vein mined back and forth gains ore every minute and is never stalled');
+	const quiet = new WakeFilter();
+	quiet.stalled('a', 'obtain', 'movement_loop', at(0));
+	assert.equal(quiet.stalled('a', 'obtain', 'movement_loop', at(130)), null, 'more than 2 min with no stall note');
+	assert.equal(loopNotes(quiet, 'obtain', 160, 300), null);
+	assert.equal(loopNotes(quiet, 'obtain', 310, 310).s, 310);
+	const next = new WakeFilter();
+	assert.equal(loopNotes(next, 'obtain', 0, 150), null);
+	assert.equal(loopNotes(next, 'travel_to', 180, 330), null, 'a new step');
+	const woken = new WakeFilter();
+	assert.equal(loopNotes(woken, 'obtain', 0, 150), null);
+	woken.take('a', at(150));
+	assert.equal(loopNotes(woken, 'obtain', 180, 330), null, 'the model was just woken');
+	assert.equal(loopNotes(woken, 'obtain', 360, 360).s, 360);
+	// Spent items lower the baseline: 64 cobblestone placed down to 32, then one gained, is progress.
+	const spent = new WakeFilter();
+	const cobble = (count) => [{ itemId: 'minecraft:cobblestone', count }];
+	assert.equal(loopNotes(spent, 'obtain', 0, 90, { items: cobble(64) }), null);
+	assert.equal(loopNotes(spent, 'obtain', 120, 150, { items: cobble(32) }), null);
+	assert.equal(spent.stalled('a', 'obtain', 'movement_loop', at(170, { items: cobble(33) })), null, 'one cobblestone gained after spending');
+	assert.equal(loopNotes(spent, 'obtain', 180, 330, { items: cobble(33) }), null, 'the clock restarted at 170 s');
+	assert.equal(loopNotes(spent, 'obtain', 350, 350, { items: cobble(33) }).s, 350);
+	const working = new WakeFilter();
+	assert.equal(loopNotes(working, 'obtain', 0, 150), null);
+	assert.equal(working.stalled('a', null, 'observation', at(160)), null, 'obtain stopped searching: it walks to a seen tree');
+	assert.equal(loopNotes(working, 'obtain', 170, 330), null);
+	assert.equal(loopNotes(working, 'obtain', 350, 350).s, 350);
+	const called = new WakeFilter();
+	assert.equal(loopNotes(called, 'obtain', 0, 150), null);
+	called.resetStall('a');
+	assert.equal(loopNotes(called, 'obtain', 180, 330), null, 'the model made a call');
+	new WakeFilter().resetStall('nobody');
+});
+
+test('paused game time and reflex-held time do not count toward a stall', () => {
+	// A single-player pause stops game ticks while the wall clock runs on.
+	const paused = new WakeFilter();
+	for (const [s, wall] of [[0, 0], [30, 30], [60, 60], [90, 90], [90, 300], [90, 600], [90, 900], [100, 910], [130, 940], [160, 970]]) {
+		assert.equal(paused.stalled('a', 'obtain', 'movement_loop', at(s, { wallMs: wall * 1_000 })), null, `game ${s} s, wall ${wall} s`);
+	}
+	assert.equal(paused.stalled('a', 'obtain', 'movement_loop', at(180, { wallMs: 990_000 })).stalledMs, 180_000);
+	// A reflex that held the body for 60 s (a fight inside the search) is the reflex's time.
+	const fight = new WakeFilter();
+	const events = (s) => (s >= 90 ? [{ seq: 4, outcome: 'done', ms: 60_000 }, { seq: 5, outcome: 'started', ms: 90_000 }] : [{ seq: 3, outcome: 'done', ms: 5_000 }]);
+	assert.equal(loopNotes(fight, 'obtain', 0, 210, { events }), null);
+	assert.deepEqual(loopNotes(fight, 'obtain', 240, 240, { events }), { s: 240, stalledMs: 180_000, notes: 9, stop: true });
+	// Without a clock there is no stall.
+	assert.equal(new WakeFilter().stalled('a', 'obtain', 'movement_loop', sample()), null);
+	// A clock that switches base (game ticks to wall time) starts over rather than mixing them.
+	const mixed = new WakeFilter();
+	assert.equal(loopNotes(mixed, 'obtain', 0, 150), null);
+	assert.equal(mixed.stalled('a', 'obtain', 'movement_loop', { ...sample(), observedAtEpochMs: 1_000_000_000 }), null);
+});
