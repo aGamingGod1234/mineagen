@@ -200,7 +200,7 @@ try {
 			await armDefaults();
 			continue;
 		}
-		let skeleton = null, skeletonOnServer = false, exposedAtStart = false;
+		let skeleton = null, skeletonOnServer = false, exposedAtStart = false, startSnapshot = null;
 		// The room's line of sight past its one wall, as hidden() below, for the check right after the summon.
 		const hiddenNow = async () => {
 			const text = String(await s.command('data get entity @e[type=minecraft:skeleton,limit=1,sort=nearest] Pos').catch(() => ''));
@@ -238,6 +238,9 @@ try {
 			// settle below (that read as "no skeleton in sight at the start": 48 of 188 trials INVALID on 22 Nov).
 			skeletonOnServer = /passed/i.test(String(await s.command('execute if entity @e[type=minecraft:skeleton]').catch(() => '')));
 			exposedAtStart = skeletonOnServer && !(await hiddenNow());
+			// Both positions as the exposure check saw them, for the trial's record.
+			startSnapshot = { body: await pos(), skeleton: String(await s.command('data get entity @e[type=minecraft:skeleton,limit=1,sort=nearest] Pos').catch(() => ''))
+				.match(/\[\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?,\s*(-?[\d.]+)d?\]/)?.slice(1).map(Number) ?? null, exposed: exposedAtStart };
 			// The legacy arm names the skeleton in flee_from: take its UUID from the server when the body's view lacks it.
 			if (!skeleton && skeletonOnServer) {
 				const ints = String(await s.command('data get entity @e[type=minecraft:skeleton,limit=1] UUID').catch(() => '')).match(/\[I;\s*(-?\d+),\s*(-?\d+),\s*(-?\d+),\s*(-?\d+)\]/);
@@ -354,7 +357,7 @@ try {
 		row.deathEvidence = recordDeathEvidence(row, deathsBefore, await readDeaths());
 		const sawDeath = minHealth <= 0 || row.deaths > 0 || /Lifecycle changed to DEAD/.test(String(last?.message ?? ''));
 		const died = row.died = sawDeath ? true : row.deathEvidence.valid ? false : null;
-		if (room === 'skeleton') row.start = { body: live, skeletonEye: await skeletonEye().catch(() => null), skeletonSeen: skeleton !== null, wall };
+		if (room === 'skeleton') row.start = { ...(startSnapshot ?? {}), skeletonSeen: skeleton !== null, wall };
 		if (!exposed) row.notExercised = room === 'skeleton' ? 'no skeleton in sight at the start' : 'the live body did not start in danger';
 		// The skeleton room's verdict is cover at the end, however the body got there: reflexes taking cover before the
 		// first decision is the bot doing right, not missing evidence.
