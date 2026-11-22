@@ -606,7 +606,9 @@ export function pearlOptions({ observation = null, position = null, known = null
 	const enderman = nearest(sightings.filter((row) => row.kind === 'mob' && row.what === 'minecraft:enderman' && fresh(row)));
 	const inView = entities.filter((row) => row.type === 'minecraft:enderman').length;
 	const warpedHere = observation?.world?.biome === 'minecraft:warped_forest';
-	const warped = warpedHere ? null : nearest((known?.blocks ?? []).filter((block) => WARPED.test(block.blockId)));
+	// A forest stood in or surveyed is remembered across trips (search-coverage.mjs biome sightings), its blocks only briefly.
+	const warped = warpedHere ? null : nearest([...sightings.filter((row) => row.kind === 'biome' && row.what === 'minecraft:warped_forest'),
+		...(known?.blocks ?? []).filter((block) => WARPED.test(block.blockId))]);
 	const kill = ENDER_DROP > 0 ? (1 / ENDER_DROP) * ENDER_FIGHT_MIN : 0;
 	const hunt = (lead) => `${lead}: 0-1 pearl per kill (~${ENDER_DROP} each), ~${round(kill)} min per pearl once one is near`;
 	const leads = [warpedHere ? 'standing in a warped forest, where endermen are the usual mob' : warped ? `warped forest ${where(position, warped)} (walk ${round(reach(position, warped))} min), where endermen are the usual mob` : '',

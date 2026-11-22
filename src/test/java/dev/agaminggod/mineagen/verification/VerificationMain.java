@@ -317,6 +317,8 @@ public final class VerificationMain {
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.FallReportVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.FightMovementVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.CountFightVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.ForestHuntVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.ForestHuntTickVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.AreaClearedVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.PerceptionGateVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.FightMotionVerification.verify();
