@@ -274,10 +274,9 @@ export function shieldState(row) {
 }
 // The action running at a hit: "(none)" when a schema 2 row says nothing ran, "(unknown)" when the row has no action field.
 export const actionAtHit = (row) => !row || !('action' in row) ? '(unknown)' : typeof row.action === 'string' && row.action ? row.action : '(none)';
-// HP a hit cost: taken (after armour and shield), or for the lethal hit (taken null) the health and absorption it used.
-// Neither known: the hit counts in damageUnknown, never as 0.
-const hitHp = (row) => Number.isFinite(row.taken) ? row.taken
-	: row.paired === true && Number.isFinite(row.healthDrop) && Number.isFinite(row.absorbed) ? row.healthDrop + row.absorbed : null;
+// HP a hit cost: the health and absorption it used, measured around the hit (paired). The Watcher's taken is Fabric's
+// damage before armour, so it overstates armoured hits; an unpaired hit's cost is unknown.
+const hitHp = (row) => row.paired === true && Number.isFinite(row.healthDrop) && Number.isFinite(row.absorbed) ? row.healthDrop + row.absorbed : null;
 const hitBucket = () => ({ hits: 0, blocked: 0, damage: 0, damageUnknown: 0 });
 const addBucket = (into, from) => { into.hits += from.hits; into.blocked += from.blocked; into.damage += from.damage; into.damageUnknown += from.damageUnknown; return into; };
 const roundBucket = (bucket) => ({ ...bucket, damage: Math.round(bucket.damage * 100) / 100 });

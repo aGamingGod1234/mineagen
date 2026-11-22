@@ -484,13 +484,16 @@ test('hits split by shield state and running action; schema 1 rows are unknown, 
 	const root = await mkdtemp(path.join(os.tmpdir(), 'gate-report-'));
 	try {
 		const dir = await standardRound(root, [{ id: 'game-1', seed: '780', stages: {}, agentId: 'agent-a' }, { id: 'game-2', seed: '781', stages: {} }]);
-		const hit = (minute, fields) => ({ type: 'damage', schema: 2, agentId: 'agent-a', atMs: T0 + minute * MIN, gameTime: minute * 1200, blocked: false, paired: true, lethal: false, ...fields });
+		// A paired hit's cost is its measured health and absorption drop; a fixture's taken stands for that drop.
+		const hit = (minute, fields) => { const row = { type: 'damage', schema: 2, agentId: 'agent-a', atMs: T0 + minute * MIN, gameTime: minute * 1200, blocked: false, paired: true, lethal: false, ...fields };
+			if (row.paired && Number.isFinite(row.taken) && row.healthDrop === undefined) Object.assign(row, { healthDrop: row.taken, absorbed: 0 });
+			return row; };
 		const v1 = (minute, fields) => { const row = hit(minute, fields); row.schema = 1; return row; };
 		const rows = [
 			hit(5, { taken: 0, blocked: true, shieldHand: 'off', blocking: true, action: 'mine_block' }),
 			hit(6, { taken: 3, shieldHand: 'off', blocking: false, action: 'mine_block' }),
 			hit(7, { taken: 4, shieldHand: null, blocking: false, action: null }),
-			// No same-tick read before the hit: the guard is unknown.
+			// No same-tick read before the hit: the guard and the HP it cost are unknown.
 			hit(8, { taken: 2, paired: false, shieldHand: null, blocking: null, action: 'fight_target' }),
 			v1(9, { taken: 5 }),
 			// The lethal hit has no taken: the health and absorption it used.
@@ -508,13 +511,13 @@ test('hits split by shield state and running action; schema 1 rows are unknown, 
 		await writeFile(path.join(dir, 'game-1', 'raw', 'arena-watch', 'agent-b-danger.jsonl'), JSON.stringify({ ...hit(5, { taken: 7 }), agentId: 'agent-b' }) + '\n');
 		const [first, second] = readRun(dir);
 		const bucket = (hits, blocked, damage, damageUnknown = 0) => ({ hits, blocked, damage, damageUnknown });
-		const byShield = { blocking: bucket(1, 1, 0), shieldNotBlocking: bucket(1, 0, 3), noShield: bucket(2, 0, 8), unknown: bucket(3, 0, 7, 1) };
-		const byAction = { fight_target: bucket(3, 0, 6, 1), mine_block: bucket(2, 1, 3), '(none)': bucket(1, 0, 4), '(unknown)': bucket(1, 0, 5) };
-		assert.deepEqual(first.damage, { ...bucket(7, 1, 18, 1), byShield, byAction });
+		const byShield = { blocking: bucket(1, 1, 0), shieldNotBlocking: bucket(1, 0, 3), noShield: bucket(2, 0, 8), unknown: bucket(3, 0, 5, 2) };
+		const byAction = { fight_target: bucket(3, 0, 4, 2), mine_block: bucket(2, 1, 3), '(none)': bucket(1, 0, 4), '(unknown)': bucket(1, 0, 5) };
+		assert.deepEqual(first.damage, { ...bucket(7, 1, 16, 2), byShield, byAction });
 		assert.deepEqual(Object.keys(first.damage.byAction), ['fight_target', 'mine_block', '(none)', '(unknown)'], 'actions by hits, most first');
 		assert.equal('damage' in second, false, 'no danger file: not measured, not zero hits');
 		const [cohort] = buildGate({ gate: 'r9', title: 'round 9', cohorts: [{ name: 'r9', label: 'round 9', dirs: [dir] }] }).cohorts;
-		assert.deepEqual(cohort.damage, { games: 1, ...bucket(7, 1, 18, 1), byShield, byAction });
+		assert.deepEqual(cohort.damage, { games: 1, ...bucket(7, 1, 16, 2), byShield, byAction });
 		assert.equal(cohort.damageUnmeasuredGames, 0);
 		assert.ok('deaths' in cohort && 'deathCauses' in cohort && 'nether' in cohort, 'existing cohort keys stay');
 		// A danger file with a row that does not parse is unknown evidence: no breakdown, kept out of the cohort's sums.
@@ -545,6 +548,8 @@ test('shield state and action read only the fields a schema 2 row carries', () =
 	assert.equal(actionAtHit({ schema: 1 }), '(unknown)');
 	assert.equal(actionAtHit({ schema: 2, action: null }), '(none)');
 	assert.equal(actionAtHit({ schema: 2, action: 'flee_from' }), 'flee_from');
+	// An armoured hit: Fabric's taken is before armour, the measured drop is what it cost.
+	assert.equal(damageBreakdown([{ schema: 2, type: 'damage', taken: 6, paired: true, healthDrop: 3.5, absorbed: 0.5, shieldHand: null, blocking: false, action: null }]).damage, 4);
 	assert.deepEqual(damageBreakdown([]), { hits: 0, blocked: 0, damage: 0, damageUnknown: 0,
 		byShield: Object.fromEntries(['blocking', 'shieldNotBlocking', 'noShield', 'unknown'].map((state) => [state, { hits: 0, blocked: 0, damage: 0, damageUnknown: 0 }])), byAction: {} });
 });
