@@ -112,7 +112,7 @@ async function select(itemId) {
 	await act('select_item', { itemId });
 	return true;
 }
-let table = null, equipRefused = false;
+let table = null, equipRefused = false, waitingForPiglins = false;
 // The carried crafting table, placed once on the floor beside the body (as a player does), reused afterwards.
 async function placeTable() {
 	if (table) return table;
@@ -156,7 +156,9 @@ async function getGold() {
 	if (Math.hypot(ore.x + 0.5 - facts.player.x, ore.z + 0.5 - facts.player.z) > 3.5)
 		await act('navigate_to', { x: ore.x + 0.5 + Math.sign(facts.player.x - ore.x), y: Y, z: ore.z + 0.5, tolerance: 1, sprint: false, timeoutMs: 20000 }, 30000);
 	await act('look_at', { x: ore.x + 0.5, y: ore.y + 0.5, z: ore.z + 0.5 });
-	await act('mine_vein', { x: ore.x, y: ore.y, z: ore.z, maxBlocks: 64, timeoutMs: 120000 }, 150000);
+	const mined = await act('mine_vein', { x: ore.x, y: ore.y, z: ore.z, maxBlocks: 64, timeoutMs: 120000 }, 150000);
+	// "Mine it once they are further off": the model waits for the piglins to wander away and tries again.
+	waitingForPiglins = mined.reasonCode === 'PIGLINS_NEAR_GOLD';
 	await collectNuggets();
 	return held('minecraft:gold_nugget') > nuggets;
 }
@@ -285,7 +287,7 @@ try {
 		const convertible = held('minecraft:gold_block') > 0 || held('minecraft:gold_nugget') >= 9;
 		if (held('minecraft:gold_ingot') === 0 && goldWorn() && (!convertible || outOfGold)) {
 			outOfGold = false;
-			if (!(await getGold())) { if (++idle > 6) { row.stopped = 'no gold left to trade, convert or mine'; break; } }
+			if (!(await getGold()) && !waitingForPiglins) { if (++idle > 6) { row.stopped = 'no gold left to trade, convert or mine'; break; } }
 			continue;
 		}
 		await select('minecraft:gold_ingot');
