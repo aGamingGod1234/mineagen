@@ -270,11 +270,37 @@ public final class ServerEscapeController implements ServerController {
 				if (!level.getFluidState(under).isEmpty() || !level.getBlockState(under).isFaceSturdy(level, under, Direction.UP)
 						|| level.getBlockState(under).is(net.minecraft.world.level.block.Blocks.MAGMA_BLOCK)) continue;
 				if (!roomOver(level, cell) || !roomOver(level, cell.above())) continue;
+				net.minecraft.world.phys.AABB box = player.getBoundingBox();
+				if (!takeoffClear(box.minX, box.maxX, box.minZ, box.maxZ, box.maxY, cell.getY(),
+						at -> !level.getBlockState(at).getCollisionShape(level, at).isEmpty())) continue;
 				double ledge = cell.getY() - player.getY();
 				if (cell.getY() > ownFloorTop && ledge > bestLedge && ledge <= reach) { bestLedge = ledge; best = cell; }
 			}
 		}
 		return best;
+	}
+
+	/** A standing player's height: the body has to fit it over the step before it is on it. */
+	static final double STANDING_HEIGHT = 1.8D;
+
+	/**
+	 * Whether the body can rise in its own column until its feet are level with a step's top at {@code stepTop}: every
+	 * cell over the columns its box covers, from its head ({@code boxTop}) up to the step top plus a standing height, is
+	 * free. A ceiling lower than that (a flooded passage two high with a step up beside it) blocks the jump however long
+	 * the body pushes, so the step is no way out from here.
+	 */
+	static boolean takeoffClear(double minX, double maxX, double minZ, double maxZ, double boxTop, int stepTop,
+			java.util.function.Predicate<BlockPos> solid) {
+		double top = stepTop + STANDING_HEIGHT;
+		if (top <= boxTop) return true;
+		int x0 = net.minecraft.util.Mth.floor(minX), x1 = net.minecraft.util.Mth.floor(maxX - 1.0E-7D);
+		int z0 = net.minecraft.util.Mth.floor(minZ), z1 = net.minecraft.util.Mth.floor(maxZ - 1.0E-7D);
+		int y0 = net.minecraft.util.Mth.floor(boxTop), y1 = net.minecraft.util.Mth.floor(top - 1.0E-7D);
+		for (int x = x0; x <= x1; x++)
+			for (int z = z0; z <= z1; z++)
+				for (int y = y0; y <= y1; y++)
+					if (solid.test(new BlockPos(x, y, z))) return false;
+		return true;
 	}
 
 	/** A cell the body fits in over a step: air or water, nothing solid, no hazard. */
