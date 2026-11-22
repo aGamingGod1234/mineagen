@@ -2,18 +2,92 @@
  {
   "name": "village-stone-5596",
   "seed": "5596758903284113703",
-  "position": [311, 77, -241],
+  "position": [
+   311,
+   77,
+   -241
+  ],
   "time": 1000,
   "monsters": true,
   "repeat": false,
   "budgetMs": 300000,
   "inventory": [],
-  "setup": ["kill @e[type=minecraft:item,distance=..40]"],
-  "probe": ["data get entity Probe Pos"],
+  "setup": [
+   "kill @e[type=minecraft:item,distance=..40]"
+  ],
+  "probe": [
+   "data get entity Probe Pos"
+  ],
   "calls": [
-   { "name": "do_step", "arguments": { "verb": "obtain", "target": { "item": "stone_pickaxe" }, "why": "stone tools to start" } }
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "stone_pickaxe"
+     },
+     "why": "stone tools to start"
+    }
+   }
   ],
   "expectCode": "OBTAINED",
-  "forbid": [{ "actionType": "dig_to", "pattern": "stairs_down" }]
+  "forbid": [
+   {
+    "actionType": "dig_to",
+    "pattern": "stairs_down"
+   }
+  ]
+ },
+ {
+  "name": "village-stone-tree-5596",
+  "seed": "5596758903284113703",
+  "position": [
+   297,
+   78,
+   -230
+  ],
+  "time": 1000,
+  "monsters": true,
+  "repeat": false,
+  "budgetMs": 300000,
+  "inventory": [
+   {
+    "item": "minecraft:wooden_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:stick",
+    "count": 2
+   },
+   {
+    "item": "minecraft:oak_planks",
+    "count": 4
+   }
+  ],
+  "setup": [
+   "kill @e[type=minecraft:item,distance=..40]"
+  ],
+  "probe": [
+   "data get entity Probe Pos"
+  ],
+  "calls": [
+   {
+    "name": "do_step",
+    "arguments": {
+     "verb": "obtain",
+     "target": {
+      "item": "stone_pickaxe"
+     },
+     "why": "stone tools to start"
+    }
+   }
+  ],
+  "expectCode": "OBTAINED",
+  "forbid": [
+   {
+    "actionType": "dig_to",
+    "pattern": "stairs_down"
+   }
+  ]
  }
 ]

@@ -3262,6 +3262,17 @@
    "estMinutes": 3,
    "tickRate": 20,
    "reads": "OUT/result.json row pass: obtain stone_pickaxe from nothing ended OBTAINED, no death, and no dig_to stairs_down (stone from the village, not dug for)"
+  },
+  {
+   "room": "village-stone-tree",
+   "fixture": "test-find-live.mjs",
+   "stage": "early",
+   "skill": "mining",
+   "skill2": null,
+   "line": "FIND_ONLY=village-stone-tree-5596 node scripts/quality/test-find-live.mjs scripts/quality/village-spots.json $OUT $JAR --descriptive",
+   "estMinutes": 3,
+   "tickRate": 20,
+   "reads": "OUT/result.json row pass: from the oak tree where the playtest bot began its stone step (wooden pickaxe, sticks, planks held), obtain stone_pickaxe ended OBTAINED with no dig_to stairs_down"
   }
  ]
 }
