@@ -456,7 +456,11 @@ public final class ServerFleeController implements ServerController {
 		// The knockback margin that refused the headings also refuses a step of the way back along the same lip.
 		margin = CombatMoveText.knockbackMargin(player);
 		GridPosition feet = SafeStep.feet(player);
-		if (CombatPlanning.routeMarginRefusal(ObservedTerrain.of(player), feet, cell,
+		ObservedTerrain world = ObservedTerrain.of(player);
+		// The route was planned once: the next cell is checked against the terrain as seen now (lava that spread onto it,
+		// footing a blast removed), and the way back ends when it is no longer a cell to stand in.
+		if (!CombatPlanning.walkable(world, cell) || world.lavaFlowsInto(cell)) return false;
+		if (CombatPlanning.routeMarginRefusal(world, feet, cell,
 				cell.y() > feet.y() ? dev.agaminggod.mineagen.client.navigation.TraversalType.JUMP_UP : dev.agaminggod.mineagen.client.navigation.TraversalType.WALK,
 				margin) != null) return false;
 		float toward = (float) Math.toDegrees(Math.atan2(-(cell.x() + 0.5D - player.getX()), cell.z() + 0.5D - player.getZ()));
