@@ -3,6 +3,7 @@ import { foodAdviceNeeded, quickBedSource } from './survival-advice.mjs';
 // vanilla ways to get it with typical yields. Facts only; the model weighs them and chooses where to go.
 import { headingOf, notableBuilt, sightingKind } from './search-coverage.mjs';
 import { TOOLS } from './plan-checks.mjs';
+import { howtoIndex } from './howto.mjs';
 import { goldSourceFact, GOLD_SOURCE_BYTES } from './gold-source-facts.mjs';
 
 export const OPTIONS_BYTES = 360;
@@ -149,7 +150,8 @@ export function pickaxeTier(items) {
 	}
 	const tier = best < 0 ? null : TOOLS[best];
 	const next = tier === null ? 'logs' : ['wooden', 'golden'].includes(tier) ? 'cobblestone' : ['stone', 'copper'].includes(tier) ? 'iron' : tier === 'iron' ? 'diamond' : null;
-	return next === null ? null : { basis: `best pickaxe ${tier ?? 'none'}`, resources: [next] };
+	// The items go with it, so the options line offers a ready mine step only for ore a carried pickaxe harvests.
+	return next === null ? null : { basis: `best pickaxe ${tier ?? 'none'}`, resources: [next], items };
 }
 
 /**
@@ -276,14 +278,23 @@ function knownRows(resource, known, position, placed) {
  * mine at its cell (the walk or staircase to it, then the vein), a cave is a walk in and one look round. Without such a
  * ready step the 19 Nov games spent 83 survey, lookAround and exploreFrontier calls searching by hand next to listed caves.
  */
-function readyStep(rows, position) {
-	// do_step mine is a vein mine: it takes ore, not gravel or other remembered blocks.
-	const ore = rows.find((entry) => entry.direct && ['vein', 'block'].includes(entry.row.kind) && /_ore$/.test(entry.row.what ?? ''));
+function readyStep(rows, position, items) {
+	// do_step mine is a vein mine: it takes ore, not gravel or other remembered blocks, and only ore a carried tool
+	// harvests (the body refuses the rest with NO_TOOL, since breaking it would drop nothing).
+	const ore = rows.find((entry) => entry.direct && ['vein', 'block'].includes(entry.row.kind) && /_ore$/.test(entry.row.what ?? '') && harvestable(entry.row.what, items));
 	const cave = rows.find((entry) => entry.row.kind === 'cave' && Math.hypot(entry.row.x - position.x, entry.row.y - position.y, entry.row.z - position.z) <= CAVE_WALK_REACH);
 	const at = (row) => `@${row.x},${row.y},${row.z}`;
 	const steps = [ore && `do_step mine ${at(ore.row)} ${aboutMinutes(reach(position, ore.row) + LOOK_MIN)}`,
 		cave && `travel_to cave ${at(cave.row)} and look in ${aboutMinutes(caveWalk(position, cave.row) + LOOK_MIN)}`].filter(Boolean);
 	return steps.length ? `ready: ${steps.join(', or ')}` : null;
+}
+
+/** Whether a carried item harvests this block, from the game data's harvest tool sets; a block without one drops by hand. */
+function harvestable(blockId, items) {
+	const index = howtoIndex(), set = index.harvest[String(blockId).replace(/^minecraft:/, '')];
+	if (set === undefined) return true;
+	const tools = index.toolSets[set]?.all ?? [];
+	return (items ?? []).some((item) => item?.count > 0 && tools.includes(String(item.itemId ?? '').replace(/^minecraft:/, '')));
 }
 
 // Nearby samples must not crowd every other lead out of either short view. Presentation only: this asserts
@@ -488,15 +499,17 @@ function resourceText(resource, known, position, placed, cap, context = {}) {
 	const seen = position === null ? [] : knownRows(resource, known, position, placed);
 	const ways = `; ways (typical): ${resource.ways}`;
 	if (!seen.length) return `${resource.name}: seen none remembered${ways}`;
-	let facts;
+	let facts, rows;
 	for (let count = Math.min(KNOWN_ROWS, seen.length); count >= 1; count -= 1) {
-		const rows = seen.slice(0, count);
+		rows = seen.slice(0, count);
 		const direct = rows.filter(row => row.direct).map(row => row.text);
 		const leads = rows.filter(row => !row.direct).map(row => row.text);
-		const ready = readyStep(rows, position);
-		facts = `${resource.name}: ${[...(direct.length ? [`seen ${direct.join(', ')}`] : []), ...(leads.length ? [`possible ${leads.join(', ')}`] : []), ...(ready ? [ready] : [])].join('; ')}`;
+		facts = `${resource.name}: ${[...(direct.length ? [`seen ${direct.join(', ')}`] : []), ...(leads.length ? [`possible ${leads.join(', ')}`] : [])].join('; ')}`;
 		if (Buffer.byteLength(facts) <= cap) break;
 	}
+	// The ready step only repeats a shown row's place, so it goes in only when it still fits: it never displaces a source.
+	const ready = readyStep(rows, position, context.items);
+	if (ready !== null && Buffer.byteLength(`${facts}; ${ready}`) <= cap) facts = `${facts}; ${ready}`;
 	// Keep observed alternatives before generic methods: shortening the methods must not erase another source.
 	return boundBytes(`${facts}${ways}`, cap);
 }
