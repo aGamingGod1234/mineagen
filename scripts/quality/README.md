@@ -253,6 +253,14 @@ REFLEX_ONLY=look-past,look-at-head,fight-open,fight-tunnel,drop-odds /path/to/re
 /path/to/recordings/arena-beat-game/slot.sh live node scripts/quality/test-barter-room-live.mjs blocks 7001 /tmp/barter-blocks build/libs/mineagen-VERSION.jar
 ```
 
+## Judged End rooms
+
+`test-dragon-fight-live.mjs` plays the real End (vanilla dragon, ten crystal pillars with two caged, endermen) on a seeded world, with the eyes-start End kit: iron armour, iron sword and pickaxe, food, blocks and a water bucket, plus a bow and 64 arrows unless `--no-bow`. The production reflexes keep the body alive through `NativeToolRuntime`, as in a game; no model is called.
+
+- **Fight** (default): one scripted player for both kits, branching only on what is held. It walks or bridges from the arrival platform to the fountain, shoots every crystal it has a line to, melees the dragon's head when it perches, shoots it in flight, and otherwise waits near the fountain. Pass: dragon killed and body alive within 20 game minutes of arrival. The no-bow kit is the control and should fail.
+- **`--survive`**: the body stands idle on the island with the dragon circling and the crystals intact. Pass: alive after 10 game minutes, no fall into the void.
+- A body not placed on the platform (or the island), or an unreadable death counter, is INVALID, never a pass. The rooms are `dragon-fight-bow`, `dragon-fight-nobow` and `end-survive-judged` in `benchmark-rooms.json`.
+
 ## Forest flee fixture
 
 `test-flee-forest-live.mjs` sends the production `flee_from` from six forest spots of a saved run world, a zombie 4 blocks away on each side (24 flees), and reports net ground speed, sprint share and outcome per flee in `flees.json` and `summary.json`. Set `FLEE_WORLD` to a saved world directory (copied, never modified); the d2b-iron-c world is the default fixture. Each flee starts with an empty seen-terrain memory, as after a respawn (`FLEE_FRESH=0` keeps it); `FLEE_ONLY=5,6` and `FLEE_REPEAT=N` select and repeat flees. No model calls.

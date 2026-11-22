@@ -2113,6 +2113,28 @@
    "reads": "no pass bar: OUT/dragon.json summary (hidden crystal hits, flying hurt, perched melee damage); exit 0"
   },
   {
+   "room": "dragon-fight-bow",
+   "fixture": "test-dragon-fight-live.mjs",
+   "stage": "end",
+   "skill": "combat",
+   "skill2": "survival",
+   "line": "node scripts/quality/test-dragon-fight-live.mjs $OUT $JAR",
+   "estMinutes": 20,
+   "tickRate": 20,
+   "reads": "OUT/runs.json rows (finishRun): pass = dragon killed and body alive within 20 game min of the arrival platform; a body not placed on the platform or an unreadable death counter is INVALID; OUT/result.json has shots, crystals broken, melee tries and the action log"
+  },
+  {
+   "room": "dragon-fight-nobow",
+   "fixture": "test-dragon-fight-live.mjs",
+   "stage": "end",
+   "skill": "combat",
+   "skill2": "survival",
+   "line": "node scripts/quality/test-dragon-fight-live.mjs $OUT $JAR --no-bow",
+   "estMinutes": 20,
+   "tickRate": 20,
+   "reads": "OUT/runs.json rows (finishRun): pass = dragon killed and body alive within 20 game min of the arrival platform; a body not placed on the platform or an unreadable death counter is INVALID; OUT/result.json has shots, crystals broken, melee tries and the action log; the no-bow kit is the control: it should fail"
+  },
+  {
    "room": "enderman-look-past",
    "fixture": "test-enderman-live.mjs",
    "stage": "nether-pearls",
@@ -2222,6 +2244,17 @@
    "tickRate": 20,
    "bar": "none",
    "reads": "no pass bar: OUT/end-survive.json summary (fall loss, crystal blast predicted vs lost, void footing); exit 0"
+  },
+  {
+   "room": "end-survive-judged",
+   "fixture": "test-dragon-fight-live.mjs",
+   "stage": "end",
+   "skill": "survival",
+   "skill2": "movement",
+   "line": "node scripts/quality/test-dragon-fight-live.mjs $OUT $JAR --survive",
+   "estMinutes": 10,
+   "tickRate": 20,
+   "reads": "OUT/runs.json rows (finishRun): pass = alive after 10 game min on the island with the dragon circling and endermen about, no void fall; not placed or an unreadable death counter is INVALID"
   },
   {
    "room": "end-void",
