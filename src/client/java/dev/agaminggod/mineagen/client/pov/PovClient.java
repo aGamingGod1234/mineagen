@@ -408,12 +408,16 @@ public final class PovClient {
 		java.util.List<String> keys = PovCornerLabel.lines(current != null, current != null && current.takeover(),
 				EXIT_VIEW.isUnbound(), client.debugEntries.isOverlayVisible());
 		if (keys.isEmpty()) return;
-		Component[] lines = new Component[keys.size()];
-		int width = 0;
-		for (int i = 0; i < lines.length; i++) {
-			lines[i] = cornerLine(client, keys.get(i), current.takeover());
-			width = Math.max(width, client.font.width(lines[i]));
+		java.util.List<Component> kept = new java.util.ArrayList<>();
+		int width = 0, screenWidth = client.getWindow().getGuiScaledWidth();
+		for (int i = 0; i < keys.size(); i++) {
+			Component line = cornerLine(client, keys.get(i), current.takeover());
+			int lineWidth = client.font.width(line);
+			if (!PovCornerLabel.keep(i, LABEL_MARGIN + lineWidth + LABEL_PADDING, screenWidth)) break;
+			kept.add(line);
+			width = Math.max(width, lineWidth);
 		}
+		Component[] lines = kept.toArray(Component[]::new);
 		int lineHeight = client.font.lineHeight + LABEL_PADDING;
 		graphics.fill(LABEL_MARGIN - LABEL_PADDING, LABEL_MARGIN - LABEL_PADDING, LABEL_MARGIN + width + LABEL_PADDING,
 				LABEL_MARGIN + lines.length * lineHeight, LABEL_BACKDROP);
