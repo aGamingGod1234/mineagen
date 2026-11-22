@@ -428,3 +428,25 @@ test('game facts review cases: a sample-only death is measured from the dead sam
 	assert.equal(first.fall.blocks, 30);
 	assert.deepEqual([second.fall?.blocks, second.maxFallDistance], [0, null], 'the earlier life\'s fall is not the second death\'s');
 });
+
+test('model latency: per-game and per wall-clock 10-minute p50 and p90 of model call time, nearest rank', async () => {
+	const { modelLatency, quantile } = await import('../../scripts/quality/lib/game-facts.mjs');
+	assert.equal(modelLatency([]), null, 'no timed call: unknown, not zero');
+	assert.equal(quantile([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 0.9), 9);
+	assert.equal(quantile([1, 2, 3, 4], 0.5), 2);
+	const t0 = 6_000_000;
+	const calls = [...Array.from({ length: 10 }, (_, i) => ({ at: t0 + i * 1000, totalMs: (i + 1) * 1000 })), { at: t0 + 600_000, totalMs: 40_000 }, { at: t0 + 600_500, totalMs: null }];
+	const latency = modelLatency(calls, { startedAt: t0 });
+	assert.deepEqual({ calls: latency.calls, p50: latency.p50Ms, p90: latency.p90Ms, max: latency.maxMs }, { calls: 11, p50: 6000, p90: 10_000, max: 40_000 });
+	assert.deepEqual(latency.byClock10Min.map(b => [b.fromMinute, b.calls, b.p50Ms, b.p90Ms]), [[0, 10, 5000, 9000], [10, 1, 40_000, 40_000]]);
+	assert.deepEqual(latency.byClock10Min[1].totalMs, [40_000], 'each bucket keeps its values so games at the same time pool exactly');
+	const facts = (await import('../../scripts/quality/lib/game-facts.mjs')).gameFacts();
+	facts.modelCall({ at: 1000, modelCallId: 'x', totalMs: 3000 });
+	facts.modelCall({ at: 2000, modelCallId: 'y', totalMs: 500, interrupted: true });
+	const timed = facts.finish({ startedAt: 0 }).modelLatency;
+	assert.deepEqual([timed.calls, timed.interruptedCalls, timed.p90Ms], [1, 1, 3000], 'a call cut short by an interrupt stays out of the tail');
+	// Usage traced after a tool ran: the call is bucketed by when the model answered.
+	const late = (await import('../../scripts/quality/lib/game-facts.mjs')).gameFacts();
+	late.modelCall({ at: 1_210_000, modelCallId: 'z', requestAt: 1_190_000, endedAt: 1_195_000, totalMs: 5000 });
+	assert.equal(late.finish({ startedAt: 0 }).modelLatency.byClock10Min[0].fromEpochMs, 600_000);
+});

@@ -4620,6 +4620,14 @@ public final class MultiplexedServerBridgeVerification {
 				"the promoted row carries the owed edge as an urgent fact");
 		assertTrue(changedFacts(publish.apply(eightOld, withOther)).isEmpty(), "after delivery the row may yield again quietly");
 
+		// The coordinator dropped a delivery that announced a swell and asked for a resync: the creeper must wake it again.
+		publish.apply(withCreeper, keys);
+		assertTrue(changedFacts(publish.apply(withCreeper, keys)).isEmpty(), "a delivered swell is not announced twice");
+		publication.publishedState().forgetDelivered(agent, null);
+		JsonObject resynced = publish.apply(withCreeper, keys);
+		assertTrue(changedFacts(resynced).contains("threats." + creeper + ".swelling"),
+				"after a resync the swelling creeper is announced again: " + changedFacts(resynced));
+
 		var mixed = new MultiplexedServerBridge.ObservationPublication(16, 16, 10);
 		mixed.activate(session);
 		mixed.publish(agent, session, threatSample(eightOld, 9_000L), writer, true);

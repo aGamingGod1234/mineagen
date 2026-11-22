@@ -966,9 +966,10 @@ export class MultiplexedServerBridge extends EventEmitter {
 		}
 		if (envelope.type === 'observation' && this.#resyncRequested.has(envelope.agentId)) {
 			// Still counted from the last observation accepted before the drops: later ones were changes against dropped ones.
+			// The server forces attention on its answer, so a quiet observation already on its way is not taken for it.
 			const pending = this.#resyncRequested.get(envelope.agentId);
 			if (pending.dropped > 0) this.#requestResync(envelope.agentId, envelope.payload.goalRevision, pending.from, connectionEpoch);
-			else this.#resyncRequested.delete(envelope.agentId);
+			else if (envelope.payload.attention === true) this.#resyncRequested.delete(envelope.agentId);
 		}
 		if (envelope.type === 'agent_registered' || envelope.type === 'agent_removed') {
 			this.#resyncRequested.delete(envelope.agentId);
