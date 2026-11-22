@@ -150,7 +150,7 @@ function scanIdentity() {
 // A branch name and a commit's emails are public the moment they are pushed, and no commit hook sees a branch name.
 // Commits the destination remote already has (its remote-tracking refs, or the sha it reports for the ref) went out
 // before, so only new commits are read; a commit fetched from another remote is read, since that remote may never
-// have run this gate. A delete publishes nothing, so it is never stopped: it may be removing a leaked name.
+// have run this gate. A destination with no tracking refs here excludes every remote's refs instead. A delete publishes nothing, so it is never stopped: it may be removing a leaked name.
 async function scanPush(remote) {
  const zero = /^0+$/;
  const git = (args) => execFileSync('git', args, { maxBuffer: 2 ** 30 }).toString('utf8');
@@ -163,16 +163,22 @@ async function scanPush(remote) {
    files++;
    scanLines('ref ' + ref, ref.replace(/^refs\/(?:heads|tags)\//, ''), { exempt: false });
   }
-  // An annotated tag carries its own message and tagger email.
-  if (git(['cat-file', '-t', localSha]).trim() === 'tag') {
-   const tag = git(['cat-file', '-p', localSha]);
-   const cut = tag.indexOf('\n\n');
-   files += 2;
-   scanLines('tag ' + localSha.slice(0, 12) + ' identity', 'tagger-email: ' + identityEmail(tag.match(/^tagger (.*)$/m)?.[1] ?? ''), { exempt: false });
-   scanLines('tag ' + localSha.slice(0, 12) + ' message', cut < 0 ? '' : tag.slice(cut + 2).replace(/\n$/, ''), { exempt: false });
+  // An annotated tag carries its own name, message and tagger email, and may point at another tag that carries more.
+  for (let object = localSha, depth = 0; depth < 16 && git(['cat-file', '-t', object]).trim() === 'tag'; depth++) {
+   const tag = git(['cat-file', '-p', object]);
+   const cut = tag.indexOf('\n\n'), label = 'tag ' + object.slice(0, 12);
+   files += 3;
+   scanLines(label + ' name', tag.match(/^tag (.*)$/m)?.[1] ?? '', { exempt: false });
+   scanLines(label + ' identity', 'tagger-email: ' + identityEmail(tag.match(/^tagger (.*)$/m)?.[1] ?? ''), { exempt: false });
+   scanLines(label + ' message', cut < 0 ? '' : tag.slice(cut + 2).replace(/\n$/, ''), { exempt: false });
+   object = tag.match(/^object ([0-9a-f]+)$/m)?.[1] ?? '';
+   if (!object) break;
   }
   if (!known(localSha)) continue;
-  const exclude = [...(remotes.includes(remote) ? ['--remotes=' + remote] : []), ...(remoteSha && !zero.test(remoteSha) && known(remoteSha) ? [remoteSha] : [])];
+  // A remote with no tracking refs here (a URL, a new fork or mirror) falls back to every remote's refs: without it the
+  // whole history is read, and main's squash merges already carry an account email this push cannot change.
+  const own = remotes.includes(remote) && git(['for-each-ref', '--count=1', '--format=%(refname)', 'refs/remotes/' + remote + '/']).trim();
+  const exclude = [own ? '--remotes=' + remote : '--remotes', ...(remoteSha && !zero.test(remoteSha) && known(remoteSha) ? [remoteSha] : [])];
   const log = git(['log', '--format=%H%x00%ae%x00%ce%x00%B%x00', localSha + '^{commit}', '--not', ...exclude]).split('\0');
   for (let i = 0; i + 4 <= log.length; i += 4) {
    const sha = log[i].trim().slice(0, 12);

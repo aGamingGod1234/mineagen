@@ -284,6 +284,18 @@ test('the pre-push hook stops a private branch name, tag or new commit before an
   assert.notEqual(blockedTag.status, 0);
   assert.match(blockedTag.stdout + blockedTag.stderr, /tag \w+ identity:1: FAIL email/);
   assert.match(blockedTag.stdout + blockedTag.stderr, /tag \w+ message:1: FAIL private host/);
+  git('tag', '-d', 'v1');
+  // A tag whose own name header is private, renamed locally, and a clean tag pointing at a private one.
+  execFileSync('git', ['-c', 'user.name=Probe', '-c', 'user.email=probe@example.com', 'tag', '-a', 'old-' + hostName, '-m', 'clean'], { cwd: dir });
+  git('tag', 'renamed', 'old-' + hostName);
+  git('tag', '-d', 'old-' + hostName);
+  assert.match((r => r.stdout + r.stderr)(push('renamed')), /tag \w+ name:1: FAIL private host/);
+  execFileSync('git', ['-c', 'user.name=Probe', '-c', 'user.email=probe@example.com', 'tag', '-a', 'outer', 'renamed', '-m', 'clean'], { cwd: dir });
+  const nested = push('outer');
+  assert.notEqual(nested.status, 0);
+  assert.match(nested.stdout + nested.stderr, /tag \w+ name:1: FAIL private host/);
+  git('tag', '-d', 'outer');
+  git('tag', '-d', 'renamed');
   // A commit another remote already has is still read when it goes to this one: that remote may never have run the gate.
   const mirror = await mkdtemp(path.join(root, '.public-gate-test-remote-'));
   try {
@@ -294,6 +306,10 @@ test('the pre-push hook stops a private branch name, tag or new commit before an
    const blockedMirror = push('HEAD:refs/heads/side');
    assert.notEqual(blockedMirror.status, 0);
    assert.match(blockedMirror.stdout + blockedMirror.stderr, /identity:1: FAIL email/);
+   // A push to a URL (no tracking refs) excludes every remote's refs rather than reading all history.
+   git('reset', '-q', '--hard', 'origin/main');
+   const byUrl = spawnSync('git', ['push', '-q', remote, 'HEAD:refs/heads/by-url'], { cwd: dir, encoding: 'utf8' });
+   assert.equal(byUrl.status, 0, byUrl.stdout + byUrl.stderr);
   } finally { await rm(mirror, { recursive: true, force: true }); }
  } finally { await rm(dir, { recursive: true, force: true }); await rm(remote, { recursive: true, force: true }); }
 });
