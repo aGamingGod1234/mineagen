@@ -42,6 +42,7 @@ A fixture that relies on the runtime's 60 s repeated-failure window, or on the a
 
 - Rooms vary from run to run with no code change (mob spawns, timing), so one run per room proves little. Play 10 repeats of each room per arm and report pass rates: "died in lava 3 of 10 before, 0 of 10 after".
 - Count only valid rooms. An INVALID or LOST room is a rerun, never a pass, and a missing damage or death counter is unknown, never 0 ([Edit loop](#edit-loop) has the verdict rules).
+- A bad start is the room's fault, not the bot's. `scripts/quality/lib/start-check.mjs` checks one: a room declares its spec (`footing` with no leaves or fluid in the feet or head cell and ground under the body, `mobs` of a type within a range and, with the room's own `sight()`, in view, `health`, `inventory`, `time`), `readStart` reads it with commands anchored at the body (`execute at AGENT ...`, never a mob nearest the server origin), and `markStart(row, checkStart(spec, start), start)` sets `notExercised` on a bad start, so the row reads INVALID. Anything the spec asks about that cannot be read fails the start.
 - Rule of thumb, from chance alone (rooms have no measured noise floor yet): with 10 repeats a side and a pass rate near half, a gap of one or two passes is noise. An all-or-nothing gap (0 of 10 against 10 of 10) is safe to trust; anything between needs more repeats before you call it a change.
 - A script plays the model's part in a room, so a pass shows the body can do it, not that the model will choose to. Decisions belong to tiers 1 and 3.
 
