@@ -43,6 +43,7 @@ export async function lootChest(body, cell, { wanted = [], heldItem = 'minecraft
 	if (opened?.state !== 'SUCCEEDED') return { ok: false, read: false, taken: {}, why: `open the chest at ${cell.x},${cell.y},${cell.z}: ${opened?.reasonCode ?? 'failed'}` };
 	const taken = {};
 	let menu = null, stuck = null, read = false, closed = null;
+	const leftWanted = [];
 	try {
 	for (let turn = 0; turn < MAX_TAKES; turn++) {
 		let page;
@@ -60,7 +61,12 @@ export async function lootChest(body, cell, { wanted = [], heldItem = 'minecraft
 		const result = await body.act('menu_click', { menuId: menu.type, containerId: menu.containerId, stateId: menu.stateId, slot: next.slot, button: 0,
 			clickType: 'QUICK_MOVE', expectedItemId: next.itemId, expectedCount: next.count, ...(next.fingerprint ? { expectedFingerprint: next.fingerprint } : {}) });
 		if (['INTERRUPTED', 'CANCELLED', 'TIMED_OUT'].includes(result?.state)) { stuck = `stopped: ${result.reasonCode ?? result.state}`; break; }
-		if (result?.state !== 'SUCCEEDED' || result.reasonCode === 'MENU_INPUT_NO_CHANGE') { taken[`skip:${next.slot}`] = true; continue; }
+		if (result?.state !== 'SUCCEEDED' || result.reasonCode === 'MENU_INPUT_NO_CHANGE') {
+			taken[`skip:${next.slot}`] = true;
+			// A wanted stack that would not move (no room for it) stays in the chest: the chest is worth coming back to.
+			if (wanted.includes(bare(next.itemId))) leftWanted.push(bare(next.itemId));
+			continue;
+		}
 		taken[bare(next.itemId)] = (taken[bare(next.itemId)] ?? 0) + next.count;
 	}
 	} finally {
@@ -74,5 +80,7 @@ export async function lootChest(body, cell, { wanted = [], heldItem = 'minecraft
 	}
 	}
 	for (const key of Object.keys(taken)) if (key.startsWith('skip:')) delete taken[key];
-	return { ok: stuck === null && closed !== false, read, closed, stopped: stuck !== null && stuck.startsWith('stopped'), taken, why: stuck ?? (closed === false ? 'the chest did not close' : null) };
+	const full = leftWanted.length > 0 ? `no room for ${[...new Set(leftWanted)].join(', ')} left in the chest` : null;
+	return { ok: stuck === null && closed !== false && full === null, read, closed, stopped: (stuck !== null && stuck.startsWith('stopped')) || full !== null, leftWanted, taken,
+		why: stuck ?? (closed === false ? 'the chest did not close' : full) };
 }

@@ -496,3 +496,14 @@ test("codex: an open chest gives every item the plan needs, not only the visit's
 	const runner = (await import('node:fs')).readFileSync(new URL('../src/obtain-runner.mjs', import.meta.url), 'utf8');
 	assert.match(runner, /wanted: planWanted\(need\)/);
 });
+
+test('codex: a wanted stack a full inventory cannot take leaves the chest a source, with the miss counted', async () => {
+	const body = chestBody([['iron_ingot', 2]]);
+	const act = body.act;
+	body.act = async (type, args) => (type === 'menu_click' ? (body.calls.push([type, args]), { state: 'SUCCEEDED', reasonCode: 'MENU_INPUT_NO_CHANGE' }) : act(type, args));
+	const result = await lootChest(body, { x: 1, y: 64, z: 2 }, { wanted: ['iron_ingot'] });
+	assert.equal(result.read, true);
+	assert.equal(result.stopped, true, 'kept as a partly taken chest');
+	assert.equal(result.ok, false);
+	assert.match(result.why, /no room for iron_ingot/);
+});
