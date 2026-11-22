@@ -41445,7 +41445,7 @@
       "status": "checked"
     },
     {
-      "predicate": "VeinPlan counts only known blocks of one family connected through 26 neighbours (one log species; an ore with its deepslate twin), picks the trunk base and the stance beside it, reaches up to six logs above the feet from inside the column, refuses trees with seen logs out of reach, never breaks a cell under the body, and cuts trees bottom up and veins nearest first; each block goes through break_block's gates and tool choice.",
+      "predicate": "VeinPlan counts only known blocks of one family connected through 26 neighbours (one log species; an ore with its deepslate twin), picks the trunk base and the stance beside it, reaches up to six logs above the feet from inside the column, refuses trees with seen logs out of reach, never breaks a cell under the body (it steps onto a seen standing cell beside, VeinPlan.stepOff, and mines from there), and cuts trees bottom up and veins nearest first; each block goes through break_block's gates and tool choice.",
       "checks": [
         {
           "file": "src/test/java/dev/agaminggod/mineagen/server/runtime/controller/VeinPlanVerification.java",
@@ -41460,10 +41460,10 @@
           "entryPoint": "verifyCore"
         }
       ],
-      "id": "control:c46616ae6acf4919:405ae4f467ecefcb",
+      "id": "control:c46616ae6acf4919:81d026581764cd38",
       "contract": {
-        "id": "control:c46616ae6acf4919:405ae4f467ecefcb",
-        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you, and never walks except beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight.",
+        "id": "control:c46616ae6acf4919:81d026581764cd38",
+        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
         "kind": "control-reference",
         "topic": "mine_vein"
       },
@@ -55126,14 +55126,14 @@
           "entryPoint": "verifyCore"
         }
       ],
-      "id": "control:c46616ae6acf4919:405ae4f467ecefcb:result:LAVA_BEHIND",
+      "id": "control:c46616ae6acf4919:81d026581764cd38:result:LAVA_BEHIND",
       "contract": {
-        "id": "control:c46616ae6acf4919:405ae4f467ecefcb:result:LAVA_BEHIND",
-        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you, and never walks except beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight.",
+        "id": "control:c46616ae6acf4919:81d026581764cd38:result:LAVA_BEHIND",
+        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
         "kind": "result-code",
         "topic": "mine_vein",
         "code": "LAVA_BEHIND",
-        "parent": "control:c46616ae6acf4919:405ae4f467ecefcb"
+        "parent": "control:c46616ae6acf4919:81d026581764cd38"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -55152,14 +55152,14 @@
           "entryPoint": "verifyCore"
         }
       ],
-      "id": "control:c46616ae6acf4919:405ae4f467ecefcb:result:UNSEEN_BELOW",
+      "id": "control:c46616ae6acf4919:81d026581764cd38:result:UNSEEN_BELOW",
       "contract": {
-        "id": "control:c46616ae6acf4919:405ae4f467ecefcb:result:UNSEEN_BELOW",
-        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you, and never walks except beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight.",
+        "id": "control:c46616ae6acf4919:81d026581764cd38:result:UNSEEN_BELOW",
+        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
         "kind": "result-code",
         "topic": "mine_vein",
         "code": "UNSEEN_BELOW",
-        "parent": "control:c46616ae6acf4919:405ae4f467ecefcb"
+        "parent": "control:c46616ae6acf4919:81d026581764cd38"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -55178,14 +55178,14 @@
           "entryPoint": "verifyCore"
         }
       ],
-      "id": "control:c46616ae6acf4919:405ae4f467ecefcb:result:NO_TOOL",
+      "id": "control:c46616ae6acf4919:81d026581764cd38:result:NO_TOOL",
       "contract": {
-        "id": "control:c46616ae6acf4919:405ae4f467ecefcb:result:NO_TOOL",
-        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you, and never walks except beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight.",
+        "id": "control:c46616ae6acf4919:81d026581764cd38:result:NO_TOOL",
+        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
         "kind": "result-code",
         "topic": "mine_vein",
         "code": "NO_TOOL",
-        "parent": "control:c46616ae6acf4919:405ae4f467ecefcb"
+        "parent": "control:c46616ae6acf4919:81d026581764cd38"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -55204,14 +55204,14 @@
           "entryPoint": "verifyCore"
         }
       ],
-      "id": "control:c46616ae6acf4919:405ae4f467ecefcb:result:TREE_OUT_OF_REACH",
+      "id": "control:c46616ae6acf4919:81d026581764cd38:result:TREE_OUT_OF_REACH",
       "contract": {
-        "id": "control:c46616ae6acf4919:405ae4f467ecefcb:result:TREE_OUT_OF_REACH",
-        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you, and never walks except beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight.",
+        "id": "control:c46616ae6acf4919:81d026581764cd38:result:TREE_OUT_OF_REACH",
+        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
         "kind": "result-code",
         "topic": "mine_vein",
         "code": "TREE_OUT_OF_REACH",
-        "parent": "control:c46616ae6acf4919:405ae4f467ecefcb"
+        "parent": "control:c46616ae6acf4919:81d026581764cd38"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -55230,14 +55230,14 @@
           "entryPoint": "verifyCore"
         }
       ],
-      "id": "control:c46616ae6acf4919:405ae4f467ecefcb:result:TREE_TOO_BIG",
+      "id": "control:c46616ae6acf4919:81d026581764cd38:result:TREE_TOO_BIG",
       "contract": {
-        "id": "control:c46616ae6acf4919:405ae4f467ecefcb:result:TREE_TOO_BIG",
-        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you, and never walks except beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight.",
+        "id": "control:c46616ae6acf4919:81d026581764cd38:result:TREE_TOO_BIG",
+        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
         "kind": "result-code",
         "topic": "mine_vein",
         "code": "TREE_TOO_BIG",
-        "parent": "control:c46616ae6acf4919:405ae4f467ecefcb"
+        "parent": "control:c46616ae6acf4919:81d026581764cd38"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -55256,14 +55256,14 @@
           "entryPoint": "verifyCore"
         }
       ],
-      "id": "control:c46616ae6acf4919:405ae4f467ecefcb:result:NO_STANCE",
+      "id": "control:c46616ae6acf4919:81d026581764cd38:result:NO_STANCE",
       "contract": {
-        "id": "control:c46616ae6acf4919:405ae4f467ecefcb:result:NO_STANCE",
-        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you, and never walks except beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight.",
+        "id": "control:c46616ae6acf4919:81d026581764cd38:result:NO_STANCE",
+        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
         "kind": "result-code",
         "topic": "mine_vein",
         "code": "NO_STANCE",
-        "parent": "control:c46616ae6acf4919:405ae4f467ecefcb"
+        "parent": "control:c46616ae6acf4919:81d026581764cd38"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -55282,14 +55282,14 @@
           "entryPoint": "verifyCore"
         }
       ],
-      "id": "control:c46616ae6acf4919:405ae4f467ecefcb:result:LAVA_AHEAD",
+      "id": "control:c46616ae6acf4919:81d026581764cd38:result:LAVA_AHEAD",
       "contract": {
-        "id": "control:c46616ae6acf4919:405ae4f467ecefcb:result:LAVA_AHEAD",
-        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you, and never walks except beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight.",
+        "id": "control:c46616ae6acf4919:81d026581764cd38:result:LAVA_AHEAD",
+        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
         "kind": "result-code",
         "topic": "mine_vein",
         "code": "LAVA_AHEAD",
-        "parent": "control:c46616ae6acf4919:405ae4f467ecefcb"
+        "parent": "control:c46616ae6acf4919:81d026581764cd38"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -55308,14 +55308,14 @@
           "entryPoint": "verifyCore"
         }
       ],
-      "id": "control:c46616ae6acf4919:405ae4f467ecefcb:result:LAVA_OPENED",
+      "id": "control:c46616ae6acf4919:81d026581764cd38:result:LAVA_OPENED",
       "contract": {
-        "id": "control:c46616ae6acf4919:405ae4f467ecefcb:result:LAVA_OPENED",
-        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you, and never walks except beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight.",
+        "id": "control:c46616ae6acf4919:81d026581764cd38:result:LAVA_OPENED",
+        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
         "kind": "result-code",
         "topic": "mine_vein",
         "code": "LAVA_OPENED",
-        "parent": "control:c46616ae6acf4919:405ae4f467ecefcb"
+        "parent": "control:c46616ae6acf4919:81d026581764cd38"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -55334,14 +55334,14 @@
           "entryPoint": "verifyCore"
         }
       ],
-      "id": "control:c46616ae6acf4919:405ae4f467ecefcb:result:DAMAGE_TAKEN",
+      "id": "control:c46616ae6acf4919:81d026581764cd38:result:DAMAGE_TAKEN",
       "contract": {
-        "id": "control:c46616ae6acf4919:405ae4f467ecefcb:result:DAMAGE_TAKEN",
-        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you, and never walks except beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight.",
+        "id": "control:c46616ae6acf4919:81d026581764cd38:result:DAMAGE_TAKEN",
+        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
         "kind": "result-code",
         "topic": "mine_vein",
         "code": "DAMAGE_TAKEN",
-        "parent": "control:c46616ae6acf4919:405ae4f467ecefcb"
+        "parent": "control:c46616ae6acf4919:81d026581764cd38"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -55360,14 +55360,14 @@
           "entryPoint": "verifyCore"
         }
       ],
-      "id": "control:c46616ae6acf4919:405ae4f467ecefcb:result:HOSTILE_NEAR",
+      "id": "control:c46616ae6acf4919:81d026581764cd38:result:HOSTILE_NEAR",
       "contract": {
-        "id": "control:c46616ae6acf4919:405ae4f467ecefcb:result:HOSTILE_NEAR",
-        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you, and never walks except beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight.",
+        "id": "control:c46616ae6acf4919:81d026581764cd38:result:HOSTILE_NEAR",
+        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
         "kind": "result-code",
         "topic": "mine_vein",
         "code": "HOSTILE_NEAR",
-        "parent": "control:c46616ae6acf4919:405ae4f467ecefcb"
+        "parent": "control:c46616ae6acf4919:81d026581764cd38"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -55386,14 +55386,14 @@
           "entryPoint": "verifyCore"
         }
       ],
-      "id": "control:c46616ae6acf4919:405ae4f467ecefcb:result:INVENTORY_FULL",
+      "id": "control:c46616ae6acf4919:81d026581764cd38:result:INVENTORY_FULL",
       "contract": {
-        "id": "control:c46616ae6acf4919:405ae4f467ecefcb:result:INVENTORY_FULL",
-        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you, and never walks except beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight.",
+        "id": "control:c46616ae6acf4919:81d026581764cd38:result:INVENTORY_FULL",
+        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
         "kind": "result-code",
         "topic": "mine_vein",
         "code": "INVENTORY_FULL",
-        "parent": "control:c46616ae6acf4919:405ae4f467ecefcb"
+        "parent": "control:c46616ae6acf4919:81d026581764cd38"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -55412,14 +55412,14 @@
           "entryPoint": "verifyCore"
         }
       ],
-      "id": "control:c46616ae6acf4919:405ae4f467ecefcb:result:VEIN_TIMEOUT",
+      "id": "control:c46616ae6acf4919:81d026581764cd38:result:VEIN_TIMEOUT",
       "contract": {
-        "id": "control:c46616ae6acf4919:405ae4f467ecefcb:result:VEIN_TIMEOUT",
-        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you, and never walks except beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight.",
+        "id": "control:c46616ae6acf4919:81d026581764cd38:result:VEIN_TIMEOUT",
+        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
         "kind": "result-code",
         "topic": "mine_vein",
         "code": "VEIN_TIMEOUT",
-        "parent": "control:c46616ae6acf4919:405ae4f467ecefcb"
+        "parent": "control:c46616ae6acf4919:81d026581764cd38"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -55438,14 +55438,14 @@
           "entryPoint": "verifyCore"
         }
       ],
-      "id": "control:c46616ae6acf4919:405ae4f467ecefcb:result:TREE_FELLED",
+      "id": "control:c46616ae6acf4919:81d026581764cd38:result:TREE_FELLED",
       "contract": {
-        "id": "control:c46616ae6acf4919:405ae4f467ecefcb:result:TREE_FELLED",
-        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you, and never walks except beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight.",
+        "id": "control:c46616ae6acf4919:81d026581764cd38:result:TREE_FELLED",
+        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
         "kind": "result-code",
         "topic": "mine_vein",
         "code": "TREE_FELLED",
-        "parent": "control:c46616ae6acf4919:405ae4f467ecefcb"
+        "parent": "control:c46616ae6acf4919:81d026581764cd38"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -55464,14 +55464,14 @@
           "entryPoint": "verifyCore"
         }
       ],
-      "id": "control:c46616ae6acf4919:405ae4f467ecefcb:result:VEIN_MINED",
+      "id": "control:c46616ae6acf4919:81d026581764cd38:result:VEIN_MINED",
       "contract": {
-        "id": "control:c46616ae6acf4919:405ae4f467ecefcb:result:VEIN_MINED",
-        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you, and never walks except beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight.",
+        "id": "control:c46616ae6acf4919:81d026581764cd38:result:VEIN_MINED",
+        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
         "kind": "result-code",
         "topic": "mine_vein",
         "code": "VEIN_MINED",
-        "parent": "control:c46616ae6acf4919:405ae4f467ecefcb"
+        "parent": "control:c46616ae6acf4919:81d026581764cd38"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -55490,14 +55490,40 @@
           "entryPoint": "verifyCore"
         }
       ],
-      "id": "control:c46616ae6acf4919:405ae4f467ecefcb:result:NOTHING_MINED",
+      "id": "control:c46616ae6acf4919:81d026581764cd38:result:NOTHING_MINED",
       "contract": {
-        "id": "control:c46616ae6acf4919:405ae4f467ecefcb:result:NOTHING_MINED",
-        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you, and never walks except beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight.",
+        "id": "control:c46616ae6acf4919:81d026581764cd38:result:NOTHING_MINED",
+        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
         "kind": "result-code",
         "topic": "mine_vein",
         "code": "NOTHING_MINED",
-        "parent": "control:c46616ae6acf4919:405ae4f467ecefcb"
+        "parent": "control:c46616ae6acf4919:81d026581764cd38"
+      },
+      "location": {
+        "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
+        "line": 819
+      },
+      "status": "partial",
+      "reason": "The planning rules are witnessed on fixtures; the controller that drives the breaks in a live world has no world-level fixture."
+    },
+    {
+      "predicate": "With only vein blocks under the body left and no seen standing cell beside (open feet and head over a solid non-vein floor, one or two steps away, reaching one of them; VeinPlan.stepOff), mine_vein fails VEIN_UNDER_BODY with the seen blocks left.",
+      "checks": [
+        {
+          "file": "src/test/java/dev/agaminggod/mineagen/server/runtime/controller/VeinPlanVerification.java",
+          "test": "verifyFamilies + verifyTree + verifyTallTree + verifyVein",
+          "type": "java-behavior",
+          "entryPoint": "verifyCore"
+        }
+      ],
+      "id": "control:c46616ae6acf4919:81d026581764cd38:result:VEIN_UNDER_BODY",
+      "contract": {
+        "id": "control:c46616ae6acf4919:81d026581764cd38:result:VEIN_UNDER_BODY",
+        "claim": "One call fells the tree or mines the ore vein that block belongs to, at body speed, instead of one mine call per block. It counts only blocks you have seen (touching corner to corner, one log species, an ore with its deepslate twin); each block is an ordinary break_block with its own tool choice and every gate (sight, reach, LAVA_BEHIND, UNSEEN_BELOW, NO_TOOL for a wasted ore). A tree: it walks to a seen standing cell beside the trunk base, cuts the two lowest trunk logs, steps into the trunk's column and cuts every log above looking up (up to six above the feet), cutting leaves that hide a branch log. It refuses before any swing with TREE_OUT_OF_REACH when a seen log is beyond that reach, TREE_TOO_BIG above maxBlocks, or NO_STANCE with no seen standing cell beside the trunk, so it never leaves floating logs it saw. An ore vein: it mines the vein's blocks in reach and sight from where you stand, nearest first, as breaking each reveals the next. It never breaks a block you stand on or anything under you; once only vein blocks under you are left, it steps onto a seen standing cell one or two blocks beside and mines them from there. It walks nowhere else but beside a trunk and into its column. It stops with the facts so far on LAVA_AHEAD or LAVA_OPENED, DAMAGE_TAKEN, HOSTILE_NEAR (within 12), INVENTORY_FULL or VEIN_TIMEOUT; success is TREE_FELLED or VEIN_MINED, and every result lists seen blocks of it left and why (out of reach, not in sight, under the body). NOTHING_MINED: no block of it was in reach and sight. VEIN_UNDER_BODY: every block in reach lies under you and no seen cell beside reaches one.",
+        "kind": "result-code",
+        "topic": "mine_vein",
+        "code": "VEIN_UNDER_BODY",
+        "parent": "control:c46616ae6acf4919:81d026581764cd38"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
