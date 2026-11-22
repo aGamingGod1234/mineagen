@@ -49,16 +49,22 @@ public final class ArrowDodgeVerification {
 	private static void sidesAlternatePerDraw() {
 		check(ReflexActions.Dodge.nextSide(0) == 1 && ReflexActions.Dodge.nextSide(1) == -1 && ReflexActions.Dodge.nextSide(-1) == 1,
 				"each draw takes the other side");
-		check(ReflexActions.Dodge.newDraw(7, true, 7, false), "the same skeleton drawing again is a new draw");
-		check(!ReflexActions.Dodge.newDraw(7, true, 7, true), "a draw already answered keeps its side");
-		check(ReflexActions.Dodge.newDraw(8, true, 7, true), "a second skeleton's draw is a new draw");
-		check(!ReflexActions.Dodge.newDraw(7, false, 7, true), "a released bow is no draw");
+		ReflexActions.Dodge.Answer first = ReflexActions.Dodge.answer(null, 7, 100L);
+		check(first.side() == 1, "the first draw takes side +1");
+		check(ReflexActions.Dodge.answer(first, 7, 100L) == first && ReflexActions.Dodge.answer(first, 7, 101L) == first,
+				"the same draw keeps its side, however many dodges (the rule's, defend's) read it");
+		ReflexActions.Dodge.Answer again = ReflexActions.Dodge.answer(first, 7, 160L);
+		check(again.side() == -1, "the same skeleton drawing again is met on the other side");
+		check(ReflexActions.Dodge.answer(again, 8, 162L).side() == 1, "a second skeleton's draw is a new draw too");
 	}
 
 	private static void unsafeFootingIsRefused() {
 		check(ReflexActions.Dodge.chooseSide(1, side -> true) == 1, "both sides safe: the chosen one");
 		check(ReflexActions.Dodge.chooseSide(1, side -> side == -1) == -1, "a drop or lava on the chosen side: the other side");
 		check(ReflexActions.Dodge.chooseSide(-1, side -> false) == 0, "neither side safe: stand");
+		check(ReflexActions.Dodge.chooseSide(1, side -> side == -1, side -> true) == -1,
+				"a side that keeps the knockback margin beats one along a lava edge or drop");
+		check(ReflexActions.Dodge.chooseSide(1, side -> false, side -> side == 1) == 1, "with no margin either way, plain safe footing");
 		check(ReflexActions.Dodge.MAX_DROP == 1, "a dodge never steps down more than one block");
 	}
 
@@ -83,7 +89,8 @@ public final class ArrowDodgeVerification {
 				"it answers the same drawn bow as the arrow shield");
 		check(dodge.priority() == 7 && dodge.maxMs() == 10_000L, "priority 7 with a 10 s hold");
 		ReflexActions.Dodge behaviour = new ReflexActions.Dodge();
-		check(behaviour.holdsWhileTrue() && behaviour.settled(), "it holds through a volley and its maxS ends it done, not failed");
+		check(behaviour.holdsWhileTrue() && behaviour.doneAtMaxS(), "it holds through a volley and its maxS ends it done, not failed");
+		check(!behaviour.settled(), "while answering a draw it keeps its priority: a lower rule (defend, eat) cannot take the body mid-draw");
 		// Skeletons draw 20 ticks after a 20-40 tick interval: a 30-tick grace joins a volley into one firing, so two of them
 		// fire it at most about once per 2 s, under the 40-a-minute limit that would switch it off.
 		check(ReflexActions.Dodge.GRACE_TICKS >= 20L && 60.0D * 20.0D / (ReflexActions.Dodge.GRACE_TICKS + ReflexSensors.DRAW_RAISE_TICKS) < ReflexScheduler.MAX_FIRINGS_PER_MINUTE,

@@ -614,7 +614,7 @@ public final class ReflexEngine {
 		if (firing != null && agent.behaviour != null) {
 			ReflexSpec.Rule rule = agent.scheduler.rule(firing.ruleId());
 			ReflexActions.Step step = agent.behaviour.tick(context(agentId, player, agent, firing.ruleId(), rule, active, senses), state -> apply(agentId, agent, player, state));
-			FiringStep exit = firingStep(rule, step.status(), step.detail(), activeType, agent.behaviour.settled(), now - firing.startTick(), firing.maxTicks(),
+			FiringStep exit = firingStep(rule, step.status(), step.detail(), activeType, agent.behaviour.doneAtMaxS(), now - firing.startTick(), firing.maxTicks(),
 					agent.behaviour.yieldsToFight());
 			status = exit.status();
 			agent.detail = withHealth(exit.detail(), agent.startHealth - player.getHealth());

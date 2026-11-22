@@ -367,6 +367,12 @@ public final class ReflexSensors {
 		return soonest == null ? Reading.FALSE : new Reading(true, soonest);
 	}
 
+	/** A projectile still in flight: not stuck in a block and still moving (what incoming_projectile counts). */
+	static boolean inFlight(Projectile projectile) {
+		boolean grounded = projectile instanceof AbstractArrow arrow && ((AbstractArrowInvoker) arrow).mineagen$isInGround();
+		return projectile.isAlive() && ProjectilePerception.flying(grounded, projectile.getDeltaMovement());
+	}
+
 	/**
 	 * Seconds until this projectile hits the body along a clear flight, or NaN: what incoming_projectile and shots read.
 	 * A projectile that already struck this body or its shield ({@link StruckShots}) is no shot.

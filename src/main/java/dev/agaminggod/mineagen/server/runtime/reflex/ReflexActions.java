@@ -118,8 +118,14 @@ final class ReflexActions {
 		/** The agent's own moving action keeps running under this one, its movement keys passed through. */
 		default boolean passesMovement() { return false; }
 
-		/** Its goal is met and it only holds on (a burn running out): reaching the rule's maxS is done, not a timeout. */
+		/**
+		 * Its goal is met and it only holds on (a burn running out): reaching the rule's maxS is done, not a timeout, and
+		 * any ready rule may take the body from it, whatever its priority.
+		 */
 		default boolean settled() { return false; }
+
+		/** Reaching the rule's maxS ends it done, not as a timeout; unlike {@link #settled}, it keeps its priority. */
+		default boolean doneAtMaxS() { return settled(); }
 
 		/** Under the agent's fight with an offhand shield, the fight raises the shield itself this tick (see Shield). */
 		default boolean defersToFight() { return true; }
@@ -749,8 +755,8 @@ final class ReflexActions {
 			// A ranged mob beyond reach (or its shot) is stepped away from across the shot line, not stood still in front of.
 			Entity from = focus instanceof Projectile p && p.getOwner() != null ? p.getOwner() : focus;
 			if (from instanceof Mob ranged && ranged.isAlive() && ThreatPerception.isRanged(ranged) && swingPoint(player, ranged, player.getInventory().getItem(slot)) == null) {
-				Step stepped = dodge.tick(new Context(player, ReflexSensors.drawnAt(player, ObservationVisibility.frame(player.level(), player)) == ranged || focus instanceof Projectile
-						? focus : null, context.stance(), context.memory(), context.point(), context.below(), context.fightShields()), input);
+				Step stepped = dodge.tick(new Context(player, focus instanceof Projectile ? focus : ranged, context.stance(), context.memory(),
+						context.point(), context.below(), context.fightShields()), input);
 				if (stepped.status() == ReflexScheduler.ActionStatus.RUNNING) {
 					return Step.running(done + "; no shield, " + stepped.detail() + (coverNote == null ? "" : "; cover: " + coverNote));
 				}
@@ -937,20 +943,23 @@ final class ReflexActions {
 		static final float[] OFFSETS = {0.0F, 30.0F, -30.0F};
 		/** Deepest single drop a dodge step takes: one block, as a step down a stair. */
 		static final int MAX_DROP = 1;
-		/** Ticks the strafe goes on after the last drawn bow or incoming arrow was seen: past release and the arrow's flight. */
+		/** Ticks the strafe goes on after the last drawn bow or arrow in flight was seen: past release and the arrow's flight. */
 		static final int MOVE_AFTER_TICKS = 12;
 		/** Ticks a firing holds after its condition clears: a second skeleton's draw or the next shot falls inside it. */
 		static final long GRACE_TICKS = 30L;
-		/** The side a body last stepped to, kept across firings so the next draw is met by the other side. */
-		private static final Map<java.util.UUID, Integer> LAST_SIDE = new java.util.concurrent.ConcurrentHashMap<>();
+		/**
+		 * Per body, the draw last answered and the side it was answered with. Every dodge (the rule's and defend's) reads the
+		 * same entry, so one draw gets one side however many firings start during it, and the next draw the other side.
+		 */
+		private static final Map<java.util.UUID, Answer> ANSWERED = new java.util.concurrent.ConcurrentHashMap<>();
+		/** A draw by its shooter and the game tick it began, and the side that met it. */
+		record Answer(int shooterId, long drawStart, int side) { }
 		private int side;
-		private int shooterId = -1;
-		private boolean shooterDrawing;
 		private int lastThreatTick = Integer.MIN_VALUE;
+		private boolean betweenShots;
 		private Entity shooter;
 		private Float lastHeading;
 		private int steps;
-		private int refused;
 		private int hits;
 
 		/** Minecraft yaw of the heading square across the line from {@code body} to {@code shooter}: side +1 or -1. */
@@ -967,13 +976,28 @@ final class ReflexActions {
 
 		/** {@code preferred} when its footing is safe, else the other side when its is, else 0 (stand). */
 		static int chooseSide(int preferred, java.util.function.IntPredicate safe) {
+			return chooseSide(preferred, safe, safe);
+		}
+
+		/**
+		 * As above, preferring a side whose step keeps the knockback margin ({@code marginSafe}) over one with plain safe
+		 * footing: a side along a lava edge is taken only when the other side has no better footing.
+		 */
+		static int chooseSide(int preferred, java.util.function.IntPredicate marginSafe, java.util.function.IntPredicate safe) {
+			if (marginSafe.test(preferred)) return preferred;
+			if (marginSafe.test(-preferred)) return -preferred;
 			if (safe.test(preferred)) return preferred;
 			return safe.test(-preferred) ? -preferred : 0;
 		}
 
-		/** A new draw (or a different shooter) flips the side; a draw already being answered keeps it. */
-		static boolean newDraw(int shooterId, boolean drawing, int previousId, boolean previousDrawing) {
-			return drawing && (shooterId != previousId || !previousDrawing);
+		/**
+		 * The side for the draw {@code shooterId} began at {@code drawStart}, given the last answered draw: that draw keeps
+		 * its side, a new one takes the other side.
+		 */
+		static Answer answer(Answer last, int shooterId, long drawStart) {
+			// A tick either way is the same draw: the mob and the body tick in either order within one server tick.
+			if (last != null && last.shooterId() == shooterId && Math.abs(last.drawStart() - drawStart) <= 1L) return last;
+			return new Answer(shooterId, drawStart, nextSide(last == null ? 0 : last.side()));
 		}
 
 		@Override
@@ -981,17 +1005,19 @@ final class ReflexActions {
 			ServerPlayer player = context.player();
 			Entity focus = context.focus() != null && context.focus().isAlive() ? context.focus() : null;
 			Entity from = focus instanceof Projectile shot && shot.getOwner() != null ? shot.getOwner() : focus;
-			if (from != null) {
+			if (from != null) shooter = from;
+			// Only a live threat keeps the strafe going: the engine hands a firing its last focus while the condition is false,
+			// a skeleton between draws or an arrow stuck in the ground.
+			boolean drawing = from instanceof Mob mob && mob.isUsingItem();
+			boolean flying = focus instanceof Projectile shot && ReflexSensors.inFlight(shot);
+			if (drawing || flying) {
 				lastThreatTick = player.tickCount;
-				boolean drawing = from instanceof Mob mob && mob.isUsingItem();
-				if (side == 0 || newDraw(from.getId(), drawing, shooterId, shooterDrawing)) {
-					side = nextSide(side == 0 ? LAST_SIDE.getOrDefault(player.getUUID(), 0) : side);
-					LAST_SIDE.put(player.getUUID(), side);
-					lastHeading = null;
-				}
-				shooterId = from.getId();
-				shooterDrawing = drawing;
-				shooter = from;
+				Answer last = ANSWERED.get(player.getUUID());
+				Answer now = drawing ? answer(last, from.getId(), player.level().getGameTime() - ((Mob) from).getTicksUsingItem())
+						: last != null ? last : answer(null, from == null ? -1 : from.getId(), Long.MIN_VALUE);
+				if (now != last) ANSWERED.put(player.getUUID(), now);
+				if (now.side() != side) lastHeading = null;
+				side = now.side();
 			}
 			if (shooter == null || !shooter.isAlive()) return Step.done(steps > 0 ? "stepped aside " + steps + " time(s)" : "no shooter");
 			int weapon = HotbarWeapons.bestSlotOrNone(player);
@@ -1010,7 +1036,8 @@ final class ReflexActions {
 				hits++;
 			}
 			String swung = hits > 0 ? ", " + hits + " hit(s)" : "";
-			if (player.tickCount - lastThreatTick > MOVE_AFTER_TICKS) {
+			betweenShots = side == 0 || player.tickCount - lastThreatTick > MOVE_AFTER_TICKS;
+			if (betweenShots) {
 				input.accept(aim);
 				lastHeading = null;
 				return Step.running("watching " + type(shooter) + " between shots" + swung);
@@ -1018,20 +1045,16 @@ final class ReflexActions {
 			Vec3 body = player.position();
 			Vec3 at = shooter.position();
 			Float[] headings = new Float[3];
-			int chosen = chooseSide(side, candidate -> {
-				Float heading = SafeStep.heading(player, sideYaw(body, at, candidate), OFFSETS, candidate == side ? lastHeading : null, List.of(), MAX_DROP);
-				headings[candidate + 1] = heading;
-				return heading != null;
-			});
+			for (int candidate : new int[]{side, -side}) {
+				headings[candidate + 1] = SafeStep.heading(player, sideYaw(body, at, candidate), OFFSETS, candidate == side ? lastHeading : null, List.of(), MAX_DROP);
+			}
+			// SafeStep tries the knockback margin first: a heading that passes canStep kept it.
+			int chosen = chooseSide(side, candidate -> headings[candidate + 1] != null && SafeStep.canStep(player, headings[candidate + 1]),
+					candidate -> headings[candidate + 1] != null);
 			if (chosen == 0) {
-				refused++;
 				input.accept(aim);
 				lastHeading = null;
 				return Step.running("no safe footing to either side of " + type(shooter) + "'s shot, facing it" + swung);
-			}
-			if (chosen != side) {
-				side = chosen;
-				LAST_SIDE.put(player.getUUID(), side);
 			}
 			Float heading = headings[chosen + 1];
 			if (lastHeading == null) steps++;
@@ -1039,7 +1062,9 @@ final class ReflexActions {
 			float relative = (float) Math.toRadians(AgentInputStates.shortestAngleDelta(aim.yaw(), heading));
 			float forward = cleanAxis((float) Math.cos(relative));
 			float strafe = cleanAxis(-(float) Math.sin(relative));
-			input.accept(new AgentInputState(forward, strafe, false, false, false, false, false, aim.yaw(), aim.pitch(), aim.selectedSlot(), aim.hand()));
+			// A one-block rise on the step is jumped, as a running player does; walked into, it would stop the body on the line.
+			boolean jump = player.onGround() && SafeStep.jumpAhead(player, heading);
+			input.accept(new AgentInputState(forward, strafe, jump, false, false, false, false, aim.yaw(), aim.pitch(), aim.selectedSlot(), aim.hand()));
 			return Step.running("stepping " + SafeStep.compass(heading) + " across " + type(shooter) + "'s shot" + swung);
 		}
 
@@ -1067,9 +1092,13 @@ final class ReflexActions {
 		@Override
 		public long releaseGraceTicks() { return GRACE_TICKS; }
 
+		/** Between shots it only watches: a lower rule (defend's swing at a zombie) may take the body until the next draw. */
+		@Override
+		public boolean settled() { return betweenShots; }
+
 		/** Two skeletons drawing in turn hold its condition true: its maxS is a held volley, done, never a timeout. */
 		@Override
-		public boolean settled() { return true; }
+		public boolean doneAtMaxS() { return true; }
 	}
 
 	/**
