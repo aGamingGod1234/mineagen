@@ -678,9 +678,9 @@ final class ReflexActions {
 			if (dx * dx + dz * dz <= 0.15D * 0.15D || ++inlandTicks > INLAND_TICKS || Math.abs(player.getY() - inland.y) > 0.6D) {
 				// Arrived, out of time, or off the level: the wall-in judges the cell it stands on now. A step that did not
 				// arrive is not tried again at once (the same stand would be chosen): the body braces for a while instead.
-				boolean arrived = dx * dx + dz * dz <= 0.15D * 0.15D;
+				boolean timedOut = inlandTicks > INLAND_TICKS && dx * dx + dz * dz > 0.15D * 0.15D;
 				inland = null;
-				if (!arrived) {
+				if (timedOut) {
 					braceUntil = player.tickCount + 40;
 					braceNote = "the step inland did not reach its stand";
 				}
@@ -825,6 +825,8 @@ final class ReflexActions {
 			if (shooter != null && (!canWall || ledged || cover != null) && (cover != null || player.tickCount >= coverRetryTick)) {
 				// Natural cover only: building walls is the branch above, which a melee mob this near rules out.
 				if (cover == null) cover = new TakeCover(COVER_WITHIN, false, false, false);
+				// Looking round for cover off a brink: a shove meanwhile is still walked back.
+				if (ledged) dev.agaminggod.mineagen.server.runtime.controller.BrinkGuard.braceArmed(player);
 				Step hidden = cover.tick(new Context(player, shooter, context.stance(), context.memory(), context.point(), context.below(),
 						context.fightShields()), input);
 				if (hidden.status() == ReflexScheduler.ActionStatus.RUNNING) return Step.running(done + "; taking cover from " + type(shooter) + ": " + hidden.detail());
@@ -2806,7 +2808,7 @@ final class ReflexActions {
 			};
 		}
 
-		/** Releases the level this wall-in held. */
+		/** Releases any level hold under this wall-in's name (it takes none now; kept so an old holder can never linger). */
 		void end(ServerPlayer player) {
 			dev.agaminggod.mineagen.server.runtime.controller.BrinkGuard.keepLevel(player, this, false);
 		}
@@ -2814,10 +2816,6 @@ final class ReflexActions {
 		Step tick(Context context, Consumer<AgentInputState> input) {
 			ServerPlayer player = context.player();
 			Level level = player.level();
-			if (center == null && !player.onGround()) {
-				input.accept(look(player, null, 0.0F, 0.0F, false, false, player.getInventory().getSelectedSlot(), InteractionHand.MAIN_HAND));
-				return Step.running("waiting to land before walling in from " + type(shooter));
-			}
 			if (center == null) {
 				center = BlockPos.containing(player.getX(), player.getY() + 0.2D, player.getZ());
 				String no = refusal(player, center, shooter.position());

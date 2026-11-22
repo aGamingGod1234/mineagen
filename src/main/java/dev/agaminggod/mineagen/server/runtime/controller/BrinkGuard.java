@@ -745,8 +745,8 @@ public final class BrinkGuard {
 	}
 
 	/**
-	 * A hit pushes away from the shooter: an unseen drop toward the shooter's side is no brink (the unlooked-at step
-	 * behind the body on an Overworld hillside, facing a skeleton), while a known lethal drop counts whichever way it lies.
+	 * A hit pushes away from the shooter: an unseen drop on the shooter's side of the body is no brink (a hit does not
+	 * push the body that way), while one on the far side is, and a known lethal drop counts whichever way it lies.
 	 */
 	static Fall pushSide(Fall drop, AABB box, AABB shifted, double awayX, double awayZ) {
 		if (drop == null || !drop.unknown()) return drop;
