@@ -167,12 +167,16 @@ public final class PerceptionGateVerification {
 	}
 
 	private static void verifyBarterJob() {
-		check(dev.agaminggod.mineagen.server.runtime.controller.ServerVeinController.angersPiglins(true, 12.0D), "gold ore with a calm piglin 12 blocks off is left unbroken");
-		check(!dev.agaminggod.mineagen.server.runtime.controller.ServerVeinController.angersPiglins(true, 20.0D), "a piglin 20 blocks off is past the 16-block guard");
-		check(!dev.agaminggod.mineagen.server.runtime.controller.ServerVeinController.angersPiglins(false, 3.0D), "netherrack beside a piglin is mined");
-		check(dev.agaminggod.mineagen.server.runtime.controller.ServerFightController.holdSwingForSweep(true, 1), "a sword swing waits while a calm piglin stands in its sweep");
-		check(!dev.agaminggod.mineagen.server.runtime.controller.ServerFightController.holdSwingForSweep(false, 2), "an axe or pickaxe never sweeps, so it swings");
-		check(!dev.agaminggod.mineagen.server.runtime.controller.ServerFightController.holdSwingForSweep(true, 0), "no calm neutral in the sweep: swing");
+		var body = new net.minecraft.world.phys.AABB(-0.3D, 64.0D, -0.3D, 0.3D, 65.8D, 0.3D);
+		java.util.function.BiFunction<Double, Double, net.minecraft.world.phys.AABB> piglinAt = (x, z) -> new net.minecraft.world.phys.AABB(x - 0.3D, 64.0D, z - 0.3D, x + 0.3D, 65.95D, z + 0.3D);
+		check(dev.agaminggod.mineagen.server.runtime.controller.ServerVeinController.angersPiglins(true, body, piglinAt.apply(12.0D, 0.0D)), "gold ore with a calm piglin 12 blocks off is left unbroken");
+		check(dev.agaminggod.mineagen.server.runtime.controller.ServerVeinController.angersPiglins(true, body, piglinAt.apply(12.0D, 12.0D)), "a piglin 12 east and 12 south (17 straight-line) is inside vanilla's guard box");
+		check(!dev.agaminggod.mineagen.server.runtime.controller.ServerVeinController.angersPiglins(true, body, piglinAt.apply(17.5D, 0.0D)), "a piglin 17.5 blocks east is past the box");
+		check(!dev.agaminggod.mineagen.server.runtime.controller.ServerVeinController.angersPiglins(false, body, piglinAt.apply(3.0D, 0.0D)), "netherrack beside a piglin is mined");
+		check(dev.agaminggod.mineagen.server.runtime.controller.ServerFightController.holdSwingForSweep(true, 1, 0), "a sweeping swing waits while a calm piglin stands in its sweep");
+		check(!dev.agaminggod.mineagen.server.runtime.controller.ServerFightController.holdSwingForSweep(false, 2, 0), "a swing that does not sweep (axe, sprint hit, crit, uncharged) swings");
+		check(!dev.agaminggod.mineagen.server.runtime.controller.ServerFightController.holdSwingForSweep(true, 0, 0), "no calm neutral in the sweep: swing");
+		check(!dev.agaminggod.mineagen.server.runtime.controller.ServerFightController.holdSwingForSweep(true, 1, 60), "after 3 s of holding it swings anyway");
 		var blocks = ServerBarterController.conversion(3, 40, false, false);
 		check(blocks != null && blocks.recipeId().equals("minecraft:gold_ingot_from_gold_block") && blocks.ingots() == 27 && !blocks.table(),
 				"gold blocks craft first, in the inventory grid, 9 ingots each: " + blocks);
@@ -189,6 +193,12 @@ public final class PerceptionGateVerification {
 		List<net.minecraft.world.phys.Vec3> hoglin = List.of(new net.minecraft.world.phys.Vec3(10, 64, 0));
 		check(ServerBarterController.nearDanger(new net.minecraft.world.phys.Vec3(4, 64, 0), hoglin, 8.0D), "a piglin 6 blocks from a hoglin is passed over");
 		check(!ServerBarterController.nearDanger(new net.minecraft.world.phys.Vec3(-4, 64, 0), hoglin, 8.0D), "a piglin 14 blocks from it is not");
+		check(ServerBarterController.armourTier(null) < ServerBarterController.armourTier("minecraft:iron_helmet")
+				&& ServerBarterController.armourTier("minecraft:iron_boots") < ServerBarterController.armourTier("minecraft:diamond_helmet"),
+				"gold goes on an empty slot first, then over iron before diamond");
+		check(ServerBarterController.droppableJunk(64, 64, 64) == 0, "64 netherrack carried for bridging, none added: nothing dropped");
+		check(ServerBarterController.droppableJunk(64, 90, 64) == 26, "26 netherrack from piglins on top of 64 carried: only the 26 go");
+		check(ServerBarterController.droppableJunk(30, 118, 0) == 30, "gravel all from barters: the whole stack goes");
 		check(ServerBarterController.JUNK.contains("minecraft:gravel") && ServerBarterController.JUNK.contains("minecraft:blackstone")
 				&& !ServerBarterController.JUNK.contains("minecraft:ender_pearl") && !ServerBarterController.JUNK.contains("minecraft:obsidian")
 				&& !ServerBarterController.JUNK.contains("minecraft:crying_obsidian"), "rubble is left on the ground; pearls and obsidian are kept");

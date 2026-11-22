@@ -165,7 +165,9 @@ public final class ServerFightController implements ServerController {
 	/** Calm neutral mobs this fight's swings hurt besides the target (sword sweeps), "type uuid". */
 	private final List<String> neutralHits = new ArrayList<>(4);
 	/** Swings held because a calm neutral stood where the sword's sweep would land (a player waits for it to step clear). */
-	private int sweepHolds;
+	private int sweepHolds, sweepHoldRun;
+	/** The longest a swing waits for a calm mob to step out of its sweep before it swings anyway (3 s). */
+	static final int MAX_SWEEP_HOLD_TICKS = 60;
 	private int ticksOnTarget;
 	private int policyCountdown = CombatPlanning.POLICY_INTERVAL_TICKS;
 	private int policySwitches;
@@ -552,8 +554,11 @@ public final class ServerFightController implements ServerController {
 		Map<LivingEntity, Float> calm = step.attack() ? calmNeutralsBeside(player) : Map.of();
 		// A sword sweep hurts calm piglins beside the target and turns the whole group on the body (three of three barter
 		// room deaths beside a hoglin): hold the swing until none stands in the sweep, as a player does.
-		boolean holdForSweep = holdSwingForSweep(player.getMainHandItem().is(net.minecraft.tags.ItemTags.SWORDS), calm.size());
-		if (holdForSweep) sweepHolds++;
+		// Vanilla sweeps only on a charged sword swing from the ground that is neither a sprint hit nor a crit.
+		boolean sweepLands = player.getMainHandItem().is(net.minecraft.tags.ItemTags.SWORDS) && player.getAttackStrengthScale(0.5F) > 0.9F
+				&& player.onGround() && !player.isSprinting();
+		boolean holdForSweep = holdSwingForSweep(sweepLands, calm.size(), sweepHoldRun);
+		if (holdForSweep) { sweepHolds++; sweepHoldRun++; } else if (step.attack()) sweepHoldRun = 0;
 		// A held swing keeps the shield up: lowering it for a hit that never comes leaves the body open.
 		input.apply(player, new AgentInputState(forward, strafe, jump, sneak, sprint && !sneak, false, shielding && (!step.attack() || holdForSweep),
 				yaw, pitch, weaponSlot, shielding ? InteractionHand.OFF_HAND : InteractionHand.MAIN_HAND));
@@ -1137,9 +1142,12 @@ public final class ServerFightController implements ServerController {
 		return calm;
 	}
 
-	/** True when a sword swing now would sweep a calm neutral: the swing waits for it to step clear. */
-	public static boolean holdSwingForSweep(boolean swordInHand, int calmNeutralsInSweep) {
-		return swordInHand && calmNeutralsInSweep > 0;
+	/**
+	 * True when a sword swing now would sweep a calm neutral: the swing waits for it to step clear, for at most
+	 * MAX_SWEEP_HOLD_TICKS in a row, so a fight in a crowd of calm mobs still lands its hits.
+	 */
+	public static boolean holdSwingForSweep(boolean sweepLands, int calmNeutralsInSweep, int heldTicks) {
+		return sweepLands && calmNeutralsInSweep > 0 && heldTicks < MAX_SWEEP_HOLD_TICKS;
 	}
 
 	/** Names each calm neutral the swing hurt (its sweep): a hurt zombified piglin angers every one within 35 blocks. */

@@ -287,10 +287,15 @@ public final class ServerBarterController implements ServerController {
 	 * while it is being done; a stop when there is none to wear.
 	 */
 	private TickResult wearGold(ServerPlayer player) {
-		int slot = -1;
-		for (int i = 0; i < player.getInventory().getContainerSize() && slot < 0; i++) {
+		// The piece that costs least to put on: one for an empty armour slot first, else the one replacing the weakest worn
+		// piece, so a diamond helmet stays while the boots slot is empty.
+		int slot = -1, bestCost = Integer.MAX_VALUE;
+		for (int i = 0; i < 36; i++) {
 			ItemStack stack = player.getInventory().getItem(i);
-			if (isGoldArmour(stack) && i < 36) slot = i;
+			if (!isGoldArmour(stack)) continue;
+			ItemStack worn = player.getItemBySlot(goldSlot(stack));
+			int cost = armourTier(worn.isEmpty() ? null : BuiltInRegistries.ITEM.getKey(worn.getItem()).toString());
+			if (cost < bestCost) { slot = i; bestCost = cost; }
 		}
 		if (slot < 0 || armourTries >= 3) {
 			int ingots = carried(player, Items.GOLD_INGOT) + carried(player, Items.GOLD_BLOCK) * 9 + carried(player, Items.GOLD_NUGGET) / 9;
@@ -315,6 +320,26 @@ public final class ServerBarterController implements ServerController {
 		if (PiglinAi.isWearingSafeArmor(player)) wornNow = id;
 		pause = 4;
 		return TickResult.running(progress(player));
+	}
+
+	private static net.minecraft.world.entity.EquipmentSlot goldSlot(ItemStack stack) {
+		if (stack.is(Items.GOLDEN_HELMET)) return net.minecraft.world.entity.EquipmentSlot.HEAD;
+		if (stack.is(Items.GOLDEN_CHESTPLATE)) return net.minecraft.world.entity.EquipmentSlot.CHEST;
+		if (stack.is(Items.GOLDEN_LEGGINGS)) return net.minecraft.world.entity.EquipmentSlot.LEGS;
+		return net.minecraft.world.entity.EquipmentSlot.FEET;
+	}
+
+	/** A worn piece's rough strength by material, 0 for an empty slot: what putting gold over it gives up. */
+	static int armourTier(String wornItemId) {
+		if (wornItemId == null) return 0;
+		String id = wornItemId.replace("minecraft:", "");
+		if (id.startsWith("leather_")) return 1;
+		if (id.startsWith("golden_") || id.startsWith("copper_")) return 2;
+		if (id.startsWith("chainmail_") || id.startsWith("turtle_")) return 3;
+		if (id.startsWith("iron_")) return 4;
+		if (id.startsWith("diamond_")) return 5;
+		if (id.startsWith("netherite_")) return 6;
+		return 3;
 	}
 
 	static boolean isGoldArmour(ItemStack stack) {
@@ -371,19 +396,28 @@ public final class ServerBarterController implements ServerController {
 		return null;
 	}
 
-	/** Q-drops the largest carried stack of barter rubble; false when there is none (the asked item never counts). */
+	/**
+	 * Q-drops barter rubble this call picked up, from its largest stack; never more of an item than the barter added,
+	 * so blocks the body brought (netherrack for bridging) stay. False when there is none (the asked item never counts).
+	 */
 	private boolean dropJunk(ServerPlayer player) {
-		int best = -1;
+		int best = -1, bestDrop = 0;
 		for (int slot = 0; slot < 36; slot++) {
 			ItemStack stack = player.getInventory().getItem(slot);
 			if (stack.isEmpty() || stack.is(wanted) || !JUNK.contains(BuiltInRegistries.ITEM.getKey(stack.getItem()).toString())) continue;
-			if (best < 0 || stack.getCount() > player.getInventory().getItem(best).getCount()) best = slot;
+			int drop = droppableJunk(stack.getCount(), carried(player, stack.getItem()), startCounts.getOrDefault(stack.getItem(), 0));
+			if (drop > bestDrop) { best = slot; bestDrop = drop; }
 		}
 		if (best < 0) return false;
-		ItemStack stack = player.getInventory().removeItem(best, player.getInventory().getItem(best).getCount());
+		ItemStack stack = player.getInventory().removeItem(best, bestDrop);
 		ItemEntity dropped = McCompat.drop(player, stack, true, true);
 		if (dropped != null) ignoredDrops.add(dropped.getUUID());
 		return dropped != null;
+	}
+
+	/** How much of one rubble stack may go: at most what the barter added of that item since the call started. */
+	static int droppableJunk(int stackCount, int carriedNow, int carriedAtStart) {
+		return Math.max(0, Math.min(stackCount, carriedNow - carriedAtStart));
 	}
 
 	/** What gold is still carried but could not be turned into ingots here, for the model's next choice. */
