@@ -35,12 +35,15 @@ const MAX_HISTORY_FAILED_RECEIPTS = 8;
 const FAILED_RECEIPT_STATES = new Set(['FAILED', 'TIMED_OUT', 'REJECTED', 'CANCELLED']);
 // The wake's own sample is the newest on every path but one: a steer that failed after newer wakes were queued is merged
 // back on top of them. An owed event newer than the wake's own sample, or one that cannot be ordered, keeps its world.
+// Each sample's own timestamp decides first (a merge can pair one request's sequence with another's sample); sequences
+// order samples that carry no timestamp.
 function newestFirst(entry, eventSequence, observation) {
-	const own = Number.isFinite(eventSequence) ? eventSequence : observation?.eventSequence;
-	const theirs = Number.isFinite(entry?.eventSequence) ? entry.eventSequence : entry?.observation?.eventSequence;
-	if (Number.isFinite(own) && Number.isFinite(theirs)) return theirs <= own;
 	const ownAt = observation?.observedAtEpochMs, theirAt = entry?.observation?.observedAtEpochMs;
-	return Number.isFinite(ownAt) && Number.isFinite(theirAt) && theirAt <= ownAt;
+	if (Number.isFinite(ownAt) && Number.isFinite(theirAt)) return theirAt <= ownAt;
+	if (Number.isFinite(ownAt) || Number.isFinite(theirAt)) return false;
+	const own = Number.isFinite(observation?.eventSequence) ? observation.eventSequence : eventSequence;
+	const theirs = Number.isFinite(entry?.observation?.eventSequence) ? entry.observation.eventSequence : entry?.eventSequence;
+	return Number.isFinite(own) && Number.isFinite(theirs) && theirs <= own;
 }
 function historicalObservation(observation) {
 	const kept = Object.fromEntries(HISTORICAL_OBSERVATION_KEYS.filter((key) => observation[key] !== undefined).map((key) => [key, observation[key]]));

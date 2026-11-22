@@ -175,6 +175,24 @@ test('an owed event newer than the wake\'s own sample keeps its world', () => {
 	assert.ok(kept?.observation?.inventory, 'the newer owed event keeps its own inventory');
 });
 
+test('live-shaped samples are ordered by their own timestamps, also when a merge pairs a program\'s sequence with an older sample', () => {
+	// Live observation wakes carry their sequence on the request only; each sample has its own observedAtEpochMs.
+	const sample = (at, itemId) => ({ observedAtEpochMs: at, player: { health: 18 }, inventory: { items: [{ slot: 0, itemId, count: 1 }] }, world: { dimension: 'minecraft:overworld' } });
+	const older = { goalRevision: 1, priority: 'urgent', trigger: 'damage', eventSequence: 5, nativeEvent: { event: 'observation', trigger: 'damage', observation: sample(1_000, 'minecraft:oak_log') } };
+	const newer = { goalRevision: 1, priority: 'urgent', trigger: 'damage', eventSequence: 9, nativeEvent: { event: 'observation', trigger: 'damage', observation: sample(2_000, 'minecraft:iron_pickaxe') } };
+	assert.match(buildNativeEventInput(record, mergePlannerRequest(newer, older).nativeEvent), /iron_pickaxe/, 'newer owed observation keeps its world');
+	const forward = parse(buildNativeEventInput(record, mergePlannerRequest(older, newer).nativeEvent));
+	assert.ok(forward.mergedEvents.every((entry) => entry.observation?.inventory === undefined), 'in order, owed events leave the world to the wake');
+	// A program event's sequence (10) lands beside an older observation wake's sample (sequence 5, earlier timestamp).
+	// (the steer-failure requeue: pending holds the newer program decision, the failed delivery is the older wake).
+	const program = { goalRevision: 1, priority: 'urgent', trigger: 'damage', eventSequence: 10, nativeEvent: { event: 'program_attention', programId: 'p-1', goalRevision: 1, eventSequence: 10,
+		status: { engineState: 'PAUSED', decision: { decisionId: 'p-1:d-1', trigger: 'damage' } }, observation: sample(2_000, 'minecraft:iron_pickaxe') } };
+	const delivery = { goalRevision: 1, priority: 'urgent', trigger: 'continuation', eventSequence: 5, nativeEvent: { event: 'observation', trigger: 'continuation', observation: sample(1_000, 'minecraft:oak_log') } };
+	const merged = mergePlannerRequest(program, delivery);
+	assert.equal(merged.nativeEvent.eventSequence, 10, 'the program\'s sequence sits beside the older sample');
+	assert.match(buildNativeEventInput(record, merged.nativeEvent), /iron_pickaxe/, 'the newest inventory still reaches the model');
+});
+
 test('older failed receipts of an owed result are capped at 8 beside its newest 8', () => {
 	const first = ended(1, 'FAILED'), next = wake('threat', 3);
 	first.nativeEvent.result.receipts = Array.from({ length: 64 }, (_, index) => ({ actionId: `a-${index}`, state: 'FAILED', reasonCode: `r-${index}` }));
