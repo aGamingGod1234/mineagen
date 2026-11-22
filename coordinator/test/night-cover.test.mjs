@@ -63,3 +63,19 @@ test('a find for gravel from under cover at dusk hands back FIND_NIGHT without c
 	assert.match(result.message, /staying under cover/);
 	assert.equal(calls.some((call) => call.actionType === 'dig_to' && call.args.pattern === 'stairs_up' || call.args?.retrace === true), false, 'no climb was sent');
 });
+
+test('PORTAL-LAVA-8: deep underground at night the gate names what works there, not a rest that hands back at once', () => {
+	const sky = { openSky: { x: 0.5, y: 70, z: 0.5 } };
+	// y-54 under 124 blocks of ground: rest returns UNDERGROUND at once (ServerRestController.underground, > 4 over the eyes).
+	const deep = nightMoveStop(at(15_000, { y: -54, skyOpen: false }), 'dig_to', { pattern: 'stairs_up' }, sky);
+	assert.match(deep, /staying under cover/);
+	assert.doesNotMatch(deep, /\brest\b/);
+	assert.match(deep, /craft/);
+	assert.match(deep, /mine on/);
+	assert.match(deep, /wait for dawn/);
+	assert.doesNotMatch(nightMoveStop(at(15_000, { y: -54, skyOpen: false }), 'dig_to', { pattern: 'stairs_up' }), /\brest\b/, 'no open sky known to measure from');
+	// Just under a roof near the surface (2.4 blocks over the eyes) rest still seals the way up.
+	assert.match(nightMoveStop(at(15_000, { y: 66, skyOpen: false }), 'dig_to', { pattern: 'stairs_up' }, sky), /rest \(it seals the way up\)/);
+	// The open-ground line is unchanged: rest is what works there.
+	assert.match(nightMoveStop(at(14_000), 'travel_to', { x: 84, y: 62, z: -122 }), /rest \(bed, walls or a dug hole\)/);
+});
