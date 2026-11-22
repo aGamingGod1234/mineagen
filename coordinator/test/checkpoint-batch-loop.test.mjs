@@ -15,17 +15,22 @@ const script = path.join(repo, 'scripts/quality/checkpoint-batch.mjs');
 const FAKE_BOAT = `#!/bin/bash
 F=$FAKE_BOAT_ROOT; [ "$1" = --no-update ] && shift; cmd=$1; shift
 map() { case $1 in bx_*:*) echo "$F/\${1%%:*}/\${1#*:}";; *) echo "$1";; esac; }
+seed() { mkdir -p "$1/rooms/jdk/bin" "$1/.local/bin"; : > "$1/rooms/jdk/bin/java"; chmod +x "$1/rooms/jdk/bin/java"; printf '#!/bin/bash\\necho codex-cli 0.1.0\\n' > "$1/.local/bin/codex"; chmod +x "$1/.local/bin/codex"; }
 case $cmd in
   ssh) id=$1; shift; [ "$1" = -- ] && shift; [ -f "$F/$id.deleted" ] && { echo gone >&2; exit 255; }; cd "$F/$id" && HOME="$F/$id" bash -c "$*";;
   scp) s=$(map "$1"); d=$(map "$2"); mkdir -p "$(dirname "$d")"; case $2 in *:ck/game.sh) cp "$F/fake-game.sh" "$d";; *) cp "$s" "$d";; esac;;
-  info) [ -f "$F/$1.deleted" ] && echo '{"sandbox":{"state":"deleted"}}' || echo '{"sandbox":{"state":"running"}}';;
+  info) [ -f "$F/$1.deleted" ] && echo '{"sandbox":{"state":"deleted"}}' || printf '{"sandbox":{"state":"running","name":"%s"}}\\n' "$(cat "$F/$1.name" 2>/dev/null)";;
   delete) touch "$F/$1.deleted"; echo "$1" >> "$F/deleted.log"; echo '{}';;
+  new) echo "new $*" >> "$F/new.log"; n=$(ls "$F" | grep -c '^bx_new'); id=bx_new$n; seed "$F/$id"; printf '{"event":"ready","id":"%s"}\\n' "$id";;
+  extend) echo "extend $*" >> "$F/extend.log"; echo '{}';;
   *) echo "fake boat: $cmd not handled" >&2; exit 2;;
 esac
 `;
 // game.sh ID ARM SP MINUTES SALT MODEL EFFORT; the run folder sits under ~/ck like a real one. A REFRESH file in the fake root makes the game's own sign-in copy change.
 const FAKE_GAME = `#!/bin/bash
 id=$1; dir=$HOME/ck/games/$id; raw=$HOME/ck/arms/runs/$id; mkdir -p "$raw/.codex-home" "$dir/report"
+# A NODONE file makes each game's first launch end without a done file, as when the launch ssh dropped first.
+[ -f "$FAKE_BOAT_ROOT/NODONE" ] && [ ! -f "$FAKE_BOAT_ROOT/nodone-$id" ] && { touch "$FAKE_BOAT_ROOT/nodone-$id"; exit 0; }
 cp "$HOME/.codex/auth.json" "$raw/.codex-home/auth.json"; [ -f "$FAKE_BOAT_ROOT/REFRESH" ] && echo refreshed >> "$raw/.codex-home/auth.json"
 echo '{"event":"native_token_usage"}' > "$raw/coordinator.jsonl"
 echo "Running q: $raw" > "$dir/run.log"; echo '{}' > "$dir/ledger.json"
@@ -33,7 +38,7 @@ echo '{"measurementStatus":"INCOMPLETE","timeline":{"startedAt":1795290758148,"p
 echo "exit 0 $(date -Is)" > "$dir/done"
 `;
 
-function setup({ refresh = false } = {}) {
+function setup({ refresh = false, plan: overrides = {} } = {}) {
 	const root = mkdtempSync(path.join(tmpdir(), 'ckpt-loop-'));
 	const bin = path.join(root, 'bin'); mkdirSync(bin);
 	writeFileSync(path.join(bin, 'boat'), FAKE_BOAT); chmodSync(path.join(bin, 'boat'), 0o755);
@@ -57,7 +62,7 @@ function setup({ refresh = false } = {}) {
 		vms: ['bx_aaaaaaaa', 'bx_bbbbbbbb'], drain: 'delete', copyConcurrency: 2,
 		arms: { main: { root: arm, ref: 'HEAD', jar: path.join(root, 'mod.jar') }, other: { root: arm, ref: 'HEAD', jar: path.join(root, 'mod.jar'), env: { A_SWITCH: 'on', B_SWITCH: '2' } } },
 		savepoints: { nether: { file: path.join(root, 'sp.json'), repeats: 2, targets: ['fortress'] } } };
-	writeFileSync(path.join(root, 'plan.json'), JSON.stringify(plan));
+	writeFileSync(path.join(root, 'plan.json'), JSON.stringify({ ...plan, ...overrides }));
 	return root;
 }
 const run = root => execFileSync('node', [script, '--plan', path.join(root, 'plan.json'), '--out', path.join(root, 'out')], {
@@ -93,5 +98,41 @@ test('checkpoint batch stops starting games when the game\'s own sign-in copy wa
 		const state = JSON.parse(readFileSync(path.join(root, 'out/state.json'), 'utf8'));
 		assert.deepEqual(state.games.map(g => g.state), ['done', 'done', 'not started', 'not started']);
 		assert.equal(leftSignIns(root), '0');
+	} finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('checkpoint batch gives created machines a boat deadline and deletes them at the end', posixOnly, () => {
+	const root = setup({ plan: { vms: [], create: 2, drain: undefined } });
+	try {
+		run(root);
+		const news = readFileSync(path.join(root, 'new.log'), 'utf8').trim().split('\n');
+		assert.equal(news.length, 2);
+		for (const line of news) { assert.match(line, /--ttl 7200\b/); assert.doesNotMatch(line, /--no-auto-stop/); }
+		assert.deepEqual(readFileSync(path.join(root, 'deleted.log'), 'utf8').trim().split('\n').sort(), ['bx_new0', 'bx_new1']);
+		const state = JSON.parse(readFileSync(path.join(root, 'out/state.json'), 'utf8'));
+		assert.deepEqual(state.games.map(g => g.state), ['done', 'done', 'done', 'done']);
+		assert.equal(leftSignIns(root), '0');
+	} finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('checkpoint batch puts a game back in the queue when its launch never ran, without dropping the machine', posixOnly, () => {
+	const root = setup();
+	writeFileSync(path.join(root, 'NODONE'), '');
+	try {
+		run(root);
+		const state = JSON.parse(readFileSync(path.join(root, 'out/state.json'), 'utf8'));
+		assert.deepEqual(state.games.map(g => g.state), ['done', 'done', 'done', 'done']);
+		assert.ok(state.games.every(g => g.attempts === 2));
+		assert.ok(state.machines.every(m => !m.lost));
+		assert.match(readFileSync(path.join(root, 'out/batch.log'), 'utf8'), /wrote no done file/);
+	} finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('checkpoint batch refuses to play on a warm-pool machine', posixOnly, () => {
+	const root = setup();
+	writeFileSync(path.join(root, 'bx_bbbbbbbb.name'), 'rbpool-abc-default-rooms-0123abcd-ff');
+	try {
+		assert.throws(() => run(root), /warm-pool machine/);
+		assert.equal(existsSync(path.join(root, 'out/state.json')), false);
 	} finally { rmSync(root, { recursive: true, force: true }); }
 });

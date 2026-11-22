@@ -15,7 +15,9 @@
 // --checkpoint under eatmydata (boat disks sync slowly; see lib/boat-pool.mjs) with the Codex provider, the observer cap in
 // log mode and the arm's env. Listed machines (vms) are kept for reuse, since boat starts are scarce; machines the batch
 // created (create, spares) are deleted when it ends, and with drain "delete" every machine is deleted as soon as it has no
-// further game, because an idle machine bills in full. Finished games are copied home in parallel and checked by sha. The sign-in is copied to each machine, checked against its source
+// further game, because an idle machine bills in full. A created machine has a boat deadline (--ttl) that each pass
+// pushes back while the batch runs, so a runner that dies (SIGKILL, a reboot) leaves no machine billing for long.
+// Listed machines must not be warm-pool members (rbpool-*): the pool and its guard lease, wipe and delete those by name. Finished games are copied home in parallel and checked by sha. The sign-in is copied to each machine, checked against its source
 // hash after every game (a changed hash means Codex refreshed it there, which can sign out the source machine, so no new
 // game starts), kept out of every copy-back, and removed from every machine when the batch ends.
 // Output: OUT/games/ID/{run.log,done,report/long-run.json,game.tgz (everything, raw journals under raw/)}, OUT/state.json, OUT/summary.json, OUT/summary.txt, OUT/batch.log.
@@ -24,7 +26,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { appendFile, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { createMachine, destroyMachine, download, installCodex, machineState, quote, remote, removeCodexSignIn, upload, waitHydrated } from './lib/boat-pool.mjs';
+import { boat, createMachine, destroyMachine, download, extendMachine, installCodex, machineState, quote, remote, removeCodexSignIn, upload, waitHydrated } from './lib/boat-pool.mjs';
 import { readArtifactReport } from '../../coordinator/src/benchmark/report-artifacts.mjs';
 import { canStart, codexHomes, expandPlan, loseGame, nextGame, scoreGame, summarize, summaryText } from './lib/checkpoint-batch-core.mjs';
 
@@ -36,6 +38,11 @@ if (args.includes('--help') || (!flag('score') && (!flag('plan') || !flag('out')
 // CHECKPOINT_POLL_MS shortens the pass for the fake-boat test (coordinator/test/checkpoint-batch-loop.test.mjs).
 const POLL_MS = Number(process.env.CHECKPOINT_POLL_MS ?? 60_000), LOST_AFTER_MS = 5 * 60_000, LIVE = new Set(['provisioned', 'cloning', 'ready', 'idle', 'running']);
 const sha = file => createHash('sha256').update(readFileSync(file)).digest('hex');
+// Local copy failures of one game (a full disk) are retried each pass; past this many the game scores unknown and the
+// machine is let go, so the batch can always end.
+const MAX_LOCAL_COPY_FAILURES = 30;
+// Every pass, at most this often, a created machine's boat deadline is set again to TTL from now.
+const EXTEND_EVERY_MS = 10 * 60_000;
 
 if (flag('score')) {
 	const out = path.resolve(flag('score'));
@@ -59,10 +66,15 @@ for (const [name, arm] of Object.entries(plan.arms)) {
 	if (!existsSync(path.join(arm.root, 'coordinator/node_modules'))) throw new Error(`arm ${name}: ${arm.root} has no coordinator/node_modules`);
 	execFileSync('git', ['-C', arm.root, 'cat-file', '-e', `${arm.ref}^{commit}`]);
 }
+if (/^rbpool/.test(plan.name ?? '')) throw new Error('plan.name must not start with rbpool: the warm-pool guard deletes unleased rbpool machines');
 if (args.includes('--dry-run')) {
 	for (const g of games) console.log(`${g.id} salt ${g.salt} sign-in ${g.account + 1}`);
 	console.log(`${games.length} games, ${plan.minutes} min each, last start ${new Date(Date.parse(plan.deadline) - (plan.minutes + 10) * 60_000).toISOString()}`);
 	process.exit(0);
+}
+for (const id of plan.vms ?? []) {
+	const name = JSON.parse(await boat(['info', id, '--json'], { timeoutMs: 60_000 })).sandbox?.name ?? '';
+	if (/^rbpool-/.test(name)) throw new Error(`${id} is a warm-pool machine (${name}): the pool can wipe or delete it mid-game, so list machines outside the pool`);
 }
 if (existsSync(out) && (await readdir(out)).length) throw new Error(`${out} is not empty: use a fresh folder`);
 await mkdir(path.join(out, 'games'), { recursive: true });
@@ -114,8 +126,23 @@ async function meterOk() {
 
 const state = { plan: { ...plan, codexHome: '(private)', codexHomes: authFiles.map((_, i) => `(private sign-in ${i + 1})`) }, startedAt: new Date().toISOString(), codexVersion, arms: pkgs, games, machines: [] };
 const save = async () => { await writeFile(path.join(out, 'state.json.tmp'), JSON.stringify(state, null, 2)); await rename(path.join(out, 'state.json.tmp'), path.join(out, 'state.json')); };
-let created = 0, spares = plan.spares ?? 0, stopped = false, signInChanged = false;
-process.on('SIGINT', () => { stopped = true; }); process.on('SIGTERM', () => { stopped = true; });
+let created = 0, spares = plan.spares ?? 0, stopped = false, aborted = false, signInChanged = false;
+// The first signal starts no new game and lets running ones finish; a second ends the running games and goes straight
+// to the cleanup (sign-ins off, created machines deleted). A hang-up counts as a signal too.
+const onSignal = () => { if (stopped) aborted = true; stopped = true; };
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(signal, onSignal);
+// A created machine's boat deadline: the whole game window plus an hour for setup and copy-back, at least 2 hours.
+const TTL_SECONDS = Math.max(2 * 3600, (plan.minutes + 60) * 60);
+async function destroyWithRetry(id, tries = 3) {
+	for (let i = 1; ; i++) {
+		try { return await destroyMachine(id); }
+		catch (error) { if (i >= tries) throw error; await log(`delete of ${id} failed (try ${i} of ${tries}): ${error.message.split('\n')[0].slice(0, 200)}`); await new Promise(r => setTimeout(r, 5_000)); }
+	}
+}
+// Ends every game session on a machine (game.sh and the run it started), first politely, then by force.
+const stopGamesScript = `sids=$(for p in $(pgrep -f 'ck/game.sh '); do ps -o sid= -p "$p"; done | tr -d ' ' | sort -u)
+for s in $sids; do pkill -TERM -s "$s"; done; for i in $(seq 1 30); do [ -z "$(pgrep -f 'ck/game.sh ')" ] && break; sleep 2; done
+for s in $sids; do pkill -KILL -s "$s"; done; true`;
 
 // OUT/MAX_RUNNING holds a number: no new game starts while that many are running (lowers concurrency without a restart).
 function underCap() {
@@ -141,13 +168,15 @@ async function prepare(vm) {
 }
 
 async function addMachine(kind) {
-	const vm = await createMachine({ from: plan.snapshot ?? 'mineagen-rooms-263', type: plan.type ?? 'default', ttlSeconds: 86_400, name: `${plan.name ?? 'ckpt'}-${++created}`, snapshots: false, noAutoStop: true });
+	// The deadline (TTL_SECONDS, pushed back each pass) is the cost backstop if this runner dies; boat stops the machine
+	// then, and a machine made without snapshots is erased when it stops.
+	const vm = await createMachine({ from: plan.snapshot ?? 'mineagen-rooms-263', type: plan.type ?? 'default', ttlSeconds: TTL_SECONDS, name: `${plan.name ?? 'ckpt'}-${++created}`, snapshots: false });
 	// A machine made from a saved image keeps downloading it in the background until boat reports it hydrated.
 	const began = Date.now();
-	// A machine whose image never finishes is deleted here: the caller never learns its id, and it has no auto-stop.
+	// A machine whose image never finishes is deleted here: the caller never learns its id.
 	await waitHydrated(vm.id, { log: line => log(line) }).catch(async error => { await destroyMachine(vm.id).catch(() => {}); throw error; });
 	await log(`created machine ${vm.id} (${kind}), image ready after ${Math.round((Date.now() - began) / 1000)} s`);
-	return { id: vm.id, created: true };
+	return { id: vm.id, created: true, extendedAt: Date.now() };
 }
 
 async function start(vm, game) {
@@ -166,6 +195,9 @@ if [ -n "$raw" ] && [ -d "$raw" ]; then rm -rf raw; mkdir raw; tar -C "$raw" --e
 [ -n "$raw" ] && find "$raw" -path '*.codex-home/auth.json' -exec sha256sum {} + 2>/dev/null | cut -c1-64 | sed 's/^/run=/'
 tar --exclude=auth.json --exclude=.codex-home -czf ../${game.id}.tgz . && echo ok; echo tgz=$(sha256sum ../${game.id}.tgz | cut -c1-64); sha256sum ~/.codex/auth.json | cut -c1-64`, { timeoutMs: 15 * 60_000 });
 	const lines = text.trim().split('\n'), remoteSha = lines.pop();
+	// No "ok" means tar failed on the machine (its disk full, say): a machine-side failure, not a local one, so it counts
+	// against the machine instead of being copied again forever.
+	if (!lines.includes('ok')) throw new Error(`could not pack ${game.id} on ${vm.id}`);
 	// The game's coordinator works on its own copy of the sign-in (.codex-home under the run folder), so a refresh during
 	// the game shows there, not in ~/.codex: both must still match the source.
 	const runShas = lines.filter(l => l.startsWith('run=')).map(l => l.slice(4));
@@ -211,16 +243,7 @@ async function writeSummary(dir, s) {
 	await writeFile(path.join(dir, 'summary.txt'), `${summaryText(rows)}\n`);
 }
 
-// Machines: the listed ones, then new ones.
 const machines = state.machines;
-for (const id of plan.vms ?? []) machines.push({ id, created: false });
-// A machine that cannot be made is logged and the batch plays on the rest, so the cleanup at the end always runs and
-// deletes every machine already created.
-for (let i = 0; i < (plan.create ?? 0); i++) machines.push(await addMachine('pool').catch(async e => { await log(`machine creation failed: ${e.message.split('\n')[0].slice(0, 300)}`); return { id: 'none', lost: true }; }));
-await save();
-await log(`batch: ${games.length} games, ${plan.minutes} min, ${machines.length} machines, deadline ${plan.deadline}`);
-// Prepare every machine at once (about a minute each), so the first wave starts together; one that fails is retried in the loop.
-await Promise.all(machines.map(vm => prepare(vm).then(() => { vm.failingSince = null; return log(`prepared ${vm.id}`); }, error => log(`machine ${vm.id}: ${error.message.split('\n')[0].slice(0, 300)}`))));
 
 const noMoreGames = () => stopped || signInChanged || existsSync(path.join(out, 'STOP')) || !canStart(Date.now(), plan) || !nextGame(games);
 // plan.drain "delete": every machine is deleted once it has no further game and its sign-in is off (idle machines bill
@@ -238,26 +261,58 @@ async function tend(vm, step) {
 	try { await step(); vm.failingSince = null; }
 	catch (error) {
 		await log(`machine ${vm.id}: ${error.message.split('\n')[0].slice(0, 300)}`);
-		if (error.local) return;
+		if (error.local) {
+			const game = vm.game && games.find(g => g.id === vm.game);
+			if (game && (game.localCopyFailures = (game.localCopyFailures ?? 0) + 1) >= MAX_LOCAL_COPY_FAILURES) {
+				game.state = 'done'; game.done = 'local copy failed'; game.endedAt = new Date().toISOString();
+				game.score = scoreGame(null, plan.savepoints[game.savepoint].targets);
+				await log(`gave up copying ${game.id} after ${game.localCopyFailures} local failures: it scores unknown`);
+				vm.game = null;
+			}
+			return;
+		}
 		vm.failingSince ??= Date.now();
 		const gone = await machineState(vm.id).then(s => !LIVE.has(s)).catch(() => false);
 		if (gone || Date.now() - vm.failingSince > LOST_AFTER_MS) {
 			vm.lost = true;
 			if (vm.game) { const g = loseGame(games, vm.game, `machine ${vm.id} stopped answering`); await log(`lost ${vm.id}; ${g.id} is ${g.state}`); vm.game = null; }
-			if (spares > 0 && canStart(Date.now(), plan)) { spares--; machines.push(await addMachine('replacement').catch(async e => { await log(`replacement failed: ${e.message}`); return { id: 'none', lost: true }; })); }
+			// A lost machine this batch would delete anyway is deleted now (a stopped one too: its snapshot bills), not left
+			// billing until the batch ends. A listed one is kept, and the cleanup still tries to take its sign-in off.
+			if (deletes(vm)) {
+				await removeCodexSignIn(vm.id).catch(() => {});
+				await destroyWithRetry(vm.id).then(() => { vm.deleted = true; return log(`deleted lost machine ${vm.id}`); }, e => log(`could not delete lost machine ${vm.id}: ${e.message}`));
+			}
+			if (spares > 0 && !noMoreGames()) { spares--; const extra = await addMachine('replacement').catch(async e => { await log(`replacement failed: ${e.message}`); return { id: 'none', lost: true }; }); machines.push(extra); await save().catch(() => {}); }
 		}
 	}
 }
 async function check(vm) {
+	// A failed push is logged and tried again next pass; it does not count against the machine.
+	if (vm.created && Date.now() - (vm.extendedAt ?? 0) > EXTEND_EVERY_MS) {
+		await extendMachine(vm.id, TTL_SECONDS).then(() => { vm.extendedAt = Date.now(); }, e => log(`could not push back the deadline of ${vm.id}: ${e.message.split('\n')[0].slice(0, 200)}`));
+	}
 	if (!vm.prepared) { await prepare(vm); await log(`prepared ${vm.id}`); }
 	// An idle machine that failed last time must answer before it counts as healthy again.
 	if (!vm.game) { if (vm.failingSince) await remote(vm.id, 'true', { timeoutMs: 60_000 }); return; }
 	const game = games.find(g => g.id === vm.game);
-	const status = await remote(vm.id, `test -f ~/ck/games/${game.id}/done && echo DONE || echo RUNNING`, { timeoutMs: 120_000 });
+	const status = await remote(vm.id, `if test -f ~/ck/games/${game.id}/done; then echo DONE; elif pgrep -f 'ck/game.sh ${game.id} ' >/dev/null; then echo RUNNING; else echo GONE; fi`, { timeoutMs: 120_000 });
+	if (/GONE/.test(status)) {
+		// No done file and no game process: the launch never ran (its ssh dropped first) or the session was killed. The
+		// machine is fine; the game goes back to the queue once (loseGame), instead of idling until the hang timeout.
+		const g = loseGame(games, game.id, `game process on ${vm.id} ended without a done file`);
+		await log(`${g.id} is not running on ${vm.id} and wrote no done file; it is ${g.state}`);
+		vm.game = null;
+		return;
+	}
 	if (!/DONE/.test(status) && Date.now() - Date.parse(game.startedAt) > (plan.minutes + 30) * 60_000) {
-		// A game past its window plus half an hour is hung: end its session (run-long writes its partial timeline on SIGTERM).
-		await remote(vm.id, `sid=$(ps -o sid= -p "$(pgrep -f 'ck/game.sh ${game.id} ' | head -1)" 2>/dev/null | tr -d ' '); [ -n "$sid" ] && pkill -TERM -s "$sid"; sleep 20; echo "exit timeout $(date -Is)" > ~/ck/games/${game.id}/done`);
+		// A game past its window plus half an hour is hung: end its session. run-long writes its partial timeline and report
+		// on SIGTERM, which can take minutes, so wait for the session to end (up to 5 min) before killing what is left.
+		await remote(vm.id, `sid=$(ps -o sid= -p "$(pgrep -f 'ck/game.sh ${game.id} ' | head -1)" 2>/dev/null | tr -d ' ')
+if [ -n "$sid" ]; then pkill -TERM -s "$sid"; for i in $(seq 1 60); do pgrep -s "$sid" >/dev/null || break; sleep 5; done; pkill -KILL -s "$sid"; sleep 2; fi
+mkdir -p ~/ck/games/${game.id}; echo "exit timeout $(date -Is)" > ~/ck/games/${game.id}/done`, { timeoutMs: 10 * 60_000 });
 		await log(`timed out ${game.id} on ${vm.id}`);
+		await fetch(vm, game); vm.game = null;
+		return;
 	}
 	if (/DONE/.test(status)) { await fetch(vm, game); vm.game = null; }
 }
@@ -272,7 +327,18 @@ const copyLimit = plan.copyConcurrency ?? 8;
 // Whatever stops the loop (a local write failing on a full disk, a bug), the cleanup below still runs: no machine keeps
 // its sign-in, and created machines are deleted.
 let crash = null;
-try { while (true) {
+try {
+	// Machines: the listed ones, then new ones. A machine that cannot be made is logged and the batch plays on the rest;
+	// the state is saved after each, so every machine made so far is on record, and the cleanup below always runs.
+	for (const id of plan.vms ?? []) machines.push({ id, created: false });
+	for (let i = 0; i < (plan.create ?? 0) && !stopped && !existsSync(path.join(out, 'STOP')); i++) {
+		machines.push(await addMachine('pool').catch(async e => { await log(`machine creation failed: ${e.message.split('\n')[0].slice(0, 300)}`); return { id: 'none', lost: true }; }));
+		await save().catch(error => log(`could not write the state: ${error.message}`));
+	}
+	await log(`batch: ${games.length} games, ${plan.minutes} min, ${machines.length} machines, deadline ${plan.deadline}`);
+	// Prepare every machine at once (about a minute each), so the first wave starts together; one that fails is retried in the loop.
+	await Promise.all(machines.filter(vm => vm.id !== 'none').map(vm => prepare(vm).then(() => { vm.failingSince = null; return log(`prepared ${vm.id}`); }, error => log(`machine ${vm.id}: ${error.message.split('\n')[0].slice(0, 300)}`))));
+	while (!aborted) {
 	await eachLimited(machines.filter(m => !m.lost && !m.deleted), copyLimit, vm => tend(vm, () => check(vm)));
 	// Starts stay one at a time, so two machines never take the same game.
 	for (const vm of machines.filter(m => !m.lost && !m.deleted && m.prepared && !m.game)) {
@@ -285,16 +351,22 @@ try { while (true) {
 	const startable = !stopped && !signInChanged && !meterLow && !existsSync(path.join(out, 'STOP')) && canStart(Date.now(), plan) && nextGame(games);
 	if (!running && !startable) break;
 	await new Promise(resolve => setTimeout(resolve, POLL_MS));
-} } catch (error) { crash = error; await log(`batch stopped by an error: ${error.stack ?? error.message}`); }
+	}
+} catch (error) { crash = error; await log(`batch stopped by an error: ${error.stack ?? error.message}`); }
+if (aborted) await log('second signal: ending running games and cleaning up');
 for (const g of games.filter(g => g.state === 'queued')) g.state = 'not started';
 // Every machine of the batch, lost and half-prepared ones included (one that comes back must not keep it); a failure is logged.
 for (const vm of machines.filter(m => m.id !== 'none' && !m.deleted)) {
+	// A game still running here (an error or a second signal ended the loop; a lost machine that came back) is ended
+	// first, so no session keeps playing on a machine whose sign-in is about to go, or one that is kept for reuse.
+	if (vm.game || vm.lost) await remote(vm.id, stopGamesScript, { timeoutMs: 180_000 }).then(() => log(`ended the game sessions on ${vm.id}`)).catch(e => log(`could not end the game sessions on ${vm.id}: ${e.message.split('\n')[0]}`));
 	await removeCodexSignIn(vm.id).then(() => log(`removed the sign-in from ${vm.id}`)).catch(e => log(`could not remove the sign-in from ${vm.id}: ${e.message}`));
-	// Batch-created extras (and every machine under drain "delete") are deleted, never left idle; a failure is logged.
-	if (deletes(vm)) await destroyMachine(vm.id).then(() => { vm.deleted = true; return log(`deleted ${vm.id}`); }).catch(e => log(`could not delete ${vm.id}: ${e.message}`));
+	// Batch-created extras (and every machine under drain "delete") are deleted, never left idle; a failure is retried, then logged.
+	if (deletes(vm)) await destroyWithRetry(vm.id).then(() => { vm.deleted = true; return log(`deleted ${vm.id}`); }).catch(e => log(`could not delete ${vm.id}: ${e.message}`));
 }
+for (const g of games.filter(g => g.state === 'running')) g.state = 'not finished';
 state.endedAt = new Date().toISOString();
 await save().then(() => writeSummary(out, state)).catch(error => log(`could not write the final state: ${error.message}`));
-await log(`batch ended; machines left running: ${machines.filter(m => !m.lost && !m.deleted).map(m => m.id).join(' ') || 'none'}`);
+await log(`batch ended; machines not deleted: ${machines.filter(m => m.id !== 'none' && !m.deleted).map(m => `${m.id}${m.lost ? ' (lost)' : ''}${m.created ? '' : ' (listed, kept)'}`).join(' ') || 'none'}`);
 console.log(await readFile(path.join(out, 'summary.txt'), 'utf8').catch(() => ''));
 if (crash) process.exitCode = 1;

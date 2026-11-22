@@ -39,7 +39,6 @@ export function expandPlan(plan, { salt = () => randomInt(-2147483648, 214748364
 	const armNames = arms.map(([name]) => name);
 	const games = [];
 	const maxRepeats = Math.max(...points.map(([, p]) => p.repeats));
-	let flip = 0;
 	// Repeat r of save point p uses sign-in (r - 1 + arm index + p) mod N for each arm, so every arm splits each save point's
 	// repeats evenly over the sign-ins (exactly, for an even repeat count; odd ones alternate their extra game by save point)
 	// and the arms of one repeat alternate between them: no account's limits or speed can favour an arm.
@@ -49,7 +48,9 @@ export function expandPlan(plan, { salt = () => randomInt(-2147483648, 214748364
 			if (repeat > point.repeats) continue;
 			const shared = point.salt ?? salt();
 			const mine = point.arms ? armNames.filter(a => point.arms.includes(a)) : armNames;
-			const order = flip++ % 2 ? [...mine].reverse() : mine;
+			// The arm that starts first alternates per save point from one repeat to the next, so a cut that splits a pair
+			// (the deadline, STOP, the meter, MAX_RUNNING) never always drops the same arm of one save point.
+			const order = (repeat - 1 + points.findIndex(([n]) => n === name)) % 2 ? [...mine].reverse() : mine;
 			for (const arm of order) games.push({ id: `${name}-r${repeat}-${arm}`, savepoint: name, repeat, arm, salt: shared, account: (repeat - 1 + armNames.indexOf(arm) + points.findIndex(([n]) => n === name)) % accounts, attempts: 0, state: 'queued' });
 		}
 	}

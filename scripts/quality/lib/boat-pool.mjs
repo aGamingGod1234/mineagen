@@ -143,9 +143,8 @@ t2=$(date +%s.%N)
 awk -v a="$t0" -v b="$t1" -v c="$t2" 'BEGIN { printf "STEPS=%.1f,%.1f\\n", b - a, c - b }'
 printf 'HOME=%s\\n' "$HOME"`;
 
-export async function createMachine({ from = null, type = 'default', ttlSeconds = 7200, name, snapshots = false, noAutoStop = false }) {
-	// boat takes --no-auto-stop only without a --ttl.
-	const args = ['new', '--no-env', '--type', type, ...(noAutoStop ? ['--no-auto-stop'] : ['--ttl', String(ttlSeconds)]), '--name', name, '--json'];
+export async function createMachine({ from = null, type = 'default', ttlSeconds = 7200, name, snapshots = false }) {
+	const args = ['new', '--no-env', '--type', type, '--ttl', String(ttlSeconds), '--name', name, '--json'];
 	if (from) args.push('--from', from);
 	if (!snapshots) args.push('--no-snapshots');
 	let text;

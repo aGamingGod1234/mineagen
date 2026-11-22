@@ -11,7 +11,16 @@ const plan = () => ({
 test('checkpoint batch pairs both arms of a repeat on one shared salt and alternates which arm goes first', () => {
 	let n = 0;
 	const games = expandPlan(plan(), { salt: () => ++n });
-	assert.deepEqual(games.map(g => `${g.id}:${g.salt}`), ['nether-r1-main:1', 'nether-r1-int:1', 'eyes-r1-int:2', 'eyes-r1-main:2', 'nether-r2-main:3', 'nether-r2-int:3']);
+	assert.deepEqual(games.map(g => `${g.id}:${g.salt}`), ['nether-r1-main:1', 'nether-r1-int:1', 'eyes-r1-int:2', 'eyes-r1-main:2', 'nether-r2-int:3', 'nether-r2-main:3']);
+});
+
+test('checkpoint batch alternates the first arm per save point even with an even number of save points', () => {
+	const p = plan(); p.savepoints.eyes.repeats = 4; p.savepoints.nether.repeats = 4;
+	const games = expandPlan(p, { salt: () => 1 });
+	for (const point of ['nether', 'eyes']) {
+		const firsts = [1, 2, 3, 4].map(r => games.find(g => g.savepoint === point && g.repeat === r).arm);
+		assert.deepEqual(firsts.filter(a => a === 'main').length, 2, `${point} starts main first in half its repeats: ${firsts}`);
+	}
 });
 
 test('checkpoint batch refuses a plan with a bad arm, save point or deadline', () => {
