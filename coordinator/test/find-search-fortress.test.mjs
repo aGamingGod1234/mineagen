@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { pathToFileURL } from 'node:url';
-import { checkedSearchBody } from './helpers/checked-body.mjs';
-const { searchFor } = await import(process.env.FIND_SEARCH_SOURCE ? pathToFileURL(process.env.FIND_SEARCH_SOURCE) : '../src/find-search.mjs');
+import { checkedSearchBody, checkedSearchFor } from './helpers/checked-body.mjs';
+const searchFor = checkedSearchFor((await import(process.env.FIND_SEARCH_SOURCE ? pathToFileURL(process.env.FIND_SEARCH_SOURCE) : '../src/find-search.mjs')).searchFor);
 
 // Synthetic top-face masonry at the G6 owned position. Health/empty threats and frontier are
 // explicit fixture context; this diagnoses dispatch, not historical survival or Minecraft geometry.

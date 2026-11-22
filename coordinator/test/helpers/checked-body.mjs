@@ -83,9 +83,14 @@ function wrap(body, key, tag, checker) {
 		return wrapped;
 	};
 	let current = checked(body[key]);
-	Object.defineProperty(body, key, { configurable: true, enumerable: key in body, get: () => current,
-		set: (fn) => { current = checked(fn); Object.defineProperty(body, key, { enumerable: true }); } });
+	// A key the fake never had stays out of Object.keys and spread copies until a test assigns it.
+	const added = ADDED_KEYS.get(body) ?? new Set();
+	ADDED_KEYS.set(body, added);
+	if (!(key in body)) added.add(key);
+	Object.defineProperty(body, key, { configurable: true, enumerable: !added.has(key), get: () => current,
+		set: (fn) => { current = checked(fn); added.delete(key); Object.defineProperty(body, key, { enumerable: true }); } });
 }
+const ADDED_KEYS = new WeakMap();
 
 function mark(body) {
 	Object.defineProperty(body, CHECKED_BODY, { value: true, enumerable: false, configurable: true });
@@ -113,8 +118,11 @@ export function checkedObtainBody(body, { allowRefusals = false } = {}) {
 	return mark(body);
 }
 
-// The body helpers, wrapping the body they are given on every call.
-export const searchFor = (target, body, options) => searchForUnchecked(target, checkedSearchBody(body), options);
-export const runObtain = (target, body, stations) => runObtainUnchecked(target, checkedObtainBody(body), stations);
+// The body helpers, wrapping the body they are given on every call. checkedSearchFor and checkedRunObtain wrap another
+// implementation the same way, for a test that loads one from another checkout (FIND_SEARCH_SOURCE, ASCENT_SOURCE).
+export const checkedSearchFor = (impl) => (target, body, options) => impl(target, checkedSearchBody(body), options);
+export const checkedRunObtain = (impl) => (target, body, stations) => impl(target, checkedObtainBody(body), stations);
+export const searchFor = checkedSearchFor(searchForUnchecked);
+export const runObtain = checkedRunObtain(runObtainUnchecked);
 export const keepKit = (body, craft, options) => keepKitUnchecked(checkedObtainBody(body), craft, options);
 export const lootChest = (body, cell, options) => lootChestUnchecked(checkedObtainBody(body), cell, options);

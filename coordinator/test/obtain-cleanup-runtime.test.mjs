@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { NativeToolRuntime } from '../src/native-tool-runtime.mjs';
 import { normalizeMinecraftToolCall } from '../src/native-minecraft-tools.mjs';
-import { checkedObtainBody } from './helpers/checked-body.mjs';
+import { checkedObtainBody, runObtain } from './helpers/checked-body.mjs';
 
 const keepAlive = setInterval(() => {}, 1000);
 // A stop the coordinator makes for a fork, not for danger (Step 3: fork stops keep their own codes).
@@ -115,7 +115,6 @@ for (const scenario of ['failed-fresh-danger', 'failed-running']) test(`producti
 
 // Caller-owned ledgers are private in NativeToolRuntime; assert both arrays directly as well.
 test('cleanup cancellation outranks raw danger and retains station/load ledgers', async () => {
-	const { runObtain } = await import('../src/obtain-runner.mjs');
 	for (const cancelled of [false, true]) {
 		const placed = [{ kind: 'furnace', x: 0, y: 64, z: 1 }], loads = [{ x: 0, y: 64, z: 1, output: 'iron_ingot', want: 3 }];
 		let stopped = false, interrupted = false, breaks = 0;

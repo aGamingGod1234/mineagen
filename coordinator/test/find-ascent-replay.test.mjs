@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-const { searchFor } = await import(process.env.ASCENT_SOURCE ?? '../src/find-search.mjs');
+const searchFor = checkedSearchFor((await import(process.env.ASCENT_SOURCE ?? '../src/find-search.mjs')).searchFor);
 const { NativeToolRuntime } = await import(process.env.ASCENT_RUNTIME ?? '../src/native-tool-runtime.mjs');
 import { normalizeMinecraftToolCall } from '../src/native-minecraft-tools.mjs';
-import { checkedSearchBody } from './helpers/checked-body.mjs';
+import { checkedSearchBody, checkedSearchFor } from './helpers/checked-body.mjs';
 
 const sample = () => ({ player: { x: 55.5, y: 19, z: -54.5, yaw: 0, health: 20, air: 300, maxAir: 300, skyOpen: false, onGround: true },
 	world: { dimension: 'minecraft:overworld' }, inventory: { selectedSlot: 0, items: [{ itemId: 'minecraft:stone_pickaxe', slot: 0, count: 1 }] }, blocks: [] });

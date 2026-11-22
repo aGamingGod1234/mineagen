@@ -17,11 +17,18 @@ const EXEMPT = new Map([
 // The helpers' entry points that take a body; tests import them from the helper, which wraps the body on every call.
 const ENTRY_POINTS = ['searchFor', 'runObtain', 'keepKit', 'lootChest'];
 const HELPER_IMPORT = /from '\.\/helpers\/checked-body\.mjs'/;
-// A static import, or a dynamic one (a test that can load another checkout's source: FIND_SEARCH_SOURCE).
-const IMPORTS_BODY_MODULE = new RegExp(`(?:from |import\\()[^;]*'\\.\\./src/(?:${BODY_MODULES.join('|')})\\.mjs'`);
-const STATIC_ENTRY_IMPORT = new RegExp(`^import \\{([^}]*)\\} from '\\.\\./src/(?:${BODY_MODULES.join('|')})\\.mjs'`, 'gm');
 // A fake's act: a key, a method, a local function, or shorthand on a body object.
 const DEFINES_ACT = /\bact\s*:|\basync\s+act\s*\(|\b(?:const|let)\s+act\s*=|[{,]\s*act\s*[,}]/;
+// A static import, or a dynamic one (a test that can load another checkout's source: FIND_SEARCH_SOURCE).
+const IMPORTS_BODY_MODULE = new RegExp(`(?:from |import\\()[^;]*['"]\\.\\./src/(?:${BODY_MODULES.join('|')})\\.mjs['"]`);
+const MODULE = `['"]\\.\\./src/(?:${BODY_MODULES.join('|')})\\.mjs['"]`;
+const STATIC_ENTRY_IMPORT = new RegExp(`^import \\{([^}]*)\\} from ${MODULE}`, 'gm');
+// A dynamic import that destructures an entry point, a namespace (import * as, or a dynamic import kept whole) whose
+// entry point the file uses, or a dynamic import's entry point not handed straight to checkedSearchFor or
+// checkedRunObtain (how a test runs another checkout's source).
+const DYNAMIC_DESTRUCTURE = new RegExp(`\\{([^}]*)\\}\\s*=\\s*await import\\([^;]*${MODULE}`, 'g');
+const NAMESPACE = new RegExp(`import \\* as (\\w+) from ${MODULE}|(?:const|let) (\\w+)\\s*=\\s*await import\\([^;]*${MODULE}\\)`, 'g');
+const DYNAMIC_MEMBER = new RegExp(`(.{0,40})\\(await import\\([^;]*${MODULE}\\)\\)\\.(\\w+)`, 'g');
 
 async function testFiles(dir = 'test') {
 	const entries = await readdir(path.join(root, dir), { withFileTypes: true });
@@ -50,6 +57,18 @@ test('tests call the body helpers through the checked entry points, so every bod
 			for (const name of names.split(',').map((entry) => entry.trim().split(/\s+as\s+/)[0])) {
 				if (ENTRY_POINTS.includes(name)) direct.push(`${file}: ${name}`);
 			}
+		}
+		for (const [, names] of text.matchAll(DYNAMIC_DESTRUCTURE)) {
+			for (const name of names.split(',').map((entry) => entry.trim().split(/\s*:\s*/)[0])) {
+				if (ENTRY_POINTS.includes(name)) direct.push(`${file}: ${name} (dynamic import)`);
+			}
+		}
+		for (const [, star, whole] of text.matchAll(NAMESPACE)) {
+			const name = star ?? whole;
+			for (const entry of ENTRY_POINTS) if (new RegExp(`\\b${name}\\.${entry}\\b`).test(text)) direct.push(`${file}: ${name}.${entry}`);
+		}
+		for (const [, before, entry] of text.matchAll(DYNAMIC_MEMBER)) {
+			if (ENTRY_POINTS.includes(entry) && !/\bchecked(?:SearchFor|RunObtain)\(\s*$/.test(before)) direct.push(`${file}: ${entry} (dynamic import)`);
 		}
 	}
 	assert.deepEqual(direct, [], `import ${ENTRY_POINTS.join(', ')} from './helpers/checked-body.mjs', not from src`);
@@ -102,6 +121,7 @@ test('the search body checks escape against the action schema and the obtain bod
 test('a move the fake had no method for at the wrap, or a second body kind, is checked too', async () => {
 	const body = checkedObtainBody(checkedSearchBody({ act: async () => ({ state: 'SUCCEEDED' }) }, { allowRefusals: true }), { allowRefusals: true });
 	await assert.rejects(body.act('escape', {}), /refuses escape/, 'the obtain wrap adds its own act check over the search one');
+	assert.deepEqual(Object.keys(checkedObtainBody(body)), ['act'], 'methods the fake never had stay out of its keys, wrapped twice or not');
 	body.moveTo = async () => ({ state: 'SUCCEEDED' });
 	await assert.rejects(body.moveTo({ bogus: true }), /refuses moveTo/);
 });

@@ -485,9 +485,8 @@ test('codex: a house never entered (a hostile by its door) stays eligible for a 
 });
 
 test("codex: an open chest gives every item the plan needs, not only the visit's own", async () => {
-	const src = await import('../src/loot-step.mjs');
 	const body = chestBody([['stick', 4], ['iron_ingot', 2]]);
-	await src.lootChest(checkedObtainBody(body), { x: 1, y: 64, z: 2 }, { wanted: ['iron_ingot', 'stick'] });
+	await lootChest(checkedObtainBody(body), { x: 1, y: 64, z: 2 }, { wanted: ['iron_ingot', 'stick'] });
 	assert.deepEqual(body.calls.filter(([type]) => type === 'menu_click').map(([, a]) => a.expectedItemId).sort(), ['minecraft:iron_ingot', 'minecraft:stick']);
 	const runner = (await import('node:fs')).readFileSync(new URL('../src/obtain-runner.mjs', import.meta.url), 'utf8');
 	assert.match(runner, /wanted: planWanted\(need\)/);
