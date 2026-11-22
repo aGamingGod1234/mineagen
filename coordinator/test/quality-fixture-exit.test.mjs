@@ -24,7 +24,7 @@ const NOT_YET_ON_FINISH_RUN = [
 	'test-ranged-blaze-live.mjs', 'test-reflex-combat-live.mjs', 'test-reflex-core-live.mjs',
 	'test-respawn-recovery-live.mjs', 'test-rest-live.mjs', 'test-route-recovery-live.mjs', 'test-routines-live.mjs',
 	'test-savepoints-live.mjs', 'test-shelter-forest-live.mjs', 'test-shelter-live.mjs', 'test-shelter-ranged-live.mjs',
-	'test-shelter-repair-live.mjs', 'test-shelter-terrain-live.mjs', 'test-travel-live.mjs',
+	'test-shelter-repair-live.mjs', 'test-shelter-terrain-live.mjs',
 	'test-travel-resume-live.mjs',
 ];
 

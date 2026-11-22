@@ -7,8 +7,10 @@ import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import dev.agaminggod.mineagen.client.pov.PovClient;
 import dev.agaminggod.mineagen.client.pov.PovHudProxy;
 import java.util.Collection;
+import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Hud;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.multiplayer.MultiPlayerGameMode;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.player.RemotePlayer;
@@ -26,17 +28,26 @@ import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
  * While an agent view is active the HUD (Hud since 26.3) reads the stand-in player: getCameraPlayer covers hotbar,
  * hearts, food, armor and air; the wraps below cover the reads that go to the operator directly.
  * getPlayerMode needs no wrap here: MultiPlayerGameModePovMixin answers it for every caller.
+ * It also draws the lasting "leave agent view" corner label.
  */
 @Mixin(Hud.class)
 abstract class GuiPovMixin {
 	@Shadow
 	@Final
 	private Minecraft minecraft;
+
+	// The tab list is drawn only while F1 has not hidden the HUD, so the label hides with the rest of it.
+	@Inject(method = "extractTabList", at = @At("HEAD"))
+	private void mineagen$povCornerLabel(GuiGraphicsExtractor graphics, DeltaTracker deltaTracker, CallbackInfo ci) {
+		PovClient.extractCornerLabel(graphics, minecraft);
+	}
 
 	@ModifyReturnValue(method = "getCameraPlayer", at = @At("RETURN"))
 	private Player mineagen$povCameraPlayer(Player original) {

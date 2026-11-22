@@ -15,7 +15,7 @@ import { goalSpecInstructions, nativeInstructions, nativeRecoveryInstructions, n
 import { NativeCallLog } from './native-call-log.mjs';
 import { parseDecision } from './decision-parser.mjs';
 import { ModelObservationViews, decodeModelFacts, encodeModelFacts, encodeNativeEventInput } from './model-fact-encoding.mjs';
-import { NATIVE_AGENT_INSTRUCTIONS, normalizeMinecraftToolCall, presentedTool, toolResultContent } from './native-minecraft-tools.mjs';
+import { NATIVE_AGENT_INSTRUCTIONS, normalizeMinecraftToolCall, presentedTool, programToolsOffered, toolResultContent } from './native-minecraft-tools.mjs';
 import { PLANNER_OUTPUT_SCHEMA, PLANNER_SYSTEM_PROMPT } from './prompts.mjs';
 import { DIRECTLY_SPAWNABLE_WINDOWS_EXTENSIONS, createProviderChildEnvironment, environmentValue, findExecutableOnPath, findNpmEntrypointBesideShim } from './provider-environment.mjs';
 import { createExecutionSettings } from './provider-identity.mjs';
@@ -1513,7 +1513,7 @@ ${encoded}`);
 		return [
 			midTurn
 				? `${reason}: an active tool turn resumes below. Use the completed tool result once, then continue the current goal with the latest event facts.`
-				: `${reason}: earlier turns are not shown. The event restates goal, intent (now), task memory and facts; read taskPlan, programStatus or memory for more.`,
+				: `${reason}: earlier turns are not shown. The event restates goal, intent (now), task memory and facts; read taskPlan${programToolsOffered() ? ', programStatus' : ''} or memory for more.`,
 			...(lines.length === 0 ? [] : ['Your most recent tool calls (oldest first):', ...lines]),
 			...(this.#recentConversation.length === 0 ? [] : ['Recent conversation already delivered to you (oldest first):', ...this.#recentConversation.map((entry) => `- ${entry}`)]),
 			...this.#failureCarryOver.lines(visible),

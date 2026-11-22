@@ -2,8 +2,6 @@
 // replaced by a fresh one (same instructions and tools) that starts with this short carry-over; each event already
 // restates the goal, task memory, facts and program state.
 export const DEFAULT_CONTEXT_ROTATION_TOKENS = 64_000;
-// Hysteresis: a fresh session whose first turns already pass the threshold (large tool results) must not thrash.
-export const MIN_TURNS_BETWEEN_ROTATIONS = 3;
 // The event's now header carries intent, the unresolved failure and the last effect; older calls repeat it.
 const CARRY_OVER_TOOL_CALLS = 6;
 const CARRY_OVER_CONVERSATION = 6;
