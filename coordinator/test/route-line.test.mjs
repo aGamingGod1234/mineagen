@@ -19,6 +19,8 @@ const sample = (items, { dimension = 'minecraft:overworld', health = 20, foodLev
 const route = (items, options = {}, known = emptyKnown()) => routeLine({ observation: sample(items, options), known, evaluate: evaluatePlanCheck });
 const COOKED = [['cooked_beef', 24]];
 const SHIELD = ['shield', 1, 'offhand'];
+// The kit's armour worn (skill-fits KIT_ARMOUR): with it on, the route goes on to the portal.
+const ARMOUR = [['iron_chestplate', 1, 'chest'], ['iron_boots', 1, 'feet']];
 const MEAT = [['beef', 4]];
 // Wood for the trip down, carried: a crafting table and logs enough for the kit's crafts and smelting.
 const TRIP = [['crafting_table', 1], ['oak_log', 8]];
@@ -57,19 +59,27 @@ test('the route walks the usual Overworld order from nothing to a lit portal', (
 	// The shield gates the kit even when the buckets and the light came first: its iron is the trip's.
 	assert.match(route([['iron_pickaxe', 1], ['bucket', 2], ['flint_and_steel', 1], ...TRIP, ...COOKED]), /^usual next step: obtain iron_ingot count 1 in one trip.*kit iron 1: shield 1/);
 	assert.match(route([['iron_pickaxe', 1], ['bucket', 2], ['flint_and_steel', 1], ['iron_ingot', 1], ...TRIP, ...COOKED]), /^usual next step: obtain shield/);
-	const kit = [['iron_pickaxe', 1], ['water_bucket', 1], ['bucket', 1], ['flint_and_steel', 1], SHIELD];
+	// Armour once the kit is made and before the portal (iron-kit room: 0 of 26 lanes wore any; with it in the first trip
+	// the iron pickaxe came 11 min later), mining its own iron when none is spare.
+	const bare = [['iron_pickaxe', 1], ['water_bucket', 1], ['bucket', 1], ['flint_and_steel', 1], SHIELD];
+	assert.equal(route([...bare, ...COOKED]), 'usual next step: obtain iron_chestplate, then equip_item it to chest (iron 0 held, kit made; iron_chestplate takes 8, no chest armour worn)');
+	assert.equal(route([...bare, ['iron_chestplate', 1], ...COOKED]), 'usual next step: equip_item iron_chestplate to chest (iron_chestplate carried, not worn)');
+	assert.match(route([...bare, ARMOUR[0], ...COOKED]), /^usual next step: obtain iron_boots, then equip_item it to feet/);
+	// The buckets and the lighter come first even with spare iron held (the kit habit makes armour from that spare itself).
+	assert.match(route([['iron_pickaxe', 1], ['iron_ingot', 15], SHIELD, ...TRIP, ...COOKED]), /^usual next step: obtain bucket count 2, then flint_and_steel/);
+	const kit = [...bare, ...ARMOUR];
 	assert.match(route([...kit, ...COOKED]), /^usual next step: find block minecraft:lava, then build nether_portal beside the pool \(casts the frame with your buckets, lights it\) \(water bucket held, plain blocks 0\/13, lava pools seen 0\)$/);
 	assert.match(route([...kit, ['cobblestone', 16], ...COOKED], {}, { ...emptyKnown(), lavaPools: [{ dimension: 'minecraft:overworld', x: 4, y: 60, z: 4 }] }),
 		/^usual next step: build nether_portal beside the lava pool \(casts the frame with your buckets and lights it\) \(water bucket held, plain blocks 16\/13, lava pools seen 1\)$/);
 	// Without water the step names the verb that fills a bucket (gate games asked obtain for water_bucket and were refused).
-	assert.match(route([['iron_pickaxe', 1], ['bucket', 2], ['flint_and_steel', 1], SHIELD, ...COOKED]), /^usual next step: obtain water_bucket, then find block minecraft:lava and build nether_portal beside it \(plain blocks 0\/13, lava pools seen 0\)$/);
-	assert.match(route([['iron_pickaxe', 1], ['bucket', 2], ['flint_and_steel', 1], SHIELD, ...COOKED], {}, { ...emptyKnown(), lavaPools: [{ dimension: 'minecraft:overworld', x: 4, y: -50, z: 4 }] }),
+	assert.match(route([['iron_pickaxe', 1], ['bucket', 2], ['flint_and_steel', 1], SHIELD, ...ARMOUR, ...COOKED]), /^usual next step: obtain water_bucket, then find block minecraft:lava and build nether_portal beside it \(plain blocks 0\/13, lava pools seen 0\)$/);
+	assert.match(route([['iron_pickaxe', 1], ['bucket', 2], ['flint_and_steel', 1], SHIELD, ...ARMOUR, ...COOKED], {}, { ...emptyKnown(), lavaPools: [{ dimension: 'minecraft:overworld', x: 4, y: -50, z: 4 }] }),
 		/^usual next step: obtain water_bucket, then build nether_portal beside the lava pool \(/);
-	assert.match(route([['iron_pickaxe', 1], ['bucket', 2], ['flint_and_steel', 1], SHIELD, ['obsidian', 10], ...COOKED]), /^usual next step: build nether_portal \(10 obsidian held\)$/);
+	assert.match(route([['iron_pickaxe', 1], ['bucket', 2], ['flint_and_steel', 1], SHIELD, ...ARMOUR, ['obsidian', 10], ...COOKED]), /^usual next step: build nether_portal \(10 obsidian held\)$/);
 });
 
 test('ten carried obsidian and a lighter reach build without buckets, water, lava or portal knowledge', () => {
-	const kit = [['iron_pickaxe', 1], SHIELD, ['flint_and_steel', 1], ['cooked_beef', 32], ['cobblestone', 64]];
+	const kit = [['iron_pickaxe', 1], SHIELD, ...ARMOUR, ['flint_and_steel', 1], ['cooked_beef', 32], ['cobblestone', 64]];
 	for (const obsidian of [10, 11]) {
 		const line = route([...kit, ['obsidian', obsidian]], { foodLevel: 20 });
 		assert.equal(line, `usual next step: build nether_portal (${obsidian} obsidian held)`);
@@ -91,7 +101,7 @@ test('the production continuity header offers a carried build from current inven
 	const views = new LiveTaskViews();
 	const record = { agentId: 'carried-portal', currentGoal: 'beat the game', goalRevision: 1,
 		currentGoalSpec: { predicate: { type: 'entity_killed_by_agent', entityType: 'minecraft:ender_dragon', afterGoalStart: true } } };
-	const kit = [['iron_pickaxe', 1], SHIELD, ['flint_and_steel', 1], ...COOKED];
+	const kit = [['iron_pickaxe', 1], SHIELD, ...ARMOUR, ['flint_and_steel', 1], ...COOKED];
 	await views.observe(record, sample([...kit, ['obsidian', 10]]));
 	assert.equal(views.continuity(record).route, 'usual next step: build nether_portal (10 obsidian held)');
 	// Losing one obsidian returns the route to casting preparation instead of keeping the old carried-kit fact.
