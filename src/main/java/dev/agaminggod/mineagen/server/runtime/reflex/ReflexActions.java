@@ -3170,9 +3170,13 @@ final class ReflexActions {
 			};
 		}
 
-		/** Releases the level hold this wall-in took on an exposed deck, if any. */
+		/**
+		 * Releases the level hold this wall-in took on an exposed deck, if any. A wall-in cut off before its roof (defend's
+		 * time limit, a new command) records the roof as given up too: nothing is building it any more.
+		 */
 		void end(ServerPlayer player) {
 			dev.agaminggod.mineagen.server.runtime.controller.BrinkGuard.keepLevel(player, this, false);
+			markRoofless(player.level());
 		}
 
 		Step tick(Context context, Consumer<AgentInputState> input) {
