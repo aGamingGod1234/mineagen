@@ -257,22 +257,29 @@ export function leaseStore({ dir = defaultPoolDir(), leaseStaleMs = 5 * 60_000, 
 		 * budget, when given: { starts, readAt, reserve } from the provider's limits read at readAt. The hour and day
 		 * windows are checked here, under the mutex, against that read minus every start any batch on this computer
 		 * recorded since (30 s earlier, to cover a start the read may not have seen yet), so two batches can never both
-		 * spend the last starts above the reserve. A refused start is not recorded.
+		 * spend the last starts above the reserve. A refused start is not recorded. A window with a planRemaining (extra
+		 * starts, see boat-warm.mjs startWindows) has the wallet's limit; when the recorded start is past the plan's limit
+		 * in any window, onPastPlan gets [{ window, start, planLimit }] (start counts this one) after the mutex is let go.
 		 */
-		async reserveStart({ perMinute = 20, minGapMs = Math.ceil(60_000 / perMinute), signal = null, budget = null } = {}) {
+		async reserveStart({ perMinute = 20, minGapMs = Math.ceil(60_000 / perMinute), signal = null, budget = null, onPastPlan = null } = {}) {
 			if (!Number.isInteger(perMinute) || perMinute < 1) throw new Error(`starts per minute must be a whole number of at least 1, got ${perMinute}`);
 			if (!Number.isFinite(minGapMs) || minGapMs < 0) throw new Error(`the gap between starts must be a number of ms, got ${minGapMs}`);
 			const began = now();
 			while (true) {
 				if (signal?.aborted) throw new Error('batch stopped');
+				const past = [];
 				const wait = await withMutex(async () => {
 					const at = now();
 					const times = ((await readJson(ledgerFile)) ?? []).filter(time => Number.isFinite(time) && at - time < 86_400_000).sort((a, b) => a - b);
+					past.length = 0;
 					if (budget?.starts && !budget.starts.unlimited) {
 						const since = times.filter(time => time > budget.readAt - 30_000).length;
 						for (const window of ['hour', 'day']) {
-							const left = (budget.starts[window]?.remaining ?? Infinity) - since;
-							if (left <= budget.reserve) throw new Error(`the ${window} sandbox start limit has ${Math.max(left, 0)} starts left, keeping ${budget.reserve} in reserve: no new machine`);
+							const read = budget.starts[window];
+							const left = (read?.remaining ?? Infinity) - since;
+							const extra = Number.isFinite(read?.planRemaining);
+							if (left <= budget.reserve) throw new Error(`the ${window} sandbox start limit${extra ? ' with extra starts' : ''} has ${Math.max(left, 0)} starts left, keeping ${budget.reserve} in reserve: no new machine`);
+							if (extra && read.planRemaining - since <= 0) past.push({ window, start: read.planLimit - read.planRemaining + since + 1, planLimit: read.planLimit });
 						}
 					}
 					const minute = times.filter(time => at - time < 60_000);
@@ -281,7 +288,7 @@ export function leaseStore({ dir = defaultPoolDir(), leaseStaleMs = 5 * 60_000, 
 					if (until <= at) { times.push(at); await writeJsonAtomic(ledgerFile, times); return 0; }
 					return until - at;
 				});
-				if (!wait) return now() - began;
+				if (!wait) { if (past.length) onPastPlan?.(past); return now() - began; }
 				await sleep(Math.min(wait, 5_000));
 			}
 		},
