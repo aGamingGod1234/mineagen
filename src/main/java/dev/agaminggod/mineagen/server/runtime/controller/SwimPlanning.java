@@ -201,10 +201,10 @@ public final class SwimPlanning {
 	/**
 	 * How high above the water a swimmer climbs out onto a ledge, holding forward and jump against it: the ledge's top
 	 * may be this far above the top face of the highest water cell in the column the body pushes from. Measured with
-	 * test-water-exit-live (23 Nov, main jar, 2 runs per height, both alike) from three starts: afloat in 4-deep water,
-	 * standing on the bed of 2-deep water with the eyes under, and wading in 1-deep water. In each, ledge tops 0.875 over
-	 * the water climbed and 0.9375 or higher never did. Afloat the feet ride 0.41 under that face, so this is 1.29 over
-	 * the floating feet; wading it is 1.875 over the feet, more than a jump on land.
+	 * test-water-exit-live (23 Nov, main jar, 2 runs per height, both alike): afloat in 4-deep water and wading in 1-deep
+	 * water, ledge tops 0.875 over the water climbed and 0.9375 or higher never did. Standing on the bed of 2-deep water
+	 * with the eyes under, every ledge up to the water's top climbed (that sweep went no higher). Afloat the feet ride
+	 * 0.41 under that face, so this is 1.29 over the floating feet; wading it is 1.875 over the feet.
 	 */
 	public static final double CLIMB_OVER_WATER = 0.875D;
 

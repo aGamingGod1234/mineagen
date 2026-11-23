@@ -41,8 +41,8 @@ const ledges = (depth) => {
 		if (k > 0) tops.push({ above: k, solid: k, partial: null });
 		for (const p of PARTIAL) if (!p.dryOnly || k >= depth) tops.push({ above: k + p.h, solid: k, partial: p });
 	}
-	// afloat: the water's top block is the bed + depth; climbs near it are what matters. Others: the first 2 blocks.
-	const lo = depth >= 3 ? depth - 0.75 : 0.3, hi = depth >= 3 ? depth + 1.75 : 2.0;
+	// Every start sweeps past the water's top (bed + depth) to well over the climb; afloat starts just under the top.
+	const lo = depth >= 3 ? depth - 0.75 : 0.3, hi = depth + 1.75;
 	return tops.filter(t => t.above >= lo && t.above <= hi).sort((a, b) => a.above - b.above);
 };
 const out = path.resolve(outArg);
