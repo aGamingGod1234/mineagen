@@ -114,9 +114,12 @@ public final class ServerBuildController implements ServerController {
 			return useBucket(body, clicked, face);
 		}
 
-		/** Why {@link #clear} would refuse to break the block for lava beside or behind it (seen, or heard close by); null when it would not. */
-		default String lavaBehind(ServerPlayer body, BlockPos at) {
-			return null;
+		/**
+		 * Whether {@link #clear} would refuse the block for lava heard just behind it. Lava seen beside a block also refuses it,
+		 * but the site rules already rule out any site with seen fluid against a cell they break.
+		 */
+		default boolean lavaHeardBehind(ServerPlayer body, BlockPos at) {
+			return false;
 		}
 	}
 
@@ -703,7 +706,7 @@ public final class ServerBuildController implements ServerController {
 				+ "%d carried; %d more (cobblestone or dirt), then build here again", rejects[10], xyz(center), plain, rejects[10] - plain));
 		if (best == null) siteRejects = String.format(Locale.ROOT, "%d had no flat solid ground row, "
 				+ "%d had water or lava in or beside the footprint, %d had a block too slow to clear or unseen cells, %d had no standing spot in front, "
-				+ "%d had unseen ground, %d had lava heard or seen right behind a block to clear, %d were checked%s", rejects[0], rejects[1], rejects[2], rejects[3],
+				+ "%d had unseen ground, %d had lava heard right behind a block to clear, %d were checked%s", rejects[0], rejects[1], rejects[2], rejects[3],
 				rejects[5], lavaRefused, rejects[0] + rejects[1] + rejects[2] + rejects[3] + rejects[4] + rejects[5] + lavaRefused,
 				casting ? String.format(Locale.ROOT, "; for casting, %d had no seen open or solid cells behind for the mould or before the frame, %d stood over %.0f blocks from, or %.0f above or below, the %d lava sources seen, %d would let the poured water run into the lava",
 						rejects[6], rejects[7], CAST_POOL_REACH, CAST_RISE, pool.size(), rejects[8]) : "");
@@ -832,6 +835,7 @@ public final class ServerBuildController implements ServerController {
 				"no standing spot in front", "other", "unseen ground", "unseen or open cells behind for the mould or before the frame",
 				"too far from, or above or below, the lava", "poured water would run into the lava", "short of plain blocks", "" };
 		for (int k = 0; k < 10; k++) if (rejects[k] > 0) return why[k];
+		if (digRefusedByLava(player, siteClears(player, p, wall)) != null) return "lava heard right behind a block to clear";
 		return "passed, but another site cost less";
 	}
 
@@ -1832,12 +1836,15 @@ public final class ServerBuildController implements ServerController {
 		return cells;
 	}
 
-	/** The first of {@code cells} still to break that clear's lava gate would refuse, or null: the dig and the chooser judge by the same rule. */
+	/**
+	 * The first of {@code cells} still to break that clear's lava gate would refuse for lava heard behind it, or null: the dig
+	 * and the chooser judge by the same rule. Fire is cleared without that gate.
+	 */
 	private BlockPos digRefusedByLava(ServerPlayer player, List<BlockPos> cells) {
 		for (BlockPos cell : cells) {
 			BlockState state = known(player, cell);
-			if (state != null && state.isAir()) continue;
-			if (environment.lavaBehind(player, cell) != null) return cell;
+			if (state != null && (state.isAir() || state.is(Blocks.FIRE) || state.is(Blocks.SOUL_FIRE))) continue;
+			if (environment.lavaHeardBehind(player, cell)) return cell;
 		}
 		return null;
 	}
@@ -1938,7 +1945,7 @@ public final class ServerBuildController implements ServerController {
 		if (best == null) {
 			siteRejects += String.format(Locale.ROOT, "; no site to carve either (%d seen standing spots within %d blocks: %d sites over %.0f blocks from, "
 					+ "or %.0f above or below, or within %.0f of, the lava, %d with water or lava seen in or beside the dig or the ground not rock, %d short of plain blocks for the mould, "
-					+ "%d with lava heard or seen right behind a cell the dig would break)",
+					+ "%d with lava heard right behind a cell the dig would break)",
 					stands, CARVE_RADIUS, far, CAST_POOL_REACH, CAST_RISE, CARVE_POOL_MARGIN, ruled, blocks, heard);
 			return false;
 		}

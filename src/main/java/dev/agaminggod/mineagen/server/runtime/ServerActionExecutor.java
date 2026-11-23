@@ -2205,8 +2205,8 @@ public final class ServerActionExecutor {
 				selectBreakTool(body, body.level().getBlockState(at));
 				return gatedBreak(parent, body, at, false, timeoutMs, true);
 			}
-			public String lavaBehind(ServerPlayer body, BlockPos at) {
-				return ServerActionExecutor.lavaBehind(body, at);
+			public boolean lavaHeardBehind(ServerPlayer body, BlockPos at) {
+				return dev.agaminggod.mineagen.server.perception.HearingPerception.lavaHeardPoint(body, at, LAVA_HEARD_REACH) != null;
 			}
 			public ServerController shelter(ServerPlayer body, BlockPos center, Direction opening, String item, long timeoutMs) {
 				var block = BuiltInRegistries.ITEM.getValue(net.minecraft.resources.Identifier.parse(item));
@@ -2938,6 +2938,9 @@ public final class ServerActionExecutor {
 				+ ("drop".equals(drop.below()) ? ", a fall that kills at your health." : ".");
 	}
 
+	/** How close to a block heard lava must be for a break to be refused as letting it flow in. */
+	public static final double LAVA_HEARD_REACH = 2.5D;
+
 	static String lavaBehind(ServerPlayer player, BlockPos target) {
 		SeenTerrain.Reader<BlockState> seen = SeenTerrain.of(player);
 		for (Direction side : Direction.values()) {
@@ -2948,7 +2951,7 @@ public final class ServerActionExecutor {
 				return "seen " + lavaSide(side.getStepY()) + " this block at " + coordinates(neighbour) + fallsNote(side.getStepY());
 			}
 		}
-		Vec3 heard = dev.agaminggod.mineagen.server.perception.HearingPerception.lavaHeardPoint(player, target, 2.5D);
+		Vec3 heard = dev.agaminggod.mineagen.server.perception.HearingPerception.lavaHeardPoint(player, target, LAVA_HEARD_REACH);
 		if (heard == null) return null;
 		double dy = heard.y - (target.getY() + 0.5D);
 		int side = dy > 0.75D ? 1 : dy < -0.75D ? -1 : 0;
@@ -2966,7 +2969,7 @@ public final class ServerActionExecutor {
 					&& seen.known(neighbour.getX(), neighbour.getY(), neighbour.getZ()).getFluidState().is(net.minecraft.tags.FluidTags.LAVA))
 				return "seen " + lavaSide(side.getStepY()) + " this block at " + coordinates(neighbour) + fallsNote(side.getStepY());
 		}
-		Vec3 heard = dev.agaminggod.mineagen.server.perception.HearingPerception.lavaHeardPoint(player, target, 2.5D);
+		Vec3 heard = dev.agaminggod.mineagen.server.perception.HearingPerception.lavaHeardPoint(player, target, LAVA_HEARD_REACH);
 		if (heard == null || heard.y - (target.getY() + 0.5D) < -0.75D) return null;
 		int side = heard.y - (target.getY() + 0.5D) > 0.75D ? 1 : 0;
 		return "heard " + lavaSide(side) + " this block, about " + Math.max(1L, Math.round(heard.distanceTo(Vec3.atCenterOf(target)))) + " block(s) away" + fallsNote(side);
