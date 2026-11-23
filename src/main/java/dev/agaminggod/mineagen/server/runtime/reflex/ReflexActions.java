@@ -3113,7 +3113,7 @@ final class ReflexActions {
 
 		private static boolean shooterSees(ServerPlayer player) {
 			return !player.level().getEntitiesOfClass(net.minecraft.world.entity.Mob.class, player.getBoundingBox().inflate(ROOFLESS_SHOOTER_RANGE),
-					mob -> mob.isAlive() && mob instanceof net.minecraft.world.entity.monster.RangedAttackMob
+					mob -> mob.isAlive() && ThreatPerception.isRanged(mob)
 							&& player.distanceTo(mob) <= ROOFLESS_SHOOTER_RANGE && mob.getSensing().hasLineOfSight(player)).isEmpty();
 		}
 
