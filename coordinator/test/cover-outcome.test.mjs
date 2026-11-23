@@ -12,6 +12,10 @@ test('cover outcome: a finished cover move or a wall-in closed on every side, ne
 	assert.equal(coverReached('stopped walling in: minecraft:zombie got inside before the last wall at -300, 100, 10: closed north, east; open south, west; no roof; 4 block(s) placed'), false);
 	assert.equal(coverReached('walled in from minecraft:skeleton at -300, 100, 10: closed north, east, south; open west; no roof; 6 block(s) placed'), false);
 	assert.equal(coverReached('walling in from minecraft:skeleton: 3/8'), false);
+	// Stored steps are cut at 160 characters: a cut before "; open ..." must not read as closed on every side.
+	assert.equal(coverReached("default-defend: # hit(s) back; no shield, stepping SW across minecraft:skeleton's shot; cover: walled in from minecraft:skeleton at #, #, #: closed north, east;"), false);
+	assert.equal(coverReached('cover: walled in from minecraft:skeleton at #, #, #: closed north, east; op'), false);
+	assert.equal(coverReached('cover: already closed on every side at #, #, #: closed north, east, south, west; '), true);
 	assert.equal(coverReached('taking cover from minecraft:skeleton: moving 2 cell(s) left'), false);
 	assert.equal(coverReached(undefined), false);
 });
