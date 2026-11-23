@@ -657,9 +657,9 @@ public final class MinecraftNavigationWorld implements WalkabilityView {
 			if (level.isOutsideBuildHeight(beside.y() - depth)) return true;
 			GridPosition at = beside.below(depth);
 			Cell cell = cellAt(at);
+			// Water breaks the fall, a one-block pool too (the navigation grid reads that as clear, standing room over its bed).
+			if (cell == Cell.WATER || isWater(stateAt(at.x(), at.y(), at.z()))) return false;
 			if (cell == Cell.CLEAR || cell == Cell.CLIMBABLE) continue;
-			// Water breaks the fall.
-			if (cell == Cell.WATER) return false;
 			if (cell == Cell.UNLOADED) return depth - 1 >= EDGE_DARK_BLOCKS;
 			if (cell == Cell.HAZARD) {
 				BlockState state = stateAt(at.x(), at.y(), at.z());
@@ -819,6 +819,10 @@ public final class MinecraftNavigationWorld implements WalkabilityView {
 		if (isLava(below)) return false;
 		boolean falling = fluid.hasProperty(net.minecraft.world.level.material.FlowingFluid.FALLING) && fluid.getValue(net.minecraft.world.level.material.FlowingFluid.FALLING);
 		return falling || fluid.getAmount() > 1;
+	}
+
+	private static boolean isWater(BlockState state) {
+		return state != null && state.getFluidState().getType().isSame(net.minecraft.world.level.material.Fluids.WATER);
 	}
 
 	private static boolean isLava(BlockState state) {

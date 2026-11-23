@@ -73,6 +73,9 @@ public final class EdgeDropCostVerification {
 		check(view(new World().pit(1, 0, 20, stone)).edgeDropCost(at) == MinecraftNavigationWorld.EDGE_DROP_COST,
 				"a column open past the scan's depth (a fall far down to the lava sea or the void) is an edge");
 		check(view(new World().pit(1, 0, 53, Blocks.WATER.defaultBlockState())).edgeDropCost(at) == 0, "water at the bottom breaks the fall, even 10 blocks down where a floor would be an edge");
+		World pool = new World().pit(1, 0, 52, stone);
+		pool.states.put(new BlockPos(1, 53, 0), Blocks.WATER.defaultBlockState());
+		check(view(pool).edgeDropCost(at) == 0, "a one-block pool on a floor 11 down breaks the fall too, though the grid reads it as clear");
 		World walled = new World().pit(1, 0, 59, lava);
 		walled.states.put(new BlockPos(1, 64, 0), stone);
 		walled.states.put(new BlockPos(1, 65, 0), stone);
@@ -91,6 +94,10 @@ public final class EdgeDropCostVerification {
 		PathPlan along = find(deckView, new GridPosition(0, 64, 1), new GridPosition(12, 64, 1));
 		check(along.outcome() == PathOutcome.FOUND, "a lip-to-lip walk along the deck plans");
 		long middle = along.nodes().stream().filter(node -> node.position().z() == 0).count();
+		check(!ServerNavigationController.clearWalkLine(deckView, new net.minecraft.world.phys.Vec3(2.5D, 64, 1.5D),
+				new net.minecraft.world.phys.Vec3(6.5D, 64, 1.5D), 64), "the walk's shortcut does not cut back along the lip lane");
+		check(ServerNavigationController.clearWalkLine(deckView, new net.minecraft.world.phys.Vec3(2.5D, 64, 0.5D),
+				new net.minecraft.world.phys.Vec3(6.5D, 64, 0.5D), 64), "along the middle lane it still smooths the walk");
 		check(middle >= 8, "the walk keeps to the middle lane for most of the deck, stepping out only at its ends (" + middle + " middle cells)");
 		// A 1-wide bridge over the lava sea is still a route when it is the only way: pads at both ends, a lava pit between
 		// them wider than the search reaches round, and the bridge lane z 0 left standing.
