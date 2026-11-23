@@ -78,6 +78,9 @@ async function session(seed, index) {
 		const started = s.inbox.wait('goal_control', g => g.payload.operation === 'start');
 		await s.command(`mineagen start ${AGENT} Survive for 1200 seconds.`); s.record.goalRevision = (await started).payload.goalRevision;
 		await s.bridge.send('agent_ready', s.record.agentId, { goalRevision: s.record.goalRevision, reconciled: false });
+		// The body joins at y200; until prepare() places it, slow falling keeps that drop from killing it (2 of 10 dawn and
+		// 2 of 10 timeout runs on 23 Nov "fell from a high place" in the first 4 s and started dead). prepare() clears it.
+		await s.command(`effect give ${AGENT} minecraft:slow_falling 120 0 true`);
 		await s.command(`gamemode survival ${AGENT}`);
 		const readDamage = await damageCounter(text => s.command(text), AGENT);
 
