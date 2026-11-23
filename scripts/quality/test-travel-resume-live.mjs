@@ -144,8 +144,8 @@ try {
 		};
 	};
 
-	// zombieStop checks the walk that stops for a mob, which is the instincts-off contract: with instincts on (the default
-	// since #185) the walk fights a beatable mob through instead, so the benchmark plays this case with MINEAGEN_INSTINCTS=off.
+	// zombieStop: an explicit fightThrough:false keeps every stop, so the walk stops for the zombie with HOSTILE_NEAR. Left
+	// unset, the instincts arm (on by default since #185) fights a lone beatable mob through instead.
 	if (only.length === 0 || only.includes('zombieStop')) {
 		await rate.normalRate();
 		await command('time set noon'); await resetCourse();
@@ -153,7 +153,7 @@ try {
 		o = await setReflexes([]);
 		await zombie();
 		const endPlay = await startPlay();
-		const trip = await travel();
+		const trip = await travel({ fightThrough: false });
 		const result = await trip.result;
 		o = await observe();
 		const play = await endPlay();

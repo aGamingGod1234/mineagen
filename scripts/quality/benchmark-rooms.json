@@ -3063,7 +3063,7 @@
    "stage": "early",
    "skill": "movement",
    "skill2": "combat",
-   "line": "MINEAGEN_INSTINCTS=off RESUME_ONLY=zombieStop ARENA_JAR=$JAR node scripts/quality/test-travel-resume-live.mjs $OUT",
+   "line": "RESUME_ONLY=zombieStop ARENA_JAR=$JAR node scripts/quality/test-travel-resume-live.mjs $OUT",
    "estMinutes": 1.5,
    "tickRate": 20,
    "reads": "exit code; OUT/results.json zombieStop.pass"
