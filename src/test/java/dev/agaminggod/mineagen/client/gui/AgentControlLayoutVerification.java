@@ -80,7 +80,74 @@ public final class AgentControlLayoutVerification {
 		assertEquals("API key ····abcd", AgentControlScreen.providerSignIn(accountOnly.withApiKeySuffix("abcd")),
 				"a stored key shows only its last four characters");
 		verifyReviewFixes();
-		return 45;
+		verifyStatusBanner();
+		verifyBannerCap();
+		return 62;
+	}
+
+	/** Pending feedback is neutral, and a long offline reason gets a measured banner that the Now card stays below. */
+	private static void verifyStatusBanner() {
+		assertEquals(dev.agaminggod.mineagen.control.AgentControlResult.Tone.PENDING, AgentControlScreen.feedbackTone(false, false),
+				"a \"Sending...\" line the screen wrote itself is pending, not success");
+		assertEquals(dev.agaminggod.mineagen.control.AgentControlResult.Tone.SUCCESS, AgentControlScreen.feedbackTone(false, true),
+				"a line the server confirmed is a success");
+		assertEquals(dev.agaminggod.mineagen.control.AgentControlResult.Tone.REFUSED, AgentControlScreen.feedbackTone(true, false),
+				"an error line is a refusal");
+		assertEquals(ConsoleTheme.MUTED, AgentControlScreen.toneColor(dev.agaminggod.mineagen.control.AgentControlResult.Tone.PENDING),
+				"a command still on its way is drawn neutral grey");
+		assertTrue(AgentControlScreen.toneColor(dev.agaminggod.mineagen.control.AgentControlResult.Tone.PENDING) != ConsoleTheme.SUCCESS,
+				"a command still on its way is never drawn green");
+		assertEquals(ConsoleTheme.SUCCESS, AgentControlScreen.toneColor(dev.agaminggod.mineagen.control.AgentControlResult.Tone.SUCCESS),
+				"only a confirmed success is green");
+		assertEquals(ConsoleTheme.ERROR, AgentControlScreen.toneColor(dev.agaminggod.mineagen.control.AgentControlResult.Tone.REFUSED),
+				"a refusal is red");
+		String reason = "Automation is offline: the coordinator stopped after restarting 5 times in 2 minutes. Check the server log, then reopen the world.";
+		for (int[] size : new int[][] {{480, 270}, {640, 360}, {320, 240}}) {
+			String at = " at " + size[0] + "x" + size[1];
+			AgentControlLayout base = AgentControlLayout.calculate(size[0], size[1]);
+			List<String> lines = dev.agaminggod.mineagen.control.AgentControlResult.wrap(
+					reason, AgentControlScreen.bannerTextWidth(base), text -> text.length() * 6);
+			assertTrue(lines.size() > 1, "the offline reason wraps onto more than one banner line" + at);
+			assertEquals(reason, String.join(" ", lines), "the banner keeps the whole offline reason" + at);
+			AgentControlLayout withBanner = AgentControlLayout.calculate(size[0], size[1], AgentControlScreen.bannerInset(lines.size()));
+			AgentControlLayout.Bounds banner = AgentControlScreen.bannerBounds(withBanner, lines.size());
+			assertTrue(banner.top() >= withBanner.headerBottom(), "the banner starts below the header" + at);
+			assertTrue(banner.height() >= lines.size() * AgentControlScreen.BANNER_LINE, "the banner is tall enough for every line" + at);
+			assertTrue(banner.bottom() < withBanner.contentTop(), "page content starts below the banner" + at);
+			assertTrue(AgentControlScreen.bodyTop(withBanner) > banner.bottom(), "page controls start below the banner" + at);
+			assertTrue(withBanner.contentBottom() >= withBanner.contentTop() && withBanner.footerY() + AgentControlLayout.CONTROL_HEIGHT
+					<= withBanner.panelBottom(), "the footer stays on screen under a banner" + at);
+			for (int agents : new int[] {1, 3}) {
+				AgentControlLayout.Bounds now = AgentControlScreen.overviewNowBounds(withBanner, false, agents);
+				assertTrue(now == null || now.top() > banner.bottom(), "the overview Now card stays below the banner" + at);
+			}
+			AgentControlLayout.Bounds manageNow = AgentControlScreen.manageNowBounds(withBanner);
+			assertTrue(manageNow == null || manageNow.top() > banner.bottom(), "the Manage Now card stays below the banner" + at);
+		}
+	}
+
+	/** The banner holds only as many lines as keep the Manage page's last row above the footer. */
+	private static void verifyBannerCap() {
+		java.util.function.ToIntFunction<String> measure = text -> text.length() * 6;
+		List<String> four = List.of("one two", "three four", "five six", "seven eight");
+		assertEquals(3, AgentControlScreen.capBannerLines(four, 3, 600, measure).size(), "a cap of three keeps three lines");
+		assertEquals(List.of("one two", "three four five six seven eight..."), AgentControlScreen.capBannerLines(four, 2, 600, measure),
+				"a cap of two keeps two lines and the last one carries the rest");
+		assertTrue(AgentControlScreen.capBannerLines(four, 0, 600, measure).isEmpty(),
+				"a cap of zero gives way to the shortened header line");
+		assertTrue(AgentControlScreen.capBannerLines(four, 2, 60, measure).get(1).length() * 6 <= 60,
+				"a shortened last line still fits its width");
+		assertEquals(four.subList(0, 3), AgentControlScreen.capBannerLines(four.subList(0, 3), 3, 600, measure),
+				"lines within the cap are kept as they are");
+		for (int[] size : new int[][] {{320, 180}, {320, 240}, {427, 240}, {480, 270}, {640, 360}}) {
+			String at = " at " + size[0] + "x" + size[1];
+			int lines = AgentControlScreen.maxBannerLines(size[0], size[1]);
+			assertTrue(lines >= 0 && lines <= 3, "the banner cap stays between 0 and 3" + at);
+			AgentControlLayout withBanner = AgentControlLayout.calculate(size[0], size[1], AgentControlScreen.bannerInset(lines));
+			assertTrue(lines == 0 || AgentControlScreen.manageRowsBottom(withBanner) <= withBanner.footerY(),
+					"under the largest allowed banner the Manage page's last row ends above the footer" + at);
+		}
+		assertTrue(AgentControlScreen.maxBannerLines(640, 360) >= 2, "a 640x360 screen holds a multi-line banner");
 	}
 
 	private static void verifyReviewFixes() {

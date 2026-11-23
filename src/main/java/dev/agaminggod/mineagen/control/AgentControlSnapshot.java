@@ -17,9 +17,11 @@ public record AgentControlSnapshot(
 		long generatedAtEpochMs,
 		List<AgentControlAgent> agents,
 		List<AgentControlModelOption> catalog,
-		List<AgentControlProvider> providers
+		List<AgentControlProvider> providers,
+		AgentControlResult result
 ) {
-	public static final int SCHEMA_VERSION = 7;
+	/** Schema 8 adds {@code result}: what the server did with this viewer's latest control command, or null. */
+	public static final int SCHEMA_VERSION = 8;
 	public static final int MAX_AGENTS = AgentConstants.DEFAULT_AGENT_LIMIT;
 
 	public AgentControlSnapshot(boolean canControl, long generatedAtEpochMs, List<AgentControlAgent> agents) {
@@ -44,6 +46,21 @@ public record AgentControlSnapshot(
 	) {
 		this(schemaVersion, canControl, automationAvailable, automationStatus, generatedAtEpochMs, agents, catalog,
 				AgentControlCatalog.providerRows());
+	}
+
+	public AgentControlSnapshot(
+			int schemaVersion, boolean canControl, boolean automationAvailable, String automationStatus,
+			long generatedAtEpochMs, List<AgentControlAgent> agents, List<AgentControlModelOption> catalog,
+			List<AgentControlProvider> providers
+	) {
+		this(schemaVersion, canControl, automationAvailable, automationStatus, generatedAtEpochMs, agents, catalog,
+				providers, null);
+	}
+
+	/** This snapshot carrying {@code nextResult}, the viewer's latest command result (null for none). */
+	public AgentControlSnapshot withResult(AgentControlResult nextResult) {
+		return new AgentControlSnapshot(schemaVersion, canControl, automationAvailable, automationStatus,
+				generatedAtEpochMs, agents, catalog, providers, nextResult);
 	}
 
 	public AgentControlSnapshot {

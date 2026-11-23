@@ -3,6 +3,7 @@ package dev.agaminggod.mineagen.server;
 import dev.agaminggod.mineagen.control.AgentControlRequestPayload;
 import dev.agaminggod.mineagen.control.AgentControlModelOption;
 import dev.agaminggod.mineagen.control.AgentControlRedaction;
+import dev.agaminggod.mineagen.control.AgentControlResult;
 import dev.agaminggod.mineagen.control.AgentControlSnapshot;
 import dev.agaminggod.mineagen.agent.AgentId;
 import dev.agaminggod.mineagen.agent.AgentRecord;
@@ -32,6 +33,9 @@ public final class AgentControlSync {
 	private static final Logger LOGGER = LoggerFactory.getLogger(AgentControlSync.class);
 	private static final Map<MinecraftServer, Long> CONTROL_REVISIONS = new WeakHashMap<>();
 	private static final SnapshotRequestLimiter SNAPSHOT_REQUESTS = new SnapshotRequestLimiter();
+	/** Each player's latest command result, sent in their own snapshots so the Control Center shows refusals. */
+	private static final Map<UUID, AgentControlResult> LATEST_RESULTS = new java.util.concurrent.ConcurrentHashMap<>();
+	private static final java.util.concurrent.atomic.AtomicLong RESULT_SEQUENCE = new java.util.concurrent.atomic.AtomicLong();
 	private static boolean registered;
 
 	private AgentControlSync() {
@@ -63,11 +67,15 @@ public final class AgentControlSync {
 								ProviderApiKeyStore.runtimeRoot(), payload.provider(), payload.key());
 						AgentServerRuntime.reloadProviderCredentials(context.server());
 						context.player().sendSystemMessage(Component.literal("Provider API key updated. Scanning model CLIs..."));
+						storeResult(context.player().getUUID(), true, "Provider API key updated. Scanning model CLIs...");
 					} catch (ProviderApiKeyStore.LocalOnlyException refused) {
 						context.player().sendSystemMessage(Component.literal(ProviderApiKeyStore.LOCAL_ONLY_MESSAGE));
+						storeResult(context.player().getUUID(), false, ProviderApiKeyStore.LOCAL_ONLY_MESSAGE);
 					} catch (RuntimeException failure) {
 						// Never attach the exception or payload: neither diagnostics nor chat may echo credentials.
-						context.player().sendSystemMessage(Component.literal("API key change rejected. Operator permission and a valid key are required; check server file access."));
+						String rejected = "API key change rejected. Operator permission and a valid key are required; check server file access.";
+						context.player().sendSystemMessage(Component.literal(rejected));
+						storeResult(context.player().getUUID(), false, rejected);
 					}
 					sendSnapshot(context.player());
 				}));
@@ -109,6 +117,29 @@ public final class AgentControlSync {
 		requestSnapshot(player);
 	}
 
+	/**
+	 * Records what happened to a control command a player ran, for that player's next snapshot. Chat output is
+	 * unchanged; this only lets the Control Center show the same answer. Console sources are ignored.
+	 * It sends no snapshot itself: the client pairs every snapshot with its oldest outstanding request, so an unasked
+	 * one would acknowledge the wrong command. The Control Center requests a snapshot right after each command, and
+	 * that request reaches the server after the command, so the result rides the snapshot the client asked for.
+	 */
+	public static void recordResult(net.minecraft.commands.CommandSourceStack source, boolean accepted, String message) {
+		if (source == null || !(source.getEntity() instanceof ServerPlayer player)) return;
+		storeResult(player.getUUID(), accepted, message);
+	}
+
+	/** Stores {@code playerId}'s newest result under the next sequence number and returns it. */
+	static AgentControlResult storeResult(UUID playerId, boolean accepted, String message) {
+		AgentControlResult result = new AgentControlResult(RESULT_SEQUENCE.incrementAndGet(), accepted, message == null ? "" : message);
+		LATEST_RESULTS.put(playerId, result);
+		return result;
+	}
+
+	static Optional<AgentControlResult> latestResult(UUID playerId) {
+		return Optional.ofNullable(LATEST_RESULTS.get(playerId));
+	}
+
 	static void requestSnapshot(ServerPlayer player) {
 		switch (SNAPSHOT_REQUESTS.request(player.getUUID(), monotonicMillis())) {
 			case SEND -> sendSnapshot(player);
@@ -126,6 +157,7 @@ public final class AgentControlSync {
 			for (int sent = 0; sent < due.getOrDefault(player.getUUID(), 0); sent++) sendSnapshot(player);
 		}
 		SNAPSHOT_REQUESTS.retain(connected);
+		LATEST_RESULTS.keySet().retainAll(connected);
 	}
 
 	private static long monotonicMillis() {
@@ -147,7 +179,9 @@ public final class AgentControlSync {
 					manager::findAgentPlayer
 			);
 			if (ServerPlayNetworking.canSend(player, AgentControlSnapshotPayload.TYPE)) {
-				ServerPlayNetworking.send(player, AgentControlSnapshotPayload.fromSnapshot(ProviderApiKeyStore.withMetadata(snapshot, ProviderApiKeyStore.runtimeRoot())));
+				AgentControlSnapshot withKeys = ProviderApiKeyStore.withMetadata(snapshot, ProviderApiKeyStore.runtimeRoot());
+				ServerPlayNetworking.send(player, AgentControlSnapshotPayload.fromSnapshot(
+						withKeys.withResult(AgentControlRedaction.forViewer(LATEST_RESULTS.get(player.getUUID())))));
 			}
 		} catch (RuntimeException exception) {
 			LOGGER.warn("Could not send Mineagen control snapshot to {}", player.getScoreboardName(), exception);

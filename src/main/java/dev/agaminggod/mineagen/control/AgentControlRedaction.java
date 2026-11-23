@@ -50,8 +50,15 @@ public final class AgentControlRedaction {
 				snapshot.schemaVersion(), snapshot.canControl(), snapshot.automationAvailable(),
 				status.isBlank() ? REDACTED : status, snapshot.generatedAtEpochMs(),
 				snapshot.agents().stream().map(agent -> forViewer(agent, snapshot.canControl())).toList(),
-				snapshot.catalog(), snapshot.providers()
+				snapshot.catalog(), snapshot.providers(), forViewer(snapshot.result())
 		);
+	}
+
+	/** A command result with the same secret patterns removed as every other snapshot text; null stays null. */
+	public static AgentControlResult forViewer(AgentControlResult result) {
+		if (result == null) return null;
+		return new AgentControlResult(result.sequence(), result.accepted(),
+				redactText(result.message(), AgentControlResult.MAX_MESSAGE_LENGTH));
 	}
 
 	static AgentControlAgent forViewer(AgentControlAgent agent, boolean canControl) {
