@@ -334,7 +334,8 @@ try {
 				let y = Math.floor(endAt[1] + 0.2);
 				if (await isBlock(x, y - 1, z, 'minecraft:water')) y--;
 				endMap = { at: [x, y, z], cells: {} };
-				for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) for (const dy of [0, 1]) {
+				// The four sides at feet and head level, and the roof over the head.
+				for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [1, 1, 0], [-1, 1, 0], [0, 1, 1], [0, 1, -1], [0, 2, 0]]) {
 					const kinds = [['cobble', 'minecraft:cobblestone'], ['water', 'minecraft:water'], ['air', 'minecraft:air']];
 					let kind = 'other';
 					for (const [name, id] of kinds) if (await isBlock(x + dx, y + dy, z + dz, id)) { kind = name; break; }
@@ -354,7 +355,11 @@ try {
 			// Cover reached by any firing (defend's own step or a low-health cover rule): only a finished move says "in cover at".
 			// A finished wall-in with no side left open counts too: a body closed on every side is safe from arrows and melee,
 			// which is what the cover outcome stands for.
-			row.coverSeen = steps.some(coverReached) || coverReached(endDetail ?? '');
+			// A body that ends the watch shut in (every side at feet and head level and the roof solid) is in cover as well,
+			// also when no poll read a firing's "walled in" report: a body sheltered in its walls stops dodging, so the
+			// wall-in's last report can end between two polls and nothing fires after it.
+			row.closedAtEnd = !!endMap && Object.values(endMap.cells).every(kind => kind !== 'air' && kind !== 'water');
+			row.coverSeen = steps.some(coverReached) || coverReached(endDetail ?? '') || row.closedAtEnd;
 			if (name === 'cover-zombie') row.pass = !died && row.coverSeen;
 			// Without an answer to the skeleton the room measured neither the creeper nor the command.
 			if (['creeper', 'command'].includes(name)) row.reactedWith = reactedWith;
