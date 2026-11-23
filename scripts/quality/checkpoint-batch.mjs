@@ -139,6 +139,8 @@ let created = 0, spares = plan.spares ?? 0, stopped = false, aborted = false, ab
 // calls and machine creation do not carry it: a killed `boat new` could leave a machine whose id is never learned.
 const stopAll = new AbortController();
 const live = { signal: stopAll.signal };
+// A wait that an abort ends early, so no retry delay holds a SIGTERM back from the cleanup.
+const pause = ms => new Promise(resolve => { const timer = setTimeout(resolve, ms); stopAll.signal.addEventListener('abort', () => { clearTimeout(timer); resolve(); }, { once: true }); });
 const abort = () => { stopped = true; if (!aborted) { aborted = true; abortedAt = Date.now(); stopAll.abort(); } wake(); };
 // The first Ctrl-C starts no new game and lets running ones finish; a second ends the running games and goes straight
 // to the cleanup (sign-ins off, created machines deleted).
@@ -153,10 +155,12 @@ process.on('SIGHUP', () => { stopped = true; });
 for (const stream of [process.stdout, process.stderr]) stream.on('error', () => {});
 // A created machine's boat deadline: the whole game window plus an hour for setup and copy-back, at least 2 hours.
 const TTL_SECONDS = Math.max(2 * 3600, (plan.minutes + 60) * 60);
+// Used by the loop only (dropMachine), so it carries the abort signal: after a SIGTERM it stops at once and the cleanup,
+// which deletes every machine not yet deleted, takes over.
 async function destroyWithRetry(id, tries = 3) {
 	for (let i = 1; ; i++) {
-		try { return await destroyMachine(id); }
-		catch (error) { if (i >= tries) throw error; await log(`delete of ${id} failed (try ${i} of ${tries}): ${error.message.split('\n')[0].slice(0, 200)}`); await new Promise(r => setTimeout(r, 5_000)); }
+		try { return await destroyMachine(id, live); }
+		catch (error) { if (i >= tries || aborted) throw error; await log(`delete of ${id} failed (try ${i} of ${tries}): ${error.message.split('\n')[0].slice(0, 200)}`); await pause(5_000); }
 	}
 }
 // The headless launcher starts the server, the coordinator and the game runner in sessions of their own, so ending a
@@ -214,7 +218,9 @@ async function start(vm, game) {
 	catch (error) {
 		if (aborted || vm.game === game.id) throw error;
 		vm.launchFailingSince ??= Date.now();
-		if (!dropDue(vm, await boatSays(vm.id), 'launchFailingSince')) throw error;
+		// boatSays carries the abort signal; an answer the abort cut says nothing about the machine.
+		const says = await boatSays(vm.id);
+		if (aborted || !dropDue(vm, says, 'launchFailingSince')) throw error;
 		await log(`dropping ${vm.id}: its launches keep failing (${error.message.split('\n')[0].slice(0, 200)})`);
 		await dropMachine(vm);
 	}
@@ -222,8 +228,8 @@ async function start(vm, game) {
 // What boat says about a machine that failed: true live, false gone (not live, or not found), null no answer about this
 // machine while boat still answers a listing, undefined no answer at all (an outage on this side: the network, boat).
 const NOT_FOUND = /\b(?:sandbox|machine)\b[^\n]*\bnot found\b|\b404\b/i;
-const boatSays = id => machineState(id).then(s => LIVE.has(s), e => NOT_FOUND.test(e.message) ? false
-	: boat(['list', '--json'], { timeoutMs: 60_000 }).then(() => null, () => undefined));
+const boatSays = id => machineState(id, live).then(s => LIVE.has(s), e => NOT_FOUND.test(e.message) ? false
+	: boat(['list', '--json'], { timeoutMs: 60_000, ...live }).then(() => null, () => undefined));
 // A failing machine is dropped at once when boat says it is gone, after LOST_AFTER_MS of failures while boat says it is
 // live, and after OUTAGE_GRACE_MS while boat answers about others but not this one. During an outage nothing is dropped
 // (a drop then would also leave the sign-in on the machine) until the deadline has passed, when no game can start and
@@ -344,7 +350,8 @@ async function tend(vm, step) {
 		vm.failingSince ??= Date.now();
 		// boat not answering at all is most likely an outage on this side (the network, boat itself), not this machine's
 		// fault, so it waits OUTAGE_GRACE_MS (see dropDue): one outage must not drop every machine and end the batch mid-game.
-		if (dropDue(vm, await boatSays(vm.id), 'failingSince')) await dropMachine(vm);
+		const says = await boatSays(vm.id);
+		if (!aborted && dropDue(vm, says, 'failingSince')) await dropMachine(vm);
 	}
 }
 // A machine that stopped answering, or whose launches keep dying: its game goes back to the queue once, a machine this
@@ -355,7 +362,9 @@ async function dropMachine(vm) {
 	// A lost machine this batch would delete anyway is deleted now (a stopped one too: its snapshot bills), not left
 	// billing until the batch ends. A listed one is kept, and the cleanup still tries to take its sign-in off.
 	if (deletes(vm)) {
-		await removeCodexSignIn(vm.id).catch(() => {});
+		// Both steps carry the abort signal like every other loop call: a stalled one must not hold a SIGTERM back from the
+		// cleanup, whose first pass takes the sign-in off again and deletes the machine if this did not.
+		await removeCodexSignIn(vm.id, undefined, live).catch(() => {});
 		await destroyWithRetry(vm.id).then(() => { vm.deleted = true; return log(`deleted lost machine ${vm.id}`); }, e => log(`could not delete lost machine ${vm.id}: ${e.message}`));
 	}
 	if (spares > 0 && !noMoreGames()) { spares--; const extra = await addMachine('replacement').catch(async e => { await log(`replacement failed: ${e.message}`); return { id: 'none', lost: true }; }); machines.push(extra); await save().catch(() => {}); }
@@ -364,10 +373,10 @@ async function dropMachine(vm) {
 // keeps none (extend --ttl would put a deadline on it), as boat-warm.mjs does for pool machines.
 async function holdDeadline(vm) {
 	if (!vm.created) {
-		const info = JSON.parse(await boat(['info', vm.id, '--json'], { timeoutMs: 60_000 })).sandbox ?? {};
+		const info = JSON.parse(await boat(['info', vm.id, '--json'], { timeoutMs: 60_000, ...live })).sandbox ?? {};
 		if (info.archiveAfter == null || Date.parse(info.archiveAfter) - Date.now() >= TTL_SECONDS * 1000 - 60_000) return;
 	}
-	await extendMachine(vm.id, TTL_SECONDS);
+	await extendMachine(vm.id, TTL_SECONDS, live);
 }
 async function check(vm) {
 	// A failed push is logged and tried again next pass; it does not count against the machine.
@@ -376,7 +385,7 @@ async function check(vm) {
 	}
 	if (!vm.prepared) { await prepare(vm); await log(`prepared ${vm.id}`); }
 	// An idle machine that failed last time must answer before it counts as healthy again.
-	if (!vm.game) { if (vm.failingSince) await remote(vm.id, 'true', { timeoutMs: 60_000 }); return; }
+	if (!vm.game) { if (vm.failingSince) await remote(vm.id, 'true', { timeoutMs: 60_000, ...live }); return; }
 	const game = games.find(g => g.id === vm.game);
 	// pgrep first, the done file second: game.sh writes done as it exits, so the other order can miss both.
 	const status = await remote(vm.id, `if pgrep -f 'ck/game.sh ${game.id} ' >/dev/null; then echo RUNNING; elif test -f ~/ck/games/${game.id}/done; then echo DONE; else echo GONE; fi`, { timeoutMs: 120_000, ...live });
@@ -478,7 +487,6 @@ for (const g of games.filter(g => g.state === 'queued')) g.state = 'not started'
 // again until the machine is clean or boat says it is gone: for up to TTL_SECONDS (a created machine is stopped and
 // erased by then), or for CHECKPOINT_SIGNAL_BUDGET_MS (60 s) after a signal, whose sender kills the runner soon after.
 const cleanupFrom = Date.now();
-const pause = ms => new Promise(resolve => { const timer = setTimeout(resolve, ms); stopAll.signal.addEventListener('abort', () => { clearTimeout(timer); resolve(); }, { once: true }); });
 await Promise.all(machines.filter(m => m.id !== 'none' && !m.deleted).map(async vm => {
 	const bound = () => aborted ? Math.max(abortedAt, cleanupFrom) + SIGNAL_BUDGET_MS : cleanupFrom + TTL_SECONDS * 1000;
 	for (let pass = 1; ; pass++) {

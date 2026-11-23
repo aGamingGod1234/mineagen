@@ -436,6 +436,36 @@ test('checkpoint batch cuts a stalled retirement on SIGTERM and still deletes th
 	}
 });
 
+test('checkpoint batch cuts a stalled drop of a lost machine on SIGTERM and still deletes the machines inside the budget', posixOnly, async () => {
+	const root = setup();
+	// bx_bbbbbbbb's launches end without a done file, so it is dropped mid-batch; its sign-in removal there stalls.
+	// bx_aaaaaaaa's game runs for minutes, so no retirement (or the end of the batch) gets there first.
+	writeFileSync(path.join(root, 'bx_bbbbbbbb/BROKEN'), ''); writeFileSync(path.join(root, 'bx_aaaaaaaa/HANG'), '');
+	writeFileSync(path.join(root, 'STALL_AT_SIGNOFF'), '');
+	const child = spawn('node', [script, '--plan', path.join(root, 'plan.json'), '--out', path.join(root, 'out')], {
+		env: { ...process.env, PATH: `${path.join(root, 'bin')}:${process.env.PATH}`, BOAT_BIN: path.join(root, 'bin/boat'), FAKE_BOAT_ROOT: root, CHECKPOINT_POLL_MS: '200', CHECKPOINT_SIGNAL_BUDGET_MS: '12000' }, stdio: ['ignore', 'pipe', 'pipe'] });
+	try {
+		let code = null;
+		const exited = new Promise(resolve => child.on('exit', c => { code = c; resolve(); }));
+		const stalled = () => existsSync(path.join(root, 'stalled.log')) && readFileSync(path.join(root, 'stalled.log'), 'utf8').includes('bx_bbbbbbbb');
+		for (let i = 0; i < 600 && !stalled(); i++) await new Promise(r => setTimeout(r, 100));
+		assert.ok(stalled(), 'the drop of bx_bbbbbbbb stalled at its sign-in removal');
+		assert.match(readFileSync(path.join(root, 'out/batch.log'), 'utf8'), /dropping bx_bbbbbbbb: 2 launches in a row/);
+		const signalledAt = Date.now();
+		child.kill('SIGTERM');
+		// Without the signal on the drop's calls, the runner waits out the stalled ssh (up to two minutes) before cleaning up.
+		await Promise.race([exited, new Promise(r => setTimeout(r, 40_000))]);
+		const took = Date.now() - signalledAt;
+		assert.notEqual(code, null, 'the runner exited after SIGTERM');
+		assert.ok(took < 25_000, `the stalled drop did not hold back the cleanup (${took} ms)`);
+		assert.deepEqual(readFileSync(path.join(root, 'deleted.log'), 'utf8').trim().split('\n').sort(), ['bx_aaaaaaaa', 'bx_bbbbbbbb']);
+	} finally {
+		child.kill('SIGKILL');
+		for (const pattern of [`${root}/bin/boat`, '^sleep 300[.]5$', `${root}/bx_`]) { try { execFileSync('pkill', ['-f', pattern]); } catch {} }
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
 test('checkpoint batch treats an empty meter reading as unreadable and plays every game', posixOnly, () => {
 	const root = setup({ plan: { meter: { command: 'true', floorPercent: 10 } } });
 	try {
