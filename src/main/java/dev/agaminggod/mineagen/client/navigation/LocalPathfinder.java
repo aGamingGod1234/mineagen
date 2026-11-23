@@ -526,7 +526,8 @@ public final class LocalPathfinder implements PathPlanner {
 			Neighbor edge = neighbors.get(index);
 			double targetSpeed = view.movementSpeedMultiplier(edge.position());
 			double timeMultiplier = (1.0D / sourceSpeed + 1.0D / targetSpeed) / 2.0D;
-			int cost = (int) Math.ceil(edge.cost() * timeMultiplier) + view.exposureCost(edge.position()) + view.surfaceCost(edge.position());
+			int cost = (int) Math.ceil(edge.cost() * timeMultiplier) + view.exposureCost(edge.position()) + view.surfaceCost(edge.position())
+					+ view.edgeDropCost(edge.position());
 			if (edge.traversal() == TraversalType.JUMP_GAP) {
 				GridPosition gap = current.offset((edge.position().x() - current.x()) / 2, 0,
 						(edge.position().z() - current.z()) / 2);

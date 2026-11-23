@@ -59,6 +59,12 @@ public interface WalkabilityView {
 	 */
 	default boolean refusesLavaFlowCells() { return false; }
 
+	/**
+	 * Extra cost of standing or walking in this cell because one step beside it (a slip, a hit's shove, a jump's
+	 * drift) goes over an edge into a drop that kills or whose bottom is unseen. Views without block states know none.
+	 */
+	default int edgeDropCost(GridPosition position) { return 0; }
+
 	/** A one-cell gap can be jumped, but landing failure over hazards or a deep drop is more costly. */
 	default int gapExposureCost(GridPosition gap) {
 		if (cellAt(gap) == Cell.HAZARD) return 40;
