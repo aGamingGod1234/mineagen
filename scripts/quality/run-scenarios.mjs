@@ -25,6 +25,7 @@ import { startAnthropicGateway, PREPARATION_ALLOWANCE_USD } from '../../coordina
 import { LadderEvaluator, checkAdvancements, evaluateSamples, parseSuccessCheck } from './ladder-evaluator.mjs';
 import { spawnOwnedProcess, terminateChildProcess } from '../../coordinator/src/child-process-lifecycle.mjs';
 import { collectWatchFiles } from './watch-files.mjs';
+import { leanInputEnabled } from '../../coordinator/src/lean-input.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const JAVA_EXE = process.platform === 'win32' ? 'java.exe' : 'java';
@@ -510,7 +511,25 @@ export function buildQualityScenario(s, { id = s.id, profile, budget = s.duratio
 }
 
 // Template isolation, matrix process launch and JSONL append observation reuse the opt-bench approach.
+/**
+ * The lean-input setting a harness game's coordinator gets. In normal play the mod's coordinator supervisor sets
+ * ARENA_LEAN_INPUT=1 unless the environment already sets it (CoordinatorProcessSupervisor.launchRequest). The harness
+ * starts the coordinator itself, so without this its games ran on the full input, about twice the size per wake.
+ */
+export function coordinatorLeanInput(env, { platform = process.platform } = {}) {
+	// Windows names are case-insensitive (the supervisor's map is too): the last spelling the env holds is the one set.
+	const key = Object.keys(env ?? {}).filter((name) => platform === 'win32' ? name.toUpperCase() === 'ARENA_LEAN_INPUT' : name === 'ARENA_LEAN_INPUT').at(-1);
+	// Set at all (even blank) wins, as the supervisor's putIfAbsent reads it.
+	const set = key !== undefined && typeof env[key] === 'string';
+	const value = set ? env[key] : '1';
+	return { value, on: leanInputEnabled({ ARENA_LEAN_INPUT: value }), source: set ? 'environment' : 'production default (as the mod supervisor sets it)' };
+}
+
 export async function runScenarios(options, { spawnLauncher = spawnOwnedProcess, gatewayFactory = startAnthropicGateway, onObserver = null } = {}) {
+	const leanInput = coordinatorLeanInput({ ...process.env, ...(options.env ?? {}) });
+	// One spelling reaches the launcher, so a Windows env block cannot keep a different value under another case.
+	const withoutLean = (env) => Object.fromEntries(Object.entries(env ?? {}).filter(([name]) => name.toUpperCase() !== 'ARENA_LEAN_INPUT'));
+	const coordinatorInputs = { leanInput: leanInput.on, leanInputSource: leanInput.source };
 	const strict = Boolean(options.spendGate) && isStrictBudget(options);
 	if (options.spendGate) requireRunBudgetPolicy(options);
 	const all = options.definitions ?? (await json(path.join(ROOT, 'scripts/quality/scenarios.json'))).scenarios;
@@ -572,9 +591,9 @@ export async function runScenarios(options, { spawnLauncher = spawnOwnedProcess,
 					const manifest = await json(path.join(runDir, 'manifest.json')).catch(() => null);
 					if (manifest && definitions.has(manifest.scenarioId) && !observers.has(manifest.scenarioId)) {
 						observers.set(manifest.scenarioId, new Observer(runDir, manifest, { ...definitions.get(manifest.scenarioId), ...(playMetering ? { playMetering } : {}) }, profile, { gate, hardStop }));
-						await writeArtifactReport(path.join(runDir, 'long-run-context.json'), { definition: definitions.get(manifest.scenarioId), profile, authoritativeDragon: strict, windowMs: definitions.get(manifest.scenarioId).durationBudgetMs });
+						await writeArtifactReport(path.join(runDir, 'long-run-context.json'), { definition: definitions.get(manifest.scenarioId), profile, authoritativeDragon: strict, windowMs: definitions.get(manifest.scenarioId).durationBudgetMs, coordinatorInputs });
 						onObserver?.(observers.get(manifest.scenarioId));
-						console.log(`Watching ${manifest.scenarioId}, RCON ${manifest.ports.rcon}`);
+						console.log(`Watching ${manifest.scenarioId}, RCON ${manifest.ports.rcon}, lean model input ${leanInput.on ? 'on' : 'off'} (${leanInput.source})`);
 					}
 				}
 			}
@@ -605,7 +624,7 @@ export async function runScenarios(options, { spawnLauncher = spawnOwnedProcess,
 				: [path.join(ROOT, 'scripts/run-headless-provider-matrix.mjs')];
 			const child = launcher = spawnLauncher(launcherCommand, [...launcherArgs,
 				'-ProjectRoot', ROOT, '-CoordinatorRoot', options.coordinatorRoot ?? ROOT, '-MatrixPath', matrixFile, '-ServerTemplate', template, '-ModJar', jar, '-KeepArtifacts', '-RequireAll'],
-				{ cwd: ROOT, windowsHide: true, env: { ...process.env, ...(options.env ?? {}), ...(options.jvmArgs?.length ? { ARENA_HEADLESS_SERVER_JVM_ARGS: JSON.stringify(options.jvmArgs) } : {}), ...(gateway ? { ANTHROPIC_BASE_URL: gateway.url } : {}), ARENA_STRICT_SPEND_GATE: strict ? '1' : '0', ARENA_HEADLESS_JAVA: options.java, ARENA_HEADLESS_STARTUP_TIMEOUT_SECONDS: '300', ...(options.portBase ? { ARENA_HEADLESS_BRIDGE_PORT: String(options.portBase), ARENA_HEADLESS_RCON_PORT: String(options.portBase + 1), ARENA_HEADLESS_MINECRAFT_PORT: String(options.portBase + 2) } : {}) }, stdio: ['ignore', 'pipe', 'pipe'] });
+				{ cwd: ROOT, windowsHide: true, env: { ...withoutLean(process.env), ...withoutLean(options.env), ARENA_LEAN_INPUT: leanInput.value, ...(options.jvmArgs?.length ? { ARENA_HEADLESS_SERVER_JVM_ARGS: JSON.stringify(options.jvmArgs) } : {}), ...(gateway ? { ANTHROPIC_BASE_URL: gateway.url } : {}), ARENA_STRICT_SPEND_GATE: strict ? '1' : '0', ARENA_HEADLESS_JAVA: options.java, ARENA_HEADLESS_STARTUP_TIMEOUT_SECONDS: '300', ...(options.portBase ? { ARENA_HEADLESS_BRIDGE_PORT: String(options.portBase), ARENA_HEADLESS_RCON_PORT: String(options.portBase + 1), ARENA_HEADLESS_MINECRAFT_PORT: String(options.portBase + 2) } : {}) }, stdio: ['ignore', 'pipe', 'pipe'] });
 			child.stdout.on('data', c => { stdout.write(c); process.stdout.write(c); }); child.stderr.on('data', c => { stderr.write(c); process.stderr.write(c); });
 			child.once('error', reject); child.once('close', async (code, signal) => { await Promise.all([new Promise(r => stdout.end(r)), new Promise(r => stderr.end(r))]); resolve({ code, signal }); });
 		});
@@ -615,6 +634,7 @@ export async function runScenarios(options, { spawnLauncher = spawnOwnedProcess,
 		const observer = observers.get(id);
 		const run = observer ? await observer.finish().catch(error => ({ scenario: definition.id, profile, definition, artifacts: observer.directory, measurementStatus: 'INCOMPLETE', termination: 'REPORT_EXTRACTION_FAILED', diagnostics: error.stack, metrics: null, observerErrors: [...observer.errors, error.message], stopRequest: observer.stopRequest ?? null })) : { scenario: definition.id, profile, definition, measurementStatus: 'UNAVAILABLE', termination: 'NO_OBSERVER', metrics: null };
 		run.repetition = definition.repetition;
+		run.coordinatorInputs = coordinatorInputs;
 		if (hardStopped) { run.hardStopped = hardStopped; run.termination = hardStopped.reason; }
 		if (run.artifacts) await writeArtifactReport(path.join(run.artifacts, 'quality-run.json'), run);
 		if (gate) {

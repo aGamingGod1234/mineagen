@@ -775,6 +775,8 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 			if (protocolKnownAgentIds.contains(record.agentId())) return true;
 			Session active = session;
 			if (active == null || !active.open.get() || !active.authenticated.get()) return false;
+			// The coordinator drops its stored inventory on every agent_registered, so the next observation goes in full.
+			active.deliveredInventory.remove(record.agentId());
 			try {
 				active.enqueue(new BridgeEnvelope(
 						2, serverInstanceId, record.agentId().toString(), "agent_registered",
@@ -823,6 +825,8 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 					&& transition.after().goalRevision() > transition.before().goalRevision()) {
 				// Stop/steer changed intent, not physical life. Publish the authoritative
 				// revised DEAD record; a goal_control stop/steer would falsely revive it.
+				// The coordinator drops its stored inventory on every agent_registered, so the next observation goes in full.
+				forgetDeliveredInventory(transition.after().agentId());
 				send("agent_registered", transition.after().agentId().toString(), registeredPayload(transition.after()));
 				return null;
 			}
@@ -871,6 +875,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		stepStatuses.remove(agentId);
 		actionJournal.removeForTick(agentId);
 		observationPublication.remove(agentId);
+		forgetDeliveredInventory(agentId);
 		activatedGoalSpecRequests.entrySet().removeIf(entry -> entry.getValue().agentId().equals(agentId));
 		synchronized (publicationLock) {
 			coordinatorReadyAgentIds.remove(agentId);
@@ -1202,6 +1207,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		// A new coordinator assumes a running server; the watcher tells it of a pause from here on.
 		pauseAnnounced = false;
 		source.actionIssuer = announcedCapability(envelope.payload(), "actionIssuer");
+		source.inventoryMarker = announcedCapability(envelope.payload(), "inventoryMarker");
 
 		while (true) {
 			ensureHandshakeTimeRemaining(source);
@@ -1587,13 +1593,31 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		AgentId id = AgentId.parse(envelope.agentId());
 		AgentRecord record = manager.registry().require(id);
 		JsonObject payload = envelope.payload();
-		requireKeys(payload, Set.of("goalRevision"), "request_observation");
+		requireKeysAllowing(payload, Set.of("goalRevision"), Set.of("fullInventory", "resync", "acceptedEventSequence"), "request_observation");
 		if (requiredLong(payload, "goalRevision") != record.goalRevision()) {
 			throw new AgentDomainException("STALE_REVISION", "Coordinator observation request revision is stale");
 		}
+		// The coordinator dropped an observation it could not validate, which this side counted as delivered: announce every
+		// current threat again, or a wake the dropped one carried (a creeper starting to swell) would be lost.
+		if (payload.has("resync") && requiredBoolean(payload, "resync")) {
+			observationPublication.forgetDelivered(id, payload.has("acceptedEventSequence") ? requiredLong(payload, "acceptedEventSequence") : null);
+		}
 		observations.invalidate(id);
 		observationPublication.markAttention(id);
+		// Only a request after an inventory marker the coordinator could not expand sends the next inventory in full;
+		// the runtime's routine requests after each action keep the marker.
+		if (requestsFullInventory(payload)) forgetDeliveredInventory(id);
 		queueUrgentObservation(id);
+	}
+
+	/** {@code fullInventory} is optional and sent only by a coordinator that announced {@code inventoryMarker}. */
+	static boolean requestsFullInventory(JsonObject request) {
+		return announcedCapability(request, "fullInventory");
+	}
+
+	private void forgetDeliveredInventory(AgentId agentId) {
+		Session current = session;
+		if (current != null) current.deliveredInventory.remove(agentId);
 	}
 
 	private void acceptCoordinatorStatus(JsonObject payload) {
@@ -1645,7 +1669,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 			JsonObject error = new JsonObject();
 			error.addProperty("code", exception instanceof AgentDomainException domain ? domain.code()
 					: exception instanceof BridgeProtocolException protocol ? protocol.code() : "INVALID_INSPECTION");
-			error.addProperty("message", exception.getMessage() == null ? "Inspection unavailable" : exception.getMessage());
+			error.addProperty("message", boundedMessage(exception.getMessage(), "Inspection unavailable"));
 			reply.remove("result");
 			reply.add("error", error);
 		}
@@ -2437,7 +2461,9 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 				&& record.currentGoal().isPresent()) {
 			manager.registry().rearmAfterCoordinatorRecovery(id.value(), revision, System.currentTimeMillis());
 		}
-		if (!recoveryReady && record.state() == AgentLifecycleState.STARTING) {
+		// A step-status update (UI-STATUS-3) is display only; the coordinator's own planning_state never carries the field.
+		boolean statusOnly = !agentReady && envelope.payload().has(STEP_STATUS_FIELD);
+		if (!recoveryReady && !statusOnly && record.state() == AgentLifecycleState.STARTING) {
 			router.plannerStarted(id);
 		}
 		if (agentReady && shouldRequestReadyObservation(id, revision, recoveryReady)) {
@@ -2640,7 +2666,11 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 	private record PendingRespawnPublication(ServerActionResult result, AgentTransition transition, Runnable commit) { }
 
 	static String boundedRejectionMessage(String message) {
-		String fallback = "Action rejected";
+		return boundedMessage(message, "Action rejected");
+	}
+
+	/** A message within the coordinator's 1 to 2048 character bound, never cut inside a surrogate pair. */
+	static String boundedMessage(String message, String fallback) {
 		if (message == null || message.isBlank()) return fallback;
 		int end = Math.min(message.length(), ProtocolConstants.MAX_RESULT_MESSAGE_LENGTH);
 		if (end < message.length() && end > 0 && Character.isHighSurrogate(message.charAt(end - 1))
@@ -3489,14 +3519,23 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 	private boolean sendObservationEnvelope(Session source, AgentId agentId, JsonObject payload) {
 		if (session != source || !source.open.get() || !source.authenticated.get()) return false;
 		observationEnqueueHook.run();
-		// The publication owns this payload and keeps it unchanged as the delivered baseline, so the envelope adopts it.
+		// The publication owns this payload and keeps it unchanged as the delivered baseline, so the envelope adopts it,
+		// or a shallow copy whose unchanged inventory is replaced by a marker.
+		ObservationInventoryMarker.Outgoing outgoing = source.inventoryMarker
+				? ObservationInventoryMarker.prepare(source.deliveredInventory.get(agentId), payload) : null;
 		BridgeEnvelope envelope = BridgeEnvelope.fromDecoded(2, serverInstanceId, agentId.toString(), "observation",
-				"server-" + messageIds.incrementAndGet(), payload);
+				"server-" + messageIds.incrementAndGet(), outgoing == null ? payload : outgoing.payload());
 		// The frame is cached on the envelope, so this size check is the one serialization the enqueue reuses.
+		if (outgoing != null && outgoing.payload().has("inventoryHash") && codec.encodedLineBytes(envelope) > BridgeEnvelopeCodec.MAX_LINE_BYTES) {
+			// The hash alone pushed a fitted observation over the line: send it plain and start a new baseline next time.
+			outgoing = new ObservationInventoryMarker.Outgoing(payload, null);
+			envelope = BridgeEnvelope.fromDecoded(2, serverInstanceId, agentId.toString(), "observation", envelope.messageId(), payload);
+		}
 		if (codec.encodedLineBytes(envelope) > BridgeEnvelopeCodec.MAX_LINE_BYTES) {
 			throw new BridgeProtocolException("LINE_TOO_LARGE", "Fitted observation exceeds the actual wire envelope");
 		}
 		source.enqueue(envelope);
+		if (outgoing != null) ObservationInventoryMarker.remember(source.deliveredInventory, agentId, outgoing);
 		return true;
 	}
 
@@ -4118,6 +4157,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		}
 		boolean markDirty(AgentId agentId) { return published.markDirty(agentId); }
 		boolean markAttention(AgentId agentId) { return published.markAttention(agentId); }
+		void forgetDelivered(AgentId agentId, Long acceptedEventSequence) { published.forgetDelivered(agentId, acceptedEventSequence); }
 		boolean markSample(AgentId agentId) { return published.markSample(agentId); }
 		void requireObservedTarget(AgentId agentId, long eventSequence, String targetId) {
 			published.requireObservedTarget(agentId, eventSequence, targetId);
@@ -4289,6 +4329,12 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		private final Set<AgentId> sampleRequests = new HashSet<>();
 		private final Map<AgentId, ObservationTargetHistory> targetHistory = new java.util.LinkedHashMap<>();
 		private final Map<AgentId, java.util.LinkedHashSet<String>> conversationSources = new java.util.LinkedHashMap<>();
+		// The last few deliveries by event sequence, so a resync can go back to the one the coordinator actually accepted.
+		private final Map<AgentId, LinkedHashMap<Long, DeliveredBaseline>> recentDeliveries = new HashMap<>();
+		// Covers a run of dropped observations up to the coordinator's limit, plus the answers already on their way.
+		private static final int RECENT_DELIVERIES = 12;
+
+		private record DeliveredBaseline(JsonObject observation, Set<String> threatSignals) {}
 
 		public PublishedObservationState(int retryCapacity) {
 			if (retryCapacity < 1) throw new IllegalArgumentException("retryCapacity must be positive");
@@ -4362,6 +4408,10 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 				}
 				targetHistory.computeIfAbsent(agentId, ignored -> new ObservationTargetHistory())
 						.retain(eventSequence, observedTargetIds(deliveredObservation));
+				LinkedHashMap<Long, DeliveredBaseline> recent = recentDeliveries.computeIfAbsent(agentId, ignored -> new LinkedHashMap<>());
+				recent.remove(eventSequence);
+				recent.put(eventSequence, new DeliveredBaseline(deliveredObservation, deliveredThreatSignals.get(agentId)));
+				while (recent.size() > RECENT_DELIVERIES) recent.remove(recent.keySet().iterator().next());
 			}
 			dirty.remove(agentId);
 			forcedAttention.remove(agentId);
@@ -4512,6 +4562,27 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 			requireObservedTarget(agentId, eventSequence, recipientId);
 		}
 
+		/**
+		 * After the coordinator dropped a delivery. The next changes are counted from the delivery it last accepted, when that
+		 * one is still known, so every danger edge it missed (low air, fire, a swelling creeper) is announced again. Otherwise
+		 * every threat signal now latched is announced again (an empty threat baseline, not a missing one, which a first
+		 * delivery would absorb silently). Footing is sent again either way.
+		 */
+		public synchronized void forgetDelivered(AgentId agentId, Long acceptedEventSequence) {
+			Objects.requireNonNull(agentId, "agentId must not be null");
+			deliveredFooting.remove(agentId);
+			threatRepublish.remove(agentId);
+			LinkedHashMap<Long, DeliveredBaseline> recent = recentDeliveries.get(agentId);
+			DeliveredBaseline accepted = acceptedEventSequence == null || recent == null ? null : recent.get(acceptedEventSequence);
+			if (accepted != null) {
+				delivered.put(agentId, accepted.observation());
+				if (accepted.threatSignals() == null) deliveredThreatSignals.remove(agentId);
+				else deliveredThreatSignals.put(agentId, accepted.threatSignals());
+			} else if (delivered.containsKey(agentId)) {
+				deliveredThreatSignals.put(agentId, Set.of());
+			}
+		}
+
 		public synchronized boolean markAttention(AgentId agentId) {
 			Objects.requireNonNull(agentId, "agentId must not be null");
 			if (forcedAttention.contains(agentId)) return true;
@@ -4554,6 +4625,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 			sampleRequests.remove(agentId);
 			targetHistory.remove(agentId);
 			conversationSources.remove(agentId);
+			recentDeliveries.remove(agentId);
 		}
 
 		public synchronized int retainedCount() {
@@ -4570,6 +4642,7 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 			sampleRequests.clear();
 			targetHistory.clear();
 			conversationSources.clear();
+			recentDeliveries.clear();
 		}
 
 		private static Set<String> observedTargetIds(JsonObject observation) {
@@ -4680,6 +4753,10 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		private volatile boolean tickClock;
 		private volatile boolean killFacts;
 		private volatile boolean actionIssuer;
+		/** The coordinator expands {@code {"unchanged": hash}} inventories (see {@link ObservationInventoryMarker}). */
+		private volatile boolean inventoryMarker;
+		/** The last full inventory this connection delivered per agent; a new connection starts empty. */
+		final Map<AgentId, ObservationInventoryMarker.Baseline> deliveredInventory = new java.util.concurrent.ConcurrentHashMap<>();
 		private volatile String clientNonce;
 		private volatile String serverNonce;
 		private volatile String authResponseMessageId;

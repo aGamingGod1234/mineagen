@@ -10,7 +10,11 @@ import java.util.Set;
 /** Presentation state only. It never chooses an action or supplies an agent's intent. */
 final class AgentFeedPolicy {
 	static final long STATUS_LINGER_MS = 5_000L;
+	/** A running action's status hides after this long without progress: a new action, a success, a moved body or a changed pack. */
 	static final long STATUS_STALE_MS = 30_000L;
+	/** The body moving this far (squared, in blocks) from where progress was last seen counts as progress. */
+	static final double PROGRESS_MOVE_SQUARED = 1.0;
+	static final String STEP_SEPARATOR = " · ";
 	static final long OVERLAY_REFRESH_MS = 2_500L;
 	static final long EXTERNAL_OVERLAY_MS = 3_000L;
 	static final Set<String> IMPORTANT_ITEMS = Set.of("minecraft:raw_iron", "minecraft:iron_ingot",
@@ -127,6 +131,28 @@ final class AgentFeedPolicy {
 		agent.actionId = actionId;
 		agent.finishedAt = -1;
 		agent.startedAt = now;
+		agent.progressAt = now;
+	}
+
+	/** Body facts sampled on the server: movement or a changed pack while an action runs keeps its status fresh. */
+	void body(String id, double x, double y, double z, long now) {
+		Agent agent = agent(id);
+		if (!agent.placed) {
+			agent.placed = true;
+			agent.x = x; agent.y = y; agent.z = z;
+			return;
+		}
+		double dx = x - agent.x, dy = y - agent.y, dz = z - agent.z;
+		if (dx * dx + dy * dy + dz * dz < PROGRESS_MOVE_SQUARED) return;
+		agent.x = x; agent.y = y; agent.z = z;
+		agent.progressAt = now;
+	}
+
+	void pack(String id, int signature, long now) {
+		Agent agent = agent(id);
+		if (agent.packKnown && agent.pack != signature) agent.progressAt = now;
+		agent.packKnown = true;
+		agent.pack = signature;
 	}
 
 	void result(String id, String actionId, boolean success, long now) {
@@ -138,8 +164,29 @@ final class AgentFeedPolicy {
 
 	String status(String id, long now) {
 		Agent agent = agent(id);
-		if (agent.activity == null || (agent.finishedAt >= 0 ? now - agent.finishedAt >= STATUS_LINGER_MS : now - agent.startedAt >= STATUS_STALE_MS)) return "";
+		if (agent.activity == null || (agent.finishedAt >= 0 ? now - agent.finishedAt >= STATUS_LINGER_MS : now - agent.progressAt >= STATUS_STALE_MS)) return "";
 		return agent.activity + (agent.count > 0 ? " ×" + agent.count : "");
+	}
+
+	/**
+	 * The action bar line for an active agent: the running action, else "Thinking... 40 s" while it plans, followed by
+	 * the coordinator's step line (planning_state.stepStatus, already sanitised and bounded) when there is one. The
+	 * step line stays for its whole goal revision, so a long action never leaves the bar blank.
+	 */
+	String line(String id, String stepStatus, boolean planning, long now) {
+		Agent agent = agent(id);
+		if (!planning) agent.planningSince = -1;
+		else if (agent.planningSince < 0) agent.planningSince = now;
+		String step = stepStatus == null ? "" : stepStatus.strip();
+		String action = status(id, now);
+		String lead = !action.isEmpty() ? action : planning ? thinking(now - agent.planningSince) : "";
+		if (lead.isEmpty()) return step;
+		return step.isEmpty() ? lead : lead + STEP_SEPARATOR + step;
+	}
+
+	static String thinking(long elapsedMs) {
+		long seconds = Math.max(0, elapsedMs) / 1_000L;
+		return "Thinking... " + (seconds < 60 ? seconds + " s" : seconds / 60 + " min " + seconds % 60 + " s");
 	}
 
 	List<String> items(String id, Set<String> inventory) {
@@ -213,6 +260,14 @@ final class AgentFeedPolicy {
 		int count;
 		long finishedAt = -1;
 		long startedAt;
+		long progressAt;
+		long planningSince = -1;
+		boolean placed;
+		double x;
+		double y;
+		double z;
+		boolean packKnown;
+		int pack;
 		boolean lowHealth;
 		boolean hungry;
 		boolean inventoryKnown;

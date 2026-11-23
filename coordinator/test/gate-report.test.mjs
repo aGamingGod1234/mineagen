@@ -480,6 +480,32 @@ test('a counter-only death takes only a receipt from before it, after the timed 
 	} finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test('model call latency: per-game p50 and p90 on each run, and the cohort pooled per wall-clock 10 minutes', async () => {
+	const { readFile } = await import('node:fs/promises');
+	const root = await mkdtemp(path.join(os.tmpdir(), 'gate-report-'));
+	try {
+		const withLatency = async (name, seed, latency) => {
+			const dir = await longRun(root, name, { seed });
+			const stage = JSON.parse(await readFile(path.join(dir, 'stage-score.json'), 'utf8'));
+			if (latency !== undefined) stage.game = { modelLatency: latency };
+			await writeFile(path.join(dir, 'stage-score.json'), JSON.stringify(stage));
+			return dir;
+		};
+		const bucket = (from, totalMs) => ({ fromEpochMs: from, calls: totalMs.length, p50Ms: null, p90Ms: null, totalMs });
+		const a = await withLatency('a', '1', { calls: 4, p50Ms: 3000, p90Ms: 5000, maxMs: 5000, byClock10Min: [bucket(600_000, [1000, 3000]), bucket(1_200_000, [4000, 5000])] });
+		const b = await withLatency('b', '2', { calls: 2, p50Ms: 40_000, p90Ms: 41_000, maxMs: 41_000, byClock10Min: [bucket(1_200_000, [40_000, 41_000])] });
+		const old = await withLatency('c', '3', undefined);
+		const [runA] = readRun(a);
+		assert.deepEqual(runA.modelLatency, { calls: 4, p50Ms: 3000, p90Ms: 5000, maxMs: 5000 }, 'the bucket values stay out of the report');
+		assert.equal('modelLatency' in readRun(old)[0], false, 'a score made before latency was measured: not measured');
+		const [cohort] = buildGate({ gate: 'l', title: 'latency', cohorts: [{ name: 'l', label: 'latency', dirs: [a, b, old] }] }).cohorts;
+		assert.deepEqual(cohort.modelLatency, { games: 2, gameP90MedianMs: 23_000, gameP90MaxMs: 41_000, byClock10Min: [
+			{ from: new Date(600_000).toISOString(), calls: 2, p50Ms: 1000, p90Ms: 3000 },
+			{ from: new Date(1_200_000).toISOString(), calls: 4, p50Ms: 5000, p90Ms: 41_000 },
+		] }, 'calls in the same wall-clock 10 minutes pool across games');
+	} finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test('hits split by shield state and running action; schema 1 rows are unknown, never "no shield"', async () => {
 	const root = await mkdtemp(path.join(os.tmpdir(), 'gate-report-'));
 	try {

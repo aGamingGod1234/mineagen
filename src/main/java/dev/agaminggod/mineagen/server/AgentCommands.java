@@ -187,9 +187,9 @@ public final class AgentCommands {
 			);
 			return 1;
 		} catch (AgentDomainException exception) {
-			throw commandFailure(exception);
+			throw commandFailure(context, exception);
 		} catch (RuntimeException exception) {
-			throw unexpectedFailure("goal completion confirmation", exception);
+			throw unexpectedFailure(context, "goal completion confirmation", exception);
 		}
 	}
 
@@ -237,11 +237,11 @@ public final class AgentCommands {
 			}
 			return 1;
 		} catch (AgentDomainException exception) {
-			throw commandFailure(exception);
+			throw commandFailure(context, exception);
 		} catch (IllegalArgumentException exception) {
 			throw COMMAND_FAILURE.create("INVALID_GOAL_DRAFT_ID: Draft ID must be a UUID");
 		} catch (RuntimeException exception) {
-			throw unexpectedFailure("goal draft", exception);
+			throw unexpectedFailure(context, "goal draft", exception);
 		}
 	}
 
@@ -263,9 +263,9 @@ public final class AgentCommands {
 			context.getSource().sendSuccess(() -> Component.literal("Voice profile set for " + manager(context).displayName(agent) + "."), false);
 			return 1;
 		} catch (AgentDomainException exception) {
-			throw commandFailure(exception);
+			throw commandFailure(context, exception);
 		} catch (RuntimeException exception) {
-			throw unexpectedFailure("voice profile", exception);
+			throw unexpectedFailure(context, "voice profile", exception);
 		}
 	}
 
@@ -275,9 +275,9 @@ public final class AgentCommands {
 			VoiceDirector.say(context.getSource().getServer(), agentId, StringArgumentType.getString(context, "text"));
 			return 1;
 		} catch (AgentDomainException exception) {
-			throw commandFailure(exception);
+			throw commandFailure(context, exception);
 		} catch (RuntimeException exception) {
-			throw unexpectedFailure("voice say", exception);
+			throw unexpectedFailure(context, "voice say", exception);
 		}
 	}
 
@@ -290,9 +290,9 @@ public final class AgentCommands {
 			VoiceDirector.say(context.getSource().getServer(), agentId, StringArgumentType.getString(context, "text"), settings);
 			return 1;
 		} catch (AgentDomainException exception) {
-			throw commandFailure(exception);
+			throw commandFailure(context, exception);
 		} catch (RuntimeException exception) {
-			throw unexpectedFailure("voice say with settings", exception);
+			throw unexpectedFailure(context, "voice say with settings", exception);
 		}
 	}
 
@@ -486,9 +486,9 @@ public final class AgentCommands {
 			}, source.getServer());
 			return 1;
 		} catch (AgentDomainException exception) {
-			throw commandFailure(exception);
+			throw commandFailure(context, exception);
 		} catch (RuntimeException exception) {
-			throw unexpectedFailure("summon", exception);
+			throw unexpectedFailure(context, "summon", exception);
 		}
 	}
 
@@ -500,8 +500,7 @@ public final class AgentCommands {
 		AgentManager manager = manager(context);
 		AgentRecord record = manager.summon(context.getSource().getLevel(), position,
 				provider, model, reasoning, serviceTier, userName, gameMode);
-		context.getSource().sendSuccess(
-				() -> Component.literal("Creating " + manager.displayName(record) + ". It will be ready when its player joins."), false);
+		succeed(context, "Creating " + manager.displayName(record) + ". It will be ready when its player joins.");
 		return 1;
 	}
 
@@ -511,9 +510,12 @@ public final class AgentCommands {
 		}
 		if (failure instanceof AgentDomainException exception) {
 			source.sendFailure(Component.literal(exception.code() + ": " + exception.getMessage()));
+			AgentControlSync.recordResult(source, false, exception.getMessage());
 		} else {
 			LOGGER.error("Unexpected /{} summon failure", AgentControlCommandBuilder.ROOT, failure);
 			source.sendFailure(Component.literal("INTERNAL_ERROR: summon failed; see the server log"));
+			AgentControlSync.recordResult(source, false,
+					"Something went wrong on the server while creating the agent. Nothing was created; the server log has details.");
 		}
 	}
 
@@ -530,9 +532,9 @@ public final class AgentCommands {
 			reportTransition(context, operationName, transition);
 			return 1;
 		} catch (AgentDomainException exception) {
-			throw commandFailure(exception);
+			throw commandFailure(context, exception);
 		} catch (RuntimeException exception) {
-			throw unexpectedFailure(operationName, exception);
+			throw unexpectedFailure(context, operationName, exception);
 		}
 	}
 
@@ -554,15 +556,17 @@ public final class AgentCommands {
 			} else {
 				var draft = submission.pendingDraft().orElseThrow();
 				String name = manager(context).displayName(manager(context).registry().require(draft.agentId()));
-				context.getSource().sendSuccess(() -> Component.literal(
-						"The coordinator is interpreting the goal for " + name
-								+ ". It will " + operationName + " automatically after server validation."), false);
+				// Not a confirmed result: the server may still refuse the draft, so nothing is recorded for the Control
+				// Center rather than a green success. The draft's later outcome still reaches chat only.
+				String interpreting = "The coordinator is interpreting the goal for " + name
+						+ ". It will " + operationName + " automatically after server validation.";
+				context.getSource().sendSuccess(() -> Component.literal(interpreting), false);
 			}
 			return 1;
 		} catch (AgentDomainException exception) {
-			throw commandFailure(exception);
+			throw commandFailure(context, exception);
 		} catch (RuntimeException exception) {
-			throw unexpectedFailure(operationName, exception);
+			throw unexpectedFailure(context, operationName, exception);
 		}
 	}
 
@@ -581,9 +585,9 @@ public final class AgentCommands {
 			);
 			return 1;
 		} catch (AgentDomainException exception) {
-			throw commandFailure(exception);
+			throw commandFailure(context, exception);
 		} catch (RuntimeException exception) {
-			throw unexpectedFailure("dm", exception);
+			throw unexpectedFailure(context, "dm", exception);
 		}
 	}
 
@@ -643,9 +647,9 @@ public final class AgentCommands {
 			reportTransition(context, operationName, transition);
 			return 1;
 		} catch (AgentDomainException exception) {
-			throw commandFailure(exception);
+			throw commandFailure(context, exception);
 		} catch (RuntimeException exception) {
-			throw unexpectedFailure(operationName, exception);
+			throw unexpectedFailure(context, operationName, exception);
 		}
 	}
 
@@ -655,9 +659,9 @@ public final class AgentCommands {
 			context.getSource().sendSuccess(() -> Component.literal(formatStatus(record)), false);
 			return 1;
 		} catch (AgentDomainException exception) {
-			throw commandFailure(exception);
+			throw commandFailure(context, exception);
 		} catch (RuntimeException exception) {
-			throw unexpectedFailure("status", exception);
+			throw unexpectedFailure(context, "status", exception);
 		}
 	}
 
@@ -670,9 +674,9 @@ public final class AgentCommands {
 			context.getSource().sendSuccess(() -> Component.literal(line), false);
 			return 1;
 		} catch (AgentDomainException exception) {
-			throw commandFailure(exception);
+			throw commandFailure(context, exception);
 		} catch (RuntimeException exception) {
-			throw unexpectedFailure("audit", exception);
+			throw unexpectedFailure(context, "audit", exception);
 		}
 	}
 
@@ -692,15 +696,12 @@ public final class AgentCommands {
 		try {
 			AgentManager manager = manager(context);
 			AgentRecord removed = manager.remove(StringArgumentType.getString(context, ARGUMENT_AGENT));
-			context.getSource().sendSuccess(
-					() -> Component.literal("Removed " + manager.displayName(removed) + "."),
-					false
-			);
+			succeed(context, "Removed " + manager.displayName(removed) + ".");
 			return 1;
 		} catch (AgentDomainException exception) {
-			throw commandFailure(exception);
+			throw commandFailure(context, exception);
 		} catch (RuntimeException exception) {
-			throw unexpectedFailure("remove", exception);
+			throw unexpectedFailure(context, "remove", exception);
 		}
 	}
 
@@ -708,15 +709,12 @@ public final class AgentCommands {
 		try {
 			AgentManager manager = manager(context);
 			AgentRecord record = manager.requestRespawn(StringArgumentType.getString(context, ARGUMENT_AGENT));
-			context.getSource().sendSuccess(
-					() -> Component.literal("Respawning " + manager.displayName(record) + "..."),
-					false
-			);
+			succeed(context, "Respawning " + manager.displayName(record) + "...");
 			return 1;
 		} catch (AgentDomainException exception) {
-			throw commandFailure(exception);
+			throw commandFailure(context, exception);
 		} catch (RuntimeException exception) {
-			throw unexpectedFailure("respawn", exception);
+			throw unexpectedFailure(context, "respawn", exception);
 		}
 	}
 
@@ -724,15 +722,12 @@ public final class AgentCommands {
 		try {
 			String selector = StringArgumentType.getString(context, ARGUMENT_AGENT);
 			boolean enabled = manager(context).toggleAutomaticProgress(selector);
-			context.getSource().sendSuccess(
-					() -> Component.literal("Automatic agent progress " + (enabled ? "enabled" : "disabled")),
-					false
-			);
+			succeed(context, "Automatic agent progress " + (enabled ? "enabled" : "disabled"));
 			return enabled ? 1 : 0;
 		} catch (AgentDomainException exception) {
-			throw commandFailure(exception);
+			throw commandFailure(context, exception);
 		} catch (RuntimeException exception) {
-			throw unexpectedFailure("auto", exception);
+			throw unexpectedFailure(context, "auto", exception);
 		}
 	}
 
@@ -753,10 +748,7 @@ public final class AgentCommands {
 			case "resume" -> "Resuming " + name + "...";
 			default -> "Updated " + name + ".";
 		};
-		context.getSource().sendSuccess(
-				() -> Component.literal(message),
-				false
-		);
+		succeed(context, message);
 	}
 
 	private static String formatStatus(AgentRecord record) {
@@ -771,13 +763,24 @@ public final class AgentCommands {
 		return AgentManager.get(context.getSource().getServer());
 	}
 
-	private static CommandSyntaxException commandFailure(AgentDomainException exception) {
+	/** Chat keeps the coded refusal; the Control Center gets the plain reason through the player's snapshot. */
+	private static CommandSyntaxException commandFailure(CommandContext<CommandSourceStack> context, AgentDomainException exception) {
+		AgentControlSync.recordResult(context.getSource(), false, exception.getMessage());
 		return COMMAND_FAILURE.create(exception.code() + ": " + exception.getMessage());
 	}
 
-	private static CommandSyntaxException unexpectedFailure(String operation, RuntimeException exception) {
+	private static CommandSyntaxException unexpectedFailure(
+			CommandContext<CommandSourceStack> context, String operation, RuntimeException exception) {
 		LOGGER.error("Unexpected /{} {} failure", AgentControlCommandBuilder.ROOT, operation, exception);
+		AgentControlSync.recordResult(context.getSource(), false,
+				"Something went wrong on the server while trying to " + operation + ". Nothing was changed; the server log has details.");
 		return COMMAND_FAILURE.create("INTERNAL_ERROR: " + operation + " failed; see the server log");
+	}
+
+	/** Sends {@code message} to chat as today and records it as the accepted result the Control Center shows. */
+	private static void succeed(CommandContext<CommandSourceStack> context, String message) {
+		context.getSource().sendSuccess(() -> Component.literal(message), false);
+		AgentControlSync.recordResult(context.getSource(), true, message);
 	}
 
 	@FunctionalInterface

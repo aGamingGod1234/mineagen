@@ -524,6 +524,25 @@ test('verbose feed never publishes raw provider chunks', async () => {
 	}
 });
 
+test('the step line reaches Minecraft only after the coordinator\'s own planning_state for the goal', async () => {
+	const run = await start();
+	try {
+		run.bridge.emit('goal_control', { agentId: 'agent-a', payload: { operation: 'start', goalRevision: 1, goal: 'Get stone' } });
+		run.bridge.emit('observation', { agentId: 'agent-a', payload: {
+			goalRevision: 1, eventSequence: 1,
+			observation: { player: { x: 0, y: 64, z: 0, health: 20 }, items: [], entities: [], blocks: [], inventory: { items: [], tagCounts: {} } },
+		} });
+		await eventually(() => run.bridge.sent.some(({ type, payload }) => type === 'planning_state' && typeof payload.stepStatus === 'string'));
+		const planning = run.bridge.sent.filter(({ type }) => type === 'planning_state');
+		assert.equal(planning[0].payload.stepStatus, undefined, 'the first planning_state is the coordinator\'s own');
+		const withStatus = planning.filter(({ payload }) => payload.stepStatus !== undefined);
+		assert.ok(withStatus.length >= 1);
+		assert.ok(withStatus.every(({ payload }) => payload.goalRevision === 1 && payload.stepStatus.length > 0 && payload.stepStatus.length <= 80 && !payload.stepStatus.startsWith('Doing:')));
+	} finally {
+		await run.coordinator.stop();
+	}
+});
+
 test('repeated inbound action progress never becomes verbose player chat', async () => {
 	const run = await start();
 	try {

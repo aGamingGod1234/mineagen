@@ -1,0 +1,5 @@
+# #174 Send an unchanged inventory as a short hash marker
+
+- **Problem:** Every snapshot the game sends the bot's brain re-sent the bot's whole inventory, about 7 to 9 KB, even when nothing in it had changed. The brain can also throw away a single bad snapshot and keep listening, so "same as last time" is only safe if a thrown-away snapshot cannot leave it guessing.
+- **Solution:** When nothing changed, the game sends a 32-byte fingerprint of the last full inventory instead. The brain keeps that inventory, filed under its fingerprint, the moment it arrives, even from a snapshot it rejects. An unknown fingerprint is never filled in with a guess: the brain drops that snapshot and asks for a fresh one, and every 32nd snapshot carries the full list anyway.
+- **Result:** About 7,200 bytes saved per unchanged snapshot for a 16-item inventory, roughly 30 to 82% of a snapshot depending on what else it carries (82% for the smallest fixture snapshot, about 76% for later ones in the same fixture, about 30% in the larger round fixture; estimated by measuring the inventory JSON in the test fixtures against the marker, not from a live run).

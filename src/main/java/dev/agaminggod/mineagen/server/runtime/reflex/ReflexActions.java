@@ -618,9 +618,12 @@ final class ReflexActions {
 			return backOut != null && retreat != Retreat.WEAK;
 		}
 
-		/** Backing out, walling in or walking to cover: the body is already leaving the shot line. */
+		/**
+		 * Backing out, walling in or walking to cover: the body is already leaving the shot line. Stepping inland off a brink
+		 * or bracing on one counts too: a strafe there would pull the body off the step that keeps it from the drop.
+		 */
 		boolean movingBody() {
-			return backOut != null || walls != null || cover != null;
+			return backOut != null || walls != null || cover != null || inland != null || braceInPlace;
 		}
 
 		@Override
@@ -628,10 +631,101 @@ final class ReflexActions {
 			guard.end(player);
 			if (cover != null) cover.end(player);
 			if (backOut != null) backOut.end(player);
+			if (walls != null) walls.end(player);
+			dev.agaminggod.mineagen.server.runtime.controller.BrinkGuard.keepLevel(player, this, false);
 		}
+
+		/** How far defend looks for a stand off a brink before it walls in (a 3-wide bridge's middle is 1 away). */
+		static final int INLAND_WITHIN = 3;
+		/** Ticks a step inland may take before defend gives it up (a crouched step is about 1.3 blocks a second). */
+		static final int INLAND_TICKS = 60;
+		/** Where defend is stepping to before it walls in, off a brink under fire; null when not stepping. */
+		private Vec3 inland;
+		private int inlandTicks;
+		/** Set during a tick: no stand off the brink was found, so the body braces where it is (the guard leans inland). */
+		private boolean braceInPlace;
+		/** Until this tick the body braces in place without looking again for a stand (the search reads many columns). */
+		private int braceUntil = Integer.MIN_VALUE;
+		private String braceNote;
+		private boolean inlandTouched;
+		private int airTicks;
 
 		@Override
 		public Step tick(Context context, Consumer<AgentInputState> input) {
+			braceInPlace = false;
+			inlandTouched = false;
+			if (context.player().onGround()) airTicks = 0;
+			Step step = act(context, input);
+			// A step target is only good while the step branch runs each tick: after a fight or back-out it is stale.
+			if (!inlandTouched) inland = null;
+			// Held from this tick's state only, so it never outlives the reason (a leaked holder freezes every walk-off).
+			dev.agaminggod.mineagen.server.runtime.controller.BrinkGuard.keepLevel(context.player(), this, braceInPlace, true);
+			return step;
+		}
+
+		/**
+		 * Off a brink before walls go up: a shooter beyond reach, blocks to build and a lethal or unseen drop within a shove
+		 * of where the body would stand. It steps crouched to the nearest seen stand on its level with no brink in reach,
+		 * then walls in there; with none in reach it braces where it stands. Null when the body may wall in where it is.
+		 */
+		private Step offBrink(ServerPlayer player, LivingEntity shooter, Consumer<AgentInputState> input, String done) {
+			inlandTouched = true;
+			// In the air (a hit's hop) every shove reads as a survivable drop onto the deck below: judge the brink once landed.
+			if (!player.onGround()) airTicks++;
+			// Afloat, climbing or caught in a web is not a hit's hop: no wait there, and none past a second.
+			if (!player.onGround() && !player.isInWater() && !player.isInLava() && !player.onClimbable() && airTicks <= 20) {
+				dev.agaminggod.mineagen.server.runtime.controller.BrinkGuard.braceArmed(player);
+				input.accept(look(player, ReflexSensors.aimPoint(shooter), 0.0F, 0.0F, false, false, player.getInventory().getSelectedSlot(),
+						InteractionHand.MAIN_HAND));
+				return Step.running(done + "; in the air after a hit, waiting to land before walling in from " + type(shooter));
+			}
+			if (inland == null && player.tickCount < braceUntil) return null;
+			if (inland == null) {
+				BlockPos cell = BlockPos.containing(player.getX(), player.getY() + 0.2D, player.getZ());
+				String brink = WallIn.brink(dev.agaminggod.mineagen.server.runtime.controller.BrinkGuard.brinkFrom(player, new Vec3(cell.getX() + 0.5D, player.getY(), cell.getZ() + 0.5D),
+						shooter.position()));
+				if (brink == null) return null;
+				inland = dev.agaminggod.mineagen.server.runtime.controller.BrinkGuard.inlandStand(player, INLAND_WITHIN, shooter.position());
+				inlandTicks = 0;
+				if (inland == null) {
+					// No stand to wall in from: natural cover if a cell in reach hides, else brace where it stands.
+					braceUntil = player.tickCount + 40;
+					braceNote = "not walling in: " + brink + "; no stand off it in " + INLAND_WITHIN + " blocks";
+					return null;
+				}
+			}
+			double dx = inland.x - player.getX(), dz = inland.z - player.getZ();
+			if (dx * dx + dz * dz <= 0.15D * 0.15D || ++inlandTicks > INLAND_TICKS || Math.abs(player.getY() - inland.y) > 0.6D) {
+				// Arrived, out of time, or off the level: the wall-in judges the cell it stands on now. A step that did not
+				// arrive is not tried again at once (the same stand would be chosen): the body braces for a while instead.
+				boolean timedOut = inlandTicks > INLAND_TICKS && dx * dx + dz * dz > 0.15D * 0.15D;
+				boolean offLevel = Math.abs(player.getY() - inland.y) > 0.6D;
+				inland = null;
+				if (timedOut) {
+					braceUntil = player.tickCount + 40;
+					braceNote = "the step inland did not reach its stand";
+				}
+				// Knocked onto another level mid-step: judge the cell it landed on afresh (it may be a lower lip).
+				if (offLevel && !timedOut) return offBrink(player, shooter, input, done);
+				return null;
+			}
+			// Crouched (vanilla keeps a crouched body on its block's edge) with a shove's walk-back armed.
+			dev.agaminggod.mineagen.server.runtime.controller.BrinkGuard.braceArmed(player);
+			float[] keys = dev.agaminggod.mineagen.server.runtime.controller.BrinkGuard.keysToward(player.getYRot(), dx, dz);
+			input.accept(new AgentInputState(keys[0], keys[1], false, true, false, false, false, player.getYRot(), player.getXRot(),
+					player.getInventory().getSelectedSlot(), InteractionHand.MAIN_HAND));
+			return Step.running(done + "; stepping inland off the edge to wall in from " + type(shooter));
+		}
+
+		private Step bracing(ServerPlayer player, LivingEntity shooter, Consumer<AgentInputState> input, String done) {
+			braceInPlace = true;
+			input.accept(look(player, ReflexSensors.aimPoint(shooter), 0.0F, 0.0F, false, false, player.getInventory().getSelectedSlot(),
+					InteractionHand.MAIN_HAND));
+			return Step.running(done + "; " + braceNote + ", bracing against " + type(shooter) + "'s shots where the body stands"
+					+ (coverNote == null ? "" : "; cover: " + coverNote));
+		}
+
+		private Step act(Context context, Consumer<AgentInputState> input) {
 			ServerPlayer player = context.player();
 			chased = backOuts > 0 && chasing(player);
 			// Walls going up: finish them while this firing lasts (it ends at its maxS or the model's next command).
@@ -639,6 +733,7 @@ final class ReflexActions {
 				Step built = walls.tick(context, input);
 				if (built.status() == ReflexScheduler.ActionStatus.RUNNING) return Step.running(built.detail());
 				coverNote = built.detail();
+				walls.end(player);
 				walls = null;
 				coverRetryTick = player.tickCount + 40;
 				return built.status() == ReflexScheduler.ActionStatus.DONE ? Step.done(built.detail()) : Step.failed(built.detail());
@@ -729,19 +824,32 @@ final class ReflexActions {
 			}
 			LivingEntity shooter = shooterBeyondReach(player, context.focus(), player.getInventory().getItem(slot));
 			boolean canWall = PlaceBlock.blockSlot(player, null) >= 0 && nearestChaser(player, PACK_RANGE) >= PACK_RANGE;
-			if (shooter != null && walls == null && player.tickCount >= coverRetryTick && canWall) walls = new WallIn(shooter);
+			// A ranged mob beyond reach that is the focus but has not hit yet: on a lip its first hit is the fall (four
+			// traced lava-sea deaths: the first fireball knocked the body off), so the step inland does not wait for it.
+			LivingEntity ranged = shooter != null ? shooter : rangedBeyondReach(player, context.focus(), player.getInventory().getItem(slot));
+			// With a melee mob near, defend's other answers come first: no crouched step with a zombie at the body's back.
+			if (ranged == null || walls != null || nearestChaser(player, PACK_RANGE) < PACK_RANGE) inland = null;
+			else if ((player.tickCount >= coverRetryTick || inland != null) && cover == null) {
+				Step stepping = offBrink(player, ranged, input, done);
+				if (stepping != null) return stepping;
+			}
+			boolean ledged = ranged != null && walls == null && player.tickCount < braceUntil;
+			if (shooter != null && walls == null && player.tickCount >= coverRetryTick && canWall && !ledged && cover == null) walls = new WallIn(shooter);
 			if (walls != null) {
 				Step built = walls.tick(context, input);
 				if (built.status() == ReflexScheduler.ActionStatus.RUNNING) return Step.running(done + "; " + built.detail());
 				coverNote = built.detail();
+				walls.end(player);
 				walls = null;
 				coverRetryTick = player.tickCount + 40;
 				if (built.status() == ReflexScheduler.ActionStatus.DONE) return Step.done(done + "; " + built.detail());
 			}
 			// No blocks, or a melee mob too near to stand building: a corner in reach is the cover.
-			if (shooter != null && !canWall && (cover != null || player.tickCount >= coverRetryTick)) {
+			if (shooter != null && (!canWall || ledged || cover != null) && (cover != null || player.tickCount >= coverRetryTick)) {
 				// Natural cover only: building walls is the branch above, which a melee mob this near rules out.
 				if (cover == null) cover = new TakeCover(COVER_WITHIN, false, false, false);
+				// Looking round for cover off a brink: a shove meanwhile is still walked back.
+				if (ledged) dev.agaminggod.mineagen.server.runtime.controller.BrinkGuard.braceArmed(player);
 				Step hidden = cover.tick(new Context(player, shooter, context.stance(), context.memory(), context.point(), context.below(),
 						context.fightShields()), input);
 				if (hidden.status() == ReflexScheduler.ActionStatus.RUNNING) return Step.running(done + "; taking cover from " + type(shooter) + ": " + hidden.detail());
@@ -750,12 +858,15 @@ final class ReflexActions {
 				cover.end(player);
 				cover = null;
 				coverRetryTick = player.tickCount + (hidden.status() == ReflexScheduler.ActionStatus.DONE ? 20 : 40);
+				// No cover off a brink: keep bracing until the next look, not only for what is left of the brace window.
+				if (ledged) braceUntil = Math.max(braceUntil, coverRetryTick);
 			}
+			if (ledged) return bracing(player, ranged, input, done);
 			Entity focus = context.focus();
 			// A ranged mob beyond reach (or its shot) is stepped away from across the shot line, not stood still in front of.
 			Entity from = focus instanceof Projectile p && p.getOwner() != null ? p.getOwner() : focus;
-			if (from instanceof Mob ranged && ranged.isAlive() && ThreatPerception.isRanged(ranged) && swingPoint(player, ranged, player.getInventory().getItem(slot)) == null) {
-				Step stepped = dodge.tick(new Context(player, focus instanceof Projectile ? focus : ranged, context.stance(), context.memory(),
+			if (from instanceof Mob archer && archer.isAlive() && ThreatPerception.isRanged(archer) && swingPoint(player, archer, player.getInventory().getItem(slot)) == null) {
+				Step stepped = dodge.tick(new Context(player, focus instanceof Projectile ? focus : archer, context.stance(), context.memory(),
 						context.point(), context.below(), context.fightShields()), input);
 				if (stepped.status() == ReflexScheduler.ActionStatus.RUNNING) {
 					return Step.running(done + "; no shield, " + stepped.detail() + (coverNote == null ? "" : "; cover: " + coverNote));
@@ -777,6 +888,13 @@ final class ReflexActions {
 			if (player.tickCount - player.getLastHurtByMobTimestamp() > UNDER_FIRE_TICKS) return null;
 			if (!(focus instanceof Projectile) && !(living instanceof Mob mob && ThreatPerception.isRanged(mob))) return null;
 			return player.getAttackRangeWith(weapon).isInRange(player, living.getBoundingBox(), 0.0D) ? null : living;
+		}
+
+		/** The focus (or a shot's shooter) when it is a ranged mob standing beyond the weapon's reach, hit or not; else null. */
+		static LivingEntity rangedBeyondReach(ServerPlayer player, Entity focus, ItemStack weapon) {
+			Entity source = focus instanceof Projectile shot ? shot.getOwner() : focus;
+			if (!(source instanceof Mob mob) || !mob.isAlive() || !ThreatPerception.isRanged(mob)) return null;
+			return player.getAttackRangeWith(weapon).isInRange(player, mob.getBoundingBox(), 0.0D) ? null : mob;
 		}
 
 		/** A mob defend can hit now and the point of its hitbox the swing aims at. */
@@ -2869,7 +2987,7 @@ final class ReflexActions {
 		}
 
 		/** Why the body must not wall in here now, or null. */
-		static String refusal(ServerPlayer player, BlockPos center) {
+		static String refusal(ServerPlayer player, BlockPos center, Vec3 shooter) {
 			if (unsteadyWater(player)) return "the body is in water";
 			for (Creeper creeper : player.level().getEntitiesOfClass(Creeper.class, player.getBoundingBox().inflate(CREEPER_RANGE), Creeper::isAlive)) {
 				if (player.distanceTo(creeper) <= CREEPER_RANGE) return "a creeper is within " + (int) CREEPER_RANGE + " blocks";
@@ -2877,7 +2995,25 @@ final class ReflexActions {
 			// The enclosed cells (the body's own and its eight walls, two high) and one block round them.
 			AABB around = new AABB(center).expandTowards(0.0D, 1.0D, 0.0D).inflate(2.0D, 0.0D, 2.0D);
 			for (Mob mob : player.level().getEntitiesOfClass(Mob.class, around, Mob::isAlive)) return type(mob) + " is inside or beside the cells to enclose";
+			// Centring and placing stand the body still under fire: a shove there must not reach a lethal or unseen drop.
+			String brink = brink(dev.agaminggod.mineagen.server.runtime.controller.BrinkGuard.brinkFrom(player, new Vec3(center.getX() + 0.5D, player.getY(), center.getZ() + 0.5D), shooter));
+			if (brink != null) return brink + " within a shove of the cell";
 			return null;
+		}
+
+		/** A brink as the refusal names it, or null. */
+		static String brink(dev.agaminggod.mineagen.server.runtime.controller.BrinkGuard.Fall fall) {
+			if (fall == null) return null;
+			return fall.unknown() ? "an edge whose drop has no seen bottom" : switch (fall.below()) {
+				case "void" -> "an edge over the void";
+				case "drop" -> "an edge with a " + fall.drop() + "-block fall";
+				default -> "an edge over " + fall.below();
+			};
+		}
+
+		/** Releases the level hold this wall-in took on an exposed deck, if any. */
+		void end(ServerPlayer player) {
+			dev.agaminggod.mineagen.server.runtime.controller.BrinkGuard.keepLevel(player, this, false);
 		}
 
 		Step tick(Context context, Consumer<AgentInputState> input) {
@@ -2885,7 +3021,7 @@ final class ReflexActions {
 			Level level = player.level();
 			if (center == null) {
 				center = BlockPos.containing(player.getX(), player.getY() + 0.2D, player.getZ());
-				String no = refusal(player, center);
+				String no = refusal(player, center, shooter.position());
 				if (no != null) return Step.failed("not walling in: " + no);
 				heldSlot = player.getInventory().getSelectedSlot();
 				Direction facing = Direction.getApproximateNearest(shooter.getX() - player.getX(), 0.0D, shooter.getZ() - player.getZ());
@@ -2903,6 +3039,10 @@ final class ReflexActions {
 			for (Creeper creeper : level.getEntitiesOfClass(Creeper.class, player.getBoundingBox().inflate(CREEPER_RANGE), Creeper::isAlive)) {
 				if (player.distanceTo(creeper) <= CREEPER_RANGE) return stop(level, "a creeper came within " + (int) CREEPER_RANGE + " blocks");
 			}
+			// A shove while centring or placing is walked back (the guard's walk-back runs in an armed stance). The level
+			// hold below is taken only on an exposed deck: it counts every drop off the deck, so on ordinary ground beside a
+			// 1-block step it crouched and stood on alternate ticks.
+			dev.agaminggod.mineagen.server.runtime.controller.BrinkGuard.braceArmed(player);
 			if (!centred) {
 				// Off centre the 0.6-wide body overlaps a wall cell; a player steps to the middle first.
 				double dx = center.getX() + 0.5D - player.getX(), dz = center.getZ() + 0.5D - player.getZ();
@@ -2910,6 +3050,10 @@ final class ReflexActions {
 				if (!overlaps || Math.abs(dx) <= 0.15D && Math.abs(dz) <= 0.15D || ++ticks > CENTER_TICKS) {
 					centred = true;
 					ticks = 0;
+					// On an exposed deck (a lethal or unseen drop within the guard's braced reach: the middle of a 3-wide
+					// bridge) the body keeps its level while it places, so a fireball's 1-2 block push is walked back. On
+					// ordinary ground it takes no hold: beside a 1-block step it crouched and stood on alternate ticks.
+					if (dev.agaminggod.mineagen.server.runtime.controller.BrinkGuard.exposedDeck(player)) dev.agaminggod.mineagen.server.runtime.controller.BrinkGuard.keepLevel(player, this, true, false);
 				} else {
 					float[] keys = dev.agaminggod.mineagen.server.runtime.controller.BrinkGuard.keysToward(player.getYRot(), dx, dz);
 					input.accept(new AgentInputState(keys[0] * 0.3F, keys[1] * 0.3F, false, true, false, false, false, player.getYRot(),

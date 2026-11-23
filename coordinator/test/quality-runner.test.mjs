@@ -9,7 +9,7 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { pairedTokenConfidence } from '../src/benchmark/quality-metrics.mjs';
 import { readArtifactReport } from '../src/benchmark/report-artifacts.mjs';
-import { armFlags, coordinatorFingerprint, instrumentationFingerprint, INSTRUMENTATION_FILES, loadScenarioFile, parseArgs, pairedSchedule, validateArmBuild, runPairedScenarios } from '../../scripts/quality/run-scenarios.mjs';
+import { coordinatorLeanInput, armFlags, coordinatorFingerprint, instrumentationFingerprint, INSTRUMENTATION_FILES, loadScenarioFile, parseArgs, pairedSchedule, validateArmBuild, runPairedScenarios } from '../../scripts/quality/run-scenarios.mjs';
 import { serverJvmArgs } from '../../scripts/run-headless-provider-matrix.mjs';
 
 const sha = data => createHash('sha256').update(data).digest('hex');
@@ -293,4 +293,13 @@ test('--scenario-file loads the whole rooms file once, hashed once, with room su
 		const saved = await readArtifactReport(path.join(f.options.out, 'results.json'));
 		assert.equal(saved.configuration.scenarioFile, 'reflex-rooms.json');
 	} finally { await rm(f.dir, { recursive: true, force: true }); }
+});
+
+test('harness games get the lean model input normal play gets, unless the environment sets it', () => {
+	assert.deepEqual(coordinatorLeanInput({}), { value: '1', on: true, source: 'production default (as the mod supervisor sets it)' });
+	assert.deepEqual(coordinatorLeanInput({ ARENA_LEAN_INPUT: '0' }), { value: '0', on: false, source: 'environment' });
+	assert.equal(coordinatorLeanInput({ ARENA_LEAN_INPUT: 'on' }).on, true);
+	assert.deepEqual(coordinatorLeanInput({ ARENA_LEAN_INPUT: '' }), { value: '', on: false, source: 'environment' }, 'a blank value is set, as the supervisor reads it');
+	assert.equal(coordinatorLeanInput({ arena_lean_input: '0' }, { platform: 'win32' }).value, '0', 'Windows names are case-insensitive');
+	assert.equal(coordinatorLeanInput({ arena_lean_input: '0' }, { platform: 'linux' }).value, '1', 'elsewhere only the exact name counts');
 });

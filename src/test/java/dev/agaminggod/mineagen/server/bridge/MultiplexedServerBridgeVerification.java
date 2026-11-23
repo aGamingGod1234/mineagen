@@ -174,6 +174,7 @@ public final class MultiplexedServerBridgeVerification {
 		verifyIdleDirectReplyRevisionPolicy(registered.getFirst());
 		verifyConcurrentChatRoute(registered.getFirst());
 		verifyExactTargetObservationLedger(registered.getFirst().agentId());
+		verifyInventoryMarker(registered.getFirst().agentId());
 		verifyConversationAttention(registered.getFirst().agentId());
 		verifyObservationCadence(candidates);
 		verifyObservationPublicationLifecycle(registered.getFirst().agentId());
@@ -1719,12 +1720,17 @@ public final class MultiplexedServerBridgeVerification {
 			withStatus.addProperty("stepStatus", "Doing: mine \u00a7citer\non");
 			invokePlannerReady(bridge, new BridgeEnvelope(2, "coordinator", started.agentId().toString(), "planning_state", "step-status-1", withStatus));
 			assertEquals("Doing: mine citer on", bridge.stepStatus(started.agentId()), "planning_state stores the sanitised step status");
+			assertEquals(AgentLifecycleState.STARTING, started.state(), "the agent starts in STARTING");
+			assertEquals(AgentLifecycleState.STARTING, manager.registry().require(started.agentId()).state(),
+					"a step-status update is display only and leaves a STARTING agent STARTING");
 
 			JsonObject withoutStatus = new JsonObject();
 			withoutStatus.addProperty("goalRevision", started.goalRevision());
 			withoutStatus.addProperty("state", "PLANNING");
 			invokePlannerReady(bridge, new BridgeEnvelope(2, "coordinator", started.agentId().toString(), "planning_state", "step-status-2", withoutStatus));
 			assertEquals("Doing: mine citer on", bridge.stepStatus(started.agentId()), "a planning_state without the field keeps the status");
+			assertEquals(AgentLifecycleState.PLANNING, manager.registry().require(started.agentId()).state(),
+					"the coordinator's own planning_state still moves a STARTING agent to PLANNING");
 
 			JsonObject wrongType = withoutStatus.deepCopy();
 			wrongType.addProperty("stepStatus", 42);
@@ -3698,6 +3704,30 @@ public final class MultiplexedServerBridgeVerification {
 		state.commit(agentId, observation);
 		assertTrue(!state.delta(agentId, observation, 2L, 1_001L).attention(),
 				"committed conversation attention is exact once");
+		verifyResyncFromAcceptedDelivery(agentId);
+	}
+
+	private static void verifyResyncFromAcceptedDelivery(AgentId agentId) {
+		MultiplexedServerBridge.PublishedObservationState state =
+				new MultiplexedServerBridge.PublishedObservationState(AgentConstants.DEFAULT_AGENT_LIMIT);
+		JsonObject breathing = com.google.gson.JsonParser.parseString("{\"eventSequence\":1,\"player\":{\"air\":300}}").getAsJsonObject();
+		JsonObject drowning = com.google.gson.JsonParser.parseString("{\"eventSequence\":2,\"player\":{\"air\":40}}").getAsJsonObject();
+		state.commit(agentId, breathing);
+		state.commit(agentId, drowning); // Sent with the low-air edge, then dropped by the coordinator.
+		JsonObject still = com.google.gson.JsonParser.parseString("{\"eventSequence\":3,\"player\":{\"air\":40}}").getAsJsonObject();
+		assertTrue(!state.delta(agentId, still, 3L, 3L).changedFacts().contains("player.air"), "without a resync the low-air edge is spent");
+		state.forgetDelivered(agentId, 1L);
+		assertTrue(state.delta(agentId, still, 3L, 3L).changedFacts().contains("player.air"),
+				"a resync from the accepted delivery announces low air again");
+		// A lasting fault: 2 dropped, the answer to the first resync (3) dropped too, 4 accepted. Counted from 1 again.
+		state.commit(agentId, still);
+		JsonObject later = com.google.gson.JsonParser.parseString("{\"eventSequence\":4,\"player\":{\"air\":40}}").getAsJsonObject();
+		state.commit(agentId, later);
+		state.forgetDelivered(agentId, 1L);
+		assertTrue(state.delta(agentId, later, 5L, 5L).changedFacts().contains("player.air"),
+				"a resync after a lasting fault still announces low air");
+		state.forgetDelivered(agentId, 99L); // Unknown: falls back to re-announcing threats only.
+		assertEquals(Set.of(), state.threatBaseline(agentId), "an unknown accepted delivery still clears the threat baseline");
 	}
 
 	private static void verifyDeathFacts() {
@@ -4589,6 +4619,14 @@ public final class MultiplexedServerBridgeVerification {
 				"the promoted row carries the owed edge as an urgent fact");
 		assertTrue(changedFacts(publish.apply(eightOld, withOther)).isEmpty(), "after delivery the row may yield again quietly");
 
+		// The coordinator dropped a delivery that announced a swell and asked for a resync: the creeper must wake it again.
+		publish.apply(withCreeper, keys);
+		assertTrue(changedFacts(publish.apply(withCreeper, keys)).isEmpty(), "a delivered swell is not announced twice");
+		publication.publishedState().forgetDelivered(agent, null);
+		JsonObject resynced = publish.apply(withCreeper, keys);
+		assertTrue(changedFacts(resynced).contains("threats." + creeper + ".swelling"),
+				"after a resync the swelling creeper is announced again: " + changedFacts(resynced));
+
 		var mixed = new MultiplexedServerBridge.ObservationPublication(16, 16, 10);
 		mixed.activate(session);
 		mixed.publish(agent, session, threatSample(eightOld, 9_000L), writer, true);
@@ -5104,6 +5142,50 @@ public final class MultiplexedServerBridgeVerification {
 		return observation;
 	}
 
+	private static void verifyInventoryMarker(AgentId agent) {
+		java.util.Map<AgentId, ObservationInventoryMarker.Baseline> delivered = new java.util.HashMap<>();
+		JsonObject observation = com.google.gson.JsonParser.parseString("{\"ready\":true,\"inventory\":{\"items\":[{\"itemId\":\"minecraft:oak_log\",\"count\":3,\"damage\":0,\"maxDamage\":0,\"slot\":0}],\"selectedItem\":\"minecraft:oak_log\"},\"player\":{\"health\":20}}").getAsJsonObject();
+		String original = observation.toString();
+		ObservationInventoryMarker.Outgoing first = ObservationInventoryMarker.prepare(delivered.get(agent), observation);
+		assertEquals(original, observation.toString(), "preparing never mutates the delivered baseline");
+		assertTrue(first.payload().getAsJsonObject("inventory").has("items"), "the first observation of a connection carries the full inventory");
+		String hash = first.payload().get("inventoryHash").getAsString();
+		assertEquals(16, hash.length(), "a 64-bit hex hash names the full inventory");
+		ObservationInventoryMarker.remember(delivered, agent, first);
+		ObservationInventoryMarker.Outgoing repeat = ObservationInventoryMarker.prepare(delivered.get(agent), observation.deepCopy());
+		assertEquals("{\"unchanged\":\"" + hash + "\"}", repeat.payload().get("inventory").toString(), "an unchanged inventory becomes a marker");
+		assertTrue(!repeat.payload().has("inventoryHash"), "a marker carries no second hash");
+		assertEquals(observation.get("player"), repeat.payload().get("player"), "every other field is unchanged");
+		ObservationInventoryMarker.remember(delivered, agent, repeat);
+		JsonObject changed = observation.deepCopy();
+		changed.getAsJsonObject("inventory").getAsJsonArray("items").get(0).getAsJsonObject().addProperty("count", 4);
+		ObservationInventoryMarker.Outgoing afterChange = ObservationInventoryMarker.prepare(delivered.get(agent), changed);
+		assertTrue(afterChange.payload().getAsJsonObject("inventory").has("items"), "a changed inventory is sent in full");
+		assertTrue(!hash.equals(afterChange.payload().get("inventoryHash").getAsString()), "a changed inventory gets a new hash");
+		ObservationInventoryMarker.remember(delivered, agent, afterChange);
+		int markers = 0;
+		for (int index = 0; index < ObservationInventoryMarker.FULL_EVERY; index++) {
+			ObservationInventoryMarker.Outgoing next = ObservationInventoryMarker.prepare(delivered.get(agent), changed.deepCopy());
+			if (!next.payload().getAsJsonObject("inventory").has("items")) markers++;
+			ObservationInventoryMarker.remember(delivered, agent, next);
+		}
+		assertEquals(ObservationInventoryMarker.FULL_EVERY - 1, markers, "an unchanged inventory is still sent in full every FULL_EVERY observations");
+		JsonObject unavailable = com.google.gson.JsonParser.parseString("{\"ready\":false}").getAsJsonObject();
+		ObservationInventoryMarker.Outgoing dead = ObservationInventoryMarker.prepare(delivered.get(agent), unavailable);
+		assertTrue(dead.payload() == unavailable, "an observation without an inventory is sent as is");
+		ObservationInventoryMarker.remember(delivered, agent, dead);
+		assertTrue(delivered.containsKey(agent), "and keeps the inventory baseline");
+		delivered.remove(agent);
+		assertTrue(ObservationInventoryMarker.prepare(delivered.get(agent), observation).payload().getAsJsonObject("inventory").has("items"),
+				"with no stored inventory for the agent the full inventory is sent");
+		JsonObject request = com.google.gson.JsonParser.parseString("{\"goalRevision\":4}").getAsJsonObject();
+		assertEquals(false, MultiplexedServerBridge.requestsFullInventory(request), "a routine observation request keeps the stored inventory");
+		request.addProperty("fullInventory", true);
+		assertEquals(true, MultiplexedServerBridge.requestsFullInventory(request), "a request after a marker miss asks for the inventory in full");
+		request.addProperty("fullInventory", "yes");
+		assertThrowsBridgeCode(() -> MultiplexedServerBridge.requestsFullInventory(request), "INVALID_FIELD", "fullInventory must be a boolean");
+	}
+
 	private static void verifyExactTargetObservationLedger(AgentId agent) {
 		MultiplexedServerBridge.PublishedObservationState state = new MultiplexedServerBridge.PublishedObservationState(16);
 		JsonObject first = com.google.gson.JsonParser.parseString("{\"world\":{\"dimension\":\"minecraft:overworld\"},\"position\":{\"x\":0.5,\"y\":64,\"z\":-0.5},\"player\":{\"health\":20,\"footing\":{\"drop\":4,\"atLeast\":true,\"yaw\":-90}}}").getAsJsonObject();
@@ -5115,6 +5197,12 @@ public final class MultiplexedServerBridgeVerification {
 		repeat = first.deepCopy();
 		state.omitUnchangedFooting(agent, repeat);
 		assertEquals(false, repeat.getAsJsonObject("player").has("footing"), "omitted event retains last delivered footing");
+		state.forgetDelivered(agent, null);
+		JsonObject resynced = first.deepCopy();
+		state.omitUnchangedFooting(agent, resynced);
+		assertEquals(true, resynced.getAsJsonObject("player").has("footing"), "a resync delivers footing again");
+		assertEquals(Set.of(), state.threatBaseline(agent), "a resync announces every current threat again");
+		state.commit(agent, first);
 		for (String field : new String[] {"drop", "atLeast", "into", "yaw"}) {
 			JsonObject changed = first.deepCopy();
 			JsonObject footing = changed.getAsJsonObject("player").getAsJsonObject("footing");
