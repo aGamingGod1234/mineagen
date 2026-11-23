@@ -81,6 +81,30 @@ public final class WalkedRoute {
   for(int i=1;i<full.size();i++) if(full.get(i-1).dimension.equals(full.get(i).dimension)) walked+=full.get(i-1).distance(full.get(i));
   return new Path(List.copyOf(compact),walked,Set.copyOf(risks));
  }
+ /**
+  * Remembered footsteps straight above from (same column, at most maxRise higher) whose walked way on to the target is
+  * shorter than from's by more than the climb to them plus margin: the stair seen overhead through a gap a later tunnel
+  * opened, reached by pillaring instead of walking the loop round to it. Best saving first; skip lists points to leave out.
+  */
+ public List<Point> columnShortcuts(Point from, Point target, int maxRise, double margin, Set<Point> skip) {
+  List<Point> above=new ArrayList<>();
+  for(Point at:edges.keySet()) if(at.dimension.equals(from.dimension) && at.x==from.x && at.z==from.z && at.y>from.y && at.y-from.y<=maxRise && !skip.contains(at)) above.add(at);
+  if(above.isEmpty()) return List.of();
+  Path here=path(from,target);
+  if(here==null) return List.of();
+  record Saving(Point at,double saved) {}
+  List<Saving> found=new ArrayList<>();
+  for(Point at:above) {
+   Path there=path(at,target);
+   if(there==null) continue;
+   double saved=here.length()-there.length()-(at.y-from.y);
+   if(saved>margin) found.add(new Saving(at,saved));
+  }
+  found.sort(Comparator.comparingDouble(Saving::saved).reversed());
+  List<Point> out=new ArrayList<>();
+  for(Saving s:found) out.add(s.at());
+  return out;
+ }
  private Point nearest(Point p,double limit) {
   if (edges.containsKey(p)) return p;
   Point best=null; double d=limit;
