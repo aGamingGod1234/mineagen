@@ -13,6 +13,7 @@ import { boot, fixtureTickRate } from './watch-replay.mjs';
 import { ReflexBook } from '../../coordinator/src/reflexes.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 import { damageCounter, damageEvidence, deathCounter, recordDeathEvidence } from './lib/damage-counter.mjs';
+import { coverReached } from './lib/cover-outcome.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const out = path.resolve(process.argv[2] ?? 'runtime/defend-live');
@@ -335,7 +336,9 @@ try {
 				row.pass = !died && maxThreatDistance >= (spawnerCase ? 12 : 16);
 			}
 			// Cover reached by any firing (defend's own step or a low-health cover rule): only a finished move says "in cover at".
-			row.coverSeen = steps.some((step) => /in cover at|already out of sight/.test(step)) || /in cover at|already out of sight/.test(endDetail ?? '');
+			// A finished wall-in with no side left open counts too: a body closed on every side is safe from arrows and melee,
+			// which is what the cover outcome stands for.
+			row.coverSeen = steps.some(coverReached) || coverReached(endDetail ?? '');
 			if (name === 'cover-zombie') row.pass = !died && row.coverSeen;
 			if (name === 'archers-zombie') row.pass = !died && !(row.deaths > 0);
 			// Corner: the body lives and kills the zombie that hits it round the corner within the watch.
