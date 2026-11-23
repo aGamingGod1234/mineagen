@@ -538,6 +538,9 @@ test('B-1 aquifer: afloat in its own flooded hole with the way back shut, the es
 	const escape = types.indexOf('escape');
 	assert.ok(retrace >= 0 && escape > retrace, `escape after the shut way back (calls: ${types.join(',')})`);
 	assert.deepEqual(types.slice(retrace + 1, escape).filter((type) => type === 'control' || type === 'place_block'), [], 'no swim pulse or laid block before the escape');
+	// Out on the step: a look round from there comes next, before any dig or walk leads away (iron 16 blocks off, in sight).
+	const next = body.calls.slice(escape + 1).find((call) => call.look !== undefined || call.actionType !== undefined);
+	assert.ok(next?.look !== undefined, `a look round right after the escape (next: ${JSON.stringify(next)})`);
 });
 
 test('water under a dig down: up out of the wet hole, a walk clear of the water, then down again; inside the band, the search mines at that level', async () => {
