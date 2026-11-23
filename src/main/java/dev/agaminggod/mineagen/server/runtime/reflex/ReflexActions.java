@@ -3042,8 +3042,8 @@ final class ReflexActions {
 			Level level = player.level();
 			BlockPos feet = player.blockPosition();
 			BlockPos floor = feet.below();
-			var fluid = level.getFluidState(feet);
-			return !fluid.isEmpty() && fluid.isSource() && level.getFluidState(feet.above()).isEmpty() && level.getFluidState(floor).isEmpty()
+			// Plain water only: a bubble column lifts the body and a waterlogged block is no pool.
+			return level.getBlockState(feet).is(Blocks.WATER) && level.getFluidState(feet).isSource() && level.getFluidState(feet.above()).isEmpty() && level.getFluidState(floor).isEmpty()
 					&& level.getBlockState(floor).isFaceSturdy(level, floor, Direction.UP);
 		}
 
