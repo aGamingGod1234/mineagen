@@ -1,0 +1,7 @@
+# #214 Climb dug stairs as stairs and stop dropping into caves under them on the way back up
+
+## Climbing back up a staircase the bot dug itself
+
+- **Problem:** after digging a staircase down to y-54, the bot climbs back to the surface along its own footsteps. Its route memory stored each dug step as "step forward, then drop in place", so every step looked like a ledge straight overhead. The bot treated each one as a shaft: look up, clear the block, wait, place a block, jump. An intact staircase was climbed like a pillar, about 13 s for every two steps. Near caves it also stood on the cave floor under a step, pillared back up and mined out the stair's own steps.
+- **Solution:** route memory now reads "drop in place, then step forward" as one diagonal stair step and walks it, while ladder rungs stay exact waypoints. Travel never picks a final spot on the far side of the body from the target's height, and the bot climbs straight up to a remembered step overhead when that cuts a long loop short, after checking the column is seen open, dry and away from lava.
+- **Result:** measured in practice rooms (start at y-54 with an empty bucket, find water within 180 s), 10 runs a room against main in the same batch. Climbing from y-54 to the surface in room 4 fell from about 150 s to about 100 s. Water found across the four deep rooms went from 17 of 40 to 26 of 40; room 4 went from 0 of 10 to 7 of 10 (main failed all 30 runs in three batches). Deaths stayed the same (1 a side), and 13 guard rooms showed nothing worse.
