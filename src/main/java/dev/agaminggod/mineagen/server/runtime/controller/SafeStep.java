@@ -22,7 +22,12 @@ public final class SafeStep {
 
 	/** True when walking along {@code yaw} keeps known safe footing, with the knockback margin while a threat is close. */
 	public static boolean canStep(ServerPlayer player, float yaw) {
-		return CombatPlanning.canStep(ObservedTerrain.of(player), standing(player), yaw, CombatMoveText.knockbackMargin(player));
+		return canStep(player, yaw, false);
+	}
+
+	/** As above; {@code underFire}: a shot is coming, so the knockback margin holds at any range. */
+	public static boolean canStep(ServerPlayer player, float yaw, boolean underFire) {
+		return CombatPlanning.canStep(ObservedTerrain.of(player), standing(player), yaw, CombatMoveText.knockbackMargin(player, underFire));
 	}
 
 	/**
@@ -56,18 +61,24 @@ public final class SafeStep {
 	/** As above, never taking a heading whose deepest single drop is more than {@code maxDrop} blocks. */
 	public static Float heading(ServerPlayer player, float awayYaw, float[] offsets, Float previous,
 			List<java.util.function.Predicate<Float>> preferences, int maxDrop) {
+		return heading(player, awayYaw, offsets, previous, preferences, maxDrop, false);
+	}
+
+	/** As above; {@code underFire}: a shot is coming, so the knockback margin holds at any range. */
+	public static Float heading(ServerPlayer player, float awayYaw, float[] offsets, Float previous,
+			List<java.util.function.Predicate<Float>> preferences, int maxDrop, boolean underFire) {
 		for (java.util.function.Predicate<Float> avoid : preferences) {
-			Float preferred = heading(player, awayYaw, offsets, previous, avoid, true, maxDrop);
+			Float preferred = heading(player, awayYaw, offsets, previous, avoid, true, maxDrop, underFire);
 			if (preferred != null) return preferred;
 		}
-		return heading(player, awayYaw, offsets, previous, yaw -> false, false, maxDrop);
+		return heading(player, awayYaw, offsets, previous, yaw -> false, false, maxDrop, underFire);
 	}
 
 	private static Float heading(ServerPlayer player, float awayYaw, float[] offsets, Float previous, java.util.function.Predicate<Float> avoid,
-			boolean avoiding, int maxDrop) {
+			boolean avoiding, int maxDrop, boolean underFire) {
 		WalkabilityView world = ObservedTerrain.of(player);
 		GridPosition feet = standing(player);
-		CombatPlanning.Margin margin = CombatMoveText.knockbackMargin(player);
+		CombatPlanning.Margin margin = CombatMoveText.knockbackMargin(player, underFire);
 		float spread = 0.0F;
 		for (float offset : offsets) spread = Math.max(spread, Math.abs(offset));
 		for (CombatPlanning.Margin pass : margin.active() ? List.of(margin, CombatPlanning.Margin.NONE) : List.of(margin)) {

@@ -1216,10 +1216,11 @@ final class ReflexActions {
 			Vec3 at = shooter.position();
 			Float[] headings = new Float[3];
 			for (int candidate : new int[]{side, -side}) {
-				headings[candidate + 1] = SafeStep.heading(player, sideYaw(body, at, candidate), OFFSETS, candidate == side ? lastHeading : null, List.of(), MAX_DROP);
+				headings[candidate + 1] = SafeStep.heading(player, sideYaw(body, at, candidate), OFFSETS, candidate == side ? lastHeading : null, List.of(), MAX_DROP, true);
 			}
-			// SafeStep tries the knockback margin first: a heading that passes canStep kept it.
-			int chosen = chooseSide(side, candidate -> headings[candidate + 1] != null && SafeStep.canStep(player, headings[candidate + 1]),
+			// SafeStep tries the knockback margin first: a heading that passes canStep kept it. The shot it steps from knocks
+			// the body back from any range, so the margin holds however far the archer stands.
+			int chosen = chooseSide(side, candidate -> headings[candidate + 1] != null && SafeStep.canStep(player, headings[candidate + 1], true),
 					candidate -> headings[candidate + 1] != null);
 			if (chosen == 0) {
 				input.accept(aim);
