@@ -1892,5 +1892,16 @@ test('an exit-code room (no rows file) is judged by its exit code and own JSON, 
 		const { armValidRuns } = await import('../../scripts/quality/lib/room-batch-core.mjs');
 		assert.deepEqual(await armValidRuns(path.join(out, 'rooms', 'lava-a.c1', 'new'), { exit: 0 }), { valid: 1, rows: 1 });
 		assert.deepEqual(await armValidRuns(path.join(out, 'rooms', 'lava-b', 'new'), { exit: 3 }), { valid: 0, rows: 1 });
+		// With its survival bar, lava-d's run (no death record) is no valid run for --valid either, as the merge reads it.
+		assert.deepEqual(await armValidRuns(path.join(out, 'rooms', 'lava-d', 'new'), { exit: 0 }, { bar: meta['lava-d'] }), { valid: 0, rows: 1 });
+		// A line that plans several rows is a finishRun fixture: writing nothing means it crashed, so all three stay INVALID.
+		const crashed = parseCommands(`@build-x BUILD_ONLY=a,b,c ${LINE}`, ['new']);
+		await mkdir(path.join(out, 'rooms', 'build-x', 'new'), { recursive: true });
+		const broken = await mergeArms({ out, rooms: crashed, arms: ['new'], outcomes: [{ room: 'build-x', lost: false, worker: 'vm1', attempts: 1, arms: { new: { exit: 1, seconds: 2 } } }] });
+		assert.deepEqual([armTotals(broken.new).fail, armTotals(broken.new).invalid, broken.new.summary.status], [0, 3, 'INVALID']);
+		assert.deepEqual(await armValidRuns(path.join(out, 'rooms', 'build-x', 'new'), { exit: 1 }, { linePlanned: 3 }), { valid: 0, rows: null });
+		// An arm that never launched did not start its row.
+		const unlaunched = await mergeArms({ out, rooms: rooms.slice(1, 2), arms: ['new'], outcomes: [{ room: 'lava-b', lost: false, worker: 'vm1', attempts: 1, arms: { new: { error: 'spawn failed' } } }] });
+		assert.deepEqual([armTotals(unlaunched.new).invalid, armTotals(unlaunched.new).notStarted], [1, 1]);
 	} finally { await rm(out, { recursive: true, force: true }); }
 });

@@ -106,7 +106,8 @@ export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeout
 	};
 	let outcomes = [];
 	// --valid N: an INVALID or lost copy is replayed (both arms together) until each arm has N valid runs, at most 2N.
-	const topUps = valid ? topUp({ rooms, arms: arms.map(arm => arm.name), valid, out }) : null;
+	const meta = await roomMeta(out);
+	const topUps = valid ? topUp({ rooms, arms: arms.map(arm => arm.name), valid, out, meta }) : null;
 	try {
 		// Each machine joins the queue as soon as it is ready; a late one no longer holds the others' rooms back.
 		const arrivals = Array.from({ length: vms }, () => bringUp().catch(error => { log(`a machine did not come up: ${error.message}`); return null; }));
@@ -185,7 +186,7 @@ export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeout
 	const wallSeconds = Math.round((Date.now() - began) / 1000);
 	const armNames = arms.map(arm => arm.name);
 	const played = [...rooms, ...(topUps?.added ?? [])];
-	const merged = await mergeArms({ out, rooms: played, arms: armNames, outcomes, meta: await roomMeta(out) });
+	const merged = await mergeArms({ out, rooms: played, arms: armNames, outcomes, meta });
 	let text = formatSummary({ batch, merged, arms: armNames, wallSeconds, vms: machines.length, rooms: played });
 	const short = topUps?.report().filter(group => group.short.length) ?? [];
 	const named = groups => groups.map(group => `${group.group} (${Object.entries(group.valid).map(([arm, n]) => `${arm} ${n}`).join(', ')})`).join('; ');
