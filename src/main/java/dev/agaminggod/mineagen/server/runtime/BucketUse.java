@@ -47,32 +47,91 @@ final class BucketUse {
 	/**
 	 * The look for a bucket aimed at {@code requested}. An empty bucket aimed into a fluid source keeps that source as its
 	 * target: the requested point when the bucket ray meets the source there, else a visible point of the same source.
-	 * Every other aim is kept as given.
+	 * One aimed into flowing fluid moves to the source that flow comes from ({@link #flowAim}). Every other aim is kept.
 	 */
 	static Vec3 aim(Player player, Item bucket, Vec3 requested) {
 		if (bucket != Items.BUCKET) return requested;
 		BlockPos cell = BlockPos.containing(requested);
 		FluidState fluid = player.level().getFluidState(cell);
-		if (!fluid.isSource()) return requested;
+		if (fluid.isEmpty()) return requested;
+		if (!fluid.isSource()) return flowAim(player, requested, cell, fluid);
 		BlockHitResult direct = VanillaItemRay.atAim(player, requested, ClipContext.Fluid.SOURCE_ONLY);
 		if (meets(direct, cell)) return requested;
+		Vec3 point = visibleSourcePoint(player, cell);
+		if (point != null) return point;
 		Vec3 eye = player.getEyePosition();
 		double reach = player.blockInteractionRange();
-		Vec3 point = null;
-		for (Direction face : facesToward(eye, cell)) {
-			point = BreakSightline.visibleFluidPoint(player.level(), eye, cell, reach, face,
-					candidate -> VanillaItemRay.atAim(player, candidate, ClipContext.Fluid.SOURCE_ONLY));
-			if (point != null) return point;
-		}
 		String source = fluidId(fluid) + " source at " + xyz(cell);
 		double distance = eye.distanceTo(Vec3.atCenterOf(cell));
-		if (point == null && direct.getType() == HitResult.Type.MISS && distance > reach) {
+		if (direct.getType() == HitResult.Type.MISS && distance > reach) {
 			throw new AgentDomainException("TARGET_TOO_FAR", String.format(Locale.ROOT,
 					"The %s is %.1f m from the eye; a bucket reaches %.1f m", source, distance, reach));
 		}
 		throw new AgentDomainException("TARGET_OBSTRUCTED", "No part of the " + source
 				+ " is the first thing the bucket ray meets from this eye; toward the aim it meets "
 				+ describe(player.level(), eye, direct, reach));
+	}
+
+	/** A point of the source at {@code cell} the empty-bucket ray meets first from the eye, or null. */
+	private static Vec3 visibleSourcePoint(Player player, BlockPos cell) {
+		Vec3 center = Vec3.atCenterOf(cell);
+		if (meets(VanillaItemRay.atAim(player, center, ClipContext.Fluid.SOURCE_ONLY), cell)) return center;
+		Vec3 eye = player.getEyePosition();
+		for (Direction face : facesToward(eye, cell)) {
+			Vec3 point = BreakSightline.visibleFluidPoint(player.level(), eye, cell, player.blockInteractionRange(), face,
+					candidate -> VanillaItemRay.atAim(player, candidate, ClipContext.Fluid.SOURCE_ONLY));
+			if (point != null) return point;
+		}
+		return null;
+	}
+
+	/** Fluid cells of one flow searched back to its sources: a pour spreads 7 cells from its source, plus any fall. */
+	private static final int FLOW_SEARCH_CELLS = 256;
+
+	/**
+	 * An empty bucket aimed at flowing fluid: its vanilla ray passes flowing cells (SOURCE_ONLY) and meets whatever is
+	 * behind them, usually the floor. A player scoops the source the flow comes from, so the aim moves to the nearest
+	 * source connected to the aimed flow that the ray can meet. Even an aim whose ray happens to cross a source moves:
+	 * past a source toward far flow it grazes the surface, and a body the flow pushes then misses it (End refill room).
+	 */
+	private static Vec3 flowAim(Player player, Vec3 requested, BlockPos cell, FluidState flowing) {
+		BlockPos unreachable = null;
+		for (BlockPos source : flowSources(player.level(), cell, flowing)) {
+			// A source whose nearest face is past reach has no point the bucket meets: skip its rays.
+			Vec3 point = player.getEyePosition().distanceTo(Vec3.atCenterOf(source)) > player.blockInteractionRange() + 0.9D ? null
+					: visibleSourcePoint(player, source);
+			if (point != null) return point;
+			if (unreachable == null) unreachable = source;
+		}
+		Vec3 eye = player.getEyePosition();
+		BlockHitResult direct = VanillaItemRay.atAim(player, requested, ClipContext.Fluid.SOURCE_ONLY);
+		String aimed = "The aim at " + xyz(cell) + " is " + fluidId(flowing) + " (flowing); an empty bucket fills only from a source";
+		if (unreachable == null) throw new AgentDomainException("TARGET_OBSTRUCTED", aimed
+				+ ", and no source feeds that flow; toward the aim the bucket ray meets " + describe(player.level(), eye, direct, player.blockInteractionRange()));
+		throw new AgentDomainException("TARGET_OBSTRUCTED", aimed + "; its source at " + xyz(unreachable) + String.format(Locale.ROOT,
+				" (%.1f m from the eye; a bucket reaches %.1f m) is not the first thing the bucket ray meets from here",
+				eye.distanceTo(Vec3.atCenterOf(unreachable)), player.blockInteractionRange()));
+	}
+
+	/** The sources connected to {@code start} through cells of the same fluid, nearest along the flow first. */
+	static java.util.List<BlockPos> flowSources(BlockGetter level, BlockPos start, FluidState fluid) {
+		java.util.ArrayDeque<BlockPos> queue = new java.util.ArrayDeque<>();
+		java.util.Set<BlockPos> seen = new java.util.HashSet<>();
+		java.util.List<BlockPos> sources = new java.util.ArrayList<>();
+		queue.add(start.immutable());
+		seen.add(start.immutable());
+		// Only cells of the fluid count toward the cap: a full pour on a flat floor is about 113 cells.
+		int visited = 0;
+		while (!queue.isEmpty() && visited++ < FLOW_SEARCH_CELLS) {
+			BlockPos at = queue.poll();
+			FluidState here = level.getFluidState(at);
+			if (here.isSource()) { sources.add(at); continue; }
+			for (Direction side : Direction.values()) {
+				BlockPos next = at.relative(side);
+				if (level.getFluidState(next).getType().isSame(fluid.getType()) && seen.add(next)) queue.add(next);
+			}
+		}
+		return sources;
 	}
 
 	/** The faces through which water casts a lava source: above and the four sides (water below does nothing). */
