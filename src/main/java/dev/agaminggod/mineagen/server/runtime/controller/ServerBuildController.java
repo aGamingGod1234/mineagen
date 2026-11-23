@@ -1806,6 +1806,14 @@ public final class ServerBuildController implements ServerController {
 		return cells;
 	}
 
+	/** Every block a carved site has broken by the time its frame is cast: the dig, then the ground row's two middle cells the site clearing takes for the frame's foot. */
+	static List<BlockPos> carveBreaks(Portal p, Direction wall) {
+		List<BlockPos> cells = carveCells(p, wall);
+		cells.add(p.at(1, 0));
+		cells.add(p.at(2, 0));
+		return cells;
+	}
+
 	/** The blocks an open site's clearing breaks (as {@link #chooseSite} and {@link #planCast} list them): the frame's plane and, for a cast, the row in front. */
 	private List<BlockPos> siteClears(ServerPlayer player, Portal p, Direction wall) {
 		List<BlockPos> cells = new ArrayList<>();
@@ -1920,7 +1928,7 @@ public final class ServerBuildController implements ServerController {
 					if (spillMeetsLava(cell -> known(player, cell), p, wall, SURE_SPILL_CELLS)) cost += LOOSE_SITE_COST;
 					// The dig breaks each cell through clear's own lava gate, which also refuses lava heard just behind the rock
 					// (lava-gate-7: both carves went beside lava the find heard but never saw, and the first break was refused).
-					if (cost < bestCost && digRefusedByLava(player, carveCells(p, wall)) != null) { heard++; continue; }
+					if (cost < bestCost && digRefusedByLava(player, carveBreaks(p, wall)) != null) { heard++; continue; }
 					if (cost < bestCost) { bestCost = cost; best = p; bestWall = wall; bestStand = stand; bestDig = dig; }
 				}
 			}
