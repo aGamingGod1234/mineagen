@@ -557,9 +557,11 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 					}
 					// 2. Perched: melee its head, as a player who ran in does.
 					const perch = perchedDragon(o);
-					if (perch?.head?.id) {
+					// Not below 10 health: a player heals before walking under it, and steps out at 8 (fleeAtHealth); at 3 health
+					// one hit of its head (10, about 6 through iron) kills.
+					if (perch?.head?.id && (OLD_REFILL || !(me.health < 10))) {
 						const before = await dragonHealth();
-						const r = await act('fight_target', { targetId: perch.head.id, timeoutMs: 12000 });
+						const r = await act('fight_target', { targetId: perch.head.id, timeoutMs: 12000, ...(OLD_REFILL ? {} : { fleeAtHealth: 8 }) });
 						const after = await dragonHealth();
 						if (Number.isFinite(before) && Number.isFinite(after) && after < before) meleeLanded += 1;
 						meleeHits += 1; note(`melee perched head (dragon ${before} -> ${after})`, r); continue;
