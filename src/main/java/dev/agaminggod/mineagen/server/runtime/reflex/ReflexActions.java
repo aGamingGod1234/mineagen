@@ -828,6 +828,10 @@ final class ReflexActions {
 				return Step.running(done + "; " + held.detail());
 			}
 			LivingEntity shooter = shooterBeyondReach(player, context.focus(), player.getInventory().getItem(slot));
+			// Shot at counts as under fire, not only hit: a body that steps off each arrow may never take the hit that started
+			// the walls or the walk to cover, and stood dodging volleys while a zombie came on (cover-zombie: cover reached in
+			// 10 of 10 runs before the dodge, 1 of 10 with it).
+			if (shooter == null) shooter = shootingBeyondReach(player, player.getInventory().getItem(slot));
 			boolean canWall = PlaceBlock.blockSlot(player, null) >= 0 && nearestChaser(player, PACK_RANGE) >= PACK_RANGE;
 			// A ranged mob beyond reach that is the focus but has not hit yet: on a lip its first hit is the fall (four
 			// traced lava-sea deaths: the first fireball knocked the body off), so the step inland does not wait for it.
@@ -896,6 +900,18 @@ final class ReflexActions {
 		}
 
 		/** The focus (or a shot's shooter) when it is a ranged mob standing beyond the weapon's reach, hit or not; else null. */
+		/**
+		 * The nearest ranged mob in sight of the body that is shooting at it now (a bow drawn or a loaded crossbow aimed,
+		 * {@link ReflexSensors#shotComing}) and stands beyond the weapon's reach, or null: under fire before any hit lands.
+		 */
+		static LivingEntity shootingBeyondReach(ServerPlayer player, ItemStack weapon) {
+			for (Mob mob : watchers(player)) {
+				if (!ThreatPerception.isRanged(mob) || !ReflexSensors.shotComing(mob, player)) continue;
+				if (!player.getAttackRangeWith(weapon).isInRange(player, mob.getBoundingBox(), 0.0D)) return mob;
+			}
+			return null;
+		}
+
 		static LivingEntity rangedBeyondReach(ServerPlayer player, Entity focus, ItemStack weapon) {
 			Entity source = focus instanceof Projectile shot ? shot.getOwner() : focus;
 			if (!(source instanceof Mob mob) || !mob.isAlive() || !ThreatPerception.isRanged(mob)) return null;
