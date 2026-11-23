@@ -472,8 +472,12 @@ export class NativeToolRuntime {
 		if (player?.skyOpen === true && player.onGround !== false && [player.x, player.y, player.z].every(Number.isFinite)) {
 			const row = { x: player.x, y: player.y, z: player.z, dimension: storedObservation.world?.dimension ?? null };
 			this.#openSky.set(record.agentId, row);
-			this.#skyTop.set(record.agentId, [...(this.#skyTop.get(record.agentId) ?? [])
-				.filter((spot) => spot.dimension === row.dimension && Math.hypot(spot.x - row.x, spot.z - row.z) <= SKY_TOP_NEAR), row].slice(-SKY_TOP_SPOTS));
+			// One spot per block, and the highest always kept: samples while standing at the stair top would otherwise push it out.
+			const block = (spot) => `${Math.floor(spot.x)},${Math.floor(spot.y)},${Math.floor(spot.z)}`;
+			const spots = [...(this.#skyTop.get(record.agentId) ?? []).filter((spot) => spot.dimension === row.dimension
+				&& Math.hypot(spot.x - row.x, spot.z - row.z) <= SKY_TOP_NEAR && block(spot) !== block(row)), row];
+			const top = spots.reduce((best, spot) => spot.y > best.y ? spot : best, row);
+			this.#skyTop.set(record.agentId, spots.length <= SKY_TOP_SPOTS ? spots : [top, ...spots.filter((spot) => spot !== top).slice(-(SKY_TOP_SPOTS - 1))]);
 		}
 		this.#observations.set(record.agentId, {
 			goalRevision: record.goalRevision,
