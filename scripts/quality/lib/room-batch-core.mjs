@@ -1,8 +1,10 @@
 // Pure parts of room-batch.mjs: the commands file, the shared room queue with one re-queue after a lost machine, and
 // the per-arm merge through finishRun. No machine, network or boat call happens here, so all of it is unit-tested.
 import { spawn } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, readdir, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { judgeExitRun } from './benchmark-score.mjs';
 import { finishRun, roomVerdict } from './fixture-run.mjs';
 import { mergeSwitchRecords } from './switch-record.mjs';
@@ -215,12 +217,27 @@ export async function armRows(dir) {
 	return { rows: pick.rows, summary: await readJson(path.join(dir, `${pick.base}-summary.json`)).catch(() => null), file: `${pick.base}.json`, problem: null };
 }
 
+const REPO = fileURLToPath(new URL('../../..', import.meta.url));
+const finishRunScripts = new Map();
+/** Whether a line's fixture script writes finishRun rows (or is unknown, which counts as yes); read once per script. */
+const writesRows = script => {
+	if (!script) return true;
+	if (!finishRunScripts.has(script)) {
+		let text = null;
+		try { text = readFileSync(path.resolve(REPO, script), 'utf8'); } catch { /* unknown script */ }
+		finishRunScripts.set(script, text === null || /\bfinishRun\b/.test(text));
+	}
+	return finishRunScripts.get(script);
+};
+/** The fixture script an arm's line runs (`node SCRIPT ...`). */
+export const lineScript = (room, arm) => (room.lines?.find(line => line.arm === arm) ?? room.lines?.[0])?.args?.[0] ?? null;
 /**
- * An exit-code room: its arm wrote no finishRun rows file at all, and its line plans one run. A line with a selector
- * (BUILD_ONLY=a,b,c) belongs to a finishRun fixture, so writing nothing there means it crashed: its planned rows stay
- * INVALID, never one exit-code verdict. So does a finishRun summary left without its rows file.
+ * An exit-code room: its arm wrote no finishRun rows file at all, its line plans one run, and its fixture script is one
+ * that never calls finishRun (the lava, rest, enderman rooms). A fixture that does call finishRun and wrote nothing
+ * crashed, so its planned rows stay INVALID, never one exit-code verdict; so does a summary left without its rows file.
  */
-const exitOnly = (found, linePlanned) => !found.file && !found.problem && !found.orphanSummary && !found.rows.length && (linePlanned ?? 1) <= 1;
+const exitOnly = (found, { linePlanned = 1, script = null } = {}) => !found.file && !found.problem && !found.orphanSummary && !found.rows.length
+	&& (linePlanned ?? 1) <= 1 && !writesRows(script);
 /** A room's benchmark definition (its bar) by room name, or by its repeat group (ROOM.c3 is ROOM). */
 const roomBar = (meta, name) => meta?.[name] ?? meta?.[repeatGroup(name)] ?? null;
 
@@ -246,7 +263,7 @@ export async function mergeArms({ out, rooms, arms, outcomes, meta = {} }) {
 			const run = outcome.arms?.[arm] ?? {};
 			// Rows an arm wrote before the room timeout, a signal or a launch error killed it are not a finished run.
 			const killed = run.timedOut ? 'room timeout' : run.signal ? `signal ${run.signal}` : run.error ? `launch error: ${run.error}` : null;
-			if (!outcome.lost && exitOnly(found, room.plannedByArm?.[arm] ?? room.planned)) {
+			if (!outcome.lost && exitOnly(found, { linePlanned: room.plannedByArm?.[arm] ?? room.planned, script: lineScript(room, arm) })) {
 				const judged = await judgeExitRun(dir, { run, killed, log: path.join(out, 'rooms', room.room, `${arm}.log`), meta: roomBar(meta, room.room) });
 				planned += 1;
 				switchRecords.push(null);
@@ -354,13 +371,13 @@ export const repeatGroup = name => String(name).replace(/(?:\.c\d+|-r\d+)$/, '')
  * arm was killed, its rows file is ambiguous, or its summary is missing, corrupt or plans no rows; an exit-code room is
  * one run, judged with its bar as the merge judges it); rows is how many runs a copy of the room plays (its summary's planned), or null when that is unknown.
  */
-export async function armValidRuns(dir, run = {}, { linePlanned = 1, bar = null } = {}) {
+export async function armValidRuns(dir, run = {}, { linePlanned = 1, script = null, bar = null } = {}) {
 	const found = await armRows(dir);
 	const planned = Number.isInteger(found.summary?.planned) && found.summary.planned > 0 ? found.summary.planned : null;
 	// A killed arm counts no valid run, but the runs its summary planned still size the copies.
 	if (run.timedOut || run.signal || run.error) return { valid: 0, rows: planned };
 	// An exit-code room (no rows file at all) is one run, valid when its exit code and own JSON judge it PASS or FAIL.
-	if (exitOnly(found, linePlanned)) return { valid: ['PASS', 'FAIL'].includes((await judgeExitRun(dir, { run, meta: bar })).verdict) ? 1 : 0, rows: 1 };
+	if (exitOnly(found, { linePlanned, script })) return { valid: ['PASS', 'FAIL'].includes((await judgeExitRun(dir, { run, meta: bar })).verdict) ? 1 : 0, rows: 1 };
 	if (found.problem || planned === null) return { valid: 0, rows: null };
 	return { valid: found.rows.filter(row => row && typeof row === 'object' && ['PASS', 'FAIL'].includes(roomVerdict(row).verdict)).length, rows: found.summary.planned };
 }
@@ -388,7 +405,7 @@ export function topUp({ rooms, arms, valid, out, meta = {}, countValid = armVali
 		if (!group) return [];
 		// Every count is read before the group changes, so two copies finishing together never lose one another's runs.
 		const counts = outcome?.lost ? arms.map(() => ({ valid: 0, rows: null }))
-			: await Promise.all(arms.map(arm => countValid(path.join(out, 'rooms', room.room, arm), outcome.arms?.[arm] ?? {}, { linePlanned: room.plannedByArm?.[arm] ?? room.planned, bar: roomBar(meta, room.room) })));
+			: await Promise.all(arms.map(arm => countValid(path.join(out, 'rooms', room.room, arm), outcome.arms?.[arm] ?? {}, { linePlanned: room.plannedByArm?.[arm] ?? room.planned, script: lineScript(room, arm), bar: roomBar(meta, room.room) })));
 		group.pending--;
 		arms.forEach((arm, i) => { group.valid[arm] += counts[i].valid; });
 		const seen = Math.max(0, ...counts.map(count => count.rows ?? 0));
