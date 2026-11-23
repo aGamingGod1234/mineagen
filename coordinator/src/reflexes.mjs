@@ -71,6 +71,14 @@ export const DIMENSION_REFLEXES = Object.freeze({
 		// water_bucket clutch: fall and void deaths were 8 of 40 on main and 7 of 40 with this rule.
 		{ id: 'default-ender-water', kind: 'trigger', priority: 8, when: [{ type: 'enderman_provoked', within: 8 }], do: { type: 'place', item: 'minecraft:water_bucket', where: 'feet' }, maxMs: 3_000, cooldownMs: 10_000, ttlMs: 3_600_000 },
 	].map((rule) => Object.freeze(rule))),
+	// Burning in a blaze's or a ghast's sight: out of it at any health. default-fire answers only standing in a fire block;
+	// a fireball's hit sets the body alight where it stands and the next volley lands on a burning body (blaze spawner
+	// rooms 23 Nov, defaults armed: 6 of 8 deaths burned to death while fighting, default-fire 0 firings). Nether only: no
+	// other dimension has these mobs, and a default in every dimension would pass the mod's rule limit.
+	// MINEAGEN_BURN_COVER=off leaves it out for room A/Bs.
+	'minecraft:the_nether': Object.freeze(getSwitch('reflex.burnCover').value ? [
+		{ id: 'default-burn-cover', kind: 'trigger', priority: 6, when: [{ type: 'on_fire' }, { type: 'exposed', within: 12, mobs: ['minecraft:blaze', 'minecraft:ghast'] }], do: { type: 'take_cover', within: 8 }, maxMs: 8_000, cooldownMs: 5_000, ttlMs: 3_600_000 },
+	].map((rule) => Object.freeze(rule)) : []),
 });
 const MOST_DIMENSION_REFLEXES = Math.max(0, ...Object.values(DIMENSION_REFLEXES).map((rules) => rules.length));
 export const DEFAULT_REFLEX_IDS = Object.freeze(new Set([...DEFAULT_REFLEXES, ...Object.values(DIMENSION_REFLEXES).flat()].map((rule) => rule.id)));

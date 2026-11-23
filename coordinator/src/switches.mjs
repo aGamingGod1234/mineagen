@@ -106,6 +106,10 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'find.lavaStairs', env: 'MINEAGEN_LAVA_STAIRS', side: 'coordinator', default: false, parser: ON_EXACT, status: 'default-off',
 		reason: 'Stairs from the surface won lava-gate-8 (0 to 7 of 10) but lost lava-gate-3 (8 to 0 of 10, pickaxes wore out) and lava-gate-6 (deaths 0 to 7 of 10) (#74).',
 		readers: ['coordinator/src/find-search.mjs lavaStairs (per call, process.env only)'] }),
+	// coordinator/src/reflexes.mjs DIMENSION_REFLEXES: read once at module load.
+	entry({ name: 'reflex.burnCover', env: 'MINEAGEN_BURN_COVER', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
+		reason: 'Nether default: takes cover while burning in a blaze\'s or ghast\'s sight (default-fire answers only a fire block). Off leaves the rule out for room A/Bs.',
+		readers: ['coordinator/src/reflexes.mjs DIMENSION_REFLEXES (module load, process.env only)'] }),
 	// coordinator/src/obtain-runner.mjs OBTAIN_COSTS: read once at module load.
 	entry({ name: 'obtain.costs', env: 'MINEAGEN_OBTAIN_COSTS', side: 'coordinator', default: true, parser: OFF_EXACT, status: 'default-on',
 		reason: 'Off plans as before chest looting, the seen-source cost model and the one-trip kit iron, for A/B rooms (#115).',
