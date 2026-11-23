@@ -1,0 +1,5 @@
+# PR #193: Fix fourteen practice rooms whose setup or check failed the bot for the wrong reason
+
+- **Problem:** six deep "get water" practice rooms failed every time, and it looked like the bot was too slow. In fact the room's own untimed setup, digging the bot 60 blocks down, used up the whole game day. The timed search began a minute before dusk, and the bot's night rule (never climb to the surface unarmoured at night) correctly refused to go up.
+- **Solution:** the room resets the clock to morning after its setup, so it tests what it names: getting water from that depth. Six other rooms had similar test bugs (an old contract, wild mobs in the arena, a body dying before the room began, a harmless 3-block drop counted as a fall), each fixed in the test, not the bot.
+- **Result:** measured on boat, 10 runs a room with the old and new setup side by side: night stops 56 of 60 runs to 0 of 60; nether-fight 0/10 to 10/10; cast-obi-2 6/10 to 10/10. It also showed what the night had hidden: from y-54 the bot's climb back up stalls where its own stair passes a drop, in 79 of 80 runs of the four rooms that still always fail.
