@@ -1380,12 +1380,13 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 		const climbOut = async (top, away, label) => {
 			const up = await leg(label, 'travel_to', { x: top.x, y: top.y, z: top.z, retrace: true, tolerance: 3, stopWhenSeen: profile.stopId });
 			if (!up.seen && !up.interrupted && SHUT_WAY.has(up.result?.reasonCode) && afloat()) {
-				// Afloat in its own flooded hole: up the water and out onto a step cut beside it, then the stairs from there;
-				// still in the water after that, the escape body job.
-				const swum = await swimUpStair(top, up);
-				if (swum !== null) return swum;
+				// Afloat in its own flooded hole: the escape body job first (bank push, wade, fill or a step placed beside it,
+				// from the cell it floats in); still afloat after that, up the water and out onto a step cut beside it, then
+				// the stairs from there. Swimming first drifts the body toward the shut way's next cell, off the hole the
+				// escape places its step from (B-1's aquifer: ESCAPE_NO_SHORE there, then FIND_BLOCKED).
 				const ended = await escapeWater();
 				if (ended !== null) return ended;
+				if (afloat()) { const swum = await swimUpStair(top, up); if (swum !== null) return swum; }
 				if (afloat()) return settle(up);
 			}
 			const at = bodyAt(observation);
