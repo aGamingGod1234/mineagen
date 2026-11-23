@@ -47,6 +47,8 @@ public final class ServerRestController implements ServerController {
 		String use(ServerPlayer body, BlockPos at, Direction face);
 		/** dig_to stairs_up to feet level {@code y}. */
 		ServerController climb(ServerPlayer body, int y, long timeoutMs);
+		/** travel_to the cell (feet); null when this body cannot walk. */
+		default ServerController travel(ServerPlayer body, BlockPos to, long timeoutMs) { return null; }
 	}
 
 	/** Night as a player reads it: beds work (or the clock is past dusk). Morning: the clock rolled over and beds do not. */
@@ -198,6 +200,13 @@ public final class ServerRestController implements ServerController {
 		// A bed needs a flat 2-cell spot within reach: with none, the planks are better kept as wall blocks than spent on a
 		// table and a bed that cannot go down.
 		if (bedSpot(player) == null) {
+			TickResult walk = walkToBedGround(player, now, () -> {
+				// Still no spot (or no table and too few planks) after the walk: walls, as before it.
+				long after = dev.agaminggod.mineagen.server.runtime.GameClock.nowMs();
+				TickResult bed = bedPlan(player, after);
+				return bed != null ? bed : shelterPlan(player, after, null);
+			});
+			if (walk != null) return walk;
 			log.add("no flat 2-cell spot within " + SPOT_RADIUS + " blocks for a bed");
 			return null;
 		}
@@ -243,6 +252,8 @@ public final class ServerRestController implements ServerController {
 	private TickResult placeBed(ServerPlayer player, String bedItem) {
 		BedSpot spot = bedSpot(player);
 		if (spot == null) {
+			TickResult walk = walkToBedGround(player, dev.agaminggod.mineagen.server.runtime.GameClock.nowMs(), () -> placeBed(player, bedItem));
+			if (walk != null) return walk;
 			log.add("no flat 2-cell spot within " + SPOT_RADIUS + " blocks for a bed");
 			return shelterPlan(player, dev.agaminggod.mineagen.server.runtime.GameClock.nowMs(), null);
 		}
@@ -254,6 +265,59 @@ public final class ServerRestController implements ServerController {
 			sleepTicks = 0;
 		}, () -> placeBed(player, bedItem));
 		return TickResult.running(0.3D);
+	}
+
+	/** How far the body walks for flat ground to put a bed on when none is beside it. */
+	static final int WALK_RADIUS = 8;
+	static final long WALK_MS = 20_000L;
+	/** The walk to bed ground happens once a rest. */
+	private boolean walkedForBed;
+
+	/**
+	 * No flat 2-cell spot beside the body (it stands on a slope, a shore, in shallow water): a player walks a few blocks to
+	 * flat dry ground and puts the bed down there rather than walling in where they stand. Starts the walk to the nearest
+	 * seen dry cell within {@link #WALK_RADIUS} with a flat 2-cell spot running off it, then {@code then}; null when there
+	 * is none, the walk was made already, or this body cannot walk. Rest rooms on seed 20261107: 4 of 20 starts by a lake
+	 * had no spot within 2 blocks, and the walls the plan fell back to ran out of planks or hit water (REST_STUCK).
+	 */
+	private TickResult walkToBedGround(ServerPlayer player, long now, java.util.function.Supplier<TickResult> then) {
+		if (walkedForBed) return null;
+		BlockPos stand = bedGround(player);
+		if (stand == null) return null;
+		ServerController walk = environment.travel(player, stand, Math.min(WALK_MS, Math.max(1_000L, deadline - now)));
+		if (walk == null) return null;
+		walkedForBed = true;
+		return runChild(() -> walk, result -> {
+			log.add((result.state() == State.SUCCEEDED ? "walked to flat ground at " : "walk to flat ground at ") + stand.toShortString()
+					+ (result.state() == State.SUCCEEDED ? "" : " failed: " + result.reasonCode()));
+			return then.get();
+		});
+	}
+
+	/** The nearest seen dry standing cell within {@link #WALK_RADIUS} with a flat 2-cell bed spot beside it, or null. */
+	private BlockPos bedGround(ServerPlayer player) {
+		BlockPos feet = feet(player);
+		BlockPos best = null;
+		int bestScore = Integer.MAX_VALUE;
+		for (int dx = -WALK_RADIUS; dx <= WALK_RADIUS; dx++) {
+			for (int dz = -WALK_RADIUS; dz <= WALK_RADIUS; dz++) {
+				for (int dy = -2; dy <= 2; dy++) {
+					int score = (dx * dx + dz * dz) * 4 + Math.abs(dy) * 2;
+					if (score >= bestScore || dx * dx + dz * dz > WALK_RADIUS * WALK_RADIUS) continue;
+					BlockPos stand = feet.offset(dx, dy, dz);
+					if (!open(player, stand) || !open(player, stand.above()) || !solid(player, stand.below())) continue;
+					for (Direction side : SIDES) {
+						BlockPos foot = stand.relative(side), head = foot.relative(side);
+						if (!refusedSpots.contains(foot) && open(player, foot) && solid(player, foot.below()) && open(player, head) && solid(player, head.below())) {
+							bestScore = score;
+							best = stand;
+							break;
+						}
+					}
+				}
+			}
+		}
+		return best;
 	}
 
 	/** A bed's foot cell and the way its head points (the body's facing when it clicks the foot cell). */

@@ -51,11 +51,19 @@ final class CombatMoveText {
 	 * query, made only when a controller consults the probe.
 	 */
 	static CombatPlanning.Margin knockbackMargin(ServerPlayer player) {
+		return knockbackMargin(player, false);
+	}
+
+	/**
+	 * As above; {@code underFire}, a shot is coming at the body, keeps the margin from any range: an arrow knocks the body
+	 * back as a blow does (archers-zombie: dodge steps along the platform rim, then a hit knocked it off, 3 of 10 dead).
+	 */
+	static CombatPlanning.Margin knockbackMargin(ServerPlayer player, boolean underFire) {
 		double range = CombatPlanning.Margin.KNOCKBACK_RANGE;
 		boolean near = !player.level().getEntitiesOfClass(LivingEntity.class, player.getBoundingBox().inflate(range),
 				entity -> entity != player && entity.isAlive() && player.distanceTo(entity) <= range
 						&& ThreatPerception.isActiveThreat(player, entity)).isEmpty();
-		if (!near) return CombatPlanning.Margin.NONE;
+		if (!near && !underFire) return CombatPlanning.Margin.NONE;
 		GridPosition feet = feet(player);
 		Set<GridPosition> overhung = new LinkedHashSet<>();
 		net.minecraft.world.phys.AABB box = player.getBoundingBox();

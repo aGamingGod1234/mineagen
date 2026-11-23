@@ -237,6 +237,10 @@ try {
 			else if (name === 'water') await s.command(skeleton.replace('%X%', '-299.5').replace('%Y%', '103').replace('%Z%', '16.5'));
 			else await s.command(skeleton.replace('%X%', '-299.5').replace('%Y%', '100').replace('%Z%', '20.5'));
 			const steps = [];
+			// Every change of firing, detail (numbers folded) or health, in order, with the game time and body position: the
+			// steps list above keeps each step once, so it cannot say what took the body from its walls or when.
+			const timeline = [];
+			let lastMark = null;
 			let maxThreatDistance = 0;
 			let backOuts = 0, backingSeen = false, minHealth = start, died = false, hits = 0, shieldS = 0, fired = false, wallingSeen = false, refusal = null, stopped = null, endDetail = null;
 			let blockMap = null, commandResult = null, commandSentAt = null, wallsAtCommand = null, creeperAt = null, healthAtCreeper = null, creeperExploded = false, maxWalls = 0;
@@ -304,6 +308,13 @@ try {
 				}
 				if (name === 'command' && commandResult && now() - commandSentAt > 3000) break;
 				const h = await health().catch(() => null);
+				const firingNow = o?.reflexes?.firing ? `${o.reflexes.firing.id}: ${String(o.reflexes.firing.detail ?? '')}` : '-';
+				const mark = `${firingNow.replace(/-?[\d.]+/g, '#').slice(0, 90)}|${h}`;
+				if (mark !== lastMark && timeline.length < 120) {
+					lastMark = mark;
+					const at = o?.position ? [o.position.x, o.position.y, o.position.z].map(v => +Number(v).toFixed(1)) : null;
+					timeline.push({ t: +((now() - t0) / 1000).toFixed(1), h, at, walls: w, firing: firingNow.slice(0, 200) });
+				}
 				if ((await deaths()) > deathsBefore || h === 0) { died = true; break; }
 				if (h !== null) minHealth = Math.min(minHealth, h);
 			}
@@ -323,8 +334,14 @@ try {
 				let y = Math.floor(endAt[1] + 0.2);
 				if (await isBlock(x, y - 1, z, 'minecraft:water')) y--;
 				endMap = { at: [x, y, z], cells: {} };
-				for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) for (const dy of [0, 1]) {
-					const kinds = [['cobble', 'minecraft:cobblestone'], ['water', 'minecraft:water'], ['air', 'minecraft:air']];
+				// A probe that cannot read the body's own cell (air or water) reads nothing: the map stays unknown.
+				endMap.probeOk = (await isBlock(x, y, z, 'minecraft:air')) || (await isBlock(x, y, z, 'minecraft:water'));
+				// The four sides at feet and head level, and the roof over the head. Only a known full block counts as closed:
+				// a plant, a torch or lava reads 'other', which is not a wall.
+				for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [1, 1, 0], [-1, 1, 0], [0, 1, 1], [0, 1, -1], [0, 2, 0]]) {
+					const kinds = [['cobble', 'minecraft:cobblestone'], ['water', 'minecraft:water'], ['air', 'minecraft:air'],
+						['solid', '#minecraft:base_stone_overworld'], ['solid', '#minecraft:dirt'], ['solid', 'minecraft:cobbled_deepslate'],
+						['solid', '#minecraft:planks'], ['solid', '#minecraft:logs'], ['solid', 'minecraft:gravel'], ['solid', 'minecraft:sand']];
 					let kind = 'other';
 					for (const [name, id] of kinds) if (await isBlock(x + dx, y + dy, z + dz, id)) { kind = name; break; }
 					endMap.cells[`${dx},${dy},${dz}`] = kind;
@@ -332,7 +349,7 @@ try {
 			}
 			const row = { case: name, run, food, defendFired: fired, hitsBack: hits, backOuts, backingSeen, shieldSeconds: shieldS, wallingSeen, refusal, stopped, maxWalls, wallsAtEnd,
 				wallsAtCommand, commandResult, creeperExploded, blastDamage: healthAtCreeper === null ? null : +(healthAtCreeper - (died ? 0 : minHealth)).toFixed(1),
-				endDetail, steps, blockMap, endMap, died, healthLost: died ? start : +(start - minHealth).toFixed(1),
+				endDetail, steps, timeline, blockMap, endMap, died, healthLost: died ? start : +(start - minHealth).toFixed(1),
 				seconds, wallSeconds, gameSeconds, rates, tick: { rate: s.tickRate, held: await s.tickReport() } };
 			Object.assign(row, damageEvidence(damageBefore, await readDamage(), start, healthEnd));
 			recordDeathEvidence(row, deathsBefore, deathsEnd);
@@ -343,7 +360,11 @@ try {
 			// Cover reached by any firing (defend's own step or a low-health cover rule): only a finished move says "in cover at".
 			// A finished wall-in with no side left open counts too: a body closed on every side is safe from arrows and melee,
 			// which is what the cover outcome stands for.
-			row.coverSeen = steps.some(coverReached) || coverReached(endDetail ?? '');
+			// A body that ends the watch shut in (every side at feet and head level and the roof solid) is in cover as well,
+			// also when no poll read a firing's "walled in" report: a body sheltered in its walls stops dodging, so the
+			// wall-in's last report can end between two polls and nothing fires after it.
+			row.closedAtEnd = !!endMap?.probeOk && Object.values(endMap.cells).every(kind => kind === 'cobble' || kind === 'solid');
+			row.coverSeen = steps.some(coverReached) || coverReached(endDetail ?? '') || row.closedAtEnd;
 			if (name === 'cover-zombie') row.pass = !died && row.coverSeen;
 			// Without an answer to the skeleton the room measured neither the creeper nor the command.
 			if (['creeper', 'command'].includes(name)) row.reactedWith = reactedWith;
