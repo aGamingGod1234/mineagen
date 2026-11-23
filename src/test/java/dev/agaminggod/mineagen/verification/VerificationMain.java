@@ -117,16 +117,21 @@ public final class VerificationMain {
 	}
 
 	public static void main(String[] args) throws Exception {
+		Throwable failure = null;
 		try {
 			verifyAll();
+		} catch (Throwable verificationFailure) {
+			failure = verificationFailure;
+			throw verificationFailure;
 		} finally {
 			// Minecraft's IO pool keeps an idle non-daemon worker alive for 60 s, which held this JVM open for a minute after
 			// the last check. A real server shuts these executors down when it stops; do the same here.
 			try {
 				net.minecraft.util.Util.shutdownExecutors();
-			} catch (RuntimeException shutdownFailure) {
-				// Never let a shutdown problem hide the verification result.
-				System.err.println("Minecraft executor shutdown failed: " + shutdownFailure);
+			} catch (Throwable shutdownFailure) {
+				// A shutdown problem never hides the verification result: it rides along on the real failure.
+				if (failure != null) failure.addSuppressed(shutdownFailure);
+				else throw shutdownFailure;
 			}
 		}
 	}

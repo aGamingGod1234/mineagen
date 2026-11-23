@@ -8,7 +8,7 @@
 
 ## The required check failed on a download, not a bug
 
-- **Problem:** About 500 CI runs a day each downloaded the same build tools and libraries from Maven Central. Maven Central started answering "429 Too Many Requests", and the required check went red on main with no code fault.
+- **Problem:** Every CI run (an estimated 500 a day, counted from the run list on two busy days) downloaded the same build tools and libraries from Maven Central again. Maven Central rate-limits the shared addresses GitHub's runners use, answered "429 Too Many Requests", and the required check went red on main with no code fault.
 - **Solution:** Each build job restores its own saved download cache, which only main writes. Gradle now retries a rate-limited download for up to about a minute instead of 3 seconds.
 - **Result:** Pull requests read main's cache instead of downloading everything again (the effect on 429s is estimated; this PR's own runs were cold because pull requests never write the cache).
 
