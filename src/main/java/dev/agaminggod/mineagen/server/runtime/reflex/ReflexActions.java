@@ -3083,7 +3083,8 @@ final class ReflexActions {
 
 		/** Per body, the cell its last wall-in began to close round it and the shooter it walled in from. */
 		private static final Map<java.util.UUID, Shelter> SHELTERS = new java.util.concurrent.ConcurrentHashMap<>();
-		record Shelter(BlockPos center, int shooterId) { }
+		/** {@code roofGaveUp}: the wall-in ended with the sides up and no roof (blocks ran out, the roof would not place). */
+		record Shelter(BlockPos center, int shooterId, boolean roofGaveUp) { }
 
 		/**
 		 * Whether the body stands in the cell its own wall-in closed (or is closing) round it, the shooter it walled in from
@@ -3100,6 +3101,10 @@ final class ReflexActions {
 			if (!feet.equals(shelter.center()) && !feet.below().equals(shelter.center())) return false;
 			// Walls that never closed (blocks ran out, a creeper stopped the build) or were opened since are no cover.
 			if (!enclosed(player.level(), shelter.center())) return false;
+			// Once the roof is given up, walls hide nothing from a shooter that sees down into the cell (a skeleton on a ledge):
+			// while it can see the body, the dodge and cover rules come back. While the roof is still going up the walls hold.
+			if (shelter.roofGaveUp() && player.level().getBlockState(shelter.center().above(2)).canBeReplaced()
+					&& (shooter instanceof net.minecraft.world.entity.Mob mob ? mob.getSensing().hasLineOfSight(player) : shooter.hasLineOfSight(player))) return false;
 			return Defend.nearestChaser(player, PACK_RANGE) >= PACK_RANGE;
 		}
 
@@ -3172,7 +3177,7 @@ final class ReflexActions {
 				if (!enclosed(level, center) && enclosed(level, center.below()) && level.getBlockState(center.below()).canBeReplaced()) center = center.below();
 				String no = refusal(player, center, shooter.position());
 				if (no != null) return Step.failed("not walling in: " + no);
-				SHELTERS.put(player.getUUID(), new Shelter(center, shooter.getId()));
+				SHELTERS.put(player.getUUID(), new Shelter(center, shooter.getId(), false));
 				heldSlot = player.getInventory().getSelectedSlot();
 				Direction facing = Direction.getApproximateNearest(shooter.getX() - player.getX(), 0.0D, shooter.getZ() - player.getZ());
 				// Feet level first (each head cell stands on its feet cell), the side facing the shooter first.
@@ -3336,7 +3341,10 @@ final class ReflexActions {
 		 * the whole plan before the roof), so it ends done without a roof instead of counting against defend.
 		 */
 		private Step roofStop(Level level, String why) {
-			if (enclosed(level, center)) return Step.done(report(level, "walled in from " + type(shooter) + " with no roof: " + why));
+			if (enclosed(level, center)) {
+				SHELTERS.replaceAll((body, shelter) -> shelter.center().equals(center) ? new Shelter(center, shelter.shooterId(), true) : shelter);
+				return Step.done(report(level, "walled in from " + type(shooter) + " with no roof: " + why));
+			}
 			return stop(level, why);
 		}
 

@@ -334,9 +334,14 @@ try {
 				let y = Math.floor(endAt[1] + 0.2);
 				if (await isBlock(x, y - 1, z, 'minecraft:water')) y--;
 				endMap = { at: [x, y, z], cells: {} };
-				// The four sides at feet and head level, and the roof over the head.
+				// A probe that cannot read the body's own cell (air or water) reads nothing: the map stays unknown.
+				endMap.probeOk = (await isBlock(x, y, z, 'minecraft:air')) || (await isBlock(x, y, z, 'minecraft:water'));
+				// The four sides at feet and head level, and the roof over the head. Only a known full block counts as closed:
+				// a plant, a torch or lava reads 'other', which is not a wall.
 				for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [1, 1, 0], [-1, 1, 0], [0, 1, 1], [0, 1, -1], [0, 2, 0]]) {
-					const kinds = [['cobble', 'minecraft:cobblestone'], ['water', 'minecraft:water'], ['air', 'minecraft:air']];
+					const kinds = [['cobble', 'minecraft:cobblestone'], ['water', 'minecraft:water'], ['air', 'minecraft:air'],
+						['solid', '#minecraft:base_stone_overworld'], ['solid', '#minecraft:dirt'], ['solid', 'minecraft:cobbled_deepslate'],
+						['solid', '#minecraft:planks'], ['solid', '#minecraft:logs'], ['solid', 'minecraft:gravel'], ['solid', 'minecraft:sand']];
 					let kind = 'other';
 					for (const [name, id] of kinds) if (await isBlock(x + dx, y + dy, z + dz, id)) { kind = name; break; }
 					endMap.cells[`${dx},${dy},${dz}`] = kind;
@@ -358,7 +363,7 @@ try {
 			// A body that ends the watch shut in (every side at feet and head level and the roof solid) is in cover as well,
 			// also when no poll read a firing's "walled in" report: a body sheltered in its walls stops dodging, so the
 			// wall-in's last report can end between two polls and nothing fires after it.
-			row.closedAtEnd = !!endMap && Object.values(endMap.cells).every(kind => kind !== 'air' && kind !== 'water');
+			row.closedAtEnd = !!endMap?.probeOk && Object.values(endMap.cells).every(kind => kind === 'cobble' || kind === 'solid');
 			row.coverSeen = steps.some(coverReached) || coverReached(endDetail ?? '') || row.closedAtEnd;
 			if (name === 'cover-zombie') row.pass = !died && row.coverSeen;
 			// Without an answer to the skeleton the room measured neither the creeper nor the command.
