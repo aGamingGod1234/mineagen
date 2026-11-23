@@ -58,6 +58,18 @@ export const DIMENSION_REFLEXES = Object.freeze({
 	'minecraft:the_end': Object.freeze([
 		{ id: 'default-breath', kind: 'trigger', priority: 9, when: [{ type: 'cloud_near', within: 2 }], do: { type: 'sprint_away', blocks: 10 }, maxMs: 6_000, ttlMs: 3_600_000 },
 		{ id: 'default-end-throw', kind: 'trigger', priority: 8, when: [{ type: 'dragon_charging', within: 48 }, { type: 'edge_near', within: 3, direction: 'any', drop: 16 }], do: { type: 'away_from_edge', blocks: 6 }, maxMs: 6_000, cooldownMs: 3_000, ttlMs: 3_600_000 },
+		// Endermen killed 13 of 16 bodies in the judged dragon fight. A body standing between commands keeps a level view,
+		// and one group of calm endermen in it turned hostile together (eye contact on all four): the guard turns the view
+		// off a calm one's eyes. Priority 8 outranks retreat and defend but never preempts breath (9) or end-throw (8),
+		// whose runs already keep the view off enderman eyes (EndermanGaze.clearPitch); 2 s covers the turn.
+		{ id: 'default-gaze', kind: 'trigger', priority: 8, when: [{ type: 'enderman_gaze', within: 64 }], do: { type: 'look_away' }, maxMs: 2_000, ttlMs: 3_600_000 },
+		// An angry enderman near the body teleports beside it faster than it can run or build: a player empties the water
+		// bucket at the feet, and the spreading water hurts and teleports any enderman that steps in. Any angry one within 8
+		// counts, not only one already after the body (targeting: true): measured in the judged End rooms, deaths were 34
+		// of 40 on main, 25 of 40 with any angry enderman and 23 of 28 with only one after the body. The water stays, so the
+		// bucket is spent and the rule sleeps (item-dependent rules never fire empty-handed), and so does a falling -> place
+		// water_bucket clutch: fall and void deaths were 8 of 40 on main and 7 of 40 with this rule.
+		{ id: 'default-ender-water', kind: 'trigger', priority: 8, when: [{ type: 'enderman_provoked', within: 8 }], do: { type: 'place', item: 'minecraft:water_bucket', where: 'feet' }, maxMs: 3_000, cooldownMs: 10_000, ttlMs: 3_600_000 },
 	].map((rule) => Object.freeze(rule))),
 });
 const MOST_DIMENSION_REFLEXES = Math.max(0, ...Object.values(DIMENSION_REFLEXES).map((rules) => rules.length));
@@ -65,7 +77,7 @@ export const DEFAULT_REFLEX_IDS = Object.freeze(new Set([...DEFAULT_REFLEXES, ..
 // The mod runs at most this many rules (ReflexSpec.MAX_RULES): the cap of every rule-set bound on the wire (C24). The
 // model's own rules plus the defaults (with the most any dimension adds) must fit it, so a new default needs a raise on
 // both sides first.
-export const MAX_REFLEX_RULES = 30;
+export const MAX_REFLEX_RULES = 32;
 if (MAX_REFLEXES + DEFAULT_REFLEXES.length + MOST_DIMENSION_REFLEXES > MAX_REFLEX_RULES) throw new Error(`reflex rules ${MAX_REFLEXES} + ${DEFAULT_REFLEXES.length} + ${MOST_DIMENSION_REFLEXES} exceed the mod's ${MAX_REFLEX_RULES}`);
 
 /**
@@ -184,7 +196,7 @@ export const REFLEX_CONDITIONS = Object.freeze({
 	fireball_incoming: { withinS: number(0.05, 3), deflectable: bool() },
 	creeper_fusing: { within: number(1, 16) },
 	enderman_gaze: { within: number(1, 64) },
-	enderman_provoked: { within: number(1, 64) },
+	enderman_provoked: { within: number(1, 64), targeting: bool() },
 	edge_near: { within: number(1, 4), direction: choice('ahead', 'behind', 'left', 'right', 'moving', 'any'), drop: number(2, 64) },
 	lava_near: { within: number(1, 4) },
 	lava_flowing: { withinS: number(0.5, 6) },
