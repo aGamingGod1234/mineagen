@@ -495,8 +495,16 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 					// it) instead of walking out to a shooting spot or scooping that water back up. The judged A/B lost 3 of 10 runs in
 					// 82-204 s to exactly that walk. Held at most 30 s at a time: an angry enderman can keep its target while it
 					// teleports about, and the crystals still have to come down.
-					const hunted = (o.entities ?? []).some(e => e?.type === 'minecraft:enderman' && e.alive !== false && e.targetingAgent === true && (e.distance ?? Infinity) <= 24);
-					if (!hunted) huntedSince = null;
+					const hunters = (o.entities ?? []).filter(e => e?.type === 'minecraft:enderman' && e.alive !== false && e.targetingAgent === true && (e.distance ?? Infinity) <= 24);
+					const hunted = hunters.length > 0;
+					// Holding still is only safe in water. On dry ground a player swings at the enderman that has closed in instead
+					// of standing to take its hits: round 3 lost 5 runs that stood here, out of water, while one to four endermen hit
+					// it (both sides ran this hold, so the fix applies to both).
+					const close = hunters.filter(e => (e.distance ?? Infinity) <= 5 && e.stableId).sort((a, b) => a.distance - b.distance)[0];
+					if (hunted && me.inWater !== true) {
+						huntedSince = null;
+						if (close) { const r = await act('fight_target', { targetId: close.stableId, timeoutMs: 8000, fleeAtHealth: 6 }); note('an enderman is after the body out of water: fight it', r); return true; }
+					} else if (!hunted) huntedSince = null;
 					else if (huntedSince === null || now() - huntedSince < 30000) {
 						if (huntedSince === null) { huntedSince = now(); note('an enderman is after the body: holding still in the water', null); }
 						await s.clock.sleep(1000);
