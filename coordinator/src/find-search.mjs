@@ -1385,18 +1385,12 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 				// the stairs from there. Swimming first drifts the body toward the shut way's next cell, off the hole the
 				// escape places its step from (B-1's aquifer: ESCAPE_NO_SHORE there, then FIND_BLOCKED).
 				// Mid-bob (clear of the water for a sample) the escape cannot start; after the swim it gets its turn.
-				const escapedFirst = inWater(), escapesBefore = escapes;
+				const escapedFirst = inWater();
 				let ended = await escapeWater();
 				if (ended !== null) return ended;
 				if (afloat()) { const swum = await swimUpStair(top, up); if (swum !== null) return swum; }
 				if (!escapedFirst) { ended = await escapeWater(); if (ended !== null) return ended; }
 				if (afloat()) return settle(up);
-				// Out onto dry footing by the escape: a look round from there before stairs lead away from the spot. B-1's
-				// aquifer: iron 16 blocks off in sight of the hole; the stairs up and the walk off left it unseen (0 of 5).
-				if (escapes > escapesBefore) {
-					const view = await look(0);
-					if (view.interrupted || view.seen || view.ended) return settle(view);
-				}
 			}
 			const at = bodyAt(observation);
 			if (up.seen || up.interrupted || !SHUT_WAY.has(up.result?.reasonCode) || observation?.player?.underWater === true || at === null || at.y >= top.y - 3) return settle(up);
