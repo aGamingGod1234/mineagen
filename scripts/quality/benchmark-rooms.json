@@ -1392,7 +1392,7 @@
    "line": "ARENA_JAR=$JAR node scripts/quality/test-caged-crystal-live.mjs $OUT",
    "estMinutes": 4,
    "tickRate": 20,
-   "reads": "OUT/caged.json checks.*.ok (summary lists each); exit 0 even when a check fails"
+   "reads": "exit code and OUT/caged.json pass: every check in checks.*.ok held"
   },
   {
    "room": "controller-shield-hands",
@@ -1736,7 +1736,7 @@
    "estMinutes": 2,
    "tickRate": 20,
    "bar": "none",
-   "reads": "no exit verdict (exit 0): OUT/default-reflex.json summary.defaults (alive or on-bridge count); summary.none is the rule-less control body"
+   "reads": "pass: alive and the fire put out (OUT/default-reflex.json cases[] pass on the defaults body; fireLeft, fireOutS); the rule-less control body is recorded, not judged"
   },
   {
    "room": "default-reflex-edge-control",
@@ -1808,7 +1808,7 @@
    "estMinutes": 1.2,
    "tickRate": 20,
    "bar": "none",
-   "reads": "no pass bar: OUT/runs.json died, healthLost, defendFired; exit 0 (errors go to error.txt)"
+   "reads": "no pass bar: OUT/runs.json died, healthLost, defendFired; a run where no wall went up (so no creeper came) is notExercised; exit 0 (errors go to error.txt)"
   },
   {
    "room": "defend-command",
@@ -1820,7 +1820,7 @@
    "estMinutes": 1.2,
    "tickRate": 20,
    "bar": "none",
-   "reads": "no pass bar: OUT/runs.json died, healthLost, defendFired; exit 0 (errors go to error.txt)"
+   "reads": "no pass bar: OUT/runs.json died, healthLost, defendFired; a run where no wall went up (so no command was sent) is notExercised; exit 0 (errors go to error.txt)"
   },
   {
    "room": "defend-shallow",
@@ -2166,7 +2166,7 @@
    "line": "REFLEX_ONLY=angry-shield ARENA_JAR=$JAR node scripts/quality/test-enderman-live.mjs $OUT",
    "estMinutes": 1.5,
    "tickRate": 20,
-   "reads": "exit code; OUT/results.json angry-shield.pass"
+   "reads": "exit code; OUT/results.json angry-shield.pass: provoked, a block fired, at most 2 health lost"
   },
   {
    "room": "enderman-angry-water",
