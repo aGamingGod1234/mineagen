@@ -6,10 +6,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { armTotals, formatSummary, mergeArms, parseCommands, plannedOf, repeatGroup, runQueue, splitWords, stageRoom, topUp } from '../../scripts/quality/lib/room-batch-core.mjs';
 import { runBatch } from '../../scripts/quality/lib/room-batch-run.mjs';
+import { regionFiles, slimRoom } from '../../scripts/quality/lib/room-worlds.mjs';
 import { cutoffTime, nextClockTime, nextSlot, parseWindowsHosts, pastCutoff, portClashes, slotPortBase, windowsBatchDir, windowsPath, windowsPool } from '../../scripts/quality/lib/windows-pool.mjs';
-import { BUNDLE_PATHS, buildBundle, hasZstd, launchScript, prepareScript, readWait, waitAndPackScript } from '../../scripts/quality/lib/boat-pool.mjs';
+import { BUNDLE_PATHS, PACK_EXCLUDES, buildBundle, hasZstd, launchScript, prepareScript, readWait, waitAndPackScript } from '../../scripts/quality/lib/boat-pool.mjs';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { spawn, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 
 const LINE = 'node scripts/quality/test-build-live.mjs scripts/quality/carve-hidden-fluid-spots.json $OUT $JAR --descriptive';
 const room = name => ({ room: name, lines: [{ arm: 'new', env: {}, args: [] }, { arm: 'old', env: {}, args: [] }], planned: 1 });
@@ -369,6 +370,114 @@ process.exit(res.status ?? 1);\n`);
 	} finally { await rm(dir, { recursive: true, force: true }); }
 });
 
+const REGION = 'server/world/dimensions/minecraft/overworld/region/r.0.0.mca';
+/** An arm folder as a room leaves it: region and entity files, the small world files, logs, Watcher rows and its own results. */
+async function writeWorldArm(dir, files = {}) {
+	const put = async (rel, data) => { await mkdir(path.dirname(path.join(dir, rel)), { recursive: true }); await writeFile(path.join(dir, rel), data); };
+	await put(REGION, Buffer.alloc(4096));
+	await put('server/world/dimensions/minecraft/overworld/region/c.0.0.mcc', Buffer.alloc(100));
+	await put('server/world/dimensions/minecraft/overworld/entities/r.0.0.mca', Buffer.alloc(1000));
+	for (const rel of ['server/world/level.dat', 'server/logs/latest.log', 'server/arena-watch/a-danger.jsonl']) await put(rel, 'x');
+	for (const [rel, data] of Object.entries(files)) await put(rel, typeof data === 'string' ? data : JSON.stringify(data));
+}
+
+test('a room home drops the region files of each arm that passed, judged as the scorer judges it, and keeps a failed or unproven arm\'s', async () => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'room-worlds-'));
+	try {
+		const ok = { exit: 0, signal: null, error: null, timedOut: false };
+		const arms = {
+			// finishRun's rows and summary
+			pass: [ok, { 'result.json': [row('a')], 'result-summary.json': { planned: 1, status: 'PASS' } }],
+			failRow: [ok, { 'result.json': [row('a', { pass: false })], 'result-summary.json': { planned: 1 } }],
+			short: [ok, { 'result.json': [row('a')], 'result-summary.json': { planned: 2 } }],
+			noSummary: [ok, { 'result.json': [row('a')] }],
+			garbled: [ok, { 'result.json': [row('a')], 'result-summary.json': '{' }],
+			// a fixture outside finishRun: its exit code and its own JSON
+			exitOnly: [ok, { 'tick.json': { ticks: 5 } }],
+			exit1: [{ ...ok, exit: 1 }, { 'tick.json': { ticks: 5 } }],
+			timedOut: [{ ...ok, exit: null, timedOut: true }, {}],
+			died: [ok, { 'results.json': [{ died: true }] }],
+			passFalse: [ok, { 'results.json': { pass: false } }],
+			errorTxt: [ok, { 'error.txt': 'boom' }],
+			corrupt: [ok, { 'results.json': '{' }],
+			asked: [ok, { 'tick.json': { ticks: 5 } }],
+			askedZero: [ok, { 'tick.json': { ticks: 5 } }],
+			integrity: [ok, { 'results.json': { integrity: [{ file: 'samples.jsonl', error: 'cut short' }] } }],
+			// Documented gap: without the room's definition a survival room with no death record cannot be failed here.
+			noDeathRecord: [ok, { 'results.json': { pearls: 3 } }],
+		};
+		const done = { room: 'r', arms: {} };
+		for (const [arm, [run, files]] of Object.entries(arms)) { done.arms[arm] = run; await writeWorldArm(path.join(dir, arm), files); }
+		const worlds = await slimRoom({ roomDir: dir, done, lines: [{ arm: 'asked', env: { KEEP_WORLDS: '1' } }, { arm: 'askedZero', env: { BUILD_KEEP: '0' } }, { arm: 'exitOnly', env: { ARENA_FIXTURE_KEEP: '' } }] });
+		const kept = { failRow: 'row FAIL', short: 'a planned row is missing', noSummary: 'missing or corrupt summary', garbled: 'missing or corrupt summary',
+			exit1: 'did not exit 0', timedOut: 'did not exit 0', died: 'died', passFalse: 'pass false', errorTxt: 'error.txt', corrupt: 'corrupt JSON', asked: 'keep switch', askedZero: 'keep switch', integrity: 'integrity' };
+		for (const arm of ['pass', 'exitOnly', 'noDeathRecord']) {
+			assert.deepEqual(worlds[arm], { files: 3, bytes: 5196, dropped: 3 }, arm);
+			assert.deepEqual(await regionFiles(path.join(dir, arm)), [], `${arm}: region files dropped`);
+			for (const rel of ['server/world/level.dat', 'server/logs/latest.log', 'server/arena-watch/a-danger.jsonl']) assert.ok(existsSync(path.join(dir, arm, rel)), `${arm}: ${rel} stays`);
+		}
+		for (const [arm, reason] of Object.entries(kept)) {
+			assert.deepEqual(worlds[arm], { files: 3, bytes: 5196, kept: reason }, arm);
+			assert.ok(existsSync(path.join(dir, arm, REGION)), `${arm}: region file kept`);
+		}
+	} finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('runBatch drops a passing arm\'s region files as its room lands and records it in the outcome, and --keep-worlds keeps them', async () => {
+	for (const keepWorlds of [false, true]) {
+		const out = await mkdtemp(path.join(os.tmpdir(), 'room-batch-keep-'));
+		try {
+			const pool = {
+				async create() { return { id: 'vm1' }; },
+				async prepare() { return { code: '/c', out: '/o', jars: { new: '/j/new.jar', old: '/j/old.jar' }, inputs: {}, javaHome: '/jdk', template: '/t' }; },
+				async start() {},
+				async poll() { return 'done'; },
+				async alive() { return true; },
+				async fetch(vm, roomName) {
+					await writeRoom(out, roomName, 'new', [row(`spot-${roomName}`)]);
+					await writeRoom(out, roomName, 'old', [row(`spot-${roomName}`, { pass: false })]);
+					for (const arm of ['new', 'old']) await writeWorldArm(path.join(out, 'rooms', roomName, arm));
+					return { seconds: 5, arms: { new: { exit: 0 }, old: { exit: 0 } }, machine: {} };
+				},
+				async keepAlive() {},
+				async usage() { return { seconds: 1 }; },
+				async destroy() {},
+			};
+			const result = await runBatch({ batch: { name: 't', code: 'abc12345' }, rooms: parseCommands(`@a ${LINE}`, ['new', 'old']), arms: [{ name: 'new' }, { name: 'old' }], pool, vms: 1, out, pollMs: 1, log: () => {}, keepWorlds });
+			const arms = result.outcomes[0].arms;
+			assert.deepEqual(arms.old.worlds, { files: 3, bytes: 5196, kept: keepWorlds ? 'keepWorlds' : 'row FAIL' });
+			assert.deepEqual(arms.new.worlds, keepWorlds ? { files: 3, bytes: 5196, kept: 'keepWorlds' } : { files: 3, bytes: 5196, dropped: 3 });
+			assert.equal(existsSync(path.join(out, 'rooms/a/new', REGION)), keepWorlds);
+			assert.ok(existsSync(path.join(out, 'rooms/a/old', REGION)));
+			assert.equal(result.merged.new.summary.status, 'PASS', 'the merge reads the slimmed room the same');
+			assert.equal(result.merged.old.summary.status, 'FAIL');
+		} finally { await rm(out, { recursive: true, force: true }); }
+	}
+});
+
+test('a Windows PC packs a room with the same excludes as a boat machine', async () => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'room-batch-winpack-'));
+	try {
+		await mkdir(path.join(dir, 'src/r'), { recursive: true });
+		await writeFile(path.join(dir, 'src/r/done.json'), JSON.stringify({ room: 'r', arms: {} }));
+		const scripts = [];
+		const pool = windowsPool({
+			hosts: [{ host: 'pc-a', slots: 1, slotBase: 0 }], batchName: 'win-pack', bundle: { codeTar: '/tmp/c.tgz', helper: '/tmp/h.mjs', jars: {}, inputs: [] }, log: () => {},
+			runUpload: async () => {},
+			runDownload: async (host, remotePath, local) => { execFileSync('tar', ['-czf', local, '-C', path.join(dir, 'src'), 'r']); },
+			runPs: async (host, script) => { scripts.push(script); return script.includes('ConvertTo-Json') ? JSON.stringify({ node: 'C:\\node.exe', excluded: '' }) : ''; },
+		});
+		const vm = await pool.create();
+		await pool.prepare(vm);
+		vm.outDir = 'C:/aa-runs/x/out';
+		const done = await pool.fetch(vm, 'r', path.join(dir, 'rooms'));
+		assert.equal(done.room, 'r');
+		const pack = scripts.find(script => script.includes('-czf'));
+		for (const item of PACK_EXCLUDES) assert.ok(pack.includes(`--exclude='${item}'`), `${item} excluded: ${pack}`);
+		assert.ok(PACK_EXCLUDES.includes('.fabric'));
+	} finally { await rm(dir, { recursive: true, force: true }); }
+});
+
 test('a stopped batch deletes its machines and reports unfinished rooms as stopped', async () => {
 	const out = await mkdtemp(path.join(os.tmpdir(), 'room-batch-stop-'));
 	try {
@@ -568,6 +677,11 @@ test('the long poll says RUNNING while a room plays, the room folder as soon as 
 		await mkdir(path.join(dir, 'out/r/new'), { recursive: true });
 		await writeFile(path.join(dir, 'out/r/new/result.json'), '[]');
 		await writeFile(path.join(dir, 'out/r/new/secret.txt'), 'rcon');
+		for (const file of ['server/.fabric/processedMods/fabric-api.jar', 'server/libraries/a.jar', 'server/mods/m.jar', 'server/versions/v.jar', 'server/server.jar',
+			'server/logs/latest.log', 'server/arena-watch/a-danger.jsonl', 'server/world/level.dat', 'server/server.properties']) {
+			await mkdir(path.dirname(path.join(dir, 'out/r/new', file)), { recursive: true });
+			await writeFile(path.join(dir, 'out/r/new', file), 'x');
+		}
 		const waitFor = (seconds) => new Promise((resolve, reject) => {
 			const child = spawn('bash', ['-c', waitAndPackScript({ outDir: path.join(dir, 'out'), room: 'r', seconds })], { stdio: ['ignore', 'pipe', 'inherit'] });
 			const chunks = [];
@@ -593,6 +707,8 @@ test('the long poll says RUNNING while a room plays, the room folder as soon as 
 		assert.equal(readFileSync(path.join(dir, 'back/r/done.json'), 'utf8'), '{"seconds":3}');
 		assert.ok(existsSync(path.join(dir, 'back/r/new/result.json')));
 		assert.ok(!existsSync(path.join(dir, 'back/r/new/secret.txt')), 'the RCON secret stays on the machine');
+		for (const gone of ['server/.fabric', 'server/libraries', 'server/mods', 'server/versions', 'server/server.jar']) assert.ok(!existsSync(path.join(dir, 'back/r/new', gone)), `${gone} stays on the machine`);
+		for (const kept of ['server/logs/latest.log', 'server/arena-watch/a-danger.jsonl', 'server/world/level.dat', 'server/server.properties']) assert.ok(existsSync(path.join(dir, 'back/r/new', kept)), `${kept} comes home`);
 	} finally { await rm(dir, { recursive: true, force: true }); }
 });
 
