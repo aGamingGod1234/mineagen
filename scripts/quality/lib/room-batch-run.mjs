@@ -18,6 +18,7 @@
 import { mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { formatSummary, mergeArms, runQueue, topUp } from './room-batch-core.mjs';
+import { slimRoom } from './room-worlds.mjs';
 
 const sleep = ms => new Promise(done => setTimeout(done, ms));
 
@@ -35,7 +36,7 @@ function raceAbort(promise, signal) {
 }
 
 export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeoutMs = 40 * 60_000, pollMs = 0, retryMs = 15_000, lostAfterMs = 5 * 60_000,
-	keepAliveMs = 15 * 60_000, prepareGraceMs = 120_000, replacements = vms, log = console.log, rewrite = (value) => value, signal = null, valid = null }) {
+	keepAliveMs = 15 * 60_000, prepareGraceMs = 120_000, replacements = vms, log = console.log, rewrite = (value) => value, signal = null, valid = null, keepWorlds = false }) {
 	await mkdir(path.join(out, 'rooms'), { recursive: true });
 	if ((await readdir(path.join(out, 'rooms'))).length) throw new Error(`${out} already holds rooms: use a fresh output folder`);
 	const began = Date.now(), machines = [], layouts = new Map();
@@ -143,7 +144,11 @@ export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeout
 			try {
 				const done = await pool.fetch(vm, room.room, path.join(out, 'rooms'));
 				log(`room ${room.room} done on ${vm.id} in ${done.seconds}s`);
-				return { lost: false, arms: done.arms, seconds: done.seconds, machine: done.machine };
+				// A passing arm's world region files go as soon as the room is home (lib/room-worlds.mjs); what each arm
+				// kept or dropped is recorded with its outcome in batch.json.
+				const worlds = await slimRoom({ roomDir: path.join(out, 'rooms', room.room), done, lines: room.lines, keepWorlds });
+				const arms = Object.fromEntries(Object.entries(done.arms ?? {}).map(([arm, value]) => [arm, worlds[arm] ? { ...value, worlds: worlds[arm] } : value]));
+				return { lost: false, arms, seconds: done.seconds, machine: done.machine };
 			} catch (error) { await retire(vm, 'copy failed'); return { lost: true, reason: `copy failed: ${error.message}` }; }
 		};
 		const replace = async (lostVm, outcome) => {
