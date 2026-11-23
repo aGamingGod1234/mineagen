@@ -2205,6 +2205,9 @@ public final class ServerActionExecutor {
 				selectBreakTool(body, body.level().getBlockState(at));
 				return gatedBreak(parent, body, at, false, timeoutMs, true);
 			}
+			public String lavaBehind(ServerPlayer body, BlockPos at) {
+				return ServerActionExecutor.lavaBehind(body, at);
+			}
 			public ServerController shelter(ServerPlayer body, BlockPos center, Direction opening, String item, long timeoutMs) {
 				var block = BuiltInRegistries.ITEM.getValue(net.minecraft.resources.Identifier.parse(item));
 				if (!shelterBlock(block)) throw new AgentDomainException("INVALID_SHELTER_BLOCK", "Shelter walls need a carried full solid block that does not fall");
