@@ -63,6 +63,21 @@ test('runs are read per row, by exit code without rows, and a room that never ca
 	assert.match(formatScoreboard({ rooms, groups }), /\| a \| building, survival \| 1\/2 \| 50% \|/);
 });
 
+test('an exit-code room whose own rows say the mechanic never ran is no evidence, not a pass', async t => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'bench-score-'));
+	t.after(() => rm(dir, { recursive: true, force: true }));
+	const put = async (file, value) => { await mkdir(path.dirname(path.join(dir, file)), { recursive: true }); await writeFile(path.join(dir, file), JSON.stringify(value)); };
+	const plan = planBenchmark([{ room: 'd', line: LINE }], { repeats: 2, slots: 2 });
+	await put('rooms/d.c1/done.json', { room: 'd.c1', arms: { r1: { exit: 0, seconds: 30 }, r2: { exit: 0, seconds: 30 } } });
+	await put('rooms/d.c1/r1/runs.json', [{ case: 'creeper', died: false, damageTaken: 0, notExercised: 'no wall went up, so the creeper never came' }]);
+	await put('rooms/d.c1/r2/runs.json', [{ case: 'creeper', died: false, damageTaken: 0 }]);
+	const runs = await collectRuns(dir, plan, { d: { bar: 'none' } });
+	const by = arm => runs.find(run => run.arm === arm);
+	assert.equal(by('r1').verdict, 'INVALID');
+	assert.match(by('r1').reason, /^not exercised: no wall went up/);
+	assert.equal(by('r2').verdict, 'PASS');
+});
+
 test('reasons fold numbers so the same failure counts once', () => {
 	assert.equal(foldReason('fell 12.5 blocks at -3,4,5\nmore'), foldReason('fell 3 blocks at 1,2,-9'));
 });
