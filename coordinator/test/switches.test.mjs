@@ -81,7 +81,8 @@ const OLD_READERS = {
 	'kit.habit': (env) => String(env?.MINEAGEN_KIT_HABIT ?? '').trim().toLowerCase() !== 'off',
 	'night.cover': (env) => String(env?.MINEAGEN_NIGHT_COVER ?? '').trim().toLowerCase() !== 'off',
 	'tools.program': (env) => String(env?.MINEAGEN_PROGRAM_TOOLS ?? '').trim().toLowerCase() === 'on',
-	'instincts': (env) => String(env?.MINEAGEN_INSTINCTS ?? '').split(',').map((word) => word.trim()).includes('instincts'),
+	// On by default since the default flip; set, it reads as before (a comma list holding `instincts`).
+	'instincts': (env) => env?.MINEAGEN_INSTINCTS == null || String(env.MINEAGEN_INSTINCTS).split(',').map((word) => word.trim()).includes('instincts'),
 	'experience.frozen': (env) => env.MINEAGEN_EXPERIENCE_FROZEN === '1',
 };
 const ENV_OF = Object.fromEntries(SWITCHES.filter((item) => item.env).map((item) => [item.name, item.env]));
@@ -177,8 +178,8 @@ test('every reader reads its switch through the registry, and no switch variable
 	const cases = {
 		'travel.walkAround': { env: 'MINEAGEN_TRAVEL_WALK_AROUND', property: 'mineagen.travel.walkAround', table: [[undefined, false], [' ON ', true], ['true', false]],
 			properties: [[undefined, false], ['TRUE', true], [' true', false], ['on', false]] },
-		'instincts': { env: 'MINEAGEN_INSTINCTS', property: 'mineagen.instincts', table: [[undefined, false], ['instincts', true], ['x, instincts', true], ['Instincts', false]],
-			properties: [[undefined, false], ['True', true], ['1', false]] },
+		'instincts': { env: 'MINEAGEN_INSTINCTS', property: 'mineagen.instincts', table: [[undefined, true], ['instincts', true], ['x, instincts', true], ['Instincts', false], ['off', false], ['', false]],
+			properties: [[undefined, true], ['True', true], ['false', false], ['1', false]] },
 		'fight.chargeGuard': { property: 'mineagen.fight.chargeGuard', properties: [[undefined, true], ['false', false], ['FALSE', true], ['no', true]] },
 		'fight.recover': { property: 'mineagen.fight.recover', properties: [[undefined, true], ['false', false], ['False', true]] },
 		'fight.spawnerHold': { property: 'mineagen.fight.spawnerHold', properties: [[undefined, true], ['false', false], [' false', true]] },
@@ -209,7 +210,9 @@ test('sources: default, env, property, and unseen when the property cannot be re
 	assert.deepEqual({ ...getSwitch('fight.forestHunt', {}, { properties: { 'mineagen.fight.forestHunt': 'true' } }) }, { value: true, source: 'property' });
 	// Two sources: a true env value settles it even when the property is unseen; otherwise either can turn it on.
 	assert.deepEqual({ ...getSwitch('instincts', { MINEAGEN_INSTINCTS: 'instincts' }) }, { value: true, source: 'env' });
-	assert.deepEqual({ ...getSwitch('instincts', {}) }, { value: false, source: 'unseen' });
+	assert.deepEqual({ ...getSwitch('instincts', {}) }, { value: true, source: 'unseen' });
+	assert.deepEqual({ ...getSwitch('instincts', {}, { properties: {} }) }, { value: true, source: 'default' });
+	assert.deepEqual({ ...getSwitch('instincts', { MINEAGEN_INSTINCTS: 'off' }) }, { value: false, source: 'unseen' });
 	assert.deepEqual({ ...getSwitch('instincts', { MINEAGEN_INSTINCTS: 'x' }, { properties: { 'mineagen.instincts': 'true' } }) }, { value: true, source: 'property' });
 	assert.deepEqual({ ...getSwitch('instincts', { MINEAGEN_INSTINCTS: 'x' }, { properties: { 'mineagen.instincts': 'false' } }) }, { value: false, source: 'env' });
 	assert.deepEqual({ ...getSwitch('instincts', {}, { properties: { 'mineagen.instincts': 'false' } }) }, { value: false, source: 'property' });
@@ -282,8 +285,10 @@ public class SwitchesParity {
 	// registry must answer each exactly as before. Boolean.getBoolean(name) is "true".equalsIgnoreCase(property).
 	static String old(Map<String, String> env, Map<String, String> p) {
 		String listed = env.get("MINEAGEN_INSTINCTS");
+		// Instincts: on by default since the default flip (neither source set); a set source reads as before.
 		boolean instincts = "true".equalsIgnoreCase(p.get("mineagen.instincts"))
-				|| (listed != null && Arrays.stream(listed.split(",")).map(String::trim).anyMatch("instincts"::equals));
+				|| (listed != null && Arrays.stream(listed.split(",")).map(String::trim).anyMatch("instincts"::equals))
+				|| (listed == null && p.get("mineagen.instincts") == null);
 		boolean walkAround = "true".equalsIgnoreCase(p.get("mineagen.travel.walkAround"))
 				|| "on".equalsIgnoreCase(String.valueOf(env.get("MINEAGEN_TRAVEL_WALK_AROUND")).trim());
 		boolean[] values = { instincts, walkAround,

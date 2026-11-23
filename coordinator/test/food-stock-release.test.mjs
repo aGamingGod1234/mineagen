@@ -138,7 +138,8 @@ test('the production coordinator records a failed food obtain before the next wa
 	try {
 		bridge.emit('goal_control', { agentId: 'agent-a', payload: { operation: 'start', goalRevision: 1, goal: 'beat the game', goalSpec: spec } });
 		bridge.emit('observation', { agentId: 'agent-a', payload: factToWireObservation({ player: { x: 0, y: 64, z: 0, health: 20, foodLevel: 20 }, world: { worldId: 'w1', dimension: 'minecraft:overworld', gameTime: 1, dayTime: 1, raining: false, thundering: false },
-			inventory: { items: [{ itemId: 'minecraft:stone_pickaxe', count: 1, slot: 0 }, { itemId: 'minecraft:furnace', count: 1, slot: 1 }] } }, 1, 1, false, 1000) });
+			// A sword too: the production coordinator plays with instincts on (the default), whose route asks for a weapon first.
+			inventory: { items: [{ itemId: 'minecraft:stone_pickaxe', count: 1, slot: 0 }, { itemId: 'minecraft:furnace', count: 1, slot: 1 }, { itemId: 'minecraft:stone_sword', count: 1, slot: 2 }] } }, 1, 1, false, 1000) });
 		await eventually(() => result !== undefined || error !== undefined);
 		assert.ifError(error);
 		assert.equal(result.reasonCode, 'NO_SOURCE');

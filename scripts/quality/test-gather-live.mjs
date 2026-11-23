@@ -153,7 +153,9 @@ for await (const { item: [, spot], server: s, error: bootError } of warmBoots([.
 		row.finishedAt = Date.now();
 		row.tick = { rate: s.tickRate, held: await s.tickReport() };
 		const expected = [spot.expectCode].flat().filter(Boolean);
-		const met = expected.length ? expected.includes(row.result.reasonCode) : row.result.state === 'SUCCEEDED';
+		// A gather that hands back early (NO_TARGET once the seen logs run out) still SUCCEEDS: the bar is the count asked for.
+		const asked = spot.gather?.count;
+		const met = expected.length ? expected.includes(row.result.reasonCode) : row.result.state === 'SUCCEEDED' && (asked === undefined || row.result.held >= asked);
 		row.pass = Boolean(met && row.deaths === 0 && row.healthLost === 0);
 		console.log(`[${spot.name}] ${row.result.state} ${row.result.reasonCode} held=${row.result.held} broken=${row.result.broken} picked=${row.result.picked} steps=${row.result.steps} ${row.seconds}s maxRise=${row.maxRise}${spot.watch ? ` onWatched=${row.onWatched}` : ''} healthLost=${row.healthLost} deaths=${row.deaths} PASS=${row.pass}`);
 		console.log(`  ${row.result.message}`);

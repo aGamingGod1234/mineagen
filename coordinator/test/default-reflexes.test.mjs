@@ -9,7 +9,8 @@ const ids = (book) => book.list('a').map((row) => `${row.id}${row.default ? '*' 
 const FIRE = { id: 'burn', when: { type: 'on_fire' }, do: { type: 'leave_fire' } };
 
 test('the default survival rules arm at spawn as canonical rules the mod accepts', () => {
-	const book = new ReflexBook();
+	// The plain rule set, without the instincts arm's automatic stance (on by default; its own tests are below).
+	const book = new ReflexBook({ instincts: false });
 	assert.equal(book.observeContext('a', { ready: false }), false, 'no arming before a live sample');
 	assert.equal(book.observeContext('a', live()), true, 'spawn arms them');
 	assert.deepEqual(ids(book), ['default-lava*', 'default-lava-flow*', 'default-fire*', 'default-air*', 'default-edge*', 'default-creeper*', 'default-suffocate*', 'default-fireball*', 'default-arrow*', 'default-arrow-dodge*', 'default-retreat*', 'default-eat*', 'default-defend*', 'default-blaze-cover*', 'default-cover*', 'default-owed-drops*']);
@@ -72,8 +73,9 @@ test('the shared fixture the mod parses is exactly the default payload the coord
 const fighting = (health = 20) => ({ world: { dimension: OVERWORLD }, player: { health }, currentAction: { active: true, actionId: 'x', actionType: 'fight_target' } });
 const valueOf = (book, id, type) => book.payload('a').rules.find((rule) => rule.id === id).when.find((c) => c.type === type).value;
 
-test('instincts flag: read from MINEAGEN_INSTINCTS as a comma list', () => {
-	assert.equal(instinctsEnabled({}), false);
+test('instincts flag: on by default; MINEAGEN_INSTINCTS set to a comma list without it turns it off', () => {
+	assert.equal(instinctsEnabled({}), true);
+	assert.equal(instinctsEnabled({ MINEAGEN_INSTINCTS: 'off' }), false);
 	assert.equal(instinctsEnabled({ MINEAGEN_INSTINCTS: '' }), false);
 	assert.equal(instinctsEnabled({ MINEAGEN_INSTINCTS: 'instincts' }), true);
 	assert.equal(instinctsEnabled({ MINEAGEN_INSTINCTS: 'aim, instincts' }), true);
@@ -109,7 +111,7 @@ test('steady equals the default set; each stance changes only its numbers', () =
 
 test('flag off: no stance, the payload and wake line stay as before even in a fight', () => {
 	let now = 0;
-	const book = new ReflexBook({ now: () => now });
+	const book = new ReflexBook({ now: () => now, instincts: false });
 	book.observeContext('a', live());
 	const before = JSON.stringify(book.payload('a'));
 	now = 10_000; book.observeContext('a', fighting());
@@ -160,7 +162,7 @@ test('flag on with no injected defaults: nothing arms and there is no stance lin
 test('heal: the default eat rule fires below hunger 18 in every stance, with the flag on or off', () => {
 	const eat = DEFAULT_REFLEXES.find((rule) => rule.id === 'default-eat');
 	for (const stance of STANCES) assert.equal(materializeDefault(eat, stance).when.find((c) => c.type === 'hunger_below').value, 18, stance);
-	const off = new ReflexBook();
+	const off = new ReflexBook({ instincts: false });
 	off.observeContext('a', live());
 	assert.equal(valueOf(off, 'default-eat', 'hunger_below'), 18, 'health regrows only at hunger 18+, so the flag-off line matches');
 	const on = new ReflexBook({ instincts: true });

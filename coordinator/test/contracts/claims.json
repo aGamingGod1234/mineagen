@@ -38443,7 +38443,7 @@
           "type": "live-behavior",
           "test": "test-travel-resume-live",
           "command": "headless Minecraft production bridge fixture: scripts/quality/test-travel-resume-live.mjs (zombieStop, zombieFight, reflexResume)",
-          "predicate": "zombieFight arrives with the zombie killed; zombieStop (no fightThrough) still stops HOSTILE_NEAR."
+          "predicate": "zombieFight arrives with the zombie killed; zombieStop (fightThrough:false) still stops HOSTILE_NEAR; left unset with instincts on (the default) the same walk fights the lone zombie through and arrives (#185 room A/B, 10 of 10)."
         },
         {
           "file": "coordinator/test/native-minecraft-tools.test.mjs",
@@ -38660,28 +38660,28 @@
       "reason": "Reviewed against the ported travel body and verifyCarriedSupplies: whole-inventory swaps, 600000 ms default, retained d35 observation window and brink guard. Terrain, hazard and timing outcomes require the fresh six-pair live course study. The portal step (a target on a seen portal is stepped into and stood in until the crossing) is reviewed against ServerTravelController.enterPortal and witnessed live by build.portal-chain (cast-gate-5 lit, travel_to the opening, crossed in 7 s); PORTAL_NOT_REACHED and PORTAL_NOT_CROSSED have no fixture that provokes them."
     },
     {
+      "id": "control:e2c1a93886a46505:368c7d7def7c621d",
       "predicate": "fightThrough:true is a model-chosen travel_to option: hostiles beyond 6 blocks are remembered, one within 6 or one that hits from within 16 is fought with fight_target rules (best hotbar weapon, pursue, fleeAtHealth=minHealth), then the trip replans and continues; the result lists each fight; LOW_HEALTH_BAILOUT, IN_LAVA, ON_FIRE, death or a second failed fight hand back with the fight reason; non-mob damage still stops with TRAVEL_DAMAGED; rejected with retrace:true.",
+      "status": "partial",
+      "reason": "fightThrough and resume-after-firing are witnessed by the provider-free live fixture scripts/quality/test-travel-resume-live.mjs (3/3 cases), not by a node or verifyCore unit test; hand-back endings other than TARGET_KILLED are not forced by it.",
       "checks": [
         {
           "type": "live-behavior",
           "test": "test-travel-resume-live",
           "command": "headless Minecraft production bridge fixture: scripts/quality/test-travel-resume-live.mjs (zombieStop, zombieFight, reflexResume)",
-          "predicate": "zombieFight arrives with the zombie killed; zombieStop (no fightThrough) still stops HOSTILE_NEAR."
+          "predicate": "zombieFight arrives with the zombie killed; zombieStop (fightThrough:false) still stops HOSTILE_NEAR; left unset with instincts on (the default) the same walk fights the lone zombie through and arrives (#185 room A/B, 10 of 10)."
         }
       ],
-      "id": "control:e2c1a93886a46505:6e95104362b54aaa",
       "contract": {
-        "id": "control:e2c1a93886a46505:6e95104362b54aaa",
-        "claim": "`fightThrough:true` is your choice to fight through hostiles instead of stopping for them: a hostile further than 6 blocks only stays in view, one within 6 or one that hits you is fought as `fight_target` would (best hotbar weapon, pursue, `fleeAtHealth` = `minHealth`), and the trip goes on from where the fight ended. The result lists each fight (`fought through zombie (...): TARGET_KILLED`). It hands back with the fight's reason on `LOW_HEALTH_BAILOUT`, `IN_LAVA`, `ON_FIRE` or death, and on a second failed fight (escaped, unreachable, timed out); hits not from a mob (a fall, fire) or from one beyond 16 blocks (a ghast) still stop it with `TRAVEL_DAMAGED`. Not with `retrace`.",
+        "id": "control:e2c1a93886a46505:368c7d7def7c621d",
+        "claim": "`fightThrough:true` is your choice to fight through hostiles instead of stopping for them: a hostile further than 6 blocks only stays in view, one within 6 or one that hits you is fought as `fight_target` would (best hotbar weapon, pursue, `fleeAtHealth` = `minHealth`), and the trip goes on from where the fight ended. With `fightThrough` unset, a lone zombie, husk, zombie villager or spider (no other hostile within 12 blocks) is fought the same way instead of stopping the trip, while a sword or axe is in the hotbar and health stays above `minHealth` and above three of its hits; a pack, any other hostile or a riskier fight still stops it with `HOSTILE_NEAR`, and `fightThrough:false` keeps every hostile a stop. The result lists each fight (`fought through zombie (...): TARGET_KILLED`). It hands back with the fight's reason on `LOW_HEALTH_BAILOUT`, `IN_LAVA`, `ON_FIRE` or death, and on a second failed fight (escaped, unreachable, timed out); hits not from a mob (a fall, fire) or from one beyond 16 blocks (a ghast) still stop it with `TRAVEL_DAMAGED`. Not with `retrace`.",
         "kind": "control-reference",
         "topic": "travelTo"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
         "line": 515
-      },
-      "status": "partial",
-      "reason": "fightThrough and resume-after-firing are witnessed by the provider-free live fixture scripts/quality/test-travel-resume-live.mjs (3/3 cases), not by a node or verifyCore unit test; hand-back endings other than TARGET_KILLED are not forced by it."
+      }
     },
     {
       "predicate": "The exact published JSON tool example is parsed and normalized through the production tool boundary; accepted examples pass and executor-bad-call examples reject before dispatch.",
@@ -52935,7 +52935,36 @@
       "reason": "Reviewed against the ported travel body and verifyCarriedSupplies: whole-inventory swaps, 600000 ms default, retained d35 observation window and brink guard. Terrain, hazard and timing outcomes require the fresh six-pair live course study."
     },
     {
+      "id": "control:e2c1a93886a46505:368c7d7def7c621d:result:HOSTILE_NEAR",
+      "predicate": "With fightThrough unset, travel_to still stops with HOSTILE_NEAR for a pack, any hostile outside the lone zombie/husk/zombie-villager/spider list, or a fight it could not take safely (no sword or axe, health at or below minHealth or three of the mob's hits); a lone beatable melee mob is fought through instead; an explicit fightThrough:false keeps every hostile a stop.",
+      "status": "partial",
+      "reason": "Witnessed by the provider-free live fixture scripts/quality/test-travel-resume-live.mjs (zombieStop with fightThrough:false stops HOSTILE_NEAR; with instincts on it fights the lone zombie through, #185 room A/B) and TravelStops.beatable; the pack, ranged and low-health branches have no live room of their own.",
+      "checks": [
+        {
+          "type": "live-behavior",
+          "test": "test-travel-resume-live",
+          "command": "headless Minecraft production bridge fixture: scripts/quality/test-travel-resume-live.mjs (zombieStop, zombieFight, reflexResume)",
+          "predicate": "zombieFight arrives with the zombie killed; zombieStop (fightThrough:false) still stops HOSTILE_NEAR; left unset with instincts on (the default) the same walk fights the lone zombie through and arrives (#185 room A/B, 10 of 10)."
+        }
+      ],
+      "contract": {
+        "id": "control:e2c1a93886a46505:368c7d7def7c621d:result:HOSTILE_NEAR",
+        "claim": "`fightThrough:true` is your choice to fight through hostiles instead of stopping for them: a hostile further than 6 blocks only stays in view, one within 6 or one that hits you is fought as `fight_target` would (best hotbar weapon, pursue, `fleeAtHealth` = `minHealth`), and the trip goes on from where the fight ended. With `fightThrough` unset, a lone zombie, husk, zombie villager or spider (no other hostile within 12 blocks) is fought the same way instead of stopping the trip, while a sword or axe is in the hotbar and health stays above `minHealth` and above three of its hits; a pack, any other hostile or a riskier fight still stops it with `HOSTILE_NEAR`, and `fightThrough:false` keeps every hostile a stop. The result lists each fight (`fought through zombie (...): TARGET_KILLED`). It hands back with the fight's reason on `LOW_HEALTH_BAILOUT`, `IN_LAVA`, `ON_FIRE` or death, and on a second failed fight (escaped, unreachable, timed out); hits not from a mob (a fall, fire) or from one beyond 16 blocks (a ghast) still stop it with `TRAVEL_DAMAGED`. Not with `retrace`.",
+        "kind": "result-code",
+        "topic": "travelTo",
+        "code": "HOSTILE_NEAR",
+        "parent": "control:e2c1a93886a46505:368c7d7def7c621d"
+      },
+      "location": {
+        "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
+        "line": 515
+      }
+    },
+    {
+      "id": "control:e2c1a93886a46505:368c7d7def7c621d:result:TARGET_KILLED",
       "predicate": "A won fight is listed as fought through <mob> (...): TARGET_KILLED and the trip continues to ARRIVED.",
+      "status": "partial",
+      "reason": "fightThrough and resume-after-firing are witnessed by the provider-free live fixture scripts/quality/test-travel-resume-live.mjs (3/3 cases), not by a node or verifyCore unit test; hand-back endings other than TARGET_KILLED are not forced by it.",
       "checks": [
         {
           "type": "live-behavior",
@@ -52944,24 +52973,24 @@
           "predicate": "A won fight is listed as fought through <mob> (...): TARGET_KILLED and the trip continues to ARRIVED."
         }
       ],
-      "id": "control:e2c1a93886a46505:6e95104362b54aaa:result:TARGET_KILLED",
       "contract": {
-        "id": "control:e2c1a93886a46505:6e95104362b54aaa:result:TARGET_KILLED",
-        "claim": "`fightThrough:true` is your choice to fight through hostiles instead of stopping for them: a hostile further than 6 blocks only stays in view, one within 6 or one that hits you is fought as `fight_target` would (best hotbar weapon, pursue, `fleeAtHealth` = `minHealth`), and the trip goes on from where the fight ended. The result lists each fight (`fought through zombie (...): TARGET_KILLED`). It hands back with the fight's reason on `LOW_HEALTH_BAILOUT`, `IN_LAVA`, `ON_FIRE` or death, and on a second failed fight (escaped, unreachable, timed out); hits not from a mob (a fall, fire) or from one beyond 16 blocks (a ghast) still stop it with `TRAVEL_DAMAGED`. Not with `retrace`.",
+        "id": "control:e2c1a93886a46505:368c7d7def7c621d:result:TARGET_KILLED",
+        "claim": "`fightThrough:true` is your choice to fight through hostiles instead of stopping for them: a hostile further than 6 blocks only stays in view, one within 6 or one that hits you is fought as `fight_target` would (best hotbar weapon, pursue, `fleeAtHealth` = `minHealth`), and the trip goes on from where the fight ended. With `fightThrough` unset, a lone zombie, husk, zombie villager or spider (no other hostile within 12 blocks) is fought the same way instead of stopping the trip, while a sword or axe is in the hotbar and health stays above `minHealth` and above three of its hits; a pack, any other hostile or a riskier fight still stops it with `HOSTILE_NEAR`, and `fightThrough:false` keeps every hostile a stop. The result lists each fight (`fought through zombie (...): TARGET_KILLED`). It hands back with the fight's reason on `LOW_HEALTH_BAILOUT`, `IN_LAVA`, `ON_FIRE` or death, and on a second failed fight (escaped, unreachable, timed out); hits not from a mob (a fall, fire) or from one beyond 16 blocks (a ghast) still stop it with `TRAVEL_DAMAGED`. Not with `retrace`.",
         "kind": "result-code",
         "topic": "travelTo",
         "code": "TARGET_KILLED",
-        "parent": "control:e2c1a93886a46505:6e95104362b54aaa"
+        "parent": "control:e2c1a93886a46505:368c7d7def7c621d"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
         "line": 515
-      },
-      "status": "partial",
-      "reason": "fightThrough and resume-after-firing are witnessed by the provider-free live fixture scripts/quality/test-travel-resume-live.mjs (3/3 cases), not by a node or verifyCore unit test; hand-back endings other than TARGET_KILLED are not forced by it."
+      }
     },
     {
+      "id": "control:e2c1a93886a46505:368c7d7def7c621d:result:LOW_HEALTH_BAILOUT",
       "predicate": "A fight reaching fleeAtHealth=minHealth hands the trip back with LOW_HEALTH_BAILOUT.",
+      "status": "partial",
+      "reason": "fightThrough and resume-after-firing are witnessed by the provider-free live fixture scripts/quality/test-travel-resume-live.mjs (3/3 cases), not by a node or verifyCore unit test; hand-back endings other than TARGET_KILLED are not forced by it.",
       "checks": [
         {
           "type": "live-behavior",
@@ -52970,24 +52999,24 @@
           "predicate": "zombieFight exercises the fight hand-back path; this ending is not forced by the fixture."
         }
       ],
-      "id": "control:e2c1a93886a46505:6e95104362b54aaa:result:LOW_HEALTH_BAILOUT",
       "contract": {
-        "id": "control:e2c1a93886a46505:6e95104362b54aaa:result:LOW_HEALTH_BAILOUT",
-        "claim": "`fightThrough:true` is your choice to fight through hostiles instead of stopping for them: a hostile further than 6 blocks only stays in view, one within 6 or one that hits you is fought as `fight_target` would (best hotbar weapon, pursue, `fleeAtHealth` = `minHealth`), and the trip goes on from where the fight ended. The result lists each fight (`fought through zombie (...): TARGET_KILLED`). It hands back with the fight's reason on `LOW_HEALTH_BAILOUT`, `IN_LAVA`, `ON_FIRE` or death, and on a second failed fight (escaped, unreachable, timed out); hits not from a mob (a fall, fire) or from one beyond 16 blocks (a ghast) still stop it with `TRAVEL_DAMAGED`. Not with `retrace`.",
+        "id": "control:e2c1a93886a46505:368c7d7def7c621d:result:LOW_HEALTH_BAILOUT",
+        "claim": "`fightThrough:true` is your choice to fight through hostiles instead of stopping for them: a hostile further than 6 blocks only stays in view, one within 6 or one that hits you is fought as `fight_target` would (best hotbar weapon, pursue, `fleeAtHealth` = `minHealth`), and the trip goes on from where the fight ended. With `fightThrough` unset, a lone zombie, husk, zombie villager or spider (no other hostile within 12 blocks) is fought the same way instead of stopping the trip, while a sword or axe is in the hotbar and health stays above `minHealth` and above three of its hits; a pack, any other hostile or a riskier fight still stops it with `HOSTILE_NEAR`, and `fightThrough:false` keeps every hostile a stop. The result lists each fight (`fought through zombie (...): TARGET_KILLED`). It hands back with the fight's reason on `LOW_HEALTH_BAILOUT`, `IN_LAVA`, `ON_FIRE` or death, and on a second failed fight (escaped, unreachable, timed out); hits not from a mob (a fall, fire) or from one beyond 16 blocks (a ghast) still stop it with `TRAVEL_DAMAGED`. Not with `retrace`.",
         "kind": "result-code",
         "topic": "travelTo",
         "code": "LOW_HEALTH_BAILOUT",
-        "parent": "control:e2c1a93886a46505:6e95104362b54aaa"
+        "parent": "control:e2c1a93886a46505:368c7d7def7c621d"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
         "line": 515
-      },
-      "status": "partial",
-      "reason": "fightThrough and resume-after-firing are witnessed by the provider-free live fixture scripts/quality/test-travel-resume-live.mjs (3/3 cases), not by a node or verifyCore unit test; hand-back endings other than TARGET_KILLED are not forced by it."
+      }
     },
     {
+      "id": "control:e2c1a93886a46505:368c7d7def7c621d:result:IN_LAVA",
       "predicate": "Lava entered during the trip or its fight hands back with IN_LAVA.",
+      "status": "partial",
+      "reason": "fightThrough and resume-after-firing are witnessed by the provider-free live fixture scripts/quality/test-travel-resume-live.mjs (3/3 cases), not by a node or verifyCore unit test; hand-back endings other than TARGET_KILLED are not forced by it.",
       "checks": [
         {
           "type": "live-behavior",
@@ -52996,24 +53025,24 @@
           "predicate": "zombieFight exercises the fight hand-back path; this ending is not forced by the fixture."
         }
       ],
-      "id": "control:e2c1a93886a46505:6e95104362b54aaa:result:IN_LAVA",
       "contract": {
-        "id": "control:e2c1a93886a46505:6e95104362b54aaa:result:IN_LAVA",
-        "claim": "`fightThrough:true` is your choice to fight through hostiles instead of stopping for them: a hostile further than 6 blocks only stays in view, one within 6 or one that hits you is fought as `fight_target` would (best hotbar weapon, pursue, `fleeAtHealth` = `minHealth`), and the trip goes on from where the fight ended. The result lists each fight (`fought through zombie (...): TARGET_KILLED`). It hands back with the fight's reason on `LOW_HEALTH_BAILOUT`, `IN_LAVA`, `ON_FIRE` or death, and on a second failed fight (escaped, unreachable, timed out); hits not from a mob (a fall, fire) or from one beyond 16 blocks (a ghast) still stop it with `TRAVEL_DAMAGED`. Not with `retrace`.",
+        "id": "control:e2c1a93886a46505:368c7d7def7c621d:result:IN_LAVA",
+        "claim": "`fightThrough:true` is your choice to fight through hostiles instead of stopping for them: a hostile further than 6 blocks only stays in view, one within 6 or one that hits you is fought as `fight_target` would (best hotbar weapon, pursue, `fleeAtHealth` = `minHealth`), and the trip goes on from where the fight ended. With `fightThrough` unset, a lone zombie, husk, zombie villager or spider (no other hostile within 12 blocks) is fought the same way instead of stopping the trip, while a sword or axe is in the hotbar and health stays above `minHealth` and above three of its hits; a pack, any other hostile or a riskier fight still stops it with `HOSTILE_NEAR`, and `fightThrough:false` keeps every hostile a stop. The result lists each fight (`fought through zombie (...): TARGET_KILLED`). It hands back with the fight's reason on `LOW_HEALTH_BAILOUT`, `IN_LAVA`, `ON_FIRE` or death, and on a second failed fight (escaped, unreachable, timed out); hits not from a mob (a fall, fire) or from one beyond 16 blocks (a ghast) still stop it with `TRAVEL_DAMAGED`. Not with `retrace`.",
         "kind": "result-code",
         "topic": "travelTo",
         "code": "IN_LAVA",
-        "parent": "control:e2c1a93886a46505:6e95104362b54aaa"
+        "parent": "control:e2c1a93886a46505:368c7d7def7c621d"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
         "line": 515
-      },
-      "status": "partial",
-      "reason": "fightThrough and resume-after-firing are witnessed by the provider-free live fixture scripts/quality/test-travel-resume-live.mjs (3/3 cases), not by a node or verifyCore unit test; hand-back endings other than TARGET_KILLED are not forced by it."
+      }
     },
     {
+      "id": "control:e2c1a93886a46505:368c7d7def7c621d:result:ON_FIRE",
       "predicate": "Fire entered during the trip or its fight hands back with ON_FIRE.",
+      "status": "partial",
+      "reason": "fightThrough and resume-after-firing are witnessed by the provider-free live fixture scripts/quality/test-travel-resume-live.mjs (3/3 cases), not by a node or verifyCore unit test; hand-back endings other than TARGET_KILLED are not forced by it.",
       "checks": [
         {
           "type": "live-behavior",
@@ -53022,24 +53051,24 @@
           "predicate": "zombieFight exercises the fight hand-back path; this ending is not forced by the fixture."
         }
       ],
-      "id": "control:e2c1a93886a46505:6e95104362b54aaa:result:ON_FIRE",
       "contract": {
-        "id": "control:e2c1a93886a46505:6e95104362b54aaa:result:ON_FIRE",
-        "claim": "`fightThrough:true` is your choice to fight through hostiles instead of stopping for them: a hostile further than 6 blocks only stays in view, one within 6 or one that hits you is fought as `fight_target` would (best hotbar weapon, pursue, `fleeAtHealth` = `minHealth`), and the trip goes on from where the fight ended. The result lists each fight (`fought through zombie (...): TARGET_KILLED`). It hands back with the fight's reason on `LOW_HEALTH_BAILOUT`, `IN_LAVA`, `ON_FIRE` or death, and on a second failed fight (escaped, unreachable, timed out); hits not from a mob (a fall, fire) or from one beyond 16 blocks (a ghast) still stop it with `TRAVEL_DAMAGED`. Not with `retrace`.",
+        "id": "control:e2c1a93886a46505:368c7d7def7c621d:result:ON_FIRE",
+        "claim": "`fightThrough:true` is your choice to fight through hostiles instead of stopping for them: a hostile further than 6 blocks only stays in view, one within 6 or one that hits you is fought as `fight_target` would (best hotbar weapon, pursue, `fleeAtHealth` = `minHealth`), and the trip goes on from where the fight ended. With `fightThrough` unset, a lone zombie, husk, zombie villager or spider (no other hostile within 12 blocks) is fought the same way instead of stopping the trip, while a sword or axe is in the hotbar and health stays above `minHealth` and above three of its hits; a pack, any other hostile or a riskier fight still stops it with `HOSTILE_NEAR`, and `fightThrough:false` keeps every hostile a stop. The result lists each fight (`fought through zombie (...): TARGET_KILLED`). It hands back with the fight's reason on `LOW_HEALTH_BAILOUT`, `IN_LAVA`, `ON_FIRE` or death, and on a second failed fight (escaped, unreachable, timed out); hits not from a mob (a fall, fire) or from one beyond 16 blocks (a ghast) still stop it with `TRAVEL_DAMAGED`. Not with `retrace`.",
         "kind": "result-code",
         "topic": "travelTo",
         "code": "ON_FIRE",
-        "parent": "control:e2c1a93886a46505:6e95104362b54aaa"
+        "parent": "control:e2c1a93886a46505:368c7d7def7c621d"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
         "line": 515
-      },
-      "status": "partial",
-      "reason": "fightThrough and resume-after-firing are witnessed by the provider-free live fixture scripts/quality/test-travel-resume-live.mjs (3/3 cases), not by a node or verifyCore unit test; hand-back endings other than TARGET_KILLED are not forced by it."
+      }
     },
     {
+      "id": "control:e2c1a93886a46505:368c7d7def7c621d:result:TRAVEL_DAMAGED",
       "predicate": "Damage not from a mob within 16 blocks still stops a fightThrough trip with TRAVEL_DAMAGED.",
+      "status": "partial",
+      "reason": "fightThrough and resume-after-firing are witnessed by the provider-free live fixture scripts/quality/test-travel-resume-live.mjs (3/3 cases), not by a node or verifyCore unit test; hand-back endings other than TARGET_KILLED are not forced by it.",
       "checks": [
         {
           "type": "live-behavior",
@@ -53048,21 +53077,18 @@
           "predicate": "zombieFight exercises the fight hand-back path; this ending is not forced by the fixture."
         }
       ],
-      "id": "control:e2c1a93886a46505:6e95104362b54aaa:result:TRAVEL_DAMAGED",
       "contract": {
-        "id": "control:e2c1a93886a46505:6e95104362b54aaa:result:TRAVEL_DAMAGED",
-        "claim": "`fightThrough:true` is your choice to fight through hostiles instead of stopping for them: a hostile further than 6 blocks only stays in view, one within 6 or one that hits you is fought as `fight_target` would (best hotbar weapon, pursue, `fleeAtHealth` = `minHealth`), and the trip goes on from where the fight ended. The result lists each fight (`fought through zombie (...): TARGET_KILLED`). It hands back with the fight's reason on `LOW_HEALTH_BAILOUT`, `IN_LAVA`, `ON_FIRE` or death, and on a second failed fight (escaped, unreachable, timed out); hits not from a mob (a fall, fire) or from one beyond 16 blocks (a ghast) still stop it with `TRAVEL_DAMAGED`. Not with `retrace`.",
+        "id": "control:e2c1a93886a46505:368c7d7def7c621d:result:TRAVEL_DAMAGED",
+        "claim": "`fightThrough:true` is your choice to fight through hostiles instead of stopping for them: a hostile further than 6 blocks only stays in view, one within 6 or one that hits you is fought as `fight_target` would (best hotbar weapon, pursue, `fleeAtHealth` = `minHealth`), and the trip goes on from where the fight ended. With `fightThrough` unset, a lone zombie, husk, zombie villager or spider (no other hostile within 12 blocks) is fought the same way instead of stopping the trip, while a sword or axe is in the hotbar and health stays above `minHealth` and above three of its hits; a pack, any other hostile or a riskier fight still stops it with `HOSTILE_NEAR`, and `fightThrough:false` keeps every hostile a stop. The result lists each fight (`fought through zombie (...): TARGET_KILLED`). It hands back with the fight's reason on `LOW_HEALTH_BAILOUT`, `IN_LAVA`, `ON_FIRE` or death, and on a second failed fight (escaped, unreachable, timed out); hits not from a mob (a fall, fire) or from one beyond 16 blocks (a ghast) still stop it with `TRAVEL_DAMAGED`. Not with `retrace`.",
         "kind": "result-code",
         "topic": "travelTo",
         "code": "TRAVEL_DAMAGED",
-        "parent": "control:e2c1a93886a46505:6e95104362b54aaa"
+        "parent": "control:e2c1a93886a46505:368c7d7def7c621d"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
         "line": 515
-      },
-      "status": "partial",
-      "reason": "fightThrough and resume-after-firing are witnessed by the provider-free live fixture scripts/quality/test-travel-resume-live.mjs (3/3 cases), not by a node or verifyCore unit test; hand-back endings other than TARGET_KILLED are not forced by it."
+      }
     },
     {
       "predicate": "MiningTools.wastesOre is true only for an ore whose drop no carried item harvests; break_block's admission throws NO_TOOL for it before acceptance. Stone with no pickaxe is not an ore and is still broken.",

@@ -63,7 +63,7 @@ public final class Switches {
 	/** Server and both-side switches; the reason, numbers and readers for each are in coordinator/src/switches.mjs. */
 	public static final List<Switch> ALL = List.of(
 		// Instincts.java enabled(): per call; property or env.
-		new Switch("instincts", "MINEAGEN_INSTINCTS", "mineagen.instincts", "both", false, LIST_HAS_INSTINCTS, JAVA_GET_BOOLEAN, "experimental"),
+		new Switch("instincts", "MINEAGEN_INSTINCTS", "mineagen.instincts", "both", true, LIST_HAS_INSTINCTS, JAVA_GET_BOOLEAN, "default-on"),
 		// ServerTravelController.java walkAroundEnabled(): per call; property or env.
 		new Switch("travel.walkAround", "MINEAGEN_TRAVEL_WALK_AROUND", "mineagen.travel.walkAround", "server", false, ON_WORD, JAVA_GET_BOOLEAN, "default-off"),
 		// ServerFightUntilController.java CHARGE_GUARD: class load.
