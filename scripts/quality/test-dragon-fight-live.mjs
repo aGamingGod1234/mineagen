@@ -98,16 +98,24 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 			runtime.onActionResult(record, ev.payload);
 			s.bridge.send('action_result_ack', record.agentId, { goalRevision: record.goalRevision, actionId: ev.payload.actionId }).catch(() => {});
 		});
-		let calls = 0, harnessErrors = 0, staleRefusals = 0;
+		let calls = 0, harnessErrors = 0, staleRefusals = 0, liveStale = 0, runDeathsBefore = null;
 		// Every scripted command takes the path a model's command takes (runtime.execute), reflexes and vetting included.
 		const act = async (actionType, args) => {
 			const n = ++calls;
 			const r = await runtime.execute({ agentId: record.agentId, goalRevision: record.goalRevision, turnId: `fight-${n}`, callId: `fight-${n}`,
 				tool: normalizeMinecraftToolCall('act', { actionType, arguments: args }) }, record).catch(error => ({ state: 'FAILED', reasonCode: 'FIXTURE_ERROR', message: String(error?.message ?? error) }));
 			// A thrown command is the harness's failure, not the bot's; so is a stale-command refusal while the body lives (a
-			// command sent just as it died is refused stale too, and that death is a FAIL, not invalid evidence).
+			// command sent just as it died is refused stale too, and that death is a FAIL, not invalid evidence). Whether the
+			// body lived is judged when the refusal comes, so a refusal before a later death still counts against the harness.
 			if (r?.reasonCode === 'FIXTURE_ERROR') harnessErrors += 1;
-			else if (/^STALE_/.test(String(r?.reasonCode ?? ''))) staleRefusals += 1;
+			else if (/^STALE_/.test(String(r?.reasonCode ?? ''))) {
+				staleRefusals += 1;
+				const raw = await s.observe().catch(() => null);
+				const deathsNow = await readDeaths().catch(() => null);
+				const died = raw === null || raw.player?.dead === true || raw.status === 'PLAYER_DEAD' || (raw.world?.dimension && raw.world.dimension !== 'minecraft:the_end')
+					|| Number.isInteger(deathsNow) && Number.isInteger(runDeathsBefore) && deathsNow > runDeathsBefore;
+				if (!died) liveStale += 1;
+			}
 			// Anything but a success is not retried in a tight loop.
 			if (r?.state !== 'SUCCEEDED') await s.clock.sleep(500);
 			return { state: r?.state, reasonCode: r?.reasonCode, message: String(r?.message ?? '').slice(0, 300) };
@@ -129,7 +137,7 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 		const readDeaths = () => deathCounter(text => s.command(text), AGENT);
 		for (let run = 1; run <= repeats; run++) {
 			const row = { run, room: results.arm, startedAt: Date.now() };
-			harnessErrors = 0; staleRefusals = 0;
+			harnessErrors = 0; staleRefusals = 0; liveStale = 0; runDeathsBefore = null;
 			results.runs.push(row);
 			try {
 				await s.normalRate();
@@ -162,6 +170,7 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 				for (let wait = 0; wait < 40 && !(latest?.reflexes?.rules ?? []).some(rule => /^default-/.test(rule.id) && /breath|void|gaze|ender/.test(rule.id)); wait++) { await s.observe(); await sleep(250); }
 				row.armed = (latest?.reflexes?.rules ?? []).map(rule => rule.id);
 				const deathsBefore = await readDeaths(), damageBefore = await readDamage();
+				runDeathsBefore = deathsBefore;
 				await s.fastRate();
 				// The window is world ticks, not wall time: a server that cannot hold 20 TPS still plays the full game minutes.
 				const now = () => s.clock.now(), wall0 = Date.now(), timer = await s.gameTimer({ worldTicks: true }), t0 = now();
@@ -245,7 +254,8 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 					const missing = async () => /Test failed/i.test(String(await end(s, 'execute if entity @e[type=minecraft:ender_dragon]')));
 					// Gone the same way the loop judges it: missing, and still missing with no health 2 s later.
 					const gone = Number.isFinite(health) ? health <= 0 : await missing() && (await s.clock.sleep(2000), await missing()) && !Number.isFinite(await dragonHealth());
-					const late = Number.isFinite(played) ? played - limit : Infinity;
+					// The game time now, after the final reads and the 2 s check, not the loop's last reading.
+					const late = (await timer.elapsed().catch(() => Infinity)) - limit;
 					if (gone) { row.killSeenLateMs = late; killed = late <= 15_000; }
 				}
 				Object.assign(row, damageEvidence(damageBefore, await readDamage(), row.start.health, latest?.player?.health));
@@ -259,7 +269,7 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 				row.killed = killed;
 				Object.assign(row, { shots, crystalBreaks, meleeTries: meleeHits, flyingShots, crystalsLeft: await crystalsLeft(), dragonHealthEnd: await dragonHealth(), log: log.slice(-60) });
 				row.deaths = row.deathEvidence.deaths;
-				row.harnessErrors = harnessErrors + (row.died ? 0 : staleRefusals);
+				row.harnessErrors = harnessErrors + liveStale;
 				row.staleRefusals = staleRefusals;
 				row.observeMisses = observeMisses;
 				// A fresh fight starts with a full dragon and all ten crystals; a repeat after a lost fight does not.
