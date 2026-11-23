@@ -22,6 +22,11 @@
 //            ceiling too low over the body to rise onto it, and to the east a column open above whose dry bank is one
 //            step up: the way out is the bank, not the step. Water breathing keeps the air full, so the air rule never
 //            sends the body to swim off; 16 cobblestone carried. Pass: dry footing out of the water.
+//   pocket   a sealed flooded chamber (3x3, 4 high, stone roof) at the end of a flooded tunnel 2 high running 13 blocks
+//            east from the bottom of a 3x3 pool 13 deep: the body breathes at the pool's top, swims down and along the
+//            tunnel into the chamber (1-block moves), so the only air it knows is where it last breathed, past the air
+//            search's 8-block reach. The pad is 13 above the chamber, past escape's bank search. Water breathing keeps the
+//            air full (the room tests the way back, not the air clock); nothing carried. Pass: dry footing out of the water.
 //   skeleton the body on open ground with an offhand shield, a skeleton 10 blocks east, a 3x3 stone wall 3 blocks west.
 //   pitskel  the playtest's cave death: a hole 2 deep and 2 wide at 7 health, cobblestone and a stone sword, a bow skeleton
 //            in the hole beside the body. Pass: alive, and out of the hole or the skeleton dead, within 40 s.
@@ -61,7 +66,7 @@ const rooms = (roomsArg ?? 'deep;stair;pit;pitdig;shaft;lake;skeleton').split(';
 const THINK_MS = Number(process.env.ESCAPE_THINK_MS ?? 6_000);
 const PAD_Y = 150;
 const LEGACY = process.env.ESCAPE_LEGACY === 'wake' ? 'wake' : 'strong';
-const WINDOW_MS = { deep: 60_000, stair: 60_000, floodstair: 60_000, 'floodstair-deep': 90_000, floodlow: 40_000, pit: 60_000, pitdig: 60_000, shaft: 90_000, lake: 90_000, skeleton: 30_000, pitskel: 40_000, pitcreeper: 60_000, 'pitcreeper-rim': 40_000,
+const WINDOW_MS = { deep: 60_000, stair: 60_000, floodstair: 60_000, 'floodstair-deep': 90_000, floodlow: 40_000, pocket: 60_000, pit: 60_000, pitdig: 60_000, shaft: 90_000, lake: 90_000, skeleton: 30_000, pitskel: 40_000, pitcreeper: 60_000, 'pitcreeper-rim': 40_000,
 	'archer-direction': 15_000, 'archer-resume': 15_000 };
 const out = path.resolve(outArg);
 await mkdir(out, { recursive: true });
@@ -126,7 +131,7 @@ try {
 		await s.command(`clear ${NAME}`);
 		// No effect carries over from the room before (floodlow's water breathing would keep the next room's air full).
 		await s.command(`effect clear ${NAME}`).catch(() => {});
-		let start, drain = 0, facing = 90, bank = null, wall = null;
+		let start, drain = 0, facing = 90, bank = null, wall = null, pocketWay = null;
 		if (room === 'deep') {
 			await s.command(`fill ${X - 5} ${F - 9} ${Z - 5} ${X + 5} ${F - 1} ${Z + 5} minecraft:water`);
 			start = [X + 0.5, F - 9, Z + 0.5]; drain = 3_000; bank = { x: X + 6.5, z: Z + 0.5 };
@@ -159,6 +164,17 @@ try {
 			start = [X + 0.5, F - 9, Z + 0.5]; facing = 90;
 			await s.command(`item replace entity ${NAME} hotbar.0 with minecraft:cobblestone 16`);
 			await s.command(`effect give ${NAME} minecraft:water_breathing 120 0 true`);
+		} else if (room === 'pocket') {
+			// The pool x X-1..X+1, water F-13 to F-1; the tunnel x X+2..X+13 at F-13 and F-12; the chamber x X+14..X+16,
+			// F-13 to F-10, roofed by the stone at F-9 and up. All within the stone fill (F-14 up to F-1).
+			await s.command(`fill ${X - 1} ${F - 13} ${Z - 1} ${X + 1} ${F - 1} ${Z + 1} minecraft:water`);
+			await s.command(`fill ${X + 2} ${F - 13} ${Z} ${X + 13} ${F - 12} ${Z} minecraft:water`);
+			await s.command(`fill ${X + 14} ${F - 13} ${Z - 1} ${X + 16} ${F - 10} ${Z + 1} minecraft:water`);
+			start = [X + 15.5, F - 13, Z + 0.5]; facing = 90;
+			// The way in, as a dive: a breath at the pool's top, then one cell at a time down the pool and along the tunnel.
+			pocketWay = [];
+			for (let y = F - 1; y >= F - 13; y--) pocketWay.push([X + 0.5, y, Z + 0.5]);
+			for (let x = X + 1; x <= X + 15; x++) pocketWay.push([x + 0.5, F - 13, Z + 0.5]);
 		} else if (room === 'pitcreeper' || room === 'pitcreeper-rim') {
 			// Climbing a stair out toward a creeper: the hole 4 deep with a stone pickaxe only (stairs up), a creeper on the
 			// surface 7 blocks from the hole that hunts the body once it is out.
@@ -199,6 +215,12 @@ try {
 		} else throw new Error(`unknown room ${room}`);
 		// Breath back in full first (a body moved from one underwater spot to the next keeps its spent air).
 		await s.command(`tp ${NAME} ${X + 0.5} ${F} ${Z - 10.5} ${facing} 0`); await sleep(5000);
+		if (pocketWay !== null) {
+			// Afloat at the pool's top with the eyes in air for a second, then the dive: a cell per two ticks or so.
+			await s.command(`tp ${NAME} ${X + 0.5} ${F - 1.2} ${Z + 0.5} ${facing} 0`); await sleep(1000);
+			await s.command(`effect give ${NAME} minecraft:water_breathing 120 0 true`);
+			for (const [x, y, z] of pocketWay) { await s.command(`tp ${NAME} ${x} ${y} ${z} ${facing} 0`); await sleep(100); }
+		}
 		await s.command(`tp ${NAME} ${start[0]} ${start[1]} ${start[2]} ${facing} 0`);
 		await s.command(`effect give ${NAME} minecraft:instant_health 1 10 true`);
 		if (archer) {
@@ -332,13 +354,13 @@ try {
 			// Out of the hole, or the skeleton beside it dead.
 			if (room === 'pitskel') return p[1] >= F - 0.01 && await onGround()
 				|| !String(await s.command('execute if entity @e[type=minecraft:skeleton]').catch(() => 'passed')).includes('passed');
-			if (room === 'lake' || room === 'floodstair' || room === 'floodstair-deep' || room === 'floodlow') return await onGround() && !(await blockAt(Math.floor(p[0]), Math.floor(p[1]), Math.floor(p[2]), 'minecraft:water'));
+			if (room === 'lake' || room === 'floodstair' || room === 'floodstair-deep' || room === 'floodlow' || room === 'pocket') return await onGround() && !(await blockAt(Math.floor(p[0]), Math.floor(p[1]), Math.floor(p[2]), 'minecraft:water'));
 			return hidden();
 		};
 		const live = await pos();
 		const exposed = live === null ? false : room === 'deep' || room === 'stair' ? await blockAt(Math.floor(live[0]), Math.floor(live[1] + 1.62), Math.floor(live[2]), 'minecraft:water')
 			: room === 'skeleton' ? exposedAtStart
-			: room === 'shaft' || room === 'lake' || room.startsWith('floodstair') || room === 'floodlow' ? await blockAt(Math.floor(live[0]), Math.floor(live[1]), Math.floor(live[2]), 'minecraft:water')
+			: room === 'shaft' || room === 'lake' || room.startsWith('floodstair') || room === 'floodlow' || room === 'pocket' ? await blockAt(Math.floor(live[0]), Math.floor(live[1]), Math.floor(live[2]), 'minecraft:water')
 			: room === 'pitskel' ? live[1] < F - 1 : live[1] < F - 2;
 		// pitcreeper judges the climb on survival and damage too: climbing on must not trade a stop for a blast.
 		const t0 = Date.now(), window = WINDOW_MS[room];
