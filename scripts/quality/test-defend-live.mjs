@@ -340,6 +340,9 @@ try {
 			// which is what the cover outcome stands for.
 			row.coverSeen = steps.some(coverReached) || coverReached(endDetail ?? '');
 			if (name === 'cover-zombie') row.pass = !died && row.coverSeen;
+			// The creeper and the command come only once the first wall stands: without a wall the room measured neither.
+			if (name === 'creeper' && creeperAt === null && !died) row.notExercised = 'no wall went up, so the creeper never came';
+			if (name === 'command' && commandSentAt === null && !died) row.notExercised = 'no wall went up, so the command was never sent';
 			if (name === 'archers-zombie') row.pass = !died && !(row.deaths > 0);
 			// Corner: the body lives and kills the zombie that hits it round the corner within the watch.
 			if (cornerCase) {
