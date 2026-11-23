@@ -1,9 +1,10 @@
 package dev.agaminggod.mineagen.server.runtime.reflex;
 
 /**
- * Issue 2 Step 2's instincts arm on the mod side: {@code MINEAGEN_INSTINCTS} lists {@code instincts} (a comma list), the
- * same variable the coordinator reads (the mod starts it with its own environment), or {@code -Dmineagen.instincts=true}.
- * Off, the mod behaves as before.
+ * Issue 2 Step 2's instincts arm on the mod side, on by default so practice rooms play as model games do. It is off when
+ * {@code MINEAGEN_INSTINCTS} is set to a comma list without {@code instincts} (for example {@code off}), the same variable
+ * the coordinator reads (the mod starts it with its own environment), or with {@code -Dmineagen.instincts=false} and the
+ * variable unset. Off, the mod behaves as before.
  */
 public final class Instincts {
 	private static volatile Boolean override;

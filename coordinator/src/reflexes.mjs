@@ -63,9 +63,10 @@ export const MAX_REFLEX_RULES = 29;
 if (MAX_REFLEXES + DEFAULT_REFLEXES.length + MOST_DIMENSION_REFLEXES > MAX_REFLEX_RULES) throw new Error(`reflex rules ${MAX_REFLEXES} + ${DEFAULT_REFLEXES.length} + ${MOST_DIMENSION_REFLEXES} exceed the mod's ${MAX_REFLEX_RULES}`);
 
 /**
- * Issue 2 Step 2: the instincts arm. MINEAGEN_INSTINCTS lists `instincts` (comma list) to turn it on; the mod reads the
- * same variable, and the coordinator runs with the mod's environment, so one variable defines the arm. Off, the rule set,
- * the wake line and the route line are what they were before.
+ * Issue 2 Step 2: the instincts arm, on by default so practice rooms play as model games do. MINEAGEN_INSTINCTS set to
+ * a comma list without `instincts` (for example `off`) turns it off; the mod reads the same variable, and the coordinator
+ * runs with the mod's environment, so one variable defines the arm. Off, the rule set, the wake line and the route line
+ * are what they were before.
  */
 export function instinctsEnabled(environment = {}) {
 	return getSwitch('instincts', environment).value;
@@ -391,7 +392,9 @@ export class ReflexBook {
 	#instincts;
 
 	/** dimensionDefaults: {dimension: rules} armed only there; by default DIMENSION_REFLEXES with the production defaults. */
-	constructor({ now = Date.now, defaults = DEFAULT_REFLEXES, dimensionDefaults = defaults === DEFAULT_REFLEXES ? DIMENSION_REFLEXES : {}, instincts = false } = {}) {
+	// instincts defaults to the switch (on unless MINEAGEN_INSTINCTS lists something else), so a practice room's book plays as
+	// the coordinator's does in a model game.
+	constructor({ now = Date.now, defaults = DEFAULT_REFLEXES, dimensionDefaults = defaults === DEFAULT_REFLEXES ? DIMENSION_REFLEXES : {}, instincts = instinctsEnabled(process.env) } = {}) {
 		this.#now = now; this.#defaults = defaults; this.#dimensionDefaults = dimensionDefaults; this.#instincts = instincts === true;
 	}
 
