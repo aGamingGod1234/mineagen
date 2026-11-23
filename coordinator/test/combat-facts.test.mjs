@@ -132,7 +132,7 @@ test('dragon facts name the fling, the water landing and an End bucket that cann
 	assert.match(carried, /Ender dragon: .*fling a player.*landing alone can kill.*falling reflex is not\. Water bucket carried\./);
 	const bucket = { items: [{ itemId: 'minecraft:bucket', count: 1 }] };
 	const empty = combatFacts({ ...base, inventory: bucket, landmarks: [{ blockId: 'minecraft:water', x: -51, y: 71, z: 1, distance: 62 }] });
-	assert.match(empty, /No water bucket: the End has no natural water, so an empty bucket refills only from water you placed \(a source block\)\. Water seen at -51,71,1; from there, aim the empty bucket at its source block, not the flow\./);
+	assert.match(empty, /No water bucket: the End has no natural water, so an empty bucket refills only from water you placed \(a source block\)\. Water seen at -51,71,1 \(flowing or not known\); an empty bucket aimed at flowing water fills from the source it flows from\./);
 	// Right after a feet pour the nearest water is its flow; an empty bucket's ray passes flowing water, so only the source is named.
 	const poured = combatFacts({ ...base, inventory: bucket, position: { x: 6.5, y: 61, z: 11.5 }, blocks: [
 		{ blockId: 'minecraft:water', x: -9, y: 61, z: 11, state: { level: '0' }, fluid: { type: 'minecraft:water', height: 0.89 } },
@@ -141,7 +141,12 @@ test('dragon facts name the fling, the water landing and an End bucket that cann
 		{ blockId: 'minecraft:water', x: 3, y: 61, z: 11, state: { level: '0' }, fluid: { type: 'minecraft:water', height: 0.89 } }],
 		landmarks: [{ blockId: 'minecraft:water', x: 20, y: 61, z: 11, distance: 13 }] });
 	assert.match(poured, /a source block\)\. Water source seen at 3,61,11\./);
-	assert.doesNotMatch(combatFacts({ ...base, inventory: bucket, blocks: [{ blockId: 'minecraft:water', x: 5, y: 61, z: 11, distance: 1, fluid: { type: 'minecraft:flowing_water' } }] }), /Water source seen/);
+	// Only flow in the block rows (the source is past the nearest cells): the nearest flow is named, landmarks are not.
+	const flowOnly = combatFacts({ ...base, inventory: bucket, position: { x: 6.5, y: 61, z: 11.5 }, blocks: [
+		{ blockId: 'minecraft:water', x: 2, y: 61, z: 11, fluid: { type: 'minecraft:flowing_water' } },
+		{ blockId: 'minecraft:water', x: 5, y: 61, z: 11, fluid: { type: 'minecraft:flowing_water' } }],
+		landmarks: [{ blockId: 'minecraft:water', x: 6, y: 61, z: 12, distance: 1 }] });
+	assert.match(flowOnly, /Water seen at 5,61,11 \(flowing or not known\); an empty bucket aimed at flowing water fills from the source it flows from\./);
 	assert.match(combatFacts({ ...base, inventory: { items: [] } }), /No water bucket carried\./);
 	assert.doesNotMatch(combatFacts({ ...base, entities: [] }) ?? '', /Ender dragon/);
 });

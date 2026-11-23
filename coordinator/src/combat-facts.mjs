@@ -36,8 +36,9 @@ function dragonFact(observation) {
 }
 
 // Only a source refills an empty bucket: its ray passes flowing water (vanilla SOURCE_ONLY). Block rows carry the fluid
-// (minecraft:water is a source, minecraft:flowing_water is not) and the block's level (0 for a source). Landmark rows
-// carry neither, so far water is named only when no source is in the block rows, as water whose source is not known.
+// (minecraft:water is a source, minecraft:flowing_water is not) and the block's level (0 for a source); landmark rows
+// carry neither. The block rows are the cells nearest the feet, so a pour a few blocks off often shows only its flow:
+// then the nearest water is named, and use_item with an empty bucket aimed at flowing water fills from its source.
 const waterSource = b => b.fluid?.type !== undefined ? b.fluid.type === 'minecraft:water' : b.state?.level !== undefined && String(b.state.level) === '0';
 function seenWater(observation) {
 	const at = observation.position ?? observation.player?.position ?? observation.player;
@@ -46,10 +47,11 @@ function seenWater(observation) {
 		: [at?.x, at?.y, at?.z].every(Number.isFinite) ? Math.hypot(b.x + 0.5 - at.x, b.y + 0.5 - at.y, b.z + 0.5 - at.z) : Infinity;
 	const nearest = rows => rows.filter(b => b?.blockId === 'minecraft:water' && [b.x, b.y, b.z].every(Number.isFinite))
 		.sort((a, b) => distance(a) - distance(b));
-	const source = nearest(observation.blocks ?? []).find(waterSource);
+	const near = nearest(observation.blocks ?? []);
+	const source = near.find(waterSource);
 	if (source) return ` Water source seen at ${source.x},${source.y},${source.z}.`;
-	const far = nearest(observation.landmarks ?? [])[0];
-	return far ? ` Water seen at ${far.x},${far.y},${far.z}; from there, aim the empty bucket at its source block, not the flow.` : '';
+	const water = near[0] ?? nearest(observation.landmarks ?? [])[0];
+	return water ? ` Water seen at ${water.x},${water.y},${water.z} (flowing or not known); an empty bucket aimed at flowing water fills from the source it flows from.` : '';
 }
 
 // Sword attack damage (vanilla tiers); a falling critical deals 1.5x. Blaze health is 20.

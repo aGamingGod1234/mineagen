@@ -131,7 +131,7 @@ try {
     const seen=await observe();
     // The dragon fact as the model reads it beside the dragon: the room has no dragon, so one is added to the entity list.
     const facts=combatFacts({...seen,entities:[...(seen.entities??[]),{type:'minecraft:ender_dragon',distance:60,alive:true}]})??'';
-    const hint=facts.match(/Water (?:source )?seen at (-?\d+),(-?\d+),(-?\d+)\./);
+    const hint=facts.match(/Water (?:source )?seen at (-?\d+),(-?\d+),(-?\d+)/);
     results.fact=hint?hint[0]:null;
     results.waterRows=(seen.blocks??[]).filter(b=>b.blockId==='minecraft:water').length;
     if(hint){
