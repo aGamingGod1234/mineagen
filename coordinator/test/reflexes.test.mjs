@@ -101,7 +101,7 @@ test('protocol carries reflex_update and the observation reflex status', () => {
 	assert.match(readFileSync(new URL('../../src/main/java/dev/agaminggod/mineagen/server/runtime/reflex/ReflexSpec.java', import.meta.url), 'utf8'),
 		new RegExp(`MAX_RULES = ${MAX_REFLEX_RULES};`), 'the mod accepts the same full set');
 	// C24: both wire bounds cap at the mod's 29, one more rule is refused, and the full set (with the End's own defaults) fits.
-	assert.equal(MAX_REFLEX_RULES, 29);
+	assert.equal(MAX_REFLEX_RULES, 30);
 	assert.ok(MAX_REFLEXES + DEFAULT_REFLEXES.length + DIMENSION_REFLEXES['minecraft:the_end'].length <= MAX_REFLEX_RULES);
 	const over = Array.from({ length: MAX_REFLEX_RULES + 1 }, (_, index) => ({ ...full[0], id: `rule-${index}` }));
 	assert.throws(() => validateProtocolV2Payload('reflex_update', { revision: 4, rules: over, yield: false }), 'one rule over the cap is refused on the wire');

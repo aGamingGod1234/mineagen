@@ -13,24 +13,24 @@ test('the default survival rules arm at spawn as canonical rules the mod accepts
 	const book = new ReflexBook({ instincts: false });
 	assert.equal(book.observeContext('a', { ready: false }), false, 'no arming before a live sample');
 	assert.equal(book.observeContext('a', live()), true, 'spawn arms them');
-	assert.deepEqual(ids(book), ['default-lava*', 'default-lava-flow*', 'default-fire*', 'default-air*', 'default-edge*', 'default-creeper*', 'default-suffocate*', 'default-fireball*', 'default-arrow*', 'default-retreat*', 'default-eat*', 'default-defend*', 'default-blaze-cover*', 'default-cover*', 'default-owed-drops*']);
+	assert.deepEqual(ids(book), ['default-lava*', 'default-lava-flow*', 'default-fire*', 'default-air*', 'default-edge*', 'default-creeper*', 'default-suffocate*', 'default-fireball*', 'default-arrow*', 'default-arrow-dodge*', 'default-retreat*', 'default-eat*', 'default-defend*', 'default-blaze-cover*', 'default-cover*', 'default-owed-drops*']);
 	const sent = book.payload('a');
 	assert.equal(sent.revision, 1);
 	assert.deepEqual(sent.rules.map(({ coordinatorDefault, ...rule }) => rule), DEFAULT_REFLEXES.flatMap(({ ttlMs, cooldownMs, maxMs, ...rule }) => normalizeReflexEntries([{ ...rule, ttlS: ttlMs / 1_000, ...(cooldownMs === undefined ? {} : { cooldownS: cooldownMs / 1_000 }), ...(maxMs === undefined ? {} : { maxS: maxMs / 1_000 }) }])));
 	assert.equal(book.observeContext('a', live()), false, 'an unchanged context sends nothing');
-	assert.match(book.takeReport('a'), /^armed default-lava, default-lava-flow, default-fire, default-air, default-edge\(stance\), default-creeper, default-suffocate, default-fireball, default-arrow, default-retreat, default-eat\(stance\), default-defend\(stance\), default-blaze-cover, default-cover, default-owed-drops$/, 'the wake lists them by id, without their definitions');
+	assert.match(book.takeReport('a'), /^armed default-lava, default-lava-flow, default-fire, default-air, default-edge\(stance\), default-creeper, default-suffocate, default-fireball, default-arrow, default-arrow-dodge, default-retreat, default-eat\(stance\), default-defend\(stance\), default-blaze-cover, default-cover, default-owed-drops$/, 'the wake lists them by id, without their definitions');
 });
 
 test('the model switches a default off by id until the next respawn or dimension change; "*" removes only its own rules', () => {
 	const book = new ReflexBook();
 	book.observeContext('a', live());
 	book.apply('a', normalizeReflexEntries([{ id: 'default-edge', remove: true }, FIRE]));
-	assert.deepEqual(ids(book), ['default-lava*', 'default-lava-flow*', 'default-fire*', 'default-air*', 'default-creeper*', 'default-suffocate*', 'default-fireball*', 'default-arrow*', 'default-retreat*', 'default-eat*', 'default-defend*', 'default-blaze-cover*', 'default-cover*', 'default-owed-drops*', 'burn']);
+	assert.deepEqual(ids(book), ['default-lava*', 'default-lava-flow*', 'default-fire*', 'default-air*', 'default-creeper*', 'default-suffocate*', 'default-fireball*', 'default-arrow*', 'default-arrow-dodge*', 'default-retreat*', 'default-eat*', 'default-defend*', 'default-blaze-cover*', 'default-cover*', 'default-owed-drops*', 'burn']);
 	assert.equal(book.observeContext('a', live()), false, 'switched off stays off in the same context');
 	book.apply('a', normalizeReflexEntries([{ id: '*', remove: true }]));
-	assert.deepEqual(ids(book), ['default-lava*', 'default-lava-flow*', 'default-fire*', 'default-air*', 'default-creeper*', 'default-suffocate*', 'default-fireball*', 'default-arrow*', 'default-retreat*', 'default-eat*', 'default-defend*', 'default-blaze-cover*', 'default-cover*', 'default-owed-drops*'], '"*" leaves the defaults');
+	assert.deepEqual(ids(book), ['default-lava*', 'default-lava-flow*', 'default-fire*', 'default-air*', 'default-creeper*', 'default-suffocate*', 'default-fireball*', 'default-arrow*', 'default-arrow-dodge*', 'default-retreat*', 'default-eat*', 'default-defend*', 'default-blaze-cover*', 'default-cover*', 'default-owed-drops*'], '"*" leaves the defaults');
 	assert.equal(book.observeContext('a', live(NETHER)), true, 'a dimension change arms the defaults again');
-	assert.deepEqual(ids(book), ['default-lava*', 'default-lava-flow*', 'default-fire*', 'default-air*', 'default-creeper*', 'default-suffocate*', 'default-fireball*', 'default-arrow*', 'default-retreat*', 'default-eat*', 'default-defend*', 'default-blaze-cover*', 'default-cover*', 'default-owed-drops*', 'default-edge*']);
+	assert.deepEqual(ids(book), ['default-lava*', 'default-lava-flow*', 'default-fire*', 'default-air*', 'default-creeper*', 'default-suffocate*', 'default-fireball*', 'default-arrow*', 'default-arrow-dodge*', 'default-retreat*', 'default-eat*', 'default-defend*', 'default-blaze-cover*', 'default-cover*', 'default-owed-drops*', 'default-edge*']);
 	book.apply('a', normalizeReflexEntries([{ id: 'default-air', remove: true }]));
 	assert.equal(book.observeContext('a', dead()), false);
 	assert.equal(book.observeContext('a', live(NETHER)), true, 'a respawn arms the defaults again');

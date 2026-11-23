@@ -601,6 +601,12 @@ public final class ReflexScheduler {
 		}
 	}
 
+	/** Whether a rule whose action is {@code type} could start at {@code now}: its trigger edge pending or its stance true. */
+	public boolean anyReady(String type, long now) {
+		for (State state : states.values()) if (type.equals(state.rule.action().type()) && ready(state, now)) return true;
+		return false;
+	}
+
 	/** Whether a yielded rule is waiting for its condition to clear or the model's command to end. */
 	public boolean anySuppressed() {
 		for (State state : states.values()) if (state.suppressed || state.yieldedTrigger) return true;
