@@ -134,6 +134,34 @@ async function failureLine(log) {
 	return code ? `Error: ${code}` : foldReason(line.trim());
 }
 
+/**
+ * One arm of a fixture that writes no finishRun rows, judged by its exit code (0 pass, 1 fail, anything else invalid)
+ * and its own JSON files: deaths and damage where they name them, and a room with no pass bar (meta bar "none") or a
+ * passWhen bar passes only when the body survived. killed names why the arm was cut short, if it was. The batch merge
+ * (mergeArms in room-batch-core.mjs) judges such a room the same way, but only for a fixture script that never calls
+ * finishRun: there a crashed finishRun fixture with no rows reads INVALID, where this scorer still reads its exit code.
+ */
+export async function judgeExitRun(dir, { run = {}, killed = null, log = null, meta = null } = {}) {
+	const evidence = await otherEvidence(dir);
+	let verdict = killed ? 'INVALID' : run.exit === 0 ? 'PASS' : run.exit === 1 ? 'FAIL' : 'INVALID';
+	let reason = verdict === 'PASS' ? null : killed ?? (log ? await failureLine(log) : null) ?? `exit ${run.exit ?? '?'}`;
+	const passWhen = meta?.passWhen;
+	const survivalBar = meta?.bar === 'none' || passWhen;
+	// What the fixture wrote outranks its exit code: an error it caught, a file cut short, or a pass: false it recorded.
+	if (!killed && evidence.integrity.length) ({ verdict, reason } = roomVerdict({ integrity: evidence.integrity }));
+	if (verdict === 'PASS' && evidence.deathsUnread) { verdict = 'INVALID'; reason = 'death counter unreadable'; }
+	if (verdict === 'PASS' && evidence.error) { verdict = 'INVALID'; reason = `fixture error: ${foldReason(evidence.error)}`; }
+	if (verdict === 'PASS' && evidence.notExercised.length) { verdict = 'INVALID'; reason = `not exercised: ${foldReason(evidence.notExercised[0])}`; }
+	// A file cut short is unknown evidence whatever the exit code said.
+	if (verdict !== 'INVALID' && evidence.corrupt.length) { verdict = 'INVALID'; reason = `corrupt ${evidence.corrupt.join(', ')}`; }
+	if (verdict === 'PASS' && evidence.failedPass && !survivalBar) { verdict = 'FAIL'; reason = 'pass false'; }
+	if (verdict === 'PASS' && survivalBar && (evidence.deaths > 0 || evidence.failed)) { verdict = 'FAIL'; reason = evidence.deaths > 0 ? 'died' : evidence.failed === 'offBridge' ? 'off the bridge' : `${evidence.failed} false`; }
+	// A room judged on survival must record a death count.
+	if (verdict === 'PASS' && survivalBar && evidence.deaths === null) { verdict = 'INVALID'; reason = 'no death record'; }
+	if (verdict === 'PASS' && passWhen && !meetsBar(passWhen, evidence.fields)) { verdict = 'FAIL'; reason = `${passWhen.field} below ${passWhen.min}`; }
+	return { verdict, reason, deaths: evidence.deaths, damage: evidence.damage };
+}
+
 const rowSeconds = row => Number.isFinite(row.seconds) ? row.seconds
 	: Number.isFinite(row.startedAt) && Number.isFinite(row.finishedAt) ? (row.finishedAt - row.startedAt) / 1000 : null;
 
@@ -183,27 +211,9 @@ export async function collectRuns(batchDir, planned = null, meta = null) {
 				for (let i = 0; i < missing; i++) runs.push({ ...base, verdict: 'INVALID', reason: invalid ?? 'a planned row was never written', deaths: null, damage: null, seconds: null });
 				continue;
 			}
-			// No rows: a fixture outside finishRun reports by its exit code; its own JSON files give deaths and damage
-			// where they name them, and a fixture with no pass bar (bar "none") passes when the body survived.
-			const evidence = await otherEvidence(path.join(roomsDir, name, arm));
-			let verdict = killed ? 'INVALID' : run.exit === 0 ? 'PASS' : run.exit === 1 ? 'FAIL' : 'INVALID';
-			let reason = verdict === 'PASS' ? null : killed ?? (await failureLine(path.join(roomsDir, name, `${arm}.log`))) ?? `exit ${run.exit ?? '?'}`;
-			const passWhen = meta?.[room]?.passWhen;
-			const survivalBar = meta?.[room]?.bar === 'none' || passWhen;
-			// What the fixture wrote outranks its exit code: an error it caught, a file cut short, or a pass: false it recorded.
-			if (!killed && evidence.integrity.length) ({ verdict, reason } = roomVerdict({ integrity: evidence.integrity }));
-			if (verdict === 'PASS' && evidence.deathsUnread) { verdict = 'INVALID'; reason = 'death counter unreadable'; }
-			if (verdict === 'PASS' && evidence.error) { verdict = 'INVALID'; reason = `fixture error: ${foldReason(evidence.error)}`; }
-			if (verdict === 'PASS' && evidence.notExercised.length) { verdict = 'INVALID'; reason = `not exercised: ${foldReason(evidence.notExercised[0])}`; }
-			// A file cut short is unknown evidence whatever the exit code said.
-			if (verdict !== 'INVALID' && evidence.corrupt.length) { verdict = 'INVALID'; reason = `corrupt ${evidence.corrupt.join(', ')}`; }
-			if (verdict === 'PASS' && evidence.failedPass && !survivalBar) { verdict = 'FAIL'; reason = 'pass false'; }
-			if (verdict === 'PASS' && survivalBar && (evidence.deaths > 0 || evidence.failed)) { verdict = 'FAIL'; reason = evidence.deaths > 0 ? 'died' : evidence.failed === 'offBridge' ? 'off the bridge' : `${evidence.failed} false`; }
-			// A room judged on survival must record a death count.
-			if (verdict === 'PASS' && survivalBar && evidence.deaths === null) { verdict = 'INVALID'; reason = 'no death record'; }
-			if (verdict === 'PASS' && passWhen && !meetsBar(passWhen, evidence.fields)) { verdict = 'FAIL'; reason = `${passWhen.field} below ${passWhen.min}`; }
-			runs.push({ ...base, verdict, reason, deaths: evidence.deaths, damage: evidence.damage,
-				seconds: run.seconds ?? null, wallSeconds: run.seconds ?? null, cantKeepUp: run.cantKeepUp ?? null, exitOnly: true });
+			// No rows: a fixture outside finishRun reports by its exit code (judgeExitRun).
+			const judged = await judgeExitRun(path.join(roomsDir, name, arm), { run, killed, log: path.join(roomsDir, name, `${arm}.log`), meta: meta?.[room] });
+			runs.push({ ...base, ...judged, seconds: run.seconds ?? null, wallSeconds: run.seconds ?? null, cantKeepUp: run.cantKeepUp ?? null, exitOnly: true });
 		}
 	}
 	return runs;

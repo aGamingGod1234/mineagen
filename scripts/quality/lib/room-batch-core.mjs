@@ -1,8 +1,11 @@
 // Pure parts of room-batch.mjs: the commands file, the shared room queue with one re-queue after a lost machine, and
 // the per-arm merge through finishRun. No machine, network or boat call happens here, so all of it is unit-tested.
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, readdir, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { judgeExitRun } from './benchmark-score.mjs';
 import { finishRun, roomVerdict } from './fixture-run.mjs';
 import { mergeSwitchRecords } from './switch-record.mjs';
 
@@ -208,16 +211,54 @@ export async function armRows(dir) {
 		return { rows: bare, summary: null, file: 'result.json', problem: null };
 	}
 	const pick = pairs.find(pair => pair.base === 'result') ?? (pairs.length === 1 ? pairs[0] : null);
-	if (!pick) return { rows: [], summary: null, file: null, problem: pairs.length > 1 ? `several row files (${pairs.map(pair => `${pair.base}.json`).join(', ')}), none named result.json` : null };
+	// A finishRun summary whose rows file is gone: the fixture ran on finishRun, so it is no exit-code room.
+	const orphanSummary = !pick && !pairs.length ? names.find(name => name.endsWith('-summary.json')) ?? null : null;
+	if (!pick) return { rows: [], summary: null, file: null, problem: pairs.length > 1 ? `several row files (${pairs.map(pair => `${pair.base}.json`).join(', ')}), none named result.json` : null, orphanSummary };
 	return { rows: pick.rows, summary: await readJson(path.join(dir, `${pick.base}-summary.json`)).catch(() => null), file: `${pick.base}.json`, problem: null };
 }
+
+const REPO = fileURLToPath(new URL('../../..', import.meta.url));
+const finishRunScripts = new Map();
+/**
+ * Whether a line's fixture script writes finishRun rows, read as the batch played it: at the batch's code ref when the
+ * script is in the repository (the machines play that ref), else from disk. An unreadable script counts as yes.
+ */
+const writesRows = (script, code = null) => {
+	if (!script) return true;
+	const key = `${code ?? ''}:${script}`;
+	if (!finishRunScripts.has(key)) {
+		const inRepo = !path.isAbsolute(script) ? path.posix.normalize(script.replaceAll('\\', '/')) : null;
+		let text = null;
+		if (code && inRepo) try { text = execFileSync('git', ['show', `${code}:${inRepo}`], { cwd: REPO, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }); } catch { /* not at that ref */ }
+		if (text === null) try { text = readFileSync(path.resolve(REPO, script), 'utf8'); } catch { /* unknown script */ }
+		finishRunScripts.set(key, text === null || /\bfinishRun\b/.test(text));
+	}
+	return finishRunScripts.get(key);
+};
+/** The fixture script an arm's line runs: `node SCRIPT ...`, or the script after `node lib/with-jar.mjs JAR SCRIPT ...`. */
+export const lineScript = (room, arm) => {
+	const args = (room.lines?.find(line => line.arm === arm) ?? room.lines?.[0])?.args ?? [];
+	return args.find(arg => /\.m?js$/.test(arg) && !/(^|[\\/])with-jar\.mjs$/.test(arg)) ?? args[0] ?? null;
+};
+/**
+ * An exit-code room: its arm wrote no finishRun rows file at all, its line plans one run, and its fixture script is one
+ * that never calls finishRun (the lava, rest, enderman rooms). A fixture that does call finishRun and wrote nothing
+ * crashed, so its planned rows stay INVALID, never one exit-code verdict; so does a summary left without its rows file.
+ */
+const exitOnly = (found, { linePlanned = 1, script = null, code = null } = {}) => !found.file && !found.problem && !found.orphanSummary && !found.rows.length
+	&& (linePlanned ?? 1) <= 1 && !writesRows(script, code);
+/** A room's benchmark definition (its bar) by room name, or by its repeat group (ROOM.c3 is ROOM). */
+const roomBar = (meta, name) => meta?.[name] ?? meta?.[repeatGroup(name)] ?? null;
 
 /**
  * Per arm, the rows of every room folder (OUT/rooms/ROOM/ARM/result.json) go through finishRun into OUT/ARM/result.json.
  * planned counts every room's rows, and each row a lost or crashed room did not bring back is an INVALID row of that
  * room that never started (so it shows in invalid and in notStarted): the arm reads INVALID, never short.
+ * A room whose fixture writes no finishRun rows file at all (an exit-code room) is one row judged by its exit code and
+ * its own JSON, as the benchmark scorer judges it (judgeExitRun); meta, by room name or repeat group, gives its bar, and
+ * code (the batch's ref) is where its fixture script is read.
  */
-export async function mergeArms({ out, rooms, arms, outcomes }) {
+export async function mergeArms({ out, rooms, arms, outcomes, meta = {}, code = null }) {
 	const byRoom = new Map(outcomes.map(outcome => [outcome.room, outcome]));
 	const merged = {};
 	for (const arm of arms) {
@@ -229,6 +270,23 @@ export async function mergeArms({ out, rooms, arms, outcomes }) {
 			// A lost room counts no rows, whatever a partial copy left behind; it is all notStarted.
 			// The rows and their summary are the NAME.json / NAME-summary.json pair finishRun wrote (armRows).
 			const found = outcome.lost ? { rows: [], summary: null, problem: null } : await armRows(dir);
+			const run = outcome.arms?.[arm] ?? {};
+			// Rows an arm wrote before the room timeout, a signal or a launch error killed it are not a finished run.
+			const killed = run.timedOut ? 'room timeout' : run.signal ? `signal ${run.signal}` : run.error ? `launch error: ${run.error}` : null;
+			if (!outcome.lost && exitOnly(found, { linePlanned: room.plannedByArm?.[arm] ?? room.planned, script: lineScript(room, arm), code })) {
+				const judged = await judgeExitRun(dir, { run, killed, log: path.join(out, 'rooms', room.room, `${arm}.log`), meta: roomBar(meta, room.room) });
+				planned += 1;
+				switchRecords.push(null);
+				// An arm that launched started its row, on the run's own clock from 0; one that never launched did not.
+				const launched = !run.error && (Number.isInteger(run.exit) || run.timedOut || run.signal);
+				rows.push({ name: room.room, room: room.room, host: outcome.worker ?? null, attempts: outcome.attempts ?? 0, cantKeepUp: run.cantKeepUp ?? null, exitOnly: true,
+					pass: judged.verdict === 'PASS' ? true : judged.verdict === 'FAIL' ? false : null,
+					...(judged.verdict === 'INVALID' ? { measurementStatus: 'INVALID', measurementReason: judged.reason } : judged.verdict === 'FAIL' ? { failReason: judged.reason } : {}),
+					startedAt: launched ? 0 : null, finishedAt: launched && !killed && Number.isFinite(run.seconds) ? run.seconds * 1000 : null, deaths: judged.deaths, damageTaken: judged.damage });
+				// An arm that never launched brought back no run, so the arm's death and damage totals stay unknown.
+				perRoom.push({ room: room.room, lost: false, reason: null, rows: launched ? 1 : 0, planned: 1, exit: run.exit ?? null, seconds: run.seconds ?? null, timedOut: !!run.timedOut, cantKeepUp: run.cantKeepUp ?? null });
+				continue;
+			}
 			const own = found.summary;
 			const ownValid = Boolean(own && typeof own === 'object' && Number.isInteger(own.planned));
 			if (!outcome.lost) switchRecords.push(ownValid ? own.switches ?? null : null);
@@ -245,10 +303,7 @@ export async function mergeArms({ out, rooms, arms, outcomes }) {
 			// A lost or invalid room always plans at least one row, so it can never leave the arm reading as a clean PASS.
 			const roomPlanned = outcome.lost || roomInvalid ? Math.max(basePlanned, 1) : basePlanned;
 			planned += roomPlanned;
-			const run = outcome.arms?.[arm] ?? {};
 			const roomRows = found.rows;
-			// Rows an arm wrote before the room timeout, a signal or a launch error killed it are not a finished run.
-			const killed = run.timedOut ? 'room timeout' : run.signal ? `signal ${run.signal}` : run.error ? `launch error: ${run.error}` : null;
 			const roomFlags = [...(killed ? [`arm killed (${killed})`] : []), ...(roomInvalid ? [roomInvalid] : [])];
 			for (const row of roomRows) rows.push({ ...row, ...(roomFlags.length ? { integrity: [...(Array.isArray(row.integrity) ? row.integrity : []), ...roomFlags] } : {}),
 				room: room.room, host: outcome.worker ?? null, attempts: outcome.attempts ?? 0, cantKeepUp: run.cantKeepUp ?? null });
@@ -324,14 +379,16 @@ export const repeatGroup = name => String(name).replace(/(?:\.c\d+|-r\d+)$/, '')
 
 /**
  * One arm of a fetched room: { valid, rows }. valid counts its PASS or FAIL rows, as the merge counts them (none when the
- * arm was killed, its rows file is ambiguous, or its summary is missing, corrupt or plans no rows); rows is how many runs
- * a copy of the room plays (its summary's planned), or null when that is unknown.
+ * arm was killed, its rows file is ambiguous, or its summary is missing, corrupt or plans no rows; an exit-code room is
+ * one run, judged with its bar as the merge judges it); rows is how many runs a copy of the room plays (its summary's planned), or null when that is unknown.
  */
-export async function armValidRuns(dir, run = {}) {
+export async function armValidRuns(dir, run = {}, { linePlanned = 1, script = null, code = null, bar = null } = {}) {
 	const found = await armRows(dir);
 	const planned = Number.isInteger(found.summary?.planned) && found.summary.planned > 0 ? found.summary.planned : null;
 	// A killed arm counts no valid run, but the runs its summary planned still size the copies.
 	if (run.timedOut || run.signal || run.error) return { valid: 0, rows: planned };
+	// An exit-code room (no rows file at all) is one run, valid when its exit code and own JSON judge it PASS or FAIL.
+	if (exitOnly(found, { linePlanned, script, code })) return { valid: ['PASS', 'FAIL'].includes((await judgeExitRun(dir, { run, meta: bar })).verdict) ? 1 : 0, rows: 1 };
 	if (found.problem || planned === null) return { valid: 0, rows: null };
 	return { valid: found.rows.filter(row => row && typeof row === 'object' && ['PASS', 'FAIL'].includes(roomVerdict(row).verdict)).length, rows: found.summary.planned };
 }
@@ -342,7 +399,7 @@ export async function armValidRuns(dir, run = {}) {
  * summary says how many it planned. Copies still queued or playing count toward N, so a group never asks for more than
  * its shortfall at once. more(room, outcome) is runQueue's hook; added lists the copies it made.
  */
-export function topUp({ rooms, arms, valid, out, countValid = armValidRuns }) {
+export function topUp({ rooms, arms, valid, out, meta = {}, code = null, countValid = armValidRuns }) {
 	if (!Number.isInteger(valid) || valid < 1) throw new Error('--valid wants a whole number of 1 or more');
 	const groups = new Map(), names = new Set(rooms.map(room => room.room)), added = [];
 	for (const room of rooms) {
@@ -359,7 +416,7 @@ export function topUp({ rooms, arms, valid, out, countValid = armValidRuns }) {
 		if (!group) return [];
 		// Every count is read before the group changes, so two copies finishing together never lose one another's runs.
 		const counts = outcome?.lost ? arms.map(() => ({ valid: 0, rows: null }))
-			: await Promise.all(arms.map(arm => countValid(path.join(out, 'rooms', room.room, arm), outcome.arms?.[arm] ?? {})));
+			: await Promise.all(arms.map(arm => countValid(path.join(out, 'rooms', room.room, arm), outcome.arms?.[arm] ?? {}, { linePlanned: room.plannedByArm?.[arm] ?? room.planned, script: lineScript(room, arm), code, bar: roomBar(meta, room.room) })));
 		group.pending--;
 		arms.forEach((arm, i) => { group.valid[arm] += counts[i].valid; });
 		const seen = Math.max(0, ...counts.map(count => count.rows ?? 0));

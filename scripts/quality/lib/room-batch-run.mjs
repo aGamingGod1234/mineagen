@@ -15,8 +15,9 @@
 // queue is empty, when it is lost or fails a room, and when the batch ends (also on an error or a signal). A pool with
 // release() then decides: the warm pool keeps a machine that passes its cleaning check and sets aside, still running,
 // one that does not. Without release() every machine is destroyed.
-import { mkdir, readdir } from 'node:fs/promises';
+import { mkdir, readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { formatSummary, mergeArms, runQueue, topUp } from './room-batch-core.mjs';
 import { slimRoom } from './room-worlds.mjs';
 
@@ -33,6 +34,17 @@ function raceAbort(promise, signal) {
 			error => { signal.removeEventListener('abort', onAbort); reject(error); },
 		);
 	});
+}
+
+/**
+ * The benchmark room definitions an exit-code room is judged with (its bar "none" or passWhen), by room name: the
+ * ones benchmark.mjs saved in plan.json beside this batch folder, else the default room list.
+ */
+export async function roomMeta(out) {
+	const read = file => readFile(file, 'utf8').then(JSON.parse).catch(() => null);
+	const plan = await read(path.join(out, '..', 'plan.json'));
+	const list = Array.isArray(plan?.roomDefinitions) ? plan.roomDefinitions : (await read(fileURLToPath(new URL('../benchmark-rooms.json', import.meta.url))))?.rooms ?? [];
+	return Object.fromEntries(list.filter(room => room && typeof room.room === 'string').map(room => [room.room, room]));
 }
 
 export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeoutMs = 40 * 60_000, pollMs = 0, retryMs = 15_000, lostAfterMs = 5 * 60_000,
@@ -94,7 +106,8 @@ export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeout
 	};
 	let outcomes = [];
 	// --valid N: an INVALID or lost copy is replayed (both arms together) until each arm has N valid runs, at most 2N.
-	const topUps = valid ? topUp({ rooms, arms: arms.map(arm => arm.name), valid, out }) : null;
+	const meta = await roomMeta(out);
+	const topUps = valid ? topUp({ rooms, arms: arms.map(arm => arm.name), valid, out, meta, code: batch.code }) : null;
 	try {
 		// Each machine joins the queue as soon as it is ready; a late one no longer holds the others' rooms back.
 		const arrivals = Array.from({ length: vms }, () => bringUp().catch(error => { log(`a machine did not come up: ${error.message}`); return null; }));
@@ -173,7 +186,7 @@ export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeout
 	const wallSeconds = Math.round((Date.now() - began) / 1000);
 	const armNames = arms.map(arm => arm.name);
 	const played = [...rooms, ...(topUps?.added ?? [])];
-	const merged = await mergeArms({ out, rooms: played, arms: armNames, outcomes });
+	const merged = await mergeArms({ out, rooms: played, arms: armNames, outcomes, meta, code: batch.code });
 	let text = formatSummary({ batch, merged, arms: armNames, wallSeconds, vms: machines.length, rooms: played });
 	const short = topUps?.report().filter(group => group.short.length) ?? [];
 	const named = groups => groups.map(group => `${group.group} (${Object.entries(group.valid).map(([arm, n]) => `${arm} ${n}`).join(', ')})`).join('; ');
