@@ -417,6 +417,8 @@ export class ReflexBook {
 	#dimensionDefaults;
 	#instincts;
 	#pours = new Map();
+	// The latest sample that carried the inventory: a scoop is read against it, so a sample without one between hides none.
+	#stocked = new Map();
 
 	/** dimensionDefaults: {dimension: rules} armed only there; by default DIMENSION_REFLEXES with the production defaults. */
 	// instincts defaults to the switch (on unless MINEAGEN_INSTINCTS lists something else), so a practice room's book plays as
@@ -479,7 +481,8 @@ export class ReflexBook {
 	 * removed like a model removal and reported as expired in the next wake. Returns whether the set changed.
 	 */
 	observeContext(agentId, observation) {
-		this.#forgetScoopedPour(agentId, this.#samples.get(agentId), observation);
+		this.#forgetScoopedPour(agentId, this.#stocked.get(agentId), observation);
+		if (Array.isArray(observation?.inventory?.items)) this.#stocked.set(agentId, observation);
 		this.#samples.set(agentId, observation);
 		const armed = this.#armDefaults(agentId, observation);
 		const agent = this.#agents.get(agentId);
@@ -740,5 +743,5 @@ export class ReflexBook {
 		return definitions.length > 0 ? `${line}; rules: ${JSON.stringify(definitions)}` : line;
 	}
 
-	clear(agentId) { this.#agents.delete(agentId); this.#samples.delete(agentId); this.#pours.delete(agentId); }
+	clear(agentId) { this.#agents.delete(agentId); this.#samples.delete(agentId); this.#pours.delete(agentId); this.#stocked.delete(agentId); }
 }
