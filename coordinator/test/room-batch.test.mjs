@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promis
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { armTotals, formatSummary, mergeArms, parseCommands, plannedOf, runQueue, splitWords, stageRoom } from '../../scripts/quality/lib/room-batch-core.mjs';
+import { armTotals, formatSummary, mergeArms, parseCommands, plannedOf, repeatGroup, runQueue, splitWords, stageRoom, topUp } from '../../scripts/quality/lib/room-batch-core.mjs';
 import { runBatch } from '../../scripts/quality/lib/room-batch-run.mjs';
 import { cutoffTime, nextClockTime, nextSlot, parseWindowsHosts, pastCutoff, portClashes, slotPortBase, windowsBatchDir, windowsPath, windowsPool } from '../../scripts/quality/lib/windows-pool.mjs';
 import { BUNDLE_PATHS, buildBundle, hasZstd, launchScript, prepareScript, readWait, waitAndPackScript } from '../../scripts/quality/lib/boat-pool.mjs';
@@ -128,7 +128,8 @@ test('the merge keeps room folders, counts a lost room as notStarted and calls t
 		assert.equal(merged.new.summary.notStarted, 1);
 		assert.equal(merged.new.summary.status, 'INVALID');
 		const written = JSON.parse(await readFile(path.join(out, 'new', 'result.json'), 'utf8'));
-		assert.deepEqual(written.map(item => [item.room, item.host, item.attempts]), [['a', 'vm1', 1], ['b', 'vm2', 2]]);
+		assert.deepEqual(written.map(item => [item.room, item.host, item.attempts]), [['a', 'vm1', 1], ['b', 'vm2', 2], ['c', null, 2]], 'the lost room is one INVALID row of its own');
+		assert.equal(written[2].error, 'room lost: machine gone');
 		assert.equal(JSON.parse(await readFile(path.join(out, 'old', 'result-summary.json'), 'utf8')).failed, 1);
 		const newTotals = armTotals(merged.new), oldTotals = armTotals(merged.old);
 		assert.equal(newTotals.damage, null, 'a row without a damage number makes the total unknown');
@@ -185,6 +186,155 @@ test('a batch over a fake pool re-queues the room of a machine that dies, delete
 		assert.deepEqual(job.env, { TMP: '/tmp2' });
 		assert.equal([...machines.get('vm1').jobs.values()][0].portBase, 28000, 'boat machines keep 28000');
 	} finally { await rm(out, { recursive: true, force: true }); }
+});
+
+// A fake pool whose fixture writes, per room start, the rows play(roomName, arm, start) returns; every machine stays up.
+function scriptedPool(out, play) {
+	let made = 0, starts = 0;
+	const jobs = [];
+	return { jobs, pool: {
+		async create() { return { id: `vm${++made}` }; },
+		async prepare() { return { code: '/c', out: '/o', jars: { new: '/j/new.jar', old: '/j/old.jar' }, inputs: {}, javaHome: '/jdk', template: '/t' }; },
+		async start(vm, job) { jobs.push({ room: job.room, arms: job.lines.map(line => line.arm), start: ++starts }); },
+		async poll() { return 'done'; },
+		async alive() { return true; },
+		async fetch(vm, roomName) {
+			const start = jobs.find(job => job.room === roomName).start;
+			for (const arm of ['new', 'old']) await writeRoom(out, roomName, arm, play(roomName, arm, start));
+			return { seconds: 5, arms: { new: { exit: 0, seconds: 5 }, old: { exit: 0, seconds: 5 } }, machine: {} };
+		},
+		async keepAlive() {}, async usage() { return {}; }, async destroy() {},
+	} };
+}
+
+test('--valid N replays INVALID copies with both arms until each arm has N valid runs, and stops at 2N', async () => {
+	const out = await mkdtemp(path.join(os.tmpdir(), 'room-batch-valid-'));
+	try {
+		// Room a: copies 1 and 2 start badly on the new arm only (an INVALID row); room b never starts well; room c is fine.
+		const bad = row('x', { notExercised: 'mob never in range' });
+		const play = (roomName, arm) => roomName.startsWith('b.') ? [bad] : ['a.c1', 'a.c2'].includes(roomName) && arm === 'new' ? [bad] : [row(`spot-${roomName}`)];
+		const { pool, jobs } = scriptedPool(out, play);
+		const lines = ['a', 'b', 'c'].flatMap(name => [1, 2, 3].map(copy => `@${name}.c${copy} BUILD_ONLY=${name} ${LINE}`)).join('\n');
+		const rooms = parseCommands(lines, ['new', 'old']);
+		const result = await runBatch({ batch: { name: 't', code: 'abc12345' }, rooms, arms: [{ name: 'new' }, { name: 'old' }], pool, vms: 1, out, pollMs: 1, log: () => {}, valid: 3 });
+		const played = jobs.map(job => job.room);
+		// a: 1 valid new run of 3 after its copies, so 2 more, both arms each time (paired); old reaches 5.
+		assert.deepEqual(played.filter(name => name.startsWith('a.')), ['a.c1', 'a.c2', 'a.c3', 'a.c4', 'a.c5']);
+		assert.ok(jobs.every(job => job.arms.join() === 'new,old'), 'a top-up plays every arm');
+		// b: never valid, stops at 2N = 6 copies. c: valid from the start, no top-up.
+		assert.deepEqual(played.filter(name => name.startsWith('b.')), ['b.c1', 'b.c2', 'b.c3', 'b.c4', 'b.c5', 'b.c6']);
+		assert.deepEqual(played.filter(name => name.startsWith('c.')), ['c.c1', 'c.c2', 'c.c3']);
+		const groups = Object.fromEntries(result.topUps.map(group => [group.group, group]));
+		assert.deepEqual(groups.a.valid, { new: 3, old: 5 });
+		assert.deepEqual(groups.b.short, ['new', 'old']);
+		assert.equal(groups.c.planned, 3);
+		assert.match(result.text, /--valid 3: 5 top-up copies; short at the 6-run cap: b \(new 0, old 0\)/);
+		// The merge counts every copy: the top-ups' rows are in the arm's result.
+		assert.equal(result.merged.new.rows.filter(item => item.room.startsWith('a.')).length, 5);
+		assert.equal(armTotals(result.merged.new).pass, 6, 'a: 3 valid, c: 3');
+	} finally { await rm(out, { recursive: true, force: true }); }
+});
+
+test('top-up groups: repeat labels fold, a lost copy counts no valid run, and copies still playing count toward N', async () => {
+	assert.equal(repeatGroup('skel.c10'), 'skel');
+	assert.equal(repeatGroup('tr-wastes-987-w300-r2'), 'tr-wastes-987-w300');
+	assert.equal(repeatGroup('lava-gate-1'), 'lava-gate-1');
+	const rooms = parseCommands([1, 2].map(copy => `@r.c${copy} ${LINE}`).join('\n'), ['new']);
+	const counts = { 'r.c1': 1, 'r.c2': 0 };
+	const plan = topUp({ rooms, arms: ['new'], valid: 2, out: '/nowhere', countValid: async dir => ({ valid: counts[path.basename(path.dirname(dir))] ?? 0, rows: 1 }) });
+	// r.c2 still playing: r.c1's one valid run plus one pending reaches N, so nothing is added yet.
+	assert.deepEqual(await plan.more(rooms[0], { lost: false, arms: {} }), []);
+	// r.c2 lost: short by one, one copy.
+	const extra = await plan.more(rooms[1], { lost: true, reason: 'machine gone' });
+	assert.deepEqual(extra.map(copy => copy.room), ['r.c3']);
+	assert.deepEqual(extra[0].lines, rooms[1].lines);
+	assert.notEqual(extra[0].lines[0].args, rooms[1].lines[0].args, 'a copy owns its lines');
+	assert.throws(() => topUp({ rooms, arms: ['new'], valid: 0, out: '/x' }), /whole number/);
+});
+
+test('top-ups: copies finishing together keep each other\'s counts, multi-row copies size by their summary, -rN groups keep their style', async () => {
+	// Three copies of g, N = 3: c1 and c2 valid, c3 not; their counts resolve together.
+	const rooms = parseCommands([1, 2, 3].map(copy => `@g.c${copy} ${LINE}`).join('\n'), ['new']);
+	let release;
+	const gate = new Promise(done => { release = done; });
+	const plan = topUp({ rooms, arms: ['new'], valid: 3, out: '/x', countValid: async dir => { await gate; return { valid: path.basename(path.dirname(dir)) === 'g.c3' ? 0 : 1, rows: 1 }; } });
+	const settled = Promise.all(rooms.map(room => plan.more(room, { lost: false, arms: {} })));
+	release();
+	const extra = (await settled).flat();
+	assert.deepEqual(extra.map(copy => copy.room), ['g.c4'], 'one copy for one missing run, not one per caller');
+	assert.deepEqual(plan.report()[0].valid, { new: 2 });
+	// A line with no selector whose copies write 5 rows each: 2 copies of 5 already reach N = 10, so nothing is added.
+	const multi = parseCommands([1, 2, 3].map(copy => `@dig.c${copy} ${LINE}`).join('\n'), ['new']);
+	const big = topUp({ rooms: multi, arms: ['new'], valid: 10, out: '/x', countValid: async () => ({ valid: 5, rows: 5 }) });
+	assert.deepEqual(await big.more(multi[0], { lost: false, arms: {} }), []);
+	assert.equal(big.report()[0].planned, 15);
+	// Its cap is 2N runs: 4 copies of 5.
+	const none = topUp({ rooms: multi, arms: ['new'], valid: 10, out: '/x', countValid: async () => ({ valid: 0, rows: 5 }) });
+	let made = [];
+	for (const room of multi) made.push(...await none.more(room, { lost: false, arms: {} }));
+	assert.deepEqual(made.map(copy => copy.room), ['dig.c4'], 'the cap counts runs, not copies');
+	// Arm old's own line selects 3 cases where new's selects 1: the cap counts the larger, 2N = 6 runs is 2 copies.
+	const arms = parseCommands(`@s.c1:new BUILD_ONLY=a ${LINE}\n@s.c1:old BUILD_ONLY=a,b,c ${LINE}`, ['new', 'old']);
+	const perArm = topUp({ rooms: arms, arms: ['new', 'old'], valid: 3, out: '/x', countValid: async () => ({ valid: 0, rows: null }) });
+	assert.deepEqual((await perArm.more(arms[0], { lost: false, arms: {} })).map(copy => copy.room), ['s.c2']);
+	assert.equal(perArm.report()[0].planned, 6);
+	const r = parseCommands(`@tr-wastes-r1 ${LINE}`, ['new']);
+	assert.deepEqual((await topUp({ rooms: r, arms: ['new'], valid: 1, out: '/x', countValid: async () => ({ valid: 0, rows: 1 }) }).more(r[0], { lost: false, arms: {} })).map(copy => copy.room), ['tr-wastes-r2']);
+});
+
+test('a killed arm counts no valid run but its summary still sizes the copies', async () => {
+	const out = await mkdtemp(path.join(os.tmpdir(), 'room-batch-valid-killed-'));
+	try {
+		await writeRoom(out, 'k.c1', 'new', [1, 2, 3, 4, 5].map(n => row(`s${n}`)), 5);
+		const { armValidRuns } = await import('../../scripts/quality/lib/room-batch-core.mjs');
+		assert.deepEqual(await armValidRuns(path.join(out, 'rooms', 'k.c1', 'new'), { timedOut: true }), { valid: 0, rows: 5 });
+		assert.deepEqual(await armValidRuns(path.join(out, 'rooms', 'k.c1', 'new'), {}), { valid: 5, rows: 5 });
+	} finally { await rm(out, { recursive: true, force: true }); }
+});
+
+test('a copy whose summary reads INVALID beside a passing row counts that row, as the merge now keeps it', async () => {
+	const out = await mkdtemp(path.join(os.tmpdir(), 'room-batch-valid-mixed-'));
+	try {
+		const rooms = parseCommands(`@m.c1 CASES=a,b ${LINE}`, ['new']);
+		const dir = path.join(out, 'rooms', 'm.c1', 'new');
+		await mkdir(dir, { recursive: true });
+		const { finishRun } = await import('../../scripts/quality/lib/fixture-run.mjs');
+		await finishRun([row('a'), row('b', { error: 'bad start' })], { file: path.join(dir, 'result.json'), planned: 2, setExitCode: false });
+		const { armValidRuns } = await import('../../scripts/quality/lib/room-batch-core.mjs');
+		assert.deepEqual(await armValidRuns(dir, {}), { valid: 1, rows: 2 });
+		const merged = await mergeArms({ out, rooms, arms: ['new'], outcomes: [{ room: 'm.c1', lost: false, worker: 'vm1', attempts: 1, arms: { new: { exit: 2, seconds: 5 } } }] });
+		assert.equal(armTotals(merged.new).pass, 1, 'the merge counts the same one valid run');
+	} finally { await rm(out, { recursive: true, force: true }); }
+});
+
+test('a stopped batch makes no top-ups and says its groups were short with copies left, not at the cap', async () => {
+	const out = await mkdtemp(path.join(os.tmpdir(), 'room-batch-valid-stop-'));
+	try {
+		const controller = new AbortController();
+		const bad = row('x', { notExercised: 'mob never in range' });
+		const { pool, jobs } = scriptedPool(out, () => [bad]);
+		const fetch = pool.fetch;
+		pool.fetch = async (...args) => { const done = await fetch(...args); controller.abort(); return done; };
+		const rooms = parseCommands([1, 2].map(copy => `@a.c${copy} ${LINE}`).join('\n'), ['new', 'old']);
+		const result = await runBatch({ batch: { name: 't', code: 'abc12345' }, rooms, arms: [{ name: 'new' }, { name: 'old' }], pool, vms: 1, out, pollMs: 1, log: () => {}, valid: 2, signal: controller.signal });
+		assert.equal(jobs.length, 1, 'stopped after the first copy');
+		assert.deepEqual(result.topUps[0].copies, 2, 'no copy made after the stop');
+		assert.match(result.text, /0 top-up copies; short with copies left \(batch stopped or out of machines\): a \(new 0, old 0\)/);
+	} finally { await rm(out, { recursive: true, force: true }); }
+});
+
+test('with top-ups on, an idle machine stays until no busy machine can add rooms, so top-ups spread over the machines', async () => {
+	const order = [];
+	let added = false;
+	const workers = [{ id: 'w1' }, { id: 'w2' }];
+	const released = [];
+	const outcomes = await runQueue({ rooms: [{ room: 'slow' }, { room: 'fast' }], workers, maxAttempts: 1,
+		attempt: async (worker, item) => { order.push(`${worker.id}:${item.room}`); await new Promise(done => setTimeout(done, item.room === 'slow' ? 40 : 1)); return { lost: false }; },
+		more: async item => { if (item.room !== 'slow' || added) return []; added = true; return [{ room: 'extra1' }, { room: 'extra2' }]; },
+		release: worker => { released.push(worker.id); } });
+	assert.deepEqual(outcomes.map(outcome => outcome.room), ['slow', 'fast', 'extra1', 'extra2']);
+	assert.ok(order.includes('w2:extra1') || order.includes('w2:extra2'), `the idle machine took a top-up: ${order.join(' ')}`);
+	assert.deepEqual(released.sort(), ['w1', 'w2']);
 });
 
 test('the machine helper plays every arm side by side under the wrapper, each in its own folder and port range from the job port base', async () => {
@@ -517,7 +667,7 @@ test('the merge ignores rows a lost room left behind, calls a killed arm invalid
 		assert.equal(merged.old.summary.planned, 4, 'arm old selects two rows in room b');
 		assert.equal(merged.old.summary.notStarted, 2, 'the rows a lost room left on disk are not counted');
 		assert.equal(merged.old.summary.status, 'INVALID');
-		assert.equal(merged.new.summary.invalid, 1, 'rows of an arm the room timeout killed are invalid');
+		assert.equal(merged.new.summary.invalid, 2, 'the row of an arm the room timeout killed, and the lost room\'s own row, are invalid');
 		assert.match(merged.new.rows.find(item => item.room === 'c').integrity.join(), /arm killed \(room timeout\)/);
 		assert.equal(merged.new.summary.status, 'INVALID');
 	} finally { await rm(out, { recursive: true, force: true }); }
@@ -1575,4 +1725,27 @@ test('keepalive --warm never deletes a pool machine matching --keep, and a lease
 		assert.match(run.stdout, /0 deleted/);
 		store.stop();
 	} finally { await fake.close(); }
+});
+
+test('a lock file another process holds or is deleting reads as held on Windows, not as an error', async () => {
+	const { lockHeld, lockWait } = await import('../../scripts/quality/lib/pool-leases.mjs');
+	const error = code => Object.assign(new Error(code), { code });
+	assert.equal(lockHeld(error('EEXIST'), 'linux'), true);
+	assert.equal(lockHeld(error('EEXIST'), 'win32'), true);
+	for (const code of ['EPERM', 'EBUSY']) {
+		assert.equal(lockHeld(error(code), 'win32'), true, `${code} on Windows: a lock being held or released`);
+		assert.equal(lockHeld(error(code), 'linux'), false, `${code} elsewhere is a real error`);
+	}
+	assert.equal(lockHeld(error('EACCES'), 'win32'), false, 'EACCES is a permanent condition on Windows');
+	// A Windows code is waited on only for a few seconds: a folder that refuses the file fails, never hangs.
+	let t = 0;
+	const waits = lockWait({ platform: 'win32', clock: () => t, heldMs: 5_000 });
+	assert.equal(waits(error('EPERM')), true);
+	t = 4_000; assert.equal(waits(error('EBUSY')), true);
+	t = 4_500; assert.equal(waits(error('EEXIST')), true, 'a real lock resets the wait');
+	t = 9_000; assert.equal(waits(error('EPERM')), true);
+	t = 14_001; assert.throws(() => waits(error('EPERM')), /EPERM/);
+	assert.throws(() => lockWait({ platform: 'linux' })(error('EPERM')), /EPERM/);
+	assert.equal(lockHeld(error('ENOSPC'), 'win32'), false);
+	assert.equal(lockHeld(null, 'win32'), false);
 });

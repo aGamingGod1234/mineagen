@@ -18,7 +18,9 @@ import dev.agaminggod.mineagen.control.AgentControlModelOption;
 import dev.agaminggod.mineagen.control.AgentControlCommandBuilder;
 import dev.agaminggod.mineagen.control.AgentControlPresentation;
 import dev.agaminggod.mineagen.control.AgentControlSelectionState;
+import dev.agaminggod.mineagen.control.AgentControlResult;
 import dev.agaminggod.mineagen.control.AgentControlSnapshot;
+import dev.agaminggod.mineagen.control.AgentNowCard;
 import dev.agaminggod.mineagen.control.AgentRosterEntry;
 import dev.agaminggod.mineagen.control.AgentRosterFilter;
 import dev.agaminggod.mineagen.control.AgentRosterPage;
@@ -70,6 +72,19 @@ public final class AgentControlScreen extends Screen {
 	private static final int TITLE_BLOCK = 44;
 	private static final int FORM_GAP = 10;
 	private static final int LABEL_HEIGHT = 12;
+	// The Now card: one row per line of what the agent is doing, inside a padded card.
+	static final int NOW_ROW = 12;
+	static final int NOW_PAD = 5;
+	static final int NOW_GAP = 6;
+	static final int NOW_MAX_ROWS = 4;
+	/**
+	 * The narrow overview's Now strip, placed with the roster grid when widgets are built. A snapshot can change the
+	 * filtered count while a rebuild waits for a focused text box; drawn from fresh numbers, the strip would overlap the
+	 * stale grid.
+	 */
+	private AgentControlLayout.Bounds overviewNow;
+	/** How long each agent has been in its state while this client watched, for the Now card's duration. */
+	private static final dev.agaminggod.mineagen.control.AgentStateClock STATE_CLOCK = new dev.agaminggod.mineagen.control.AgentStateClock();
 	private static final String KEY_BILLING_NOTE = "An API key bills per token. Without one, the tool's signed-in plan is used.";
 	private ConsoleDropdown<String> modelDropdown;
 	private boolean animateProviderPick;
@@ -93,6 +108,12 @@ public final class AgentControlScreen extends Screen {
 	private String prompt = "";
 	private String feedback = "";
 	private boolean feedbackError;
+	/** True only when the server confirmed the change; a sent command's "Sending..." line is pending, not success. */
+	private boolean feedbackConfirmed;
+	/** The newest server command result this screen has shown (or found when it opened), so each shows once. */
+	private long seenResultSequence;
+	/** Height the status banner reserved when the widgets were last placed; {@link #layout()} pushes content below it. */
+	private int builtBannerInset;
 	private final SingleSubmissionGate summonSubmission = new SingleSubmissionGate();
 	private boolean shownPlanWindowEnabled, shownTerminalEnabled;
 	private ConsoleMutationState mutationState = ConsoleMutationState.initial(0L);
@@ -143,6 +164,18 @@ public final class AgentControlScreen extends Screen {
 	) {
 		AgentControlSnapshot checkedSnapshot = Objects.requireNonNull(nextSnapshot, "nextSnapshot must not be null");
 		if (!mutationState.accepts(checkedSnapshot.generatedAtEpochMs())) return;
+		acceptSnapshotContent(checkedSnapshot, acknowledgedMutationId, contentChanged);
+		// After the content pass, which clears a pending line once the server answers: the answer itself replaces it.
+		AgentControlResult result = checkedSnapshot.result();
+		if (result != null && result.sequence() > seenResultSequence) {
+			seenResultSequence = result.sequence();
+			feedback = result.message();
+			feedbackError = !result.accepted();
+			feedbackConfirmed = result.accepted();
+		}
+	}
+
+	private void acceptSnapshotContent(AgentControlSnapshot checkedSnapshot, long acknowledgedMutationId, boolean contentChanged) {
 		contentChanged = contentChanged || snapshot == null || !snapshot.agents().equals(checkedSnapshot.agents())
 				|| !snapshot.catalog().equals(checkedSnapshot.catalog());
 		boolean mutationWasPending = mutationState.mutationPending();
@@ -151,7 +184,8 @@ public final class AgentControlScreen extends Screen {
 		if (!contentChanged) {
 			snapshot = checkedSnapshot;
 			if (mutationWasPending && !mutationState.mutationPending()) {
-				if (!feedbackError) feedback = "";
+				// The server's answer may arrive a snapshot before this acknowledgement; keep it rather than blank it.
+				if (!feedbackError && !feedbackConfirmed) feedback = "";
 				requestWidgetRefresh();
 			}
 			return;
@@ -264,6 +298,8 @@ public final class AgentControlScreen extends Screen {
 		rosterState.reconcile(candidateEntries);
 		rosterState.focus(managementSelection.selectedAgentId());
 		snapshot = nextSnapshot;
+		// A result already in the snapshot when the screen opens answers an older command; do not replay it.
+		if (nextSnapshot.result() != null) seenResultSequence = nextSnapshot.result().sequence();
 		dev.agaminggod.mineagen.client.control.LiveAgentWindows.select(selectedAgent());
 		mutationState = ConsoleMutationState.initial(nextSnapshot.generatedAtEpochMs());
 		rosterEntries = candidateEntries;
@@ -273,6 +309,8 @@ public final class AgentControlScreen extends Screen {
 	@Override
 	protected void init() {
 		widgetRefreshPending = false;
+		builtBannerInset = bannerInset(bannerLines().size());
+		overviewNow = null;
 		nameInput = null;
 		promptInput = null;
 		rosterGrid = null;
@@ -291,6 +329,7 @@ public final class AgentControlScreen extends Screen {
 	@Override
 	public void tick() {
 		super.tick();
+		if (bannerInset(bannerLines().size()) != builtBannerInset) widgetRefreshPending = true;
 		if (widgetRefreshPending && minecraft != null && !textEditorFocused()) rebuildWidgets();
 		if (page == Page.MANAGE && (shownPlanWindowEnabled != dev.agaminggod.mineagen.client.control.LiveAgentWindows.planEnabled()
 				|| shownTerminalEnabled != dev.agaminggod.mineagen.client.control.LiveAgentWindows.terminalEnabled())) rebuildWidgets();
@@ -365,6 +404,10 @@ public final class AgentControlScreen extends Screen {
 
 	@Override
 	public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
+		// While the control center is open the selected agent's live view keeps coming, for its Now card.
+		dev.agaminggod.mineagen.client.control.LiveAgentWindows.watch();
+		// Every agent, not just the selected one, so a switch back does not show a duration it never watched.
+		if (snapshot != null) STATE_CLOCK.observe(snapshot.agents(), System.currentTimeMillis());
 		AgentControlLayout layout = layout();
 		graphics.fill(0, 0, width, height, BACKDROP);
 		int panelWidth = layout.panelRight() - layout.panelLeft();
@@ -372,6 +415,7 @@ public final class AgentControlScreen extends Screen {
 		ConsoleDraw.shadow(graphics, layout.panelLeft(), layout.panelTop(), panelWidth, panelHeight, 0xB0);
 		ConsoleDraw.surface(graphics, layout.panelLeft(), layout.panelTop(), panelWidth, panelHeight, ConsoleDraw.RADIUS_PANEL, PANEL);
 		renderShell(graphics);
+		renderBanner(graphics);
 		renderHeader(graphics);
 		renderInputSurfaces(graphics);
 		switch (page) {
@@ -473,7 +517,9 @@ public final class AgentControlScreen extends Screen {
 			addOverviewActions(layout.contextLeft(), top, layout.contextWidth());
 			addOverviewFooter();
 		} else {
-			addRosterGrid(overviewRosterBounds(layout, filtersVisible), AgentRosterGrid.Mode.FOCUS_ONLY);
+			int shown = rosterState.page(1).totalFiltered();
+			overviewNow = overviewNowBounds(layout, filtersVisible, shown);
+			addRosterGrid(overviewRosterBounds(layout, filtersVisible, shown), AgentRosterGrid.Mode.FOCUS_ONLY);
 			addCompactOverviewActions(layout.contentLeft(), layout.footerY(), layout.contentWidth());
 		}
 	}
@@ -624,6 +670,61 @@ public final class AgentControlScreen extends Screen {
 	/** The overview roster region the live screen uses, shared with the layout tests so they measure the real thing. */
 	static AgentControlLayout.Bounds overviewRosterBounds(AgentControlLayout layout, boolean filtersVisible) {
 		return layout.rosterBounds(bodyTop(layout), filtersVisible, false);
+	}
+
+	/** The roster region once a narrow overview's Now strip has its share (see {@link #overviewNowBounds}). */
+	static AgentControlLayout.Bounds overviewRosterBounds(AgentControlLayout layout, boolean filtersVisible, int shownAgents) {
+		AgentControlLayout.Bounds full = overviewRosterBounds(layout, filtersVisible);
+		AgentControlLayout.Bounds now = overviewNowBounds(layout, filtersVisible, shownAgents);
+		return now == null ? full : new AgentControlLayout.Bounds(full.left(), full.top(), full.right(), Math.max(full.top(), now.top() - NOW_GAP));
+	}
+
+	/**
+	 * Where a narrow overview (no context rail, as at 1080p GUI scale 3 or 4) draws the selected agent's Now strip: across
+	 * the bottom of the roster region, as many rows (up to {@link #NOW_MAX_ROWS}) as leave the roster grid its rows and
+	 * readable tiles, and at least one row while the grid still fits. Null on a wide overview (the rail carries it), with
+	 * no agents shown, or when not even one row fits.
+	 */
+	static AgentControlLayout.Bounds overviewNowBounds(AgentControlLayout layout, boolean filtersVisible, int shownAgents) {
+		if (layout.splitWorkspace() || shownAgents <= 0) return null;
+		AgentControlLayout.Bounds full = overviewRosterBounds(layout, filtersVisible);
+		AgentRosterGridLayout alone = grid(full, full.bottom(), shownAgents);
+		if (alone == null) return null;
+		for (int rows = NOW_MAX_ROWS; rows >= 1; rows--) {
+			int height = rows * NOW_ROW + NOW_PAD * 2;
+			AgentRosterGridLayout shared = grid(full, full.bottom() - height - NOW_GAP, shownAgents);
+			boolean keepsRoster = shared != null && shared.rows() == alone.rows()
+					&& shared.tileHeight() >= Math.min(alone.tileHeight(), READABLE_TILE_HEIGHT);
+			if (keepsRoster || rows == 1 && shared != null) {
+				return new AgentControlLayout.Bounds(full.left(), full.bottom() - height, full.right(), full.bottom());
+			}
+		}
+		return null;
+	}
+
+	/** Roster tiles at least this tall keep the portrait, name and model line (AgentRosterGridLayout's preferred size). */
+	private static final int READABLE_TILE_HEIGHT = 48;
+
+	private static AgentRosterGridLayout grid(AgentControlLayout.Bounds region, int bottom, int entries) {
+		if (bottom <= region.top()) return null;
+		try {
+			return AgentRosterGridLayout.calculate(region.left(), region.top(), region.right(), bottom, entries);
+		} catch (IllegalArgumentException tooSmall) {
+			return null;
+		}
+	}
+
+	/** The Manage page's Now card: below its three rows of controls, down to the footer. Null when no row fits. */
+	static AgentControlLayout.Bounds manageNowBounds(AgentControlLayout layout) {
+		int top = bodyTop(layout) + 3 * (LABEL_HEIGHT + ROW_HEIGHT + FORM_GAP) - FORM_GAP + NOW_GAP;
+		int bottom = Math.min(layout.contentBottom(), top + NOW_MAX_ROWS * NOW_ROW + NOW_PAD * 2);
+		if (bottom - top < NOW_ROW + NOW_PAD * 2) return null;
+		return new AgentControlLayout.Bounds(layout.contentLeft(), top, layout.contentRight(), bottom);
+	}
+
+	/** How many Now rows a card of this height shows. */
+	static int nowRowCapacity(int height) {
+		return Math.max(0, (height - NOW_PAD * 2) / NOW_ROW);
 	}
 
 	private void addFormLabel(String text, int x, int y) {
@@ -1205,27 +1306,81 @@ public final class AgentControlScreen extends Screen {
 			return;
 		}
 		AgentControlAgent selected = selectedAgent();
-		if (layout.splitWorkspace() && selected != null) {
+		if (selected == null) return;
+		if (layout.splitWorkspace()) {
 			int x = layout.contextLeft();
 			int width = layout.contextWidth();
 			int detailTop = top + 96;
-			int detailBottom = Math.min(layout.contentBottom(), detailTop + (selected.lastError().isBlank() ? 120 : 150));
+			int detailBottom = layout.contentBottom();
+			if (detailBottom - detailTop < 60) return;
 			ConsoleDraw.surface(graphics, x, detailTop, width, detailBottom - detailTop, ConsoleDraw.RADIUS_CARD, ConsoleTheme.SURFACE);
 			int inner = x + 12;
-			ConsoleDraw.label(graphics, font, "Selected", inner, detailTop + 10, ConsoleTheme.SUBTLE);
+			ConsoleDraw.label(graphics, font, "Now", inner, detailTop + 10, ConsoleTheme.SUBTLE);
 			graphics.text(font, ConsoleText.strong(fit(selected.displayName(), width - 24)), inner, detailTop + 23, TEXT, false);
 			ConsoleDraw.label(graphics, font, AgentControlPresentation.profileLabel(selected), inner, detailTop + 36, MUTED);
-			ConsoleDraw.surface(graphics, inner, detailTop + 52, 5, 5, ConsoleDraw.RADIUS_SMALL, stateColor(selected.state()));
-			graphics.text(font, ConsoleText.component(AgentControlPresentation.stateLabel(selected.state())), inner + 10, detailTop + 50,
-					stateColor(selected.state()), false);
-			String goal = selected.currentGoal().isBlank() ? "No task right now" : selected.currentGoal();
-			ConsoleDraw.label(graphics, font, "Task", inner, detailTop + 68, ConsoleTheme.SUBTLE);
-			graphics.textWithWordWrap(font, ConsoleText.component(goal), inner, detailTop + 80, width - 24, TEXT);
-			if (!selected.lastError().isBlank()) {
-				graphics.textWithWordWrap(font, ConsoleText.component("Needs attention: " + selected.lastError()), inner, detailTop + 116,
-						width - 24, ERROR);
-			}
+			renderNowRows(graphics, selected, inner, detailTop + 48, x + width - 12, detailBottom - NOW_PAD, false, true);
+			return;
 		}
+		if (overviewNow != null) renderNowCard(graphics, selected, overviewNow, true);
+	}
+
+	private void renderNowCard(GuiGraphicsExtractor graphics, AgentControlAgent agent, AgentControlLayout.Bounds area, boolean named) {
+		ConsoleDraw.surface(graphics, area.left(), area.top(), area.width(), area.height(), ConsoleDraw.RADIUS_CARD, ConsoleTheme.SURFACE);
+		renderNowRows(graphics, agent, area.left() + 10, area.top() + NOW_PAD, area.right() - 10, area.bottom() - NOW_PAD, named, false);
+	}
+
+	/**
+	 * Draws the agent's Now rows (see {@link AgentNowCard}) from the top down while they fit: one line each, or in the
+	 * narrow context rail a label over up to two lines of text.
+	 */
+	private void renderNowRows(GuiGraphicsExtractor graphics, AgentControlAgent agent, int left, int top, int right, int bottom,
+			boolean named, boolean stacked) {
+		List<AgentNowCard.Row> rows = AgentNowCard.rows(agent, stateMs(agent),
+				AgentNowCard.Live.from(dev.agaminggod.mineagen.client.control.LiveAgentWindows.liveView(agent)));
+		int labelColumn = 0;
+		for (AgentNowCard.Row row : rows) labelColumn = Math.max(labelColumn, ConsoleDraw.labelWidth(font, row.label()));
+		labelColumn += 6;
+		int width = right - left;
+		int y = top;
+		for (AgentNowCard.Row row : rows) {
+			int color = row.tone() == AgentControlPresentation.StateTone.NEUTRAL ? TEXT : ConsoleTheme.stateColor(row.tone());
+			if (row.kind() == AgentNowCard.Kind.STATE) {
+				if (y + NOW_ROW > bottom) return;
+				ConsoleDraw.stateMark(graphics, agent.state(), left, y);
+				String text = named ? agent.displayName() + " · " + row.text() : row.text();
+				graphics.text(font, ConsoleText.component(fit(text, width - 16)), left + 16, y + 2, color, false);
+				y += NOW_ROW + (stacked ? 4 : 0);
+				continue;
+			}
+			if (stacked) {
+				List<String> lines = twoLines(row.text(), width);
+				if (y + 9 + lines.size() * 10 > bottom) return;
+				ConsoleDraw.label(graphics, font, row.label(), left, y, ConsoleTheme.SUBTLE);
+				for (int index = 0; index < lines.size(); index++) {
+					graphics.text(font, ConsoleText.component(lines.get(index)), left, y + 9 + index * 10, color, false);
+				}
+				y += 9 + lines.size() * 10 + 3;
+				continue;
+			}
+			if (y + NOW_ROW > bottom) return;
+			ConsoleDraw.label(graphics, font, row.label(), left, y + 3, ConsoleTheme.SUBTLE);
+			graphics.text(font, ConsoleText.component(fit(row.text(), width - labelColumn)), left + labelColumn, y + 2, color, false);
+			y += NOW_ROW;
+		}
+	}
+
+	/** {@code text} on at most two lines of {@code width}: broken at a space where one fits, the rest cut with "...". */
+	private List<String> twoLines(String text, int width) {
+		if (font.width(text) <= width) return List.of(text);
+		String first = font.plainSubstrByWidth(text, width);
+		int space = first.lastIndexOf(' ');
+		if (space > first.length() / 2) first = first.substring(0, space);
+		return List.of(first, fit(text.substring(first.length()).trim(), width));
+	}
+
+	/** How long the agent has been in its current state while this client watched, or -1 when not known. */
+	private static long stateMs(AgentControlAgent agent) {
+		return STATE_CLOCK.durationMs(agent.agentId(), agent.state(), System.currentTimeMillis());
 	}
 
 	private void renderEmptyState(GuiGraphicsExtractor graphics, int left, int right, int top, String title, String detail, int detailColor) {
@@ -1274,6 +1429,8 @@ public final class AgentControlScreen extends Screen {
 		if (agent == null) return;
 		AgentControlLayout layout = layout();
 		// Short panels show no title; the breadcrumb already names the agent.
+		AgentControlLayout.Bounds now = manageNowBounds(layout);
+		if (now != null) renderNowCard(graphics, agent, now, false);
 	}
 
 	private void renderRemoveConfirm(GuiGraphicsExtractor graphics) {
@@ -1302,35 +1459,145 @@ public final class AgentControlScreen extends Screen {
 				: promptInput.isHovered() ? 0xFF2E3846 : 0xFF1E252F);
 	}
 
+	/** The status line: its full text, colour, and the short label the header shows while the banner holds the text. */
+	private record Status(String text, int color, String shortText, boolean danger) {
+	}
+
+	private Status status() {
+		if (!feedback.isBlank()) {
+			AgentControlResult.Tone tone = feedbackTone(feedbackError, feedbackConfirmed);
+			String shortText = switch (tone) {
+				case REFUSED -> "Not done";
+				case SUCCESS -> "Done";
+				case PENDING -> "Working...";
+			};
+			return new Status(feedback, toneColor(tone), shortText, feedbackError);
+		}
+		if (mutationState.mutationPending()) {
+			return new Status("Waiting for the server...", toneColor(AgentControlResult.Tone.PENDING), "Waiting...", false);
+		}
+		if (snapshot == null) return new Status("Connecting", ConsoleTheme.WARNING, "Connecting", false);
+		if (!snapshot.canControl()) {
+			return new Status("View only. Operator permission is needed to make changes", ConsoleTheme.WARNING, "View only", false);
+		}
+		if (!snapshot.automationAvailable()) return new Status(snapshot.automationStatus(), ERROR, "Automation offline", true);
+		return new Status("Online", SUCCESS, "Online", false);
+	}
+
+	/** A feedback line is a success only once the server confirmed it; a line the screen wrote itself is pending. */
+	static AgentControlResult.Tone feedbackTone(boolean error, boolean confirmed) {
+		return error ? AgentControlResult.Tone.REFUSED : confirmed ? AgentControlResult.Tone.SUCCESS : AgentControlResult.Tone.PENDING;
+	}
+
+	/** Pending is neutral: green means the server confirmed the change, red that it refused it. */
+	static int toneColor(AgentControlResult.Tone tone) {
+		return switch (tone) {
+			case PENDING -> MUTED;
+			case SUCCESS -> ConsoleTheme.SUCCESS;
+			case REFUSED -> ConsoleTheme.ERROR;
+		};
+	}
+
+	/** Where the header status may start: after the logo, the name and the longest breadcrumb this page can show. */
+	private int headerStatusLeft(AgentControlLayout layout) {
+		int x = layout.contentLeft() + 22 + ConsoleText.strongWidth(font, "Mineagen") + 8;
+		for (String crumb : breadcrumb()) x += 12 + ConsoleText.width(font, crumb) + 6;
+		return x + 12;
+	}
+
+	/** The status text broken into banner lines, or none when it fits on the header line. */
+	private List<String> bannerLines() {
+		if (font == null) return List.of();
+		AgentControlLayout base = AgentControlLayout.calculate(width, height);
+		String text = status().text();
+		int headerRoom = Math.max(24, base.contentRight() - headerStatusLeft(base) - 10);
+		if (ConsoleText.width(font, text) <= headerRoom) return List.of();
+		java.util.function.ToIntFunction<String> measure = value -> ConsoleText.width(font, value);
+		return capBannerLines(AgentControlResult.wrap(text, bannerTextWidth(base), measure), maxBannerLines(width, height),
+				bannerTextWidth(base), measure);
+	}
+
+	/** Bottom of the Manage page's last control row (its three label-and-row groups), the tallest fixed page. */
+	static int manageRowsBottom(AgentControlLayout layout) {
+		return bodyTop(layout) + 3 * (LABEL_HEIGHT + ROW_HEIGHT + FORM_GAP) - FORM_GAP;
+	}
+
+	/**
+	 * Most banner lines (up to 3) this screen holds while the Manage page's last row still ends above the footer,
+	 * measured on the real layout. 0 means no banner: the header then shows the text shortened, as before.
+	 */
+	static int maxBannerLines(int screenWidth, int screenHeight) {
+		for (int lines = 3; lines > 0; lines--) {
+			AgentControlLayout with = AgentControlLayout.calculate(screenWidth, screenHeight, bannerInset(lines));
+			if (manageRowsBottom(with) <= with.footerY()) return lines;
+		}
+		return 0;
+	}
+
+	/** {@code lines} within {@code max}; the last kept line carries the rest, shortened with "...". */
+	static List<String> capBannerLines(List<String> lines, int max, int width, java.util.function.ToIntFunction<String> measure) {
+		if (lines.size() <= max) return lines;
+		if (max == 0) return List.of();
+		List<String> kept = new java.util.ArrayList<>(lines.subList(0, max - 1));
+		String rest = String.join(" ", lines.subList(max - 1, lines.size()));
+		while (!rest.isEmpty() && measure.applyAsInt(rest + "...") > width) rest = rest.substring(0, rest.length() - 1);
+		kept.add(rest.stripTrailing() + "...");
+		return List.copyOf(kept);
+	}
+
+	static final int BANNER_LINE = 10;
+	static final int BANNER_PAD = 5;
+
+	static int bannerTextWidth(AgentControlLayout layout) {
+		return Math.max(1, layout.contentWidth() - BANNER_PAD * 2);
+	}
+
+	/** Space the banner takes below the header, its 4-pixel gap to the content included; 0 with no banner. */
+	static int bannerInset(int lines) {
+		return lines <= 0 ? 0 : lines * BANNER_LINE + BANNER_PAD * 2 + 4;
+	}
+
+	/** Where the banner sits: from just below the header down to 4 pixels above where the page content starts. */
+	static AgentControlLayout.Bounds bannerBounds(AgentControlLayout layout, int lines) {
+		int top = layout.headerBottom() + 4;
+		return new AgentControlLayout.Bounds(layout.contentLeft(), top, layout.contentRight(), top + Math.max(0, bannerInset(lines) - 4));
+	}
+
+	/** The full result or offline reason, wrapped below the header when the header line is too short for it. */
+	private void renderBanner(GuiGraphicsExtractor graphics) {
+		List<String> lines = bannerLines();
+		if (!bannerHolds(lines)) return;
+		Status status = status();
+		AgentControlLayout layout = layout();
+		int shown = lines.size();
+		AgentControlLayout.Bounds area = bannerBounds(layout, shown);
+		ConsoleDraw.surface(graphics, area.left(), area.top(), area.width(), area.height(), ConsoleDraw.RADIUS_CARD,
+				status.danger() ? ConsoleTheme.DANGER_SURFACE : ConsoleTheme.SURFACE);
+		for (int index = 0; index < shown; index++) {
+			graphics.text(font, ConsoleText.component(lines.get(index)), area.left() + BANNER_PAD,
+					area.top() + BANNER_PAD + index * BANNER_LINE, status.danger() ? TEXT : status.color(), false);
+		}
+	}
+
+	/**
+	 * True when the space reserved at the last widget build holds every banner line. While a focused text box defers
+	 * that rebuild, the header keeps showing the text itself (shortened) rather than a label for a banner not yet drawn.
+	 */
+	private boolean bannerHolds(List<String> lines) {
+		return !lines.isEmpty() && builtBannerInset >= bannerInset(lines.size());
+	}
+
 	/** One status on the header's right: the latest feedback, a pending update, or the link state. */
 	private void renderStatus(GuiGraphicsExtractor graphics, int minimumX, int middle) {
 		AgentControlLayout layout = layout();
-		String text;
-		int color;
-		if (!feedback.isBlank()) {
-			text = feedback;
-			color = feedbackError ? ERROR : SUCCESS;
-		} else if (mutationState.mutationPending()) {
-			text = "Waiting for the server...";
-			color = ConsoleTheme.WARNING;
-		} else if (snapshot == null) {
-			text = "Connecting";
-			color = ConsoleTheme.WARNING;
-		} else if (!snapshot.canControl()) {
-			text = "View only. Operator permission is needed to make changes";
-			color = ConsoleTheme.WARNING;
-		} else if (!snapshot.automationAvailable()) {
-			text = snapshot.automationStatus();
-			color = ERROR;
-		} else {
-			text = "Online";
-			color = SUCCESS;
-		}
+		Status status = status();
 		int right = layout.contentRight();
-		String shown = fit(text, Math.max(24, right - minimumX - 10));
+		int room = Math.max(24, right - minimumX - 10);
+		// A text too long for the header is shown whole in the banner below; the header then names only its kind.
+		String shown = bannerHolds(bannerLines()) ? fit(status.shortText(), room) : fit(status.text(), room);
 		int textWidth = ConsoleText.width(font, shown);
-		graphics.text(font, ConsoleText.component(shown), right - textWidth, middle - 4, color, false);
-		ConsoleDraw.surface(graphics, right - textWidth - 9, middle - 2, 5, 5, ConsoleDraw.RADIUS_SMALL, color);
+		graphics.text(font, ConsoleText.component(shown), right - textWidth, middle - 4, status.color(), false);
+		ConsoleDraw.surface(graphics, right - textWidth - 9, middle - 2, 5, 5, ConsoleDraw.RADIUS_SMALL, status.color());
 	}
 
 	private void submitSummon() {
@@ -1428,6 +1695,7 @@ public final class AgentControlScreen extends Screen {
 	private void setFeedback(String message, boolean error) {
 		feedback = Objects.requireNonNullElse(message, "");
 		feedbackError = error;
+		feedbackConfirmed = false;
 	}
 
 	private void rememberPreferences() {
@@ -1543,7 +1811,8 @@ public final class AgentControlScreen extends Screen {
 		setRosterFilterWithoutRebuild(new AgentRosterFilter(rosterFilter.query(), provider, state));
 	}
 
-	private static List<AgentRosterEntry> rosterEntries(AgentControlSnapshot snapshot) {
+	/** The roster's entries: each carries its agent's raw lifecycle state beside the label (verified by the roster tests). */
+	static List<AgentRosterEntry> rosterEntries(AgentControlSnapshot snapshot) {
 		List<AgentRosterEntry> entries = new ArrayList<>();
 		for (AgentControlAgent agent : snapshot.agents()) {
 			entries.add(new AgentRosterEntry(
@@ -1553,7 +1822,8 @@ public final class AgentControlScreen extends Screen {
 					AgentModelNames.shortLabel(agent.provider(), agent.model()),
 					AgentControlPresentation.stateLabel(agent.state()),
 					true,
-					""
+					"",
+					agent.state()
 			));
 		}
 		return List.copyOf(entries);
@@ -1680,15 +1950,7 @@ public final class AgentControlScreen extends Screen {
 	}
 
 	private AgentControlLayout layout() {
-		return AgentControlLayout.calculate(width, height);
-	}
-
-	private static int stateColor(String state) {
-		return switch (state.toUpperCase(Locale.ROOT)) {
-			case "ERROR", "DEAD", "DISCONNECTED" -> ERROR;
-			case "IDLE", "COMPLETED" -> SUCCESS;
-			default -> ACCENT;
-		};
+		return AgentControlLayout.calculate(width, height, builtBannerInset);
 	}
 
 	private static String capitalize(String value) {

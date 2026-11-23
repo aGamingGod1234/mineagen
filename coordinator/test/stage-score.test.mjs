@@ -271,3 +271,194 @@ test('the long-run capture keeps agent_death rows, so a death\'s record survives
 	const row = { event: 'agent_death', agentId: 'a', cause: 'a drowned' };
 	assert.equal(longTraceRow(row), row);
 });
+
+test('game facts: milestones, a fall into lava with what ran at its top, the respawn, the End fight and model use per milestone', async () => {
+	const { mechanismTable } = await import('../../scripts/quality/lib/game-facts.mjs');
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'stage-facts-'));
+	try {
+		const t0 = 1_000_000, min = (m) => t0 + m * 60_000;
+		const iron = '[{id: "minecraft:iron_helmet", count: 1}, {id: "minecraft:iron_chestplate", count: 1}, {id: "minecraft:iron_leggings", count: 1}, {id: "minecraft:iron_boots", count: 1}]';
+		const sample = (m, extra) => ({ at: min(m), health: 20, deathCounter: 0, dimension: 'minecraft:overworld', position: { x: 0, y: 64, z: 0 }, inventoryNbt: '[]', equipmentNbt: iron, ...extra });
+		await writeFile(path.join(dir, 'quality-samples.jsonl'), [
+			sample(0, { inventoryNbt: inventory({ oak_log: 2 }) }),
+			sample(2, { inventoryNbt: inventory({ flint_and_steel: 1 }) }),
+			sample(4, { dimension: 'minecraft:the_nether', position: { x: 0, y: 70, z: 0 }, inventoryNbt: inventory({ blaze_rod: 3 }) }),
+			sample(5, { dimension: 'minecraft:the_nether', position: { x: 0, y: 31, z: 0 }, health: 0, deathCounter: 1 }),
+			sample(5.5, { position: { x: 10, y: 64, z: 10 }, deathCounter: 1, equipmentNbt: '[]', inventoryNbt: inventory({ ender_eye: 12, ender_pearl: 2 }) }),
+			sample(8, { advancements: ['story/follow_ender_eye'], deathCounter: 1, equipmentNbt: '[]', inventoryNbt: inventory({ ender_eye: 1 }) }),
+			sample(10, { dimension: 'minecraft:the_end', position: { x: 100, y: 49, z: 0 }, deathCounter: 1, equipmentNbt: '[]', inventoryNbt: inventory({ bow: 1 }) }),
+			sample(14, { dimension: 'minecraft:the_end', position: { x: 0, y: 64, z: 0 }, deathCounter: 1, equipmentNbt: '[]' }),
+		].map(s => JSON.stringify(s)).join('\n') + '\n');
+		const command = (m, actionType) => ({ observedAtMs: min(m), envelope: { type: 'action_command', agentId: 'a', payload: { actionId: `${actionType}-${m}`, actionType } } });
+		await writeFile(path.join(dir, 'quality-protocol.jsonl'), [
+			{ observedAtMs: t0, envelope: { type: 'goal_control', agentId: 'a', payload: { operation: 'start', updatedAtEpochMs: t0 } } },
+			command(1, 'use_ranged'), command(11, 'use_ranged'), command(12, 'use_ranged'), command(12.5, 'travel_to'),
+		].map(r => JSON.stringify(r)).join('\n') + '\n');
+		const died = min(5) - 500;
+		const trail = [{ s: -6, health: 20, y: 70, action: 'travel_to', reflex: null }, { s: -4, health: 20, y: 70, action: 'travel_to', reflex: 'default-defend' }, { s: -1, health: 14, y: 45, action: 'travel_to', reflex: null }];
+		await writeFile(path.join(dir, 'coordinator.jsonl'), [
+			{ event: 'agent_death', agentId: 'a', goalRevision: 1, at: died + 10, diedAtEpochMs: died, cause: 'a tried to swim in lava', damageType: 'minecraft:lava', dimension: 'minecraft:the_nether', position: { x: 0, y: 31, z: 0 }, armor: 15, action: { type: 'travel_to' }, reflex: null, trail },
+			...[0.5, 3, 9, 11].map((m) => ({ event: 'native_model_call', agentId: 'a', goalRevision: 1, at: min(m), totalMs: 2000, inputTokens: 1000, cachedInputTokens: 600 })),
+		].map(r => JSON.stringify(r)).join('\n') + '\n');
+		await mkdir(path.join(dir, 'arena-watch'));
+		await writeFile(path.join(dir, 'arena-watch', 'a-progress.jsonl'), [
+			{ type: 'progress', atMs: min(10.5), dim: 'minecraft:the_end', pos: { x: 100, y: 49, z: 0 }, targets: { dragon: { health: 200 }, crystals: { left: 10 } } },
+			// Far from the island the Watcher sees fewer crystals: that is not destruction.
+			{ type: 'progress', atMs: min(11), dim: 'minecraft:the_end', pos: { x: 400, y: 60, z: 0 }, targets: { dragon: { health: 200 }, crystals: { left: 3 } } },
+			{ type: 'progress', atMs: min(12), dim: 'minecraft:the_end', pos: { x: 0, y: 64, z: 0 }, targets: { dragon: { health: 170 }, crystals: { left: 8 } } },
+			{ type: 'progress', atMs: min(13), dim: 'minecraft:the_end', pos: { x: 0, y: 64, z: 0 }, targets: { dragon: { health: 180 }, crystals: { left: 8 } } },
+		].map(r => JSON.stringify(r)).join('\n') + '\n');
+		// Another agent's decision log in the same folder never counts.
+		await writeFile(path.join(dir, 'decision-1--b-0.jsonl'), JSON.stringify({ time: min(1), type: 'input', text: 'lava seen nearby' }) + '\n');
+		await writeFile(path.join(dir, 'decision-1--a-0.jsonl'), [
+			{ time: min(3), type: 'input', text: 'lava seen nearby' },
+			{ time: min(3.5), type: 'action_result', result: { reasonCode: 'PORTAL_LIT' } },
+		].map(r => JSON.stringify(r)).join('\n') + '\n{"time": 1, "text": "lava seen nearby", "cut off\n');
+		const { game, deathRecords } = await scoreStageRun(dir);
+		assert.equal(deathRecords.length, 1);
+		assert.deepEqual(Object.fromEntries(['wood', 'flint_and_steel', 'lava_seen', 'portal_lit', 'nether', 'stronghold', 'end', 'dragon'].map(id => [id, game.milestones[id]?.minute ?? null])),
+			{ wood: 0, flint_and_steel: 2, lava_seen: 3, portal_lit: 3.5, nether: 4, stronghold: 8, end: 10, dragon: null });
+		const [death] = game.deaths;
+		assert.equal(death.dimension, 'minecraft:the_nether');
+		assert.equal(death.repeat, false);
+		assert.equal(death.armour, 15);
+		assert.deepEqual(death.fall && { blocks: death.fall.blocks, top: death.fall.actionAtTop, reflex: death.fall.reflexAtTop, health: death.fall.healthAtTop }, { blocks: 39, top: 'travel_to', reflex: null, health: 20 },
+			'the top is the earliest highest point of the trail, 39 blocks above the death');
+		assert.equal(death.respawn.dimension, 'minecraft:overworld');
+		assert.deepEqual(death.respawn.position, { x: 10, y: 64, z: 10 });
+		const [row] = game.deathMechanisms;
+		assert.deepEqual({ cause: row.cause, deaths: row.deaths, fell4: row.fell4, fell20: row.fell20, full: row.fullHealthAtTop, first: row.first, actions: row.actionAtTop }, { cause: 'lava', deaths: 1, fell4: 1, fell20: 1, full: 1, first: 1, actions: { travel_to: 1 } });
+		assert.deepEqual({ ...game.end, basis: undefined, rangedBasis: undefined, enteredAt: undefined }, { enteredAt: undefined, enteredMinute: 10, rangedCommands: 2, rangedCommandsBeforeEnd: 1, rangedBasis: undefined,
+			dragonSeenRows: 4, dragonHealthMin: 170, dragonHealthLast: 180, crystalsLeftMax: 10, crystalsLeftMin: 8, crystalsGone: 2, deathsInEnd: 0, deathsAfterEntry: 0, strongholdToEndMin: 2, dragonKilled: false, basis: undefined });
+		assert.deepEqual(game.peakHeld, { blaze_rod: 3, ender_pearl: 2, ender_eye: 12 });
+		assert.equal(game.rangedCommands, 3);
+		assert.deepEqual({ calls: game.modelUse.calls, inputTokens: game.modelUse.inputTokens }, { calls: 4, inputTokens: 4000 });
+		assert.deepEqual(game.modelUse.byMilestone.nether, { calls: 2, inputTokens: 2000, cachedInputTokens: 1200 });
+		assert.deepEqual(game.modelUse.byMilestone.end, { calls: 3, inputTokens: 3000, cachedInputTokens: 1800 });
+		// Summed over games, a repeat death and a short drop land in their own columns.
+		const table = mechanismTable([...game.deaths, { ...death, repeat: true, fall: { ...death.fall, blocks: 2 } }]);
+		assert.deepEqual({ deaths: table[0].deaths, first: table[0].first, repeat: table[0].repeat, measured: table[0].measuredFall, fell4: table[0].fell4 }, { deaths: 2, first: 1, repeat: 1, measured: 2, fell4: 1 });
+	} finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('game facts stay unknown without their evidence: no End entry, no decision log, no trail, no samples', async () => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'stage-facts-none-'));
+	try {
+		assert.equal((await scoreStageRun(dir)).game.peakHeld, null, 'no samples: peak holdings unknown, not zero');
+		await writeFile(path.join(dir, 'quality-samples.jsonl'), [{ at: 1000, health: 20, deathCounter: 0, dimension: 'minecraft:overworld', position: { x: 0, y: 70, z: 0 }, inventoryNbt: '[]' },
+			{ at: 4000, health: 20, deathCounter: 0, dimension: 'minecraft:overworld', position: { x: 0, y: 60, z: 0 }, inventoryNbt: '[]' },
+			{ at: 6000, health: 0, deathCounter: 1, dimension: 'minecraft:overworld', position: { x: 0, y: 60, z: 0 }, inventoryNbt: '[]' }].map(s => JSON.stringify(s)).join('\n') + '\n');
+		const { game } = await scoreStageRun(dir);
+		assert.equal(game.end, null);
+		assert.equal('lava_seen' in game.milestones, false, 'no decision log: lava seen is not measured, so its key stays out');
+		assert.equal(game.modelUse, null);
+		assert.equal(game.rangedCommands, null, 'no protocol: ranged commands unknown');
+		const [death] = game.deaths;
+		assert.equal(death.action, null);
+		assert.equal(death.fall.blocks, 10, 'without a death row trail the samples give the height');
+		assert.equal(death.fall.actionAtTop, null);
+		assert.equal(death.respawn, null);
+		assert.equal(death.armour, null);
+	} finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('game facts review cases: a sample-only death is measured from the dead sample, a portal trip cuts the trail, a reconciled model call counts once', async () => {
+	const { gameFacts } = await import('../../scripts/quality/lib/game-facts.mjs');
+	const nether = 'minecraft:the_nether', over = 'minecraft:overworld';
+	const facts = gameFacts();
+	for (const s of [{ at: 1000, health: 20, deathCounter: 0, dimension: nether, position: { x: 0, y: 100, z: 0 } },
+		{ at: 4000, health: 0, deathCounter: 1, dimension: nether, position: { x: 0, y: 31, z: 0 } },
+		{ at: 6000, health: 20, deathCounter: 1, dimension: over, position: { x: 5, y: 64, z: 5 } },
+		{ at: 20_000, health: 20, deathCounter: 1, dimension: over, position: { x: 5, y: 90, z: 5 } },
+		{ at: 24_000, health: 20, deathCounter: 1, dimension: nether, position: { x: 0, y: 40, z: 0 } }]) facts.sample(s);
+	// A death row whose trail starts in the Overworld, before a portal trip 6 s ago.
+	facts.deathRow({ diedAtEpochMs: 30_000, dimension: nether, position: { x: 0, y: 38, z: 0 }, armor: 0, trail: [{ s: -9, y: 90, health: 20 }, { s: -5, y: 41, health: 20, action: 'travel_to' }] });
+	facts.modelCall({ at: 2000, modelCallId: 'c1', inputTokens: null });
+	facts.modelCall({ at: 2100, modelCallId: 'c1', inputTokens: 1000, outputReconciled: true });
+	facts.modelCall({ at: 2200, modelCallId: 'c2' });
+	const game = facts.finish({ startedAt: 0, deaths: [{ at: 4000 }, { at: 30_000, damageType: 'minecraft:lava' }] });
+	const [counter, row] = game.deaths;
+	assert.deepEqual(counter.position, { x: 0, y: 31, z: 0 }, 'the dead sample, not the last living one, gives the height');
+	assert.equal(counter.fall.blocks, 69);
+	assert.equal(counter.respawn.dimension, over);
+	assert.equal(row.fall.blocks, 3, 'the Overworld point before the portal trip is not the top of a Nether fall');
+	assert.deepEqual({ calls: game.modelUse.calls, inputTokens: game.modelUse.inputTokens, cached: game.modelUse.cachedInputTokens }, { calls: 2, inputTokens: 1000, cached: null });
+	assert.equal(game.end, null);
+	const none = gameFacts();
+	none.sample({ at: 1000, health: 20, dimension: 'minecraft:the_end', position: { x: 0, y: 64, z: 0 } });
+	none.modelCall({ at: 1000 });
+	const result = none.finish({ startedAt: 0 });
+	assert.equal(result.end.dragonKilled, null, 'samples without advancements cannot show the dragon alive');
+	assert.equal(result.modelUse.inputTokens, null, 'no call reported tokens: unknown, not 0');
+	// A portal trip with no sample back in the death's dimension: no trail point is known to be there.
+	const portal = gameFacts();
+	portal.sample({ at: 2000, health: 20, deathCounter: 0, dimension: 'minecraft:the_nether', position: { x: 0, y: 100, z: 0 } });
+	portal.sample({ at: 13_000, health: 20, deathCounter: 1, dimension: 'minecraft:overworld', position: { x: 0, y: 64, z: 0 } });
+	portal.deathRow({ diedAtEpochMs: 10_000, dimension: 'minecraft:overworld', position: { x: 0, y: 60, z: 0 }, trail: [{ s: -8, y: 100 }, { s: -2, y: 61 }] });
+	const [lost] = portal.finish({ startedAt: 0, deaths: [{ at: 10_000, damageType: 'minecraft:fall' }] }).deaths;
+	assert.equal(lost.fall, null);
+	assert.equal(lost.respawn.secondsAfterDeath, 3, 'the living sample whose counter stepped is the respawn');
+	// Two deaths with no sample between them: the second death's respawn is not the first one's.
+	const twice = gameFacts();
+	twice.sample({ at: 5000, health: 20, deathCounter: 0, dimension: 'minecraft:overworld', position: { x: 0, y: 64, z: 0 } });
+	twice.sample({ at: 14_000, health: 20, deathCounter: 2, dimension: 'minecraft:overworld', position: { x: 0, y: 64, z: 0 } });
+	const [a, b] = twice.finish({ startedAt: 0, deaths: [{ at: 10_000, damageType: 'minecraft:fall' }, { at: 11_000, damageType: 'minecraft:fall' }] }).deaths;
+	assert.equal(a.respawn, null);
+	assert.equal(b.respawn.secondsAfterDeath, 3);
+	// A death first seen in the samples 20 s after its coordinator row still takes that row's trail.
+	const late = gameFacts();
+	late.sample({ at: 1000, health: 20, deathCounter: 0, dimension: 'minecraft:the_nether', position: { x: 0, y: 90, z: 0 } });
+	late.sample({ at: 40_000, health: 20, deathCounter: 1, dimension: 'minecraft:overworld', position: { x: 0, y: 64, z: 0 } });
+	late.deathRow({ diedAtEpochMs: 20_000, dimension: 'minecraft:the_nether', position: { x: 0, y: 31, z: 0 }, action: { type: 'travel_to' }, trail: [{ s: -3, y: 80, action: 'travel_to', health: 20 }] });
+	const [matched] = late.finish({ startedAt: 0, deaths: [{ at: 40_000, damageType: 'minecraft:lava' }] }).deaths;
+	assert.deepEqual([matched.action, matched.fall.blocks, matched.fall.secondsBeforeDeath], ['travel_to', 49, 3]);
+	// A reconciled call keeps the time it was made; no protocol journal leaves End ranged commands unknown.
+	const spend = gameFacts();
+	spend.sample({ at: 1000, health: 20, dimension: 'minecraft:the_end', position: { x: 0, y: 64, z: 0 } });
+	spend.modelCall({ at: 500, modelCallId: 'c', inputTokens: 10 });
+	spend.modelCall({ at: 1500, modelCallId: 'c', inputTokens: 12 });
+	const spent = spend.finish({ startedAt: 0, protocolRecords: 0 });
+	assert.deepEqual(spent.modelUse.byMilestone.end, { calls: 1, inputTokens: 12, cachedInputTokens: null });
+	assert.deepEqual([spent.end.rangedCommands, spent.end.rangedCommandsBeforeEnd, spent.rangedCommands], [null, null, null]);
+	// A later death's body and an earlier life's fall belong to their own deaths.
+	const near = gameFacts();
+	for (const sample of [{ at: 7000, y: 100, fallDistance: 30 }, { at: 9000, y: 70 }, { at: 9500, y: 70, health: 0, deathCounter: 1 }, { at: 12_000, y: 64, deathCounter: 1 }, { at: 16_000, y: 64, health: 0, deathCounter: 2 }])
+		near.sample({ health: 20, deathCounter: 0, dimension: 'minecraft:overworld', ...sample, position: { x: 0, y: sample.y, z: 0 } });
+	const [first, second] = near.finish({ startedAt: 0, deaths: [{ at: 9400, damageType: 'minecraft:fall' }, { at: 15_000, damageType: 'minecraft:mob_attack', attacker: 'minecraft:zombie' }] }).deaths;
+	assert.equal(first.fall.blocks, 30);
+	assert.deepEqual([second.fall?.blocks, second.maxFallDistance], [0, null], 'the earlier life\'s fall is not the second death\'s');
+});
+
+test('a score carries the coordinator inputs the runner recorded, or null before runners recorded them', async () => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'stage-inputs-'));
+	try {
+		await writeFile(path.join(dir, 'quality-samples.jsonl'), JSON.stringify({ at: 1000, health: 20, inventoryNbt: '[]' }) + '\n');
+		assert.equal((await scoreStageRun(dir)).coordinatorInputs, null);
+		await writeFile(path.join(dir, 'quality-run.json'), JSON.stringify({ coordinatorInputs: { leanInput: true, leanInputSource: 'production default (as the mod supervisor sets it)' } }));
+		assert.deepEqual((await scoreStageRun(dir)).coordinatorInputs, { leanInput: true, leanInputSource: 'production default (as the mod supervisor sets it)' });
+		await writeFile(path.join(dir, 'long-run-context.json'), JSON.stringify({ coordinatorInputs: { leanInput: false, leanInputSource: 'environment' } }));
+		assert.equal((await scoreStageRun(dir)).coordinatorInputs.leanInput, false, 'the context written at the start wins');
+	} finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('model latency: per-game and per wall-clock 10-minute p50 and p90 of model call time, nearest rank', async () => {
+	const { modelLatency, quantile } = await import('../../scripts/quality/lib/game-facts.mjs');
+	assert.equal(modelLatency([]), null, 'no timed call: unknown, not zero');
+	assert.equal(quantile([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 0.9), 9);
+	assert.equal(quantile([1, 2, 3, 4], 0.5), 2);
+	const t0 = 6_000_000;
+	const calls = [...Array.from({ length: 10 }, (_, i) => ({ at: t0 + i * 1000, totalMs: (i + 1) * 1000 })), { at: t0 + 600_000, totalMs: 40_000 }, { at: t0 + 600_500, totalMs: null }];
+	const latency = modelLatency(calls, { startedAt: t0 });
+	assert.deepEqual({ calls: latency.calls, p50: latency.p50Ms, p90: latency.p90Ms, max: latency.maxMs }, { calls: 11, p50: 6000, p90: 10_000, max: 40_000 });
+	assert.deepEqual(latency.byClock10Min.map(b => [b.fromMinute, b.calls, b.p50Ms, b.p90Ms]), [[0, 10, 5000, 9000], [10, 1, 40_000, 40_000]]);
+	assert.deepEqual(latency.byClock10Min[1].totalMs, [40_000], 'each bucket keeps its values so games at the same time pool exactly');
+	const facts = (await import('../../scripts/quality/lib/game-facts.mjs')).gameFacts();
+	facts.modelCall({ at: 1000, modelCallId: 'x', totalMs: 3000 });
+	facts.modelCall({ at: 2000, modelCallId: 'y', totalMs: 500, interrupted: true });
+	const timed = facts.finish({ startedAt: 0 }).modelLatency;
+	assert.deepEqual([timed.calls, timed.interruptedCalls, timed.p90Ms], [1, 1, 3000], 'a call cut short by an interrupt stays out of the tail');
+	// Usage traced after a tool ran: the call is bucketed by when the model answered.
+	const late = (await import('../../scripts/quality/lib/game-facts.mjs')).gameFacts();
+	late.modelCall({ at: 1_210_000, modelCallId: 'z', requestAt: 1_190_000, endedAt: 1_195_000, totalMs: 5000 });
+	assert.equal(late.finish({ startedAt: 0 }).modelLatency.byClock10Min[0].fromEpochMs, 600_000);
+});

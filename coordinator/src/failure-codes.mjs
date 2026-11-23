@@ -44,6 +44,8 @@ export const FAILURE_CODES = Object.freeze({
 	// find (find-search.mjs): its own ends; a leg's body failure keeps that leg's code in the message.
 	FIND_SEEN: ['ok'],
 	FIND_BUDGET: ['body', null],
+	// The coordinator stops an obtain whose search made no progress for 3 min (wake-filter.mjs STALL_STOP_CODE).
+	SEARCH_STALLED: ['body', null],
 	FIND_NOT_FOUND: ['body', null],
 	SEARCH_BOUNDARY: ['body', 'body stays inside search circle with braking room', ['searchBoundaryReached(']],
 	FIND_DANGER: ['threat', null],
@@ -650,6 +652,7 @@ export const FAILURE_CODES = Object.freeze({
 	ILLEGAL_STATE_TRANSITION: ['internal', 'agent lifecycle bookkeeping'],
 	INACTIVE_LIFECYCLE: ['internal', 'script host lifecycle ordering'],
 	INBOUND_MESSAGE_REJECTED: ['internal', 'bridge protocol plumbing, not the request'],
+	REPEATED_SNAPSHOT_REJECTION: ['internal', 'bridge protocol plumbing, not the request'],
 	INCOMPLETE_FRAME: ['internal', 'bridge transport framing fault'],
 	INPUT_MUTATED_DURING_OBSERVATION: ['internal', 'observation publication invariant'],
 	INSPECTION_BUSY: ['internal', 'inspection queue saturated, plumbing'],

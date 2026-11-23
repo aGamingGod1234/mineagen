@@ -1,4 +1,4 @@
-import { privateInputUrl } from '../scripts/private-inputs.mjs';
+import { privateInputUrl, privateTest } from '../scripts/private-inputs.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import test from 'node:test';
@@ -250,7 +250,7 @@ function assertDeepFrozen(value, path = 'facts') {
 	for (const key of Object.keys(value)) assertDeepFrozen(value[key], `${path}.${key}`);
 }
 
-test('facts chained to the previous sample equal a fresh build for every recorded replay observation', () => {
+privateTest('facts chained to the previous sample equal a fresh build for every recorded replay observation', () => {
 	const samples = recordedObservations();
 	assert.ok(samples.length > 100, 'the replay fixtures supply real observations');
 	let previous = null;

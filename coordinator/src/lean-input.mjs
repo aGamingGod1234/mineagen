@@ -1,6 +1,8 @@
 /**
- * Lean input: an A/B switch (default off) that sends the model the facts it decides on and leaves the rest one observe
- * or inspect call away. Set ARENA_LEAN_INPUT=1 in the coordinator's environment (run-long.mjs passes its env through).
+ * Lean input sends the model the facts it decides on and leaves the rest one observe or inspect call away. It is on in
+ * normal play and in harness games: the mod's coordinator supervisor and scripts/quality/run-scenarios.mjs both set
+ * ARENA_LEAN_INPUT=1 unless the environment sets it (ARENA_LEAN_INPUT=0 turns it off). A coordinator started some other
+ * way without the variable runs on the full input.
  *
  * Kept: goal counts and next step (goalNow, skillFits, now.plan/failure/guard), the danger line, threats in range,
  * the newest action results, body state, carried items, nearby non-terrain blocks, and close entities. Dropped or

@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import { NativeToolRuntime } from '../src/native-tool-runtime.mjs';
 import { normalizeMinecraftToolCall } from '../src/native-minecraft-tools.mjs';
 import { adaptObservation } from '../src/observation-adapter.mjs';
-import { runObtain } from '../src/obtain-runner.mjs';
+import { checkedObtainBody, runObtain } from './helpers/checked-body.mjs';
 
 const fixture = JSON.parse(fs.readFileSync(new URL('./fixtures/round2-water-worn.json', import.meta.url)));
 const original = fixture.terminal;
@@ -100,13 +100,13 @@ test('production interrupted live approach retains genuine ownership without can
 for (const cancel of [false, true]) test(`retained b3 runObtain: ${cancel ? 'cancellation priority' : 'one search and no unreachable mark'}`, async () => {
 	let searches = 0, acts = 0, stopped = false;
 	const misses = [];
-	const result = await runObtain({ item: 'water_bucket', timeoutMs: 60_000 }, {
+	const result = await runObtain({ item: 'water_bucket', timeoutMs: 60_000 }, checkedObtainBody({
 		observe: async () => adaptObservation(fixture.snapshot.envelope.payload),
 		blocksNear: async () => [], interrupted: () => false, stopped: () => stopped, note: () => {},
 		missPlace: (...args) => misses.push(args),
 		search: async () => { assert.equal(++searches, 1); return { state: 'SUCCEEDED', reasonCode: 'FIND_SEEN', find: { seen: { x: 169, y: -4, z: -440 } } }; },
 		act: async () => { assert.equal(++acts, 1); stopped = cancel; return original.result; },
-	});
+	}));
 	assert.equal(result.reasonCode, cancel ? 'CANCELLED' : 'TOOL_WORN');
 	assert.equal(searches, 1);
 	assert.equal(acts, 1);

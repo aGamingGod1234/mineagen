@@ -46,6 +46,14 @@ public record AgentControlLayout(
 	 * scale 4, 320x180) every region shrinks but stays ordered, and pages scroll or drop decoration to fit.
 	 */
 	public static AgentControlLayout calculate(int requestedWidth, int requestedHeight) {
+		return calculate(requestedWidth, requestedHeight, 0);
+	}
+
+	/**
+	 * As {@link #calculate(int, int)}, with the content pushed down by {@code bannerInset} so a status banner drawn
+	 * just below the header (from {@code headerBottom + 4}) never overlaps a page's controls or its Now card.
+	 */
+	public static AgentControlLayout calculate(int requestedWidth, int requestedHeight, int bannerInset) {
 		int screenWidth = Math.max(1, requestedWidth);
 		int screenHeight = Math.max(1, requestedHeight);
 		int horizontalMargin = screenWidth < MINIMUM_WIDTH + OUTER_MARGIN * 2 ? 4 : OUTER_MARGIN;
@@ -61,7 +69,7 @@ public record AgentControlLayout(
 		int headerBottom = panelTop + HEADER_HEIGHT;
 		int contentLeft = panelLeft + gutter;
 		int contentRight = Math.max(contentLeft + 1, panelRight - gutter);
-		int contentTop = headerBottom + 4;
+		int contentTop = Math.min(panelBottom, headerBottom + 4 + Math.max(0, bannerInset));
 		int footerY = Math.max(contentTop, panelBottom - CONTROL_HEIGHT - (panelWidth < 400 ? 6 : 10));
 		int contentBottom = Math.max(contentTop, footerY - 8);
 		int contentWidth = contentRight - contentLeft;

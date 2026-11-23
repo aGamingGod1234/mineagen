@@ -160,6 +160,46 @@ public final class WatchVerification {
 		check(rows(after, "onset").stream().anyMatch(row -> "hit".equals(text(row, "onset")) && "fall".equals(text(row, "key"))) && onsets.isEmpty(),
 				"an unforeseen hit opens a hit onset keyed by its source or kind");
 		check(rows(after, "onset").stream().filter(row -> "hit".equals(text(row, "onset"))).count() == 3, "one hit onset per source: z1, s1, fall");
+		for (String field : List.of("action", "actionId", "actionIssuer", "firingRule", "shieldHand", "blocking", "facingErrorDeg", "attackerDistance", "light"))
+			check(absorbed.has(field) && absorbed.get(field).isJsonNull(), "with no action, firing, guard or exposure, " + field + " is written as null");
+		dangerDamageState();
+	}
+
+	/** Schema 2 damage rows: the action and firing running at the hit, the guard read before it, and its exposure. */
+	private static void dangerDamageState() {
+		DangerLog log = new DangerLog(AGENT);
+		log.observe(List.of(), 990L, 49_500L, null, new DangerLog.Command("act-7", "mine_block", "native-turn-2", "call-3", "model"));
+		DangerLog.FiringNow raise = new DangerLog.FiringNow("raise_shield", 995L, Set.of("incoming_projectile"));
+		log.beforeDamage(100L, 20.0F, 0.0F, 5.0F, new DangerLog.Guard("off", true));
+		log.damage(100L, "projectile", "minecraft:arrow", "minecraft:skeleton", "s1", "s1", 5.0F, 0.0F, true, 20.0F, 0.0F, false, 1000L, 50_000L, raise,
+				new DangerLog.Exposure(12.3456D, 9.8765D, 7));
+		// A guard read at another tick is not this hit's: unpaired hits leave it unknown.
+		log.beforeDamage(150L, 20.0F, 0.0F, 4.0F, new DangerLog.Guard("main", false));
+		log.damage(151L, "mob", "minecraft:mob_attack", "minecraft:zombie", "z1", "z1", 4.0F, 4.0F, false, 16.0F, 0.0F, false, 1051L, 52_550L, null,
+				new DangerLog.Exposure(null, null, 0));
+		log.beforeDamage(200L, 16.0F, 0.0F, 2.0F, new DangerLog.Guard(null, false));
+		log.damage(200L, "fall", "minecraft:fall", null, null, null, 2.0F, 2.0F, false, 14.0F, 0.0F, false, 1100L, 55_000L, null,
+				new DangerLog.Exposure(null, null, 15));
+		List<JsonObject> hits = rows(log.take(), "damage");
+		check(hits.size() == 3 && hits.stream().allMatch(row -> row.get("schema").getAsInt() == DangerLog.SCHEMA) && DangerLog.SCHEMA == 2, "damage rows are schema 2");
+		JsonObject shot = hits.get(0), unpaired = hits.get(1), fall = hits.get(2);
+		check("mine_block".equals(text(shot, "action")) && "act-7".equals(text(shot, "actionId")) && "model".equals(text(shot, "actionIssuer")),
+				"a hit names the action running when it landed");
+		check("raise_shield".equals(text(shot, "firingRule")) && unpaired.get("firingRule").isJsonNull(), "a hit names the firing running when it landed, or null");
+		check("off".equals(text(shot, "shieldHand")) && shot.get("blocking").getAsBoolean(), "a raised off-hand shield is recorded");
+		check(shot.get("facingErrorDeg").getAsDouble() == 12.35D && shot.get("attackerDistance").getAsDouble() == 9.88D && shot.get("light").getAsInt() == 7,
+				"facing error and attacker distance are rounded to 0.01; light is whole");
+		check(!unpaired.get("paired").getAsBoolean() && unpaired.get("shieldHand").isJsonNull() && unpaired.get("blocking").isJsonNull(),
+				"an unpaired hit's guard is unknown (null), never no shield");
+		check(unpaired.get("facingErrorDeg").isJsonNull() && unpaired.get("attackerDistance").isJsonNull() && unpaired.get("light").getAsInt() == 0,
+				"no attacker position leaves facing and distance null");
+		check(fall.get("shieldHand").isJsonNull() && !fall.get("blocking").getAsBoolean() && "mine_block".equals(text(fall, "action")),
+				"a paired hit with no shield in hand reads shieldHand null and blocking false");
+		check(DangerLog.facingErrorDeg(0.0D, 1.0D, 0.0D, 5.0D) == 0.0D && Math.abs(DangerLog.facingErrorDeg(0.0D, 1.0D, 3.0D, 0.0D) - 90.0D) < 1.0E-9D
+				&& Math.abs(DangerLog.facingErrorDeg(0.0D, 1.0D, 0.0D, -2.0D) - 180.0D) < 1.0E-9D
+				&& Math.abs(DangerLog.facingErrorDeg(1.0D, 1.0D, 0.0D, 4.0D) - 45.0D) < 1.0E-9D, "facing error is the horizontal angle to the source");
+		check(DangerLog.facingErrorDeg(0.0D, 0.0D, 1.0D, 0.0D) == null && DangerLog.facingErrorDeg(0.0D, 1.0D, 0.0D, 0.0D) == null,
+				"a zero-length look or a source straight above has no horizontal facing error");
 	}
 
 	private static void dangerClearAndDeath() {
@@ -272,8 +312,9 @@ public final class WatchVerification {
 		DangerLog log = new DangerLog(AGENT);
 		log.observe(List.of(targeting("z1", "mob")), 1000L, 1_700_000_000_000L, null, null);
 		log.command(command("act-1", "native-turn-1", "call-1", "model"), 1006L);
-		log.beforeDamage(77L, 20.0F, 4.0F, 6.0F);
-		log.damage(77L, "mob", "minecraft:mob_attack", "minecraft:zombie", "z1", "z1", 6.0F, 5.0F, false, 18.0F, 1.0F, false, 1010L, 1_700_000_000_500L, null);
+		log.beforeDamage(77L, 20.0F, 4.0F, 6.0F, new DangerLog.Guard("off", false));
+		log.damage(77L, "mob", "minecraft:mob_attack", "minecraft:zombie", "z1", "z1", 6.0F, 5.0F, false, 18.0F, 1.0F, false, 1010L, 1_700_000_000_500L, null,
+				new DangerLog.Exposure(37.5D, 2.25D, 7));
 		log.observe(List.of(), 1012L, 1_700_000_000_600L, null, null);
 		log.events(List.of(event(1, 4, 60, true), event(2, 0, 61, false)), 1L, 1000L, 1061L, 1_700_000_003_050L);
 		log.observe(List.of(), 1050L, 1_700_000_002_500L, null, null);

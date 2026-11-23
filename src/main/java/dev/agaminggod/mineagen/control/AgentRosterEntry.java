@@ -7,8 +7,14 @@ public record AgentRosterEntry(
 		String modelLabel,
 		String state,
 		boolean selectable,
-		String unavailableReason
+		String unavailableReason,
+		String lifecycleState
 ) {
+	/** An entry whose raw lifecycle state is unknown: its state cue reads as unknown, never as a guess from the label. */
+	public AgentRosterEntry(String id, String name, String provider, String modelLabel, String state, boolean selectable, String unavailableReason) {
+		this(id, name, provider, modelLabel, state, selectable, unavailableReason, "");
+	}
+
 	public AgentRosterEntry {
 		id = requiredId(id);
 		name = normalized(name);
@@ -16,6 +22,7 @@ public record AgentRosterEntry(
 		modelLabel = normalized(modelLabel);
 		state = normalized(state);
 		unavailableReason = normalized(unavailableReason);
+		lifecycleState = normalized(lifecycleState);
 	}
 
 	private static String requiredId(String value) {

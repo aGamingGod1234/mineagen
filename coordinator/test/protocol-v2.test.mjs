@@ -4,7 +4,7 @@ import { createHmac } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-import { createActionResultReplayProof, createBridgeAuthenticationProof, createProtocolV2Envelope, MultiplexedServerBridge, ProtocolV2Error, SURVIVAL_SIGNAL_VALUES, THREAT_SIGNAL_VALUES, validateProtocolV2Envelope, validateProtocolV2Payload } from '../src/protocol-v2.mjs';
+import { createActionResultReplayProof, createBridgeAuthenticationProof, createProtocolV2Envelope, expandInventoryMarker, MultiplexedServerBridge, ProtocolV2Error, sanitizeStepStatus, STEP_STATUS_FIELD, STEP_STATUS_MAX_LENGTH, SURVIVAL_SIGNAL_VALUES, THREAT_SIGNAL_VALUES, validateProtocolV2Envelope, validateProtocolV2Payload } from '../src/protocol-v2.mjs';
 import { goalSpecFingerprint } from '../src/goal-spec.mjs';
 import { adaptObservation } from '../src/observation-adapter.mjs';
 import { AgentRegistry } from '../src/agent-registry.mjs';
@@ -1129,6 +1129,59 @@ test('protocol v2 envelope is strict and directional', () => {
 	);
 });
 
+// MultiplexedServerBridgeVerification.verifyPlanningStateStepStatus runs the Java sanitiser over the same vectors.
+const STEP_STATUS_VECTORS = [
+	['Mining iron: need 3', 'Mining iron: need 3'],
+	['  a\n\tb\r\n  c  ', 'a b c'],
+	['§cRed§r text', 'cRedr text'],
+	['x\u2028y\u0085z\u007f', 'x y z'],
+	['a\u2029b\u2029', 'a b'],
+	['§\n ', ''],
+	['a'.repeat(100), 'a'.repeat(80)],
+	['a'.repeat(79) + '😀b', 'a'.repeat(79)],
+	['a'.repeat(78) + '😀b', 'a'.repeat(78) + '😀'],
+	['a'.repeat(79) + ' bbbbb', 'a'.repeat(79)],
+];
+
+test('step status sanitiser strips controls, line breaks and formatting codes and clips to the bound', () => {
+	for (const [input, expected] of STEP_STATUS_VECTORS) assert.equal(sanitizeStepStatus(input), expected, JSON.stringify(input));
+	assert.equal(sanitizeStepStatus(null), '');
+	assert.equal(sanitizeStepStatus(undefined), '');
+	assert.equal(STEP_STATUS_MAX_LENGTH, 80);
+	// The live doing line runs to 320 bytes; its sanitised form always fits the wire bound.
+	const doing = 'Doing: mine_iron: need 3 raw iron §léé; via strip mine at y16; heading @120,16,-40; last: mine_block SUCCEEDED';
+	const clipped = sanitizeStepStatus(doing);
+	assert.ok(clipped.length <= STEP_STATUS_MAX_LENGTH && !clipped.includes('§'));
+	assert.equal(sanitizeStepStatus(clipped), clipped, 'the sanitiser is idempotent');
+});
+
+test('planning_state carries an optional sanitised stepStatus and rejects anything else', () => {
+	const send = payload => createProtocolV2Envelope({ serverInstanceId: 'server-instance', agentId: 'agent-a', type: 'planning_state', messageId: 'planning-step', payload });
+	assert.deepEqual(send({ goalRevision: 2, state: 'PLANNING' }).payload, { goalRevision: 2, state: 'PLANNING' });
+	assert.deepEqual(send({ goalRevision: 2, state: 'PLANNING', stepStatus: 'Doing: craft a furnace' }).payload, { goalRevision: 2, state: 'PLANNING', stepStatus: 'Doing: craft a furnace' });
+	assert.deepEqual(send({ goalRevision: 2, state: 'PLANNING', stepStatus: '' }).payload, { goalRevision: 2, state: 'PLANNING', stepStatus: '' }, 'an empty status clears the display');
+	const longest = 'x'.repeat(STEP_STATUS_MAX_LENGTH);
+	assert.equal(send({ goalRevision: 2, state: 'PLANNING', stepStatus: longest }).payload.stepStatus, longest);
+	for (const stepStatus of ['x'.repeat(STEP_STATUS_MAX_LENGTH + 1), 'two\nlines', '§cred', ' padded', 'tab\there', 42, null]) {
+		assert.throws(() => send({ goalRevision: 2, state: 'PLANNING', stepStatus }), (error) => error instanceof ProtocolV2Error && error.code === 'INVALID_PAYLOAD', JSON.stringify(stepStatus));
+	}
+	assert.throws(() => send({ goalRevision: 2, state: 'PLANNING', stepDoing: 'x' }), (error) => error instanceof ProtocolV2Error);
+});
+
+test('Minecraft reads planning_state.stepStatus under the same name and bound, and old servers ignore it', () => {
+	const java = readFileSync(new URL('../../src/main/java/dev/agaminggod/mineagen/server/bridge/MultiplexedServerBridge.java', import.meta.url), 'utf8');
+	assert.equal(STEP_STATUS_FIELD, 'stepStatus');
+	assert.match(java, new RegExp(`public static final String STEP_STATUS_FIELD = "${STEP_STATUS_FIELD}";`));
+	assert.match(java, new RegExp(`public static final int STEP_STATUS_MAX_LENGTH = ${STEP_STATUS_MAX_LENGTH};`));
+	// Compatibility: plannerReady handles planning_state without a requireKeys allowlist, so a server that predates the
+	// field accepts the message. If someone adds an allowlist there, it must include the field.
+	const start = java.indexOf('private void plannerReady(');
+	const plannerReady = java.slice(start, java.indexOf('private boolean shouldRequestReadyObservation(', start));
+	assert.ok(start >= 0 && plannerReady.length > 0);
+	assert.ok(!/requireKeys\(/.test(plannerReady) || plannerReady.includes('STEP_STATUS_FIELD'), 'plannerReady must accept stepStatus');
+	assert.match(plannerReady, /if \(!agentReady\) rememberStepStatus\(id, revision, envelope\.payload\(\)\);/);
+});
+
 test('multiplexed bridge authenticates once and learns the complete registry snapshot', async () => {
 	const socket = new FakeSocket();
 	const bridge = new MultiplexedServerBridge({ port: 25570, secret: SECRET }, {
@@ -1968,6 +2021,12 @@ test('post-action observation requests carry only the active goal revision', () 
 		() => validateProtocolV2Payload('request_observation', { goalRevision: 4, actionId: 'action-9' }),
 		(error) => error.code === 'INVALID_PAYLOAD_FIELD',
 	);
+	assert.deepEqual(
+		validateProtocolV2Payload('request_observation', { goalRevision: 4, fullInventory: true }),
+		{ goalRevision: 4, fullInventory: true },
+		'a request after an unresolved inventory marker asks for the inventory in full',
+	);
+	assert.throws(() => validateProtocolV2Payload('request_observation', { goalRevision: 4, fullInventory: 'yes' }));
 });
 
 test('event inspection uses bounded pages and an explicit event sequence cursor', () => {
@@ -3243,6 +3302,7 @@ test('one observation with an invalid payload is dropped and reported without cl
 	assert.deepEqual(fixture.protocolErrors, []);
 	assert.equal(fixture.bridge.ready, true);
 	assert.deepEqual(fixture.observations.map((envelope) => envelope.messageId), ['server-good']);
+	assert.equal(fixture.socket.writes.some((line) => JSON.parse(line).type === 'request_observation'), false, 'drift alone keeps the existing behaviour');
 	// Reported on the 1st, 2nd and 4th repeat: visible, bounded, never silent.
 	assert.deepEqual(fixture.rejections.map((rejection) => rejection.count), [1, 2, 4]);
 	const [first] = fixture.rejections;
@@ -3276,7 +3336,7 @@ test('payload rejection stays contained only for authenticated snapshots; corrup
 	assert.deepEqual(fixture.rejections, []);
 });
 
-test('snapshot schema drift never bypasses revision or required fact validation', async (t) => {
+test('snapshot schema drift never bypasses revision validation', async (t) => {
 	for (const type of ['observation', 'action_progress']) {
 		for (const revision of [3, undefined, -1]) {
 			const fixture = await readyBridgeFixture(t);
@@ -3290,37 +3350,146 @@ test('snapshot schema drift never bypasses revision or required fact validation'
 			assert.equal(fixture.protocolErrors.length, 1);
 			assert.deepEqual(fixture.rejections, []);
 			if (revision === 3) assert.equal(fixture.protocolErrors[0].code, 'STALE_GOAL_REVISION');
+			else assert.equal(fixture.protocolErrors[0].code, 'INVALID_GOAL_REVISION');
 		}
 	}
-	for (const corrupt of [
-		(payload) => { payload.position.x = 'broken'; },
-		(payload) => { payload.threats.entries[0].distance = 'broken'; },
-		(payload) => { payload.threats.entries[0].signals = [123]; },
-		(payload) => { payload.changedFacts = [123]; },
-		(payload) => { payload.attention = true; payload.changedFacts = ['survivalXheal_opportunity']; },
-		(payload) => { payload.threats.entries = Array(9).fill(payload.threats.entries[0]); },
-		(payload) => { payload.attention = false; payload.changedFacts = ['survival.future_signal']; },
-		(payload) => { payload.attention = true; payload.changedFacts = ['survival.future_signal', 'survival.future_signal']; },
-	]) {
-		const fixture = await readyBridgeFixture(t);
-		const payload = observationWithUnknownSignal();
-		payload.futureField = true; // Unknown fields must not hide corruption later in the payload either.
-		corrupt(payload);
-		fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('observation', 'agent-a', 'mixed-facts', payload))}\n`);
-		await new Promise((resolve) => setImmediate(resolve));
-		assert.equal(fixture.socket.destroyed, true);
-		assert.equal(fixture.protocolErrors.length, 1);
-		assert.deepEqual(fixture.rejections, []);
+});
+
+const CORRUPT_OBSERVATIONS = [
+	['non-numeric position', (payload) => { payload.position.x = 'broken'; }],
+	['non-numeric threat distance', (payload) => { payload.threats.entries[0].distance = 'broken'; }],
+	['non-text signal', (payload) => { payload.threats.entries[0].signals = [123]; }],
+	['non-text changed fact', (payload) => { payload.changedFacts = [123]; }],
+	['malformed changed fact', (payload) => { payload.attention = true; payload.changedFacts = ['survivalXheal_opportunity']; }],
+	['oversized threat list', (payload) => { payload.threats.entries = Array(9).fill(payload.threats.entries[0]); }],
+	['changed fact without attention', (payload) => { payload.attention = false; payload.changedFacts = ['survival.future_signal']; }],
+	['duplicate changed fact', (payload) => { payload.attention = true; payload.changedFacts = ['survival.future_signal', 'survival.future_signal']; }],
+	['over-long last result message', (payload) => { payload.lastResult = { present: true, actionId: 'action-1', actionType: 'move_to', state: 'FAILED', reasonCode: 'BLOCKED', message: 'x'.repeat(5000) }; }],
+];
+
+test('a malformed or oversized fact in one snapshot drops that snapshot and keeps the bridge', async (t) => {
+	for (const [name, corrupt] of CORRUPT_OBSERVATIONS) {
+		for (const drift of [false, true]) {
+			const fixture = await readyBridgeFixture(t);
+			const payload = observationWithUnknownSignal();
+			if (!drift) payload.threats.entries[0].signals = ['targeting'];
+			else payload.futureField = true; // Unknown fields alongside corruption take the same contained path.
+			corrupt(payload);
+			fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('observation', 'agent-a', 'mixed-facts', payload))}\n`);
+			fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('observation', 'agent-a', 'server-good', readyServerObservation(4)))}\n`);
+			await new Promise((resolve) => setImmediate(resolve));
+			const label = `${name}${drift ? ' with drift' : ''}`;
+			assert.equal(fixture.socket.destroyed, false, label);
+			assert.deepEqual(fixture.protocolErrors, [], label);
+			assert.equal(fixture.rejections.length, 1, label);
+			assert.equal(fixture.rejections[0].error.code, 'INBOUND_MESSAGE_REJECTED', label);
+			assert.notEqual(fixture.rejections[0].error.cause.code, 'INVALID_PAYLOAD_FIELD', `${label}: reports the corruption, not the drift`);
+			assert.deepEqual(fixture.observations.map((envelope) => envelope.messageId), ['server-good'], label);
+			// The server counted the dropped snapshot as delivered: ask it for the whole state, not changes against it.
+			const resyncs = fixture.socket.writes.map((line) => JSON.parse(line)).filter((envelope) => envelope.type === 'request_observation');
+			assert.deepEqual(resyncs.map((envelope) => [envelope.agentId, envelope.payload]), [['agent-a', { goalRevision: 4, resync: true }]], label);
+		}
 	}
 	for (const invalid of [{ traceId: null }, { progress: 2 }, { elapsedMs: -1 }, { commandId: 'wrong-action' }]) {
 		const fixture = await readyBridgeFixture(t);
-		const payload = { traceId: TRACE_ID, goalRevision: 4, actionId: 'action-1', futureField: true, ...invalid };
-		fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('action_progress', 'agent-a', 'mixed-progress', payload))}\n`);
+		const payload = { traceId: TRACE_ID, goalRevision: 4, actionId: 'action-1', ...invalid };
+		fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('action_progress', 'agent-a', 'bad-progress', payload))}\n`);
 		await new Promise((resolve) => setImmediate(resolve));
-		assert.equal(fixture.socket.destroyed, true);
-		assert.equal(fixture.protocolErrors.length, 1);
-		assert.deepEqual(fixture.rejections, []);
+		assert.equal(fixture.socket.destroyed, false, JSON.stringify(invalid));
+		assert.deepEqual(fixture.protocolErrors, []);
+		assert.equal(fixture.rejections.length, 1);
+		assert.equal(fixture.rejections[0].type, 'action_progress');
+		assert.equal(fixture.socket.writes.some((line) => JSON.parse(line).type === 'request_observation'), false, 'the mod commits no observation baseline for progress');
 	}
+});
+
+test('the bridge closes only after eight bad snapshots in a row for one agent and type', async (t) => {
+	const corrupt = (index) => {
+		const payload = readyServerObservation(4);
+		payload.position.x = 'broken';
+		return `${JSON.stringify(serverEnvelope('observation', 'agent-a', `server-bad-${index}`, payload))}\n`;
+	};
+	const good = (id) => `${JSON.stringify(serverEnvelope('observation', 'agent-a', id, readyServerObservation(4)))}\n`;
+	const progress = (id) => `${JSON.stringify(serverEnvelope('action_progress', 'agent-a', id, { traceId: null, goalRevision: 4, actionId: 'action-1' }))}\n`;
+
+	// Seven in a row, a good one, then seven more: each streak is reset by a delivered snapshot.
+	const reset = await readyBridgeFixture(t);
+	for (let index = 0; index < 7; index++) reset.socket.emit('data', corrupt(index));
+	reset.socket.emit('data', good('server-good'));
+	for (let index = 7; index < 14; index++) reset.socket.emit('data', corrupt(index));
+	// Another type's failures keep their own count.
+	for (let index = 0; index < 7; index++) reset.socket.emit('data', progress(`progress-bad-${index}`));
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(reset.socket.destroyed, false);
+	assert.deepEqual(reset.protocolErrors, []);
+	assert.deepEqual(reset.observations.map((envelope) => envelope.messageId), ['server-good']);
+
+	// Unknown-field drift alone never closes, however long it lasts, and does not count toward the limit.
+	const drift = await readyBridgeFixture(t);
+	for (let index = 0; index < 20; index++) {
+		drift.socket.emit('data', `${JSON.stringify(serverEnvelope('observation', 'agent-a', `server-drift-${index}`, observationWithUnknownSignal()))}\n`);
+	}
+	for (let index = 0; index < 7; index++) drift.socket.emit('data', corrupt(index));
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(drift.socket.destroyed, false);
+	assert.deepEqual(drift.protocolErrors, []);
+
+	const closes = await readyBridgeFixture(t);
+	for (let index = 0; index < 8; index++) closes.socket.emit('data', corrupt(index));
+	await new Promise((resolve) => setImmediate(resolve));
+	const resyncs = closes.socket.writes.filter((line) => JSON.parse(line).type === 'request_observation');
+	assert.equal(resyncs.length, 1, 'one resync until an observation is accepted');
+
+	// The fault outlasted the first resync, so its answer was dropped too: ask once more after the fault clears.
+	const lasting = await readyBridgeFixture(t);
+	const sent = () => lasting.socket.writes.map((line) => JSON.parse(line)).filter((envelope) => envelope.type === 'request_observation').length;
+	lasting.socket.emit('data', corrupt(0));
+	lasting.socket.emit('data', corrupt(1));
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(sent(), 1);
+	lasting.socket.emit('data', good('after-fault'));
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(sent(), 2, 'a second resync after the fault cleared');
+	const second = lasting.socket.writes.map((line) => JSON.parse(line)).filter((envelope) => envelope.type === 'request_observation')[1];
+	assert.deepEqual(second.payload, { goalRevision: 4, resync: true }, 'nothing was accepted before the drops, so the server re-announces every threat');
+
+	// Accepted 7, dropped 8 and 9, accepted 10: the recovery resync still counts from 7, the last one before the drops.
+	const sequenced = await readyBridgeFixture(t);
+	const at = (id, sequence, broken) => {
+		const payload = readyServerObservation(4);
+		payload.eventSequence = sequence;
+		if (broken) payload.position.x = 'broken';
+		return `${JSON.stringify(serverEnvelope('observation', 'agent-a', id, payload))}\n`;
+	};
+	for (const [id, sequence, broken] of [['s7', 7, false], ['s8', 8, true], ['s9', 9, true], ['s10', 10, false], ['s11', 11, false]]) sequenced.socket.emit('data', at(id, sequence, broken));
+	await new Promise((resolve) => setImmediate(resolve));
+	const froms = sequenced.socket.writes.map((line) => JSON.parse(line)).filter((envelope) => envelope.type === 'request_observation').map((envelope) => envelope.payload.acceptedEventSequence);
+	assert.deepEqual(froms, [7, 7]);
+
+	// Accepted 7, dropped 8, a quiet 9 already on its way, the answer 10 dropped too: the retry still counts from 7.
+	const inFlight = await readyBridgeFixture(t);
+	const answer = (id, sequence, broken) => {
+		const payload = readyServerObservation(4);
+		payload.eventSequence = sequence;
+		payload.attention = true;
+		payload.changedFacts = ['player.air'];
+		if (broken) payload.position.x = 'broken';
+		return `${JSON.stringify(serverEnvelope('observation', 'agent-a', id, payload))}\n`;
+	};
+	for (const line of [at('q7', 7, false), at('q8', 8, true), at('q9', 9, false), answer('q10', 10, true), at('q11', 11, false), answer('q12', 12, false), at('q13', 13, false), at('q14', 14, true)]) inFlight.socket.emit('data', line);
+	await new Promise((resolve) => setImmediate(resolve));
+	const inFlightFroms = inFlight.socket.writes.map((line) => JSON.parse(line)).filter((envelope) => envelope.type === 'request_observation').map((envelope) => envelope.payload.acceptedEventSequence);
+	assert.deepEqual(inFlightFroms, [7, 7, 13], 'a quiet observation in flight is not the answer; a new fault after the answer counts from then');
+	lasting.socket.emit('data', good('re-announced'));
+	lasting.socket.emit('data', good('quiet'));
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(sent(), 2, 'no more once an answer is accepted');
+	assert.deepEqual(lasting.observations.map((envelope) => envelope.messageId), ['after-fault', 're-announced', 'quiet']);
+	assert.equal(closes.socket.destroyed, true);
+	assert.equal(closes.protocolErrors.length, 1);
+	assert.equal(closes.protocolErrors[0].code, 'REPEATED_SNAPSHOT_REJECTION');
+	assert.match(closes.protocolErrors[0].message, /8 observation snapshots in a row for 'agent-a' failed validation/);
+	assert.equal(closes.protocolErrors[0].cause.cause.code, 'INVALID_PAYLOAD');
 });
 
 test('snapshot schema drift never interrupts a fragmented registration', async (t) => {
@@ -3638,4 +3807,105 @@ test('an over-long reflex detail is trimmed instead of refusing the observation'
 	const bad = structuredClone(observation);
 	bad.reflexes.events[0].detail = 42;
 	assert.throws(() => validateProtocolV2Payload('observation', bad), 'a detail that is not text is still refused');
+});
+
+test('an unchanged inventory marker expands from the last full inventory, and nothing else does (PERF-ARCH-8)', () => {
+	const baselines = new Map();
+	const full = readyServerObservation(4);
+	assert.equal(expandInventoryMarker(baselines, 'agent-a', full), full, 'a payload without a marker or hash is untouched');
+	const hashed = expandInventoryMarker(baselines, 'agent-a', { ...full, inventoryHash: 'h1' });
+	assert.equal(Object.hasOwn(hashed, 'inventoryHash'), false, 'the hash is stripped before the strict schema sees it');
+	assert.deepEqual(hashed.inventory, full.inventory);
+	const marker = { ...full, inventory: { unchanged: 'h1' } };
+	const expanded = expandInventoryMarker(baselines, 'agent-a', marker);
+	assert.deepEqual(expanded.inventory, full.inventory);
+	assert.notEqual(expanded.inventory, baselines.get('agent-a').inventory, 'each expansion is a private copy');
+	assert.equal(validateProtocolV2Payload('observation', expanded).inventory.items.length, full.inventory.items.length);
+	assert.equal(expandInventoryMarker(baselines, 'agent-a', { ...full, inventory: { unchanged: 'other' } }), null, 'an unknown hash is a miss');
+	assert.equal(expandInventoryMarker(baselines, 'agent-b', marker), null, 'baselines are per agent');
+	const badHash = { ...full, inventoryHash: 7 };
+	assert.equal(expandInventoryMarker(baselines, 'agent-a', badHash), badHash, 'a malformed hash is left for the schema to reject');
+	assert.throws(() => validateProtocolV2Payload('observation', badHash), ProtocolV2Error);
+	assert.throws(() => validateProtocolV2Payload('observation', marker), ProtocolV2Error, 'an unexpanded marker never validates');
+});
+
+test('the bridge delivers a full inventory in place of each unchanged marker it can resolve (PERF-ARCH-8)', async (t) => {
+	const fixture = await readyBridgeFixture(t);
+	const hello = fixture.socket.writes.map((line) => JSON.parse(line)).find((envelope) => envelope.type === 'hello');
+	assert.equal(hello.payload.inventoryMarker, true, 'the coordinator announces it can expand markers');
+	assert.equal(validateProtocolV2Payload('hello', hello.payload).inventoryMarker, true);
+	const full = readyServerObservation(4);
+	fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('observation', 'agent-a', 'server-full', { ...full, inventoryHash: 'h1' }))}\n`);
+	fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('observation', 'agent-a', 'server-marker', { ...full, observedAtEpochMs: 21, inventory: { unchanged: 'h1' } }))}\n`);
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.deepEqual(fixture.rejections, []);
+	assert.deepEqual(fixture.observations.map((envelope) => envelope.messageId), ['server-full', 'server-marker']);
+	for (const envelope of fixture.observations) {
+		assert.deepEqual(envelope.payload.inventory, validateProtocolV2Payload('observation', full).inventory);
+		assert.equal(Object.hasOwn(envelope.payload, 'inventoryHash'), false);
+	}
+});
+
+test('a marker miss after an accepted observation asks to re-announce from that observation (PERF-ARCH-8)', async (t) => {
+	const fixture = await readyBridgeFixture(t);
+	const full = readyServerObservation(4);
+	fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('observation', 'agent-a', 'server-plain', full))}\n`);
+	fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('observation', 'agent-a', 'server-miss', { ...full, eventSequence: 8, inventory: { unchanged: 'never-sent' } }))}\n`);
+	await new Promise((resolve) => setImmediate(resolve));
+	const requests = fixture.socket.writes.map((line) => JSON.parse(line)).filter((envelope) => envelope.type === 'request_observation');
+	assert.deepEqual(requests.map((envelope) => envelope.payload), [{ goalRevision: 4, fullInventory: true, resync: true, acceptedEventSequence: 7 }]);
+	assert.deepEqual(validateProtocolV2Payload('request_observation', requests[0].payload), requests[0].payload, 'all three fields pass outbound validation together');
+});
+
+test('a marker with no full inventory on this connection is dropped, reported and the full one is requested (PERF-ARCH-8)', async (t) => {
+	const fixture = await readyBridgeFixture(t);
+	const full = readyServerObservation(4);
+	const requests = () => fixture.socket.writes.map((line) => JSON.parse(line)).filter((envelope) => envelope.type === 'request_observation');
+	for (let index = 0; index < 3; index++) {
+		fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('observation', 'agent-a', `server-miss-${index}`, { ...full, inventory: { unchanged: 'never-sent' } }))}\n`);
+	}
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.deepEqual(fixture.observations, [], 'never a stale or empty inventory');
+	assert.equal(fixture.socket.destroyed, false);
+	assert.deepEqual(fixture.protocolErrors, []);
+	assert.deepEqual(fixture.rejections.map((rejection) => rejection.count), [1, 2], 'reported on the 1st, 2nd, 4th... miss');
+	assert.match(fixture.rejections[0].error.message, /INVENTORY_BASELINE_UNKNOWN/);
+	assert.equal(requests().length, 1, 'one request per agent until a full inventory arrives');
+	assert.deepEqual(requests()[0].payload, { goalRevision: 4, fullInventory: true, resync: true }, 'only this request asks the server to drop its stored inventory, and to announce again what the dropped one carried');
+	assert.equal(requests()[0].agentId, 'agent-a');
+	fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('observation', 'agent-a', 'server-resent', { ...full, inventoryHash: 'h2' }))}\n`);
+	fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('observation', 'agent-a', 'server-after', { ...full, inventory: { unchanged: 'h2' } }))}\n`);
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.deepEqual(fixture.observations.map((envelope) => envelope.messageId), ['server-resent', 'server-after']);
+});
+
+test('a full inventory in an observation dropped for other drift still resolves later markers (PERF-ARCH-8)', async (t) => {
+	const fixture = await readyBridgeFixture(t);
+	fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('observation', 'agent-a', 'server-drift', { ...observationWithUnknownSignal(), goalRevision: 4, inventoryHash: 'h1' }))}\n`);
+	fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('observation', 'agent-a', 'server-marker', { ...readyServerObservation(4), inventory: { unchanged: 'h1' } }))}\n`);
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(fixture.rejections.length, 1, 'only the drifted observation is rejected');
+	assert.doesNotMatch(fixture.rejections[0].error.message, /INVENTORY_BASELINE_UNKNOWN/);
+	assert.deepEqual(fixture.observations.map((envelope) => envelope.messageId), ['server-marker']);
+	assert.deepEqual(fixture.observations[0].payload.inventory, validateProtocolV2Payload('observation', readyServerObservation(4)).inventory);
+});
+
+test('an agent registered again resolves markers only from the full inventory sent after it (PERF-ARCH-8)', async (t) => {
+	// The server forgets its stored inventory whenever it sends agent_registered (a new agent, or the revised record
+	// after a stop or steer while dead), so the coordinator dropping its copy then leaves both sides in step.
+	const fixture = await readyBridgeFixture(t);
+	const full = readyServerObservation(4);
+	fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('observation', 'agent-a', 'server-full', { ...full, inventoryHash: 'h1' }))}\n`);
+	fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('agent_registered', 'agent-a', 'server-registered', { ...registeredRecord(), goalRevision: 4 }))}\n`);
+	fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('observation', 'agent-a', 'server-full-again', { ...full, observedAtEpochMs: 21, inventoryHash: 'h1' }))}\n`);
+	fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('observation', 'agent-a', 'server-marker', { ...full, observedAtEpochMs: 22, inventory: { unchanged: 'h1' } }))}\n`);
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.deepEqual(fixture.rejections, [], 'the full inventory after re-registration resolves the marker that follows it');
+	assert.deepEqual(fixture.observations.map((envelope) => envelope.messageId), ['server-full', 'server-full-again', 'server-marker']);
+	assert.deepEqual(fixture.observations.at(-1).payload.inventory, validateProtocolV2Payload('observation', full).inventory);
+	fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('agent_registered', 'agent-a', 'server-registered-again', { ...registeredRecord(), goalRevision: 4 }))}\n`);
+	fixture.socket.emit('data', `${JSON.stringify(serverEnvelope('observation', 'agent-a', 'server-stale-marker', { ...full, observedAtEpochMs: 23, inventory: { unchanged: 'h1' } }))}\n`);
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(fixture.observations.at(-1).messageId, 'server-marker', 'a marker for an inventory sent before registration is never delivered');
+	assert.match(fixture.rejections.at(-1)?.error.message ?? '', /INVENTORY_BASELINE_UNKNOWN/);
 });

@@ -1,6 +1,6 @@
 import { buildNativeEventInput } from '../dynamic-main.mjs';
 import { ModelObservationViews, encodeNativeEventInput } from '../model-fact-encoding.mjs';
-import { MINECRAFT_DYNAMIC_TOOLS, NATIVE_AGENT_INSTRUCTIONS, minecraftCapabilities } from '../native-minecraft-tools.mjs';
+import { MINECRAFT_DYNAMIC_TOOLS, NATIVE_AGENT_INSTRUCTIONS, minecraftCapabilities, offeredMinecraftTools } from '../native-minecraft-tools.mjs';
 
 /**
  * Offline token-budget model for one native agent. Byte sizes come from the real builders and
@@ -124,6 +124,78 @@ export function representativeProgramWake(sequence = 1) {
 	};
 }
 
+const TAGS = {
+	'minecraft:iron_pickaxe': ['#c:tools', '#c:tools/mining_tool', '#minecraft:pickaxes', '#minecraft:cluster_max_harvestables', '#minecraft:breaks_decorated_pots'],
+	'minecraft:stone_sword': ['#c:tools', '#c:tools/melee_weapon', '#minecraft:swords', '#minecraft:breaks_decorated_pots'],
+	'minecraft:stone_axe': ['#c:tools', '#minecraft:axes', '#minecraft:breaks_decorated_pots'],
+	'minecraft:shield': [],
+	'minecraft:iron_chestplate': ['#c:armors', '#c:armors/humanoid', '#minecraft:chest_armor', '#minecraft:trimmable_armor'],
+	'minecraft:iron_boots': ['#c:armors', '#c:armors/humanoid', '#minecraft:foot_armor', '#minecraft:trimmable_armor'],
+	'minecraft:cooked_beef': ['#c:foods', '#c:foods/cooked_meat', '#minecraft:meat'],
+	'minecraft:bread': ['#c:foods', '#c:foods/bread'],
+	'minecraft:oak_log': ['#minecraft:logs', '#minecraft:logs_that_burn', '#minecraft:oak_logs'],
+	'minecraft:oak_planks': ['#minecraft:planks', '#c:wooden'],
+	'minecraft:cobblestone': ['#c:cobblestones', '#c:cobblestones/normal', '#minecraft:stone_tool_materials', '#minecraft:stone_crafting_materials'],
+	'minecraft:coal': ['#minecraft:coals', '#c:gems'],
+	'minecraft:raw_iron': ['#c:raw_materials', '#c:raw_materials/iron'],
+	'minecraft:torch': [],
+	'minecraft:water_bucket': ['#c:buckets', '#c:buckets/water'],
+	'minecraft:flint': ['#c:gems', '#minecraft:decorated_pot_ingredients'],
+	'minecraft:gravel': ['#c:gravels'],
+	'minecraft:iron_ingot': ['#c:ingots', '#c:ingots/iron', '#minecraft:beacon_payment_items', '#minecraft:trim_materials', '#minecraft:iron_tool_materials'],
+	'minecraft:furnace': ['#c:player_workstations/furnaces'],
+};
+const BLOCK_TAGS = {
+	'minecraft:stone': ['#minecraft:mineable/pickaxe', '#minecraft:base_stone_overworld', '#minecraft:stone_ore_replaceables', '#minecraft:dripstone_replaceable_blocks', '#minecraft:azalea_root_replaceable'],
+	'minecraft:deepslate': ['#minecraft:mineable/pickaxe', '#minecraft:base_stone_overworld', '#minecraft:deepslate_ore_replaceables'],
+	'minecraft:iron_ore': ['#minecraft:mineable/pickaxe', '#minecraft:needs_stone_tool', '#c:ores', '#c:ores/iron', '#minecraft:iron_ores'],
+	'minecraft:coal_ore': ['#minecraft:mineable/pickaxe', '#c:ores', '#c:ores/coal', '#minecraft:coal_ores'],
+	'minecraft:gravel': ['#minecraft:mineable/shovel', '#c:gravels'],
+	'minecraft:dirt': ['#minecraft:mineable/shovel', '#minecraft:dirt', '#minecraft:substrate_overworld'],
+	'minecraft:water': ['#minecraft:replaceable'],
+	'minecraft:andesite': ['#minecraft:mineable/pickaxe', '#minecraft:base_stone_overworld', '#minecraft:stone_ore_replaceables', '#minecraft:azalea_root_replaceable', '#minecraft:sculk_replaceable'],
+	'minecraft:copper_ore': ['#minecraft:mineable/pickaxe', '#minecraft:needs_stone_tool', '#c:ores', '#c:ores/copper', '#minecraft:copper_ores', '#minecraft:snaps_goat_horn'],
+	'minecraft:grass_block': ['#minecraft:mineable/shovel', '#minecraft:dirt', '#minecraft:animals_spawnable_on', '#minecraft:valid_spawn', '#minecraft:substrate_overworld', '#minecraft:sniffer_diggable_block'],
+};
+
+/**
+ * A wake with the section mix of recorded wakes (684 decision-test wakes replayed through the production builder: median
+ * 12.6 KB encoded, 5.4 KB with ARENA_LEAN_INPUT): a now header with plan, route and options, carried gear with its item
+ * tags, fewer and tagged blocks, rather than the many plain blocks of representativeProgramWake. Every field is one the
+ * wire observation or the continuity header really carries.
+ */
+export function representativeRecordedWake(sequence = 1) {
+	const wake = representativeProgramWake(sequence);
+	const observation = wake.observation;
+	const gear = [
+		['minecraft:iron_pickaxe', 1, 250], ['minecraft:stone_sword', 1, 131], ['minecraft:stone_axe', 1, 131], ['minecraft:shield', 1, 336],
+		['minecraft:iron_chestplate', 1, 240], ['minecraft:iron_boots', 1, 195], ['minecraft:cooked_beef', 7], ['minecraft:bread', 3],
+		['minecraft:oak_log', 9], ['minecraft:oak_planks', 14], ['minecraft:cobblestone', 52], ['minecraft:coal', 11], ['minecraft:raw_iron', 6],
+		['minecraft:torch', 18], ['minecraft:water_bucket', 1], ['minecraft:flint', 2], ['minecraft:gravel', 5], ['minecraft:iron_ingot', 3], ['minecraft:furnace', 1],
+	];
+	observation.inventory = {
+		items: gear.map(([itemId, count, maxDamage], slot) => ({ slot, itemId, count, tags: TAGS[itemId], ...(maxDamage ? { maxDamage, usesLeft: maxDamage - 17 * (slot + 1), maxStackSize: 1 } : { maxStackSize: itemId === 'minecraft:water_bucket' ? 1 : 64 }) })),
+		selectedItem: { slot: 0, itemId: 'minecraft:iron_pickaxe', count: 1 },
+	};
+	const ids = Object.keys(BLOCK_TAGS);
+	observation.entities = observation.entities.slice(0, 2);
+	// Fields of the wire player row (protocol-v2.mjs playerObservation and PLAYER_DETAIL_FIELDS).
+	observation.player = { ...observation.player, maxHealth: 20, absorption: 0, maxAir: 300, suffocating: false, fallDistance: 0, onFire: false, effects: [],
+		gameMode: 'survival', skyOpen: false, underWater: false, swimming: false, sprinting: false, crouching: false, onClimbable: false };
+	observation.blocks = Array.from({ length: 14 }, (_, index) => ({ ...observation.blocks[index], blockId: ids[index % ids.length], tags: BLOCK_TAGS[ids[index % ids.length]] }));
+	return {
+		...wake,
+		doing: 'Getting iron for a bucket and armour: mine the iron ore seen 6 blocks north-east, then smelt at the furnace.',
+		continuity: {
+			guard: 'none installed',
+			failure: 'move_to NO_STANDABLE_PATH: Destination has no supported arrival region that can be approached within the requested tolerance',
+			plan: 'open iron_kit[unmet:iron_ingot 3/11, bucket 0/1]; open portal[unmet:obsidian 0/10 or flint_and_steel 0/1]; strategy:overworld; later:6',
+			route: 'usual next step: smelt the raw iron, make a bucket and a shield, then iron armour; one trip down for diamonds is optional (iron 3/11, bucket 0, shield 1)',
+			options: '(step iron_kit) iron_ingot: seen iron_ore 6 blocks NE and 2 more remembered within 40 blocks (cave at -452,80,131) | raw_iron 6 carried (smelt: furnace 12 blocks S, coal 11 for 88 items) | ways (typical): iron ore at y 0-64, most around y 16, in caves and exposed walls; a blacksmith or toolsmith chest in a village; iron golems drop 3-5 | bucket: 3 iron_ingot at a crafting table | shield: 1 iron_ingot and 6 planks | armour: chestplate 8 iron_ingot, boots 4, helmet 5, leggings 7 | est. options: mine the seen ore (about 1 min), then smelt 9 (about 1.5 min with coal)',
+		},
+	};
+}
+
 const bytes = (text) => Buffer.byteLength(typeof text === 'string' ? text : JSON.stringify(text), 'utf8');
 
 /** Measures the fixed per-call prefix and per-event input with the production builders and encoders. */
@@ -133,10 +205,13 @@ export function measureTokenBudget({ agentsMarkdown = '', skillMarkdown = '' } =
 	const views = new ModelObservationViews();
 	const first = encodeNativeEventInput(raw, views);
 	const second = encodeNativeEventInput(buildNativeEventInput(record, representativeProgramWake(2)), views);
-	const tools = MINECRAFT_DYNAMIC_TOOLS.map(({ name, description, inputSchema }) => ({ name, description, inputSchema }));
+	// What every call sends by default (no MINEAGEN_PROGRAM_TOOLS), and the whole list for that switch's on arm.
+	const listed = (list) => list.map(({ name, description, inputSchema }) => ({ name, description, inputSchema }));
+	const tools = listed(offeredMinecraftTools({}));
 	return {
 		instructionsBytes: bytes(NATIVE_AGENT_INSTRUCTIONS) + bytes(agentsMarkdown) + bytes(skillMarkdown),
 		toolSchemaBytes: bytes(tools),
+		toolSchemaBytesWithPrograms: bytes(listed(MINECRAFT_DYNAMIC_TOOLS)),
 		capabilitiesAllBytes: bytes(minecraftCapabilities({ section: 'all' })),
 		eventRawBytes: bytes(raw),
 		eventEncodedFirstBytes: bytes(first),

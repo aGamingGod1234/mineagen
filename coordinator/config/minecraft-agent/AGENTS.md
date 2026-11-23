@@ -28,13 +28,17 @@ For "beat the game", now.route suggests the usual next step and starts nothing; 
 6. Every move has a destination: decide where and how far before moving.
 7. Be ready before the risk: the right tool in hand, health, food and gear topped up; back off when you are weaker.
 
+# How a player plays the route
+
+Surface first: logs, a crafting table, stone tools and food before going underground. Then one trip down, carrying a table and a furnace (or 8 cobblestone), doing every underground job there (iron, coal, lava, diamonds) before climbing back. Caves before digging: take ore and lava where caves, ravines and cliffs show them, and dig blind only when none is known nearby. Go down by stairs (dig_to's default), not a straight shaft. The first iron after the pickaxe makes a shield (1 ingot, 6 planks); hold it in the off hand before caves, nights and the Nether. Against skeletons and other archers, block with the shield facing them and close in to fight, or break their line of sight; never run across open ground with your back to them.
+
 # Survival
 
 Fifteen reflexes are on from spawn, each respawn and dimension change: default-lava, default-lava-flow, default-fire, default-air, default-edge, default-creeper, default-suffocate, default-fireball, default-arrow, default-retreat, default-eat, default-defend, default-blaze-cover, default-cover and default-owed-drops. They act within a quarter second; leave them on. {id, remove:true} switches one off until respawn or dimension change; the same id replaces it. Add rules for any danger they miss (control topic tool:reflexes); any body call carries reflexes:[...]. When danger already acts on you and no reflex handles it, your first call is the escape or the defence itself, not a lookup.
 
 # Low-level tools
 
-do_step covers most play. Use the low-level tools (act, sequence, startAction, moveTo, mine, control, runProgram) only for what no verb does: one precise placement or click, a menu, eating or equipping, a short repair, or a conditional routine. Read the control topic before an unfamiliar call.
+do_step covers most play. Use the low-level tools (act, sequence, startAction, moveTo, mine, control) only for what no verb does: one precise placement or click, a menu, eating or equipping, or a short repair. Read the control topic before an unfamiliar call.
 
 When a tool ends the goal turn or awaits operator confirmation, follow the completion rules and await the next goal.
 

@@ -15,7 +15,13 @@
 // the sampler and every stand-in wait are game time on the fixture clock (s.clock), so a raised rate plays the same game.
 // run.seconds is game seconds, run.wallSeconds wall seconds, run.rates the rate asked for and reached; blocksPerMinute is
 // per game minute (per wall minute at 20 TPS, as before); run.damageTaken is vanilla's cumulative counter.
-import { damageCounter, recordDamageEvidence } from './lib/damage-counter.mjs';
+// OUT_DIR/result.json holds one finishRun row per course (lib/travel-rows.mjs), so a room batch judges it: pass is arrival
+// with no death, pickaxeUsesPer100Blocks the wear, and a course's maxPickaxeUsesPer100 (or the file's) an optional bar.
+// OUT_DIR/results.json keeps the full report. Strict by default (exit 1 = a course missed, 2 = invalid evidence);
+// --descriptive reports without an acceptance exit code.
+import { damageCounter, deathCounter, recordDamageEvidence } from './lib/damage-counter.mjs';
+import { finishRun, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
+import { travelRow } from './lib/travel-rows.mjs';
 import { readFile, writeFile, mkdir, readdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -25,16 +31,20 @@ import { MOD_JAR } from './mod-jar.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const argv = process.argv.slice(2);
+const USAGE = 'Usage: test-travel-live.mjs COURSES.json OUT_DIR --mode navigate|travel [--jar JAR] [--only IDS] [--checkpoints DIR] [--budget MINUTES] [--strict|--descriptive]'
+	+ ' under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME';
+if (argv.includes('--help')) { console.log(USAGE + '\n' + FIXTURE_OUTCOME_HELP); process.exit(0); }
+const strict = !argv.includes('--descriptive');
 const flag = (name, fallback) => { const i = argv.indexOf(name); return i < 0 ? fallback : argv[i + 1]; };
-const [coursesFile, outArg] = argv.filter((value, i) => !value.startsWith('--') && !argv[i - 1]?.startsWith('--'));
+const VALUE_FLAGS = new Set(['--mode', '--jar', '--only', '--checkpoints', '--budget']);
+const [coursesFile, outArg] = argv.filter((value, i) => !value.startsWith('--') && !VALUE_FLAGS.has(argv[i - 1]));
 const mode = flag('--mode', 'travel');
 const jar = path.resolve(flag('--jar', path.join(root, MOD_JAR)));
 const only = flag('--only', null)?.split(',');
 const checkpointDir = flag('--checkpoints', null);
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port = Number(process.env.SLOT_PORT_BASE);
-if (!coursesFile || !outArg || !template || !port || !process.env.JAVA_HOME || !['navigate', 'travel'].includes(mode)) {
-	throw new Error('Usage: COURSES.json OUT_DIR --mode navigate|travel [--jar JAR] [--only IDS] under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME');
-}
+// Nothing can be measured without a slot, a template and Java: invalid evidence (exit 2), never a pass.
+if (!coursesFile || !outArg || !template || !port || !process.env.JAVA_HOME || !['navigate', 'travel'].includes(mode)) { console.error(USAGE); process.exit(2); }
 const spec = JSON.parse(await readFile(coursesFile, 'utf8'));
 const courses = spec.courses.filter(course => !only || only.includes(course.id));
 const out = path.resolve(outArg);
@@ -51,6 +61,12 @@ const BLOCKS = /^minecraft:(netherrack|cobblestone|cobbled_deepslate|blackstone|
 
 const results = [];
 const bySeed = new Map();
+// One finishRun row per course; the per-run pickaxe cap is the course's, else the courses file's.
+const rows = () => results.map(run => travelRow(run, { maxPickaxeUsesPer100: courses.find(course => course.id === run.id)?.maxPickaxeUsesPer100 ?? spec.maxPickaxeUsesPer100 ?? null }));
+const report = async () => {
+	await writeFile(path.join(out, 'results.json'), JSON.stringify({ mode, jar, results }, null, 2));
+	return finishRun(rows(), { file: path.join(out, 'result.json'), planned: courses.length, strict });
+};
 // The server a course runs on is stopped on every way out, so a killed or failed run never leaves one behind.
 let current = null;
 const stopServer = () => { try { current?.child?.kill('SIGTERM'); } catch { /* already gone */ } };
@@ -352,6 +368,13 @@ async function runCourse(s, course) {
 		}
 		return total;
 	};
+	// The loop's death check reads an unparsable reply as 0; the last word is the strict counter, so an unreadable one is
+	// missing evidence, never a course passed with no death.
+	if (!s.dead) {
+		const counted = await deathCounter(text => s.command(text), AGENT, { objective: 'deaths', unsetIsZero: true }).catch(() => null);
+		if (counted === null) run.integrity = [...(Array.isArray(run.integrity) ? run.integrity : []), { file: 'scoreboard', error: 'death counter unreadable at the end of the course' }];
+		else if (counted > 0) { run.deaths = Math.max(run.deaths, counted); s.dead = true; }
+	}
 	run.blocksMined = await sumCounters([...MINED.keys()].map(i => `tmb_${i}`));
 	run.pickaxeUses = await sumCounters(PICKS.map(tier => `tpk_${tier}`));
 	if (counterFailures.length || run.blocksMined === null || run.pickaxeUses === null) {
@@ -394,9 +417,18 @@ async function runCourse(s, course) {
 for (const [seed, group] of bySeed) {
 	const dir = path.join(out, `seed-${seed}`);
 	await mkdir(dir, { recursive: true });
-	const s = await boot(dir, { jar, template, port, world: null, seed, goalTicks: 20 * 60 * 60 * 4, bridgeReadyMs: 180_000,
-		// 21 Nov A/B, 10 runs a side per course: y55-fortress died in 4 of 10 at 60 TPS, 0 of 10 at 20 (the other six courses matched).
-		tickRate: unshownTickRate('y55-fortress died in 4 of 10 runs at 60 TPS, 0 of 10 at 20') });
+	let s;
+	try {
+		s = await boot(dir, { jar, template, port, world: null, seed, goalTicks: 20 * 60 * 60 * 4, bridgeReadyMs: 180_000,
+			// 21 Nov A/B, 10 runs a side per course: y55-fortress died in 4 of 10 at 60 TPS, 0 of 10 at 20 (the other six courses matched).
+			tickRate: unshownTickRate('y55-fortress died in 4 of 10 runs at 60 TPS, 0 of 10 at 20') });
+	} catch (error) {
+		// A server that never came up plays none of its courses: each is an error row (never started), and the other seeds still run.
+		for (const course of group) results.push({ id: course.id, mode, error: `server did not boot: ${String(error?.stack ?? error)}` });
+		console.log(JSON.stringify({ seed, error: `server did not boot: ${String(error?.message ?? error)}` }));
+		await report();
+		continue;
+	}
 	current = s;
 	try {
 		// Diagnostics for a course that errors: what the server last sent.
@@ -411,22 +443,31 @@ for (const [seed, group] of bySeed) {
 			s.record.goalRevision = control.goalRevision;
 			s.bridge.send('agent_ready', s.record.agentId, { goalRevision: s.record.goalRevision, reconciled: false }).catch(() => {});
 		});
-		await registerAgent(s);
-		await s.command('difficulty normal');
+		try {
+			await registerAgent(s);
+			await s.command('difficulty normal');
+		} catch (error) {
+			// No body to play with: the seed's courses are error rows (never started), and the other seeds still run.
+			for (const course of group) results.push({ id: course.id, mode, error: `seed setup failed: ${String(error?.stack ?? error)}` });
+			console.log(JSON.stringify({ seed, error: `seed setup failed: ${String(error?.message ?? error)}` }));
+			await report();
+			continue;
+		}
 		await s.command('gamerule minecraft:do_daylight_cycle false').catch(() => {});
 		// Terrain is what the courses measure; mobs the world generated still appear and are handled as stops.
 		await s.command('gamerule minecraft:spawn_mobs false').catch(() => {});
 		await s.command('gamerule doMobSpawning false').catch(() => {});
 		for (const course of group) {
+			const startedAt = Date.now();
 			try {
 				const run = await runCourse(s, course);
 				results.push(run);
 				console.log(JSON.stringify({ id: run.id, arrived: run.arrived, wallSeconds: run.wallSeconds, blocksPerMinute: run.blocksPerMinute, startDistance: run.startDistance, endDistance: run.endDistance, failures: run.failures, actions: run.actions, deaths: run.deaths, damage: run.damage, fire: run.fireSamples, lava: run.lavaSamples, pickaxeUses: run.pickaxeUses, blocksMined: run.blocksMined, path: round(run.path) }));
 			} catch (error) {
-				results.push({ id: course.id, mode, error: String(error?.stack ?? error), lastObservations: s.seen.slice(-12), lastResults: s.results.slice(-6) });
+				results.push({ id: course.id, mode, error: String(error?.stack ?? error), startedAt, finishedAt: Date.now(), lastObservations: s.seen.slice(-12), lastResults: s.results.slice(-6) });
 				console.log(JSON.stringify({ id: course.id, error: String(error?.message ?? error) }));
 			}
-			await writeFile(path.join(out, 'results.json'), JSON.stringify({ mode, jar, results }, null, 2));
+			await report();
 		}
 	} finally {
 		await s.stop();
@@ -443,5 +484,6 @@ for (const [seed, group] of bySeed) {
 		}
 	}
 }
-await writeFile(path.join(out, 'results.json'), JSON.stringify({ mode, jar, results }, null, 2));
+const summary = await report();
 console.log(JSON.stringify(results.map(r => ({ id: r.id, arrived: r.arrived, bpm: r.blocksPerMinute, wall: r.wallSeconds, results: r.results })), null, 1));
+console.log(summary.line);

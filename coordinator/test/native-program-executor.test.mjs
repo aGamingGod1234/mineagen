@@ -1274,7 +1274,8 @@ test('an urgent answer that arrives during a pause counts the wait only up to th
 async function urgentPauseTimeline(steps, { timeoutMs = 10_000 } = {}) {
 	const timers = [];
 	let now = 0, release, pending = null;
-	const run = setup({ onDecision() {}, executeAction: () => new Promise((resolve) => { release = resolve; }),
+	const leases = [];
+	const run = setup({ onDecision() {}, onLeaseCredit: (ms) => leases.push({ at: now, ms }), executeAction: () => new Promise((resolve) => { release = resolve; }),
 		cancelAction: async () => release({ state: 'CANCELLED', reasonCode: 'INPUT_RELEASED', observation: observation(12), eventSequence: 9 }) },
 		{ now: () => now, setTimeoutFn: (callback, ms) => { const timer = { callback, ms, at: now }; timers.push(timer); return timer; }, clearTimeoutFn: (timer) => { if (timer) timer.cleared = true; } });
 	const live = () => timers.filter((timer) => !timer.cleared && !timer.fired).at(-1);
@@ -1307,7 +1308,7 @@ async function urgentPauseTimeline(steps, { timeoutMs = 10_000 } = {}) {
 		assert.ok(settled !== null, 'the deadline ended the program');
 		return { ...settled, endedAt: now };
 	};
-	return { remainingMs: deadline?.ms ?? null, armedAt: deadline?.at ?? null, finish, runToEnd, executor: run.executor };
+	return { remainingMs: deadline?.ms ?? null, armedAt: deadline?.at ?? null, finish, runToEnd, executor: run.executor, leases };
 }
 
 test('urgent waits across pauses: the deadline credits each unpaused waited moment once and each paused moment once', async (t) => {
@@ -1366,11 +1367,64 @@ test('an urgent wait never answered still ends at twice the timeout plus the pau
 
 test('an urgent answer during a pause leaves the reflex-hold allowance for later holds, which the work lease moves out by', async () => {
 	// 10 s program: urgent at 1 s, paused 3-12 s, answered at 9 s. Only 2 s of wait is credited, so 8 s of the shared
-	// reflex/urgent allowance is left: a later 5 s reflex hold is credited in full (the runtime extends the program's work
-	// lease by what this returns). Counting the paused 6 s as wait too would leave 2 s, and the lease would end the step early.
+	// reflex/urgent allowance is left: a later 5 s reflex hold is credited in full. Counting the paused 6 s as wait too would
+	// leave 2 s. (The work lease was already paid the whole hold when the wait opened; see the lease-credit tests below.)
 	const result = await urgentPauseTimeline([[1_000, 'urgent'], [3_000, 'pause'], [9_000, 'answer'], [12_000, 'resume']]);
 	assert.equal(result.armedAt + result.remainingMs, 10_000 + 2_000 + 9_000);
 	assert.equal(result.executor.extendDeadline(record.agentId, 'urgent-pause', 5_000), 5_000);
 	assert.equal(result.executor.extendDeadline(record.agentId, 'urgent-pause', 5_000), 3_000, 'the allowance is still capped at timeoutMs in total');
 	assert.equal((await result.finish()).reasonCode, 'PROGRAM_DEADLINE');
+});
+
+// CRIT-LEASE-1: the coordinator's work lease began with the program and lasts its timeoutMs. While an urgent answer is
+// owed the executor holds the routine up to 2 x timeoutMs, so the lease must move out when the wait opens, not when the
+// answer lands (by then the lease could already have ended the step).
+test('an urgent wait pays the work lease the whole hold the moment it opens, once', async () => {
+	const result = await urgentPauseTimeline([[600, 'urgent']], { timeoutMs: 1_000 });
+	assert.deepEqual(result.leases, [{ at: 600, ms: 1_000 }], 'the lease moves out by the second timeoutMs as the wait opens');
+	assert.equal(result.executor.takeLeaseCredit(record.agentId, 'urgent-pause'), 0, 'nothing more is owed while the wait is open');
+	const outcome = await result.runToEnd();
+	assert.equal(outcome.endedAt, 2_000, 'unanswered, the executor still ends it at 2 x timeout, where the lease now ends too');
+});
+
+test('after an urgent answer the lease is not paid again: later reflex holds stay inside the 2 x bound', async () => {
+	// 10 s program: urgent at 1 s, answered at 3 s (2 s credited to the deadline). The lease was paid 10 s at 1 s.
+	const result = await urgentPauseTimeline([[1_000, 'urgent'], [3_000, 'answer']]);
+	assert.deepEqual(result.leases.map(({ ms }) => ms), [10_000]);
+	assert.equal(result.armedAt + result.remainingMs, 12_000, 'the program itself ends 2 s later than its timeout');
+	assert.equal(result.executor.extendDeadline(record.agentId, 'urgent-pause', 5_000), 5_000);
+	assert.equal(result.executor.takeLeaseCredit(record.agentId, 'urgent-pause'), 0, 'the lease already covers 2 + 5 s of credit');
+	assert.equal(result.executor.extendDeadline(record.agentId, 'urgent-pause', 5_000), 3_000, 'the reflex allowance is capped as before');
+	assert.equal(result.executor.takeLeaseCredit(record.agentId, 'urgent-pause'), 0, 'and the lease is never paid past timeoutMs in total');
+	assert.equal((await result.finish()).reasonCode, 'PROGRAM_DEADLINE');
+});
+
+test('a second urgent wait after an answer pays the lease nothing more', async () => {
+	const result = await urgentPauseTimeline([[1_000, 'urgent'], [3_000, 'answer'], [4_000, 'urgent'], [5_000, 'answer']]);
+	assert.deepEqual(result.leases.map(({ ms }) => ms), [10_000], 'one payment covers every hold up to 2 x timeout');
+	assert.equal(result.armedAt + result.remainingMs, 13_000, 'the program itself still gets both waits (2 s + 1 s)');
+	assert.equal((await result.finish()).reasonCode, 'PROGRAM_DEADLINE');
+});
+
+test('a reflex hold before an urgent wait is paid to the lease as it comes, and the wait then pays only the rest of the hold', async () => {
+	let now = 0, release;
+	const leases = [];
+	const run = setup({ onDecision() {}, onLeaseCredit: (ms) => leases.push(ms), executeAction: () => new Promise((resolve) => { release = resolve; }),
+		cancelAction: async () => release({ state: 'CANCELLED', reasonCode: 'INPUT_RELEASED', observation: observation(12), eventSequence: 9 }) },
+		{ now: () => now, setTimeoutFn: (callback, ms) => ({ callback, ms }), clearTimeoutFn: () => {} });
+	const pending = run.executor.run(record, { programId: 'reflex-then-urgent', source: `${prefix} await player.wait(1000);`, timeoutMs: 10_000 }, run.context);
+	assert.equal(run.executor.takeLeaseCredit(record.agentId, 'reflex-then-urgent'), 0, 'no credit, nothing owed');
+	now = 500;
+	assert.equal(run.executor.extendDeadline(record.agentId, 'reflex-then-urgent', 3_000), 3_000);
+	assert.equal(run.executor.takeLeaseCredit(record.agentId, 'reflex-then-urgent'), 3_000, 'a reflex credit is owed to the lease as granted');
+	assert.equal(run.executor.takeLeaseCredit(record.agentId, 'reflex-then-urgent'), 0, 'and only once');
+	now = 1_000;
+	run.executor.onObservation(record, { observation: observation(9), eventSequence: 2, attention: true, priority: 'urgent', trigger: 'health_changed' });
+	await turn();
+	assert.deepEqual(leases, [7_000], 'the hold runs to 2 x timeout: the lease already has 3 s of it');
+	assert.equal(run.executor.takeLeaseCredit('agent-b', 'reflex-then-urgent'), 0, 'another agent owes nothing');
+	assert.equal(run.executor.takeLeaseCredit(record.agentId, 'other-program'), 0, 'nor another program');
+	await run.executor.cancel(record.agentId);
+	await pending;
+	assert.equal(run.executor.takeLeaseCredit(record.agentId, 'reflex-then-urgent'), 0, 'an ended program owes nothing');
 });

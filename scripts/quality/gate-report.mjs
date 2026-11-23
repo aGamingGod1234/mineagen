@@ -9,6 +9,7 @@
 // scripted obtain folder (sub/farm/<round>/<seed>-r<n>: run/result.json, with plan.json one level up), or a standard
 // round: its folder (manifest.json listing games) or one game-N folder (timeline.json, spend.json, raw/manifest.json,
 // raw/quality-samples.jsonl). Games with per-second samples also report Nether minutes, deaths and recovery.
+// Games with Watcher danger files also report their hits by shield state and by the action running when hit.
 // Two cohorts on the same seeds make a pair (before and after); the same seed run more than once in one cohort is a
 // repeat. Both are reported, and so is every seed that lacks its pair. Rule of thumb: under 2 seeds is "no change".
 // Each game carries its model and effort. Two cohorts that ran different models or efforts are not compared unless
@@ -20,6 +21,7 @@ import { itemCount } from '../../coordinator/src/benchmark/quality-metrics.mjs';
 import { netherTravel, sampleObservation } from './nether-travel-metrics.mjs';
 import { stopKind } from '../../coordinator/src/benchmark/long-run.mjs';
 import { countCauses, formatCauses, mergeDeaths, readDeathEvidence, sumCauses } from './lib/death-causes.mjs';
+import { quantile } from './lib/game-facts.mjs';
 
 export const SCHEMA = 'arena-gate-report/v1';
 // Funnel order. null in a run = not reached in its window; a missing key = this kind of run does not measure it.
@@ -63,22 +65,28 @@ export function decisionFiles(raw) {
 		.sort((a, b) => (b.endsWith('.1') - a.endsWith('.1')) || a.localeCompare(b)).map((name) => path.join(raw, name));
 }
 
-/** First lava shown to the model and first PORTAL_LIT result, in ms since the epoch, from the decision log. */
-function logMilestones(raw) {
+/**
+ * Earliest lava shown to the model and earliest PORTAL_LIT result, in ms since the epoch, from the decision log. With
+ * agentId only that agent's files count; inWindow(time) drops events outside a scored window. A cut-off line is skipped.
+ */
+export function logMilestones(raw, { agentId = null, inWindow = () => true } = {}) {
 	let lavaSeen = null, portalLit = null;
-	for (const file of decisionFiles(raw)) {
+	const earliest = (current, time) => Number.isFinite(time) && inWindow(time) && (current === null || time < current) ? time : current;
+	const parse = (line) => { try { return JSON.parse(line); } catch { return null; } };
+	for (const file of decisionFiles(raw).filter((file) => !agentId || path.basename(file).includes(`--${agentId}-`))) {
 		for (const line of readFileSync(file, 'utf8').split('\n')) {
 			if (!line) continue;
-			if (lavaSeen === null && LAVA.test(line)) lavaSeen = JSON.parse(line).time ?? null;
-			if (portalLit === null && line.includes('PORTAL_LIT')) {
+			if (LAVA.test(line)) lavaSeen = earliest(lavaSeen, parse(line)?.time);
+			if (line.includes('PORTAL_LIT')) {
 				// Contract text in every prompt names PORTAL_LIT; only a result's own reason code counts.
-				const record = JSON.parse(line);
+				const record = parse(line);
+				if (!record) continue;
 				let code = record.type === 'action_result' ? record.result?.reasonCode : null;
 				if (record.type === 'tool_result') {
 					const text = typeof record.result === 'string' ? record.result : JSON.stringify(record.result);
 					try { code = JSON.parse(text.split(BOUNDARY)[0]).reasonCode; } catch { code = null; }
 				}
-				if (code === 'PORTAL_LIT') portalLit = record.time;
+				if (code === 'PORTAL_LIT') portalLit = earliest(portalLit, record.time);
 			}
 		}
 	}
@@ -126,9 +134,45 @@ function readLongRun(dir) {
 		milestones: Object.fromEntries(MILESTONES.filter(({ key }) => key in ms).map(({ key }) => [key, ms[key] === null ? null : minutes(ms[key] - t0)])),
 		deaths: stage.observedDeaths ?? 0, deathCauses: stage.deathCauses ?? rawDeathCauses(raw, stage.identity?.agentId, t0, end, stage.observedDeaths ?? 0),
 		costUsd: Math.round((longRun?.spend?.usd ?? 0) * 1000) / 1000,
+		...latencyOf(stage),
 		decisionLog: decisionFiles(raw).length > 0,
 		...samplesOf(raw, t0, end).nether,
+		...damageOf(raw, stage.identity?.agentId ?? null, t0, end),
 	}];
+}
+
+// Each run's model call times per wall-clock bucket, kept out of the report and read only to pool a cohort.
+const LATENCY_VALUES = new WeakMap();
+/**
+ * A scored game's model call latency (stage-score game.modelLatency): p50, p90 and max of native_model_call totalMs.
+ * Scores made before stage-score measured it leave the key out: not measured.
+ */
+function latencyOf(stage) {
+	const latency = stage.game?.modelLatency;
+	if (latency === undefined) return {};
+	if (latency === null) return { modelLatency: null };
+	const summary = { calls: latency.calls, ...(latency.interruptedCalls ? { interruptedCalls: latency.interruptedCalls } : {}), p50Ms: latency.p50Ms, p90Ms: latency.p90Ms, maxMs: latency.maxMs };
+	LATENCY_VALUES.set(summary, latency.byClock10Min ?? []);
+	return { modelLatency: summary };
+}
+
+/**
+ * A cohort's model call latency: the median of its games' p90 (the gate's usual median, which averages the two middle
+ * games; the pooled buckets use nearest rank), and every call pooled per wall-clock 10 minutes, so a
+ * tail that follows the clock across games that ran at the same time shows. Null when no game measured it.
+ */
+export function poolLatency(runs) {
+	const measured = runs.map((run) => run.modelLatency).filter((latency) => latency && Number.isFinite(latency.p90Ms));
+	if (!measured.length) return null;
+	const buckets = new Map();
+	for (const latency of measured) for (const bucket of LATENCY_VALUES.get(latency) ?? [])
+		(buckets.get(bucket.fromEpochMs) ?? buckets.set(bucket.fromEpochMs, []).get(bucket.fromEpochMs)).push(...bucket.totalMs);
+	const p90s = measured.map((latency) => latency.p90Ms).sort((a, b) => a - b);
+	return { games: measured.length, gameP90MedianMs: median(p90s), gameP90MaxMs: p90s.at(-1),
+		byClock10Min: [...buckets.entries()].sort(([a], [b]) => a - b).map(([from, values]) => {
+			values.sort((a, b) => a - b);
+			return { from: new Date(from).toISOString(), calls: values.length, p50Ms: quantile(values, 0.5), p90Ms: quantile(values, 0.9) };
+		}) };
 }
 
 const SCRIPTED_KEYS = { iron_pickaxe: 'ironPickaxe', bucket: 'bucket', flint_and_steel: 'flintAndSteel' };
@@ -219,6 +263,7 @@ function readRoundGame(dir) {
 		...(savePoint ? { milestones: {}, unmeasured: `start ${timeline.startKind ?? 'from a snapshot'}: inherited stages are not this game's` } : {
 			milestones: Object.fromEntries(MILESTONES.map(({ key }) => [key, ms[key] === null ? null : minutes(ms[key] - t0)])), ...samples.nether }),
 		...roundDeaths(dir, timeline, t0, end), costUsd: Math.round((spend?.usd ?? 0) * 1000) / 1000, decisionLog: false,
+		...damageOf(path.join(dir, 'raw'), timeline.agentId ?? null, t0, end),
 	}];
 }
 
@@ -229,10 +274,12 @@ const DEATH_FILES = ['quality-protocol.jsonl', 'protocol.jsonl', 'coordinator.js
  * DEATH_FILES under raw/, and the Watcher's lethal-hit rows, which it writes as arena-watch/<agentId>-danger.jsonl (kept
  * under raw/arena-watch, or still under raw/server/arena-watch), the same files stage-score reads.
  */
+const listed = (dir) => { try { return readdirSync(dir); } catch { return []; } };
+const dangerFiles = (raw, agentId) => [path.join(raw, 'arena-watch'), path.join(raw, 'server', 'arena-watch')].flatMap((dir) => listed(dir)
+	.filter((name) => name.endsWith('-danger.jsonl') && (!agentId || name.startsWith(agentId))).map((name) => path.join(dir, name)));
+
 function deathFiles(raw, agentId) {
-	const listed = (dir) => { try { return readdirSync(dir); } catch { return []; } };
-	const watch = [path.join(raw, 'arena-watch'), path.join(raw, 'server', 'arena-watch')].flatMap((dir) => listed(dir)
-		.filter((name) => name.endsWith('-danger.jsonl') && (!agentId || name.startsWith(agentId))).map((name) => path.join(dir, name)));
+	const watch = dangerFiles(raw, agentId);
 	// Each journal with its rotated generations (protocol.jsonl.1, ...), as stage-score and long-run-artifacts read them.
 	const rotated = (name) => listed(raw).filter((entry) => entry === name || entry.startsWith(name + '.') && /^\d+$/.test(entry.slice(name.length + 1)))
 		.sort((a, b) => Number(b.slice(name.length + 1) || 0) - Number(a.slice(name.length + 1) || 0)).map((entry) => path.join(raw, entry));
@@ -256,6 +303,85 @@ function roundDeaths(dir, timeline, start, end) {
 function rawDeathCauses(raw, agentId, start, end, total) {
 	const evidence = readDeathEvidence(deathFiles(raw, agentId ?? null), { agentId: agentId ?? null, from: start, to: end });
 	return countCauses([...evidence, ...Array.from({ length: Math.max(0, total - evidence.length) }, () => ({}))]);
+}
+
+// Shield state at a hit (danger schema 2: shieldHand and blocking, read before the hit). A row without both fields (schema
+// 1, or a hit with no same-tick read) is unknown, never "no shield".
+export const SHIELD_STATES = ['blocking', 'shieldNotBlocking', 'noShield', 'unknown'];
+export function shieldState(row) {
+	if (!row || typeof row.blocking !== 'boolean' || !('shieldHand' in row)) return 'unknown';
+	if (row.blocking) return 'blocking';
+	if (row.shieldHand === 'main' || row.shieldHand === 'off') return 'shieldNotBlocking';
+	return row.shieldHand === null ? 'noShield' : 'unknown';
+}
+// The action running at a hit: "(none)" when a schema 2 row says nothing ran, "(unknown)" when the row has no action field.
+export const actionAtHit = (row) => !row || !('action' in row) ? '(unknown)' : typeof row.action === 'string' && row.action ? row.action : '(none)';
+// HP a hit cost: the health and absorption it used, measured around the hit (paired). The Watcher's taken is Fabric's
+// damage before armour, so it overstates armoured hits; an unpaired hit's cost is unknown.
+const hitHp = (row) => row.paired === true && Number.isFinite(row.healthDrop) && Number.isFinite(row.absorbed) ? row.healthDrop + row.absorbed : null;
+const hitBucket = () => ({ hits: 0, blocked: 0, damage: 0, damageUnknown: 0 });
+const addBucket = (into, from) => { into.hits += from.hits; into.blocked += from.blocked; into.damage += from.damage; into.damageUnknown += from.damageUnknown; return into; };
+const roundBucket = (bucket) => ({ ...bucket, damage: Math.round(bucket.damage * 100) / 100 });
+const sortedActions = (byAction) => Object.fromEntries(Object.entries(byAction).sort(([a, x], [b, y]) => y.hits - x.hits || a.localeCompare(b)).map(([key, bucket]) => [key, roundBucket(bucket)]));
+
+/** Damage rows counted: hits, shield-blocked hits and HP taken, in all, by shield state and by the action running. */
+export function damageBreakdown(rows) {
+	const total = hitBucket(), byShield = Object.fromEntries(SHIELD_STATES.map((state) => [state, hitBucket()])), byAction = {};
+	for (const row of rows) {
+		const hp = hitHp(row);
+		const one = { hits: 1, blocked: row.blocked === true ? 1 : 0, damage: hp ?? 0, damageUnknown: hp === null ? 1 : 0 };
+		addBucket(total, one); addBucket(byShield[shieldState(row)], one); addBucket(byAction[actionAtHit(row)] ??= hitBucket(), one);
+	}
+	return { ...roundBucket(total), byShield: Object.fromEntries(SHIELD_STATES.map((state) => [state, roundBucket(byShield[state])])), byAction: sortedActions(byAction) };
+}
+
+/** Breakdowns of several games summed, with the number of games; null when none had a danger file. */
+export function mergeDamage(breakdowns) {
+	const list = breakdowns.filter(Boolean);
+	if (!list.length) return null;
+	const total = hitBucket(), byShield = Object.fromEntries(SHIELD_STATES.map((state) => [state, hitBucket()])), byAction = {};
+	for (const one of list) {
+		addBucket(total, one);
+		for (const state of SHIELD_STATES) addBucket(byShield[state], one.byShield[state]);
+		for (const [action, bucket] of Object.entries(one.byAction)) addBucket(byAction[action] ??= hitBucket(), bucket);
+	}
+	return { games: list.length, ...roundBucket(total), byShield: Object.fromEntries(SHIELD_STATES.map((state) => [state, roundBucket(byShield[state])])),
+		byAction: sortedActions(byAction) };
+}
+
+/**
+ * The game's damage rows from its Watcher danger files, inside [start, end] and for its agent: { damage }; with no
+ * danger file (watch off, older run), nothing, so the key reads as not measured. The same file can be kept both under
+ * raw/arena-watch (a snapshot) and still under raw/server/arena-watch (the live file, newer while a run plays): each
+ * distinct row counts as many times as the copy holding it most often, so neither copy's rows are lost or doubled. The
+ * Watcher writes whole lines, so a last fragment with no newline is a copy taken mid-write and is dropped. A file that
+ * cannot be read, or a complete line that does not parse, makes the game's hits unknown: { damageUnmeasured: reason }.
+ */
+function damageOf(raw, agentId, start, end) {
+	const files = dangerFiles(raw, agentId);
+	if (!files.length) return {};
+	const most = new Map();
+	let malformed = 0;
+	for (const file of files) {
+		let text; try { text = readFileSync(file, 'utf8'); } catch (error) { return { damageUnmeasured: `${path.basename(file)} unreadable: ${error.code ?? error.message}` }; }
+		const lines = text.split('\n');
+		lines.pop();
+		const counts = new Map();
+		// A CRLF copy and an LF copy of one row are the same row.
+		for (const raw of lines) { const line = raw.replace(/\r$/, ''); if (line.trim()) counts.set(line, (counts.get(line) ?? 0) + 1); }
+		const key = path.basename(file);
+		for (const [line, n] of counts) most.set(`${key}\u0000${line}`, Math.max(most.get(`${key}\u0000${line}`) ?? 0, n));
+	}
+	const rows = [];
+	for (const [keyed, n] of most) {
+		const line = keyed.slice(keyed.indexOf('\u0000') + 1);
+		let row; try { row = JSON.parse(line); } catch { malformed++; continue; }
+		if (row?.type !== 'damage' || agentId && row.agentId && row.agentId !== agentId) continue;
+		if (!Number.isFinite(row.atMs) || row.atMs < start || row.atMs > end) continue;
+		for (let i = 0; i < n; i++) rows.push(row);
+	}
+	if (malformed) return { damageUnmeasured: `${malformed} complete danger row(s) do not parse` };
+	return { damage: damageBreakdown(rows) };
 }
 
 export function readRun(dir) {
@@ -416,7 +542,9 @@ export function buildGate({ gate, title, cohorts, allowModelMismatch = false }) 
 			provider: one(runs.map((run) => run.provider)), modelId: one(runs.map((run) => run.modelId)), effort: one(runs.map((run) => run.effort)),
 			stops: Object.fromEntries([...new Set(runs.map((run) => run.stopKind ?? 'unrecorded'))].sort().map((kind) => [kind, runs.filter((run) => (run.stopKind ?? 'unrecorded') === kind).length])),
 			windowMin: one(runs.map((run) => run.windowMin)), ranAt: runs.map((run) => run.ranAt).filter(Boolean).sort()[0] ?? null, seeds: [...new Set(runs.map((run) => run.seed))], runs,
-			funnel: funnel(runs), deaths: runs.reduce((sum, run) => sum + run.deaths, 0), deathCauses: sumCauses(runs.map((run) => run.deathCauses)), nether: netherTotals(runs),
+			funnel: funnel(runs), deaths: runs.reduce((sum, run) => sum + run.deaths, 0), deathCauses: sumCauses(runs.map((run) => run.deathCauses)), nether: netherTotals(runs), modelLatency: poolLatency(runs),
+			// Games whose danger capture is corrupt or unreadable stay out of the sums: unknown, not unhurt.
+			damage: mergeDamage(runs.map((run) => run.damage)), damageUnmeasuredGames: runs.filter((run) => run.damageUnmeasured).length,
 			costUsd: Math.round(runs.reduce((sum, run) => sum + run.costUsd, 0) * 100) / 100, repeats: repeatsOf(runs) };
 	});
 	const notes = [];
@@ -472,6 +600,16 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 			console.error(`  ${label.padEnd(16)} ${f.reached}/${f.total}  median ${f.medianMin ?? '-'} min${by ? `  early ${f.censoredEarly}: ${EARLY_STOPS.filter((kind) => by[kind]).map((kind) => `${by[kind]} ${kind}`).join(', ')}` : ''}`);
 		}
 		const n = cohort.nether;
+		const l = cohort.modelLatency;
+		if (l) console.error(`  Model calls: per-game p90 median ${l.gameP90MedianMs} ms (max ${l.gameP90MaxMs}); pooled p90 per 10 min ${l.byClock10Min.map((b) => `${new Set(l.byClock10Min.map((x) => x.from.slice(0, 10))).size > 1 ? b.from.slice(5, 16).replace('T', ' ') : b.from.slice(11, 16)}Z ${b.p90Ms}`).join(', ')}`);
+		const d = cohort.damage;
+		if (cohort.damageUnmeasuredGames) console.error(`  Hits unknown in ${cohort.damageUnmeasuredGames} games (danger capture corrupt or unreadable)`);
+		if (d) {
+			const part = (b) => `${b.hits} hits (${b.blocked} blocked), ${b.damage} HP${b.damageUnknown ? ` + ${b.damageUnknown} unknown` : ''}`;
+			console.error(`  Hits in ${d.games} games: ${part(d)}`);
+			console.error(`    by shield: ${SHIELD_STATES.map((state) => `${state} ${part(d.byShield[state])}`).join('; ')}`);
+			console.error(`    by action: ${Object.entries(d.byAction).slice(0, 8).map(([action, b]) => `${action} ${part(b)}`).join('; ')}`);
+		}
 		if (n) console.error(`  Nether: ${n.entered}/${n.games} games entered, ${n.minutes} min there, ${n.deaths} Nether deaths in ${n.gamesWithDeaths} games (${n.deathsAfterFirstEntry} deaths after first entry), respawn ${n.respawnBlocks ? `${n.respawnBlocks.min}-${n.respawnBlocks.max} blocks, median ${n.respawnBlocks.median}` : '-'}, back ${n.back.returned} in ${n.back.returnedMin} min + ${n.back.neverReturned} never in ${n.back.neverReturnedMin} min`);
 	}
 }

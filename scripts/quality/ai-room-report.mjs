@@ -60,16 +60,17 @@ export function formatComparison(rooms, arms) {
 }
 
 /**
- * One arm's rows, judged the way the batch merge judges them (mergeArms): a finishRun rows file needs its summary, a
- * summary that is not INVALID and plans rows, and as many rows as it planned; otherwise the rows are INVALID and each
- * missing row is one more INVALID row. An arm with no finishRun rows at all (a stand-in recorded before
+ * One arm's rows, judged the way the batch merge judges them (mergeArms): a finishRun rows file needs its summary and
+ * a summary that plans rows; otherwise the rows are INVALID. Each missing row is one more INVALID row. A summary that
+ * reads INVALID voids the arm only when it wrote no rows: otherwise each row keeps its own verdict, so one errored
+ * course never voids the courses beside it. An arm with no finishRun rows at all (a stand-in recorded before
  * ai-room-standin.mjs, which wrote only its own report) falls back to that report, read by readArmRows.
  */
 export async function roomArmRows(dir) {
 	const found = await armRows(dir);
 	if (!found.file && !found.problem) return readArmRows(dir);
 	const own = found.summary, ownValid = Boolean(own && typeof own === 'object' && Number.isInteger(own.planned));
-	const problem = found.problem ?? (!ownValid ? 'missing or corrupt room summary' : own.status === 'INVALID' ? 'room summary INVALID' : own.planned <= 0 ? 'room planned 0 rows' : null);
+	const problem = found.problem ?? (!ownValid ? 'missing or corrupt room summary' : own.status === 'INVALID' && !found.rows.length ? 'room summary INVALID' : own.planned <= 0 ? 'room planned 0 rows' : null);
 	// A fixture's own named pair (acceptance.json from drawn-bow) holds the verdict; its report holds the damage.
 	const adapted = found.file !== 'result.json' ? await readArmRows(dir).catch(() => []) : [];
 	const merged = adapted.length === found.rows.length ? found.rows.map((row, i) => ({ ...adapted[i], ...row, deaths: row.deaths ?? adapted[i].deaths, damageTaken: row.damageTaken ?? adapted[i].damageTaken })) : found.rows;

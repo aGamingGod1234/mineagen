@@ -79,21 +79,30 @@ test('each door is its own row, named with the village it stands in', () => {
 });
 
 test('remembering stays cheap on a busy scene: 600 local rows and 24 resource rows a sample, 200 samples, memory bounded', () => {
-	const memory = newResourceMemory();
 	const ids = ['oak_leaves', 'poppy', 'oak_log', 'torch', 'oak_planks', 'cobblestone', 'hay_block', 'white_bed', 'oak_door', 'iron_ore'];
-	let worst = 0;
-	for (let step = 0; step < 200; step++) {
-		const px = step * 3;
-		const blocks = Array.from({ length: 600 }, (_, i) => ({ blockId: `minecraft:${ids[i % ids.length]}`, x: px + ((i * 7) % 41) - 20, y: 64 + (i % 5), z: ((i * 13) % 41) - 20 }));
-		const resources = Array.from({ length: 24 }, (_, i) => ({ blockId: `minecraft:${ids[(i * 3) % ids.length]}`, x: px + i * 2, y: 64, z: i, count: 3 }));
-		const o = at(px, 64, 0, { blocks, sighted: { resources } });
-		const started = performance.now();
-		rememberResources(memory, o, { now: step });
-		knownResources(memory, o);
-		worst = Math.max(worst, performance.now() - started);
-	}
-	assert.ok(memory.rows.size < 3000, `memory stays bounded: ${memory.rows.size} rows`);
-	assert.ok(worst < 25, `worst sample took ${worst.toFixed(1)} ms`);
+	// One worst sample measured the runner, not the code: a GC pause or a busy CI machine took it from about 20 ms to
+	// 37.6 ms (and to 94 ms under load locally) with no code change. The typical sample is what a game pays every
+	// observation, so the bound is on the median sample, taking the best of three runs to drop machine noise.
+	const run = () => {
+		const memory = newResourceMemory();
+		const samples = [];
+		for (let step = 0; step < 200; step++) {
+			const px = step * 3;
+			const blocks = Array.from({ length: 600 }, (_, i) => ({ blockId: `minecraft:${ids[i % ids.length]}`, x: px + ((i * 7) % 41) - 20, y: 64 + (i % 5), z: ((i * 13) % 41) - 20 }));
+			const resources = Array.from({ length: 24 }, (_, i) => ({ blockId: `minecraft:${ids[(i * 3) % ids.length]}`, x: px + i * 2, y: 64, z: i, count: 3 }));
+			const o = at(px, 64, 0, { blocks, sighted: { resources } });
+			const started = performance.now();
+			rememberResources(memory, o, { now: step });
+			knownResources(memory, o);
+			samples.push(performance.now() - started);
+		}
+		samples.sort((a, b) => a - b);
+		return { rows: memory.rows.size, median: samples[samples.length >> 1] };
+	};
+	const runs = [run(), run(), run()];
+	for (const { rows } of runs) assert.ok(rows < 3000, `memory stays bounded: ${rows} rows`);
+	const median = Math.min(...runs.map((r) => r.median));
+	assert.ok(median < 10, `the median sample took ${median.toFixed(1)} ms (best of 3 runs; about 3 ms on a desktop machine)`);
 });
 
 test('a block the agent broke or a vein it mined is forgotten, though no sample ever lists the air left behind', () => {

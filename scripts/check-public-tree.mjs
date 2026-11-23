@@ -11,6 +11,12 @@
 //   node scripts/check-public-tree.mjs --text <file|->   text such as a commit message or a pull request description;
 //                                                         - reads standard input. Exemptions never apply to text.
 //   node scripts/check-public-tree.mjs --commit-msg <file>  a commit message file (the commit-msg hook)
+//   node scripts/check-public-tree.mjs --identity        the author and committer email the next commit will carry
+//                                                         (the commit-msg hook)
+//   node scripts/check-public-tree.mjs --pre-push <remote>  the refs on standard input as Git's pre-push hook gets
+//                                                         them: each branch or tag name, an annotated tag's message
+//                                                         and tagger email, and the message, author email and
+//                                                         committer email of every pushed commit the remote lacks
 // Exit code 1 means a failure or a review finding; 2 means the gate could not run.
 import { readdir, readFile } from 'node:fs/promises';
 import { lstatSync, readFileSync } from 'node:fs';
@@ -130,13 +136,64 @@ async function scanCommitMessage(file) {
  files++;
  scanLines('message', (cut < 0 ? lines : lines.slice(0, cut)).join('\n'), { exempt: false });
 }
+const readStdin = () => new Promise((resolve, reject) => {
+ const chunks = [];
+ process.stdin.on('data', c => chunks.push(c)).on('end', () => resolve(Buffer.concat(chunks).toString('utf8'))).on('error', reject);
+});
+// Only the email of an identity is scanned: a display name is the account's public name.
+const identityEmail = ident => ident.match(/<([^<>]*)>/)?.[1] ?? '';
+function scanIdentity() {
+ const git = name => execFileSync('git', ['var', name]).toString('utf8').trim();
+ files++;
+ scanLines('identity', 'author-email: ' + identityEmail(git('GIT_AUTHOR_IDENT')) + '\ncommitter-email: ' + identityEmail(git('GIT_COMMITTER_IDENT')), { exempt: false });
+}
+// A branch name and a commit's emails are public the moment they are pushed, and no commit hook sees a branch name.
+// Commits the destination remote already has (its remote-tracking refs, or the sha it reports for the ref) went out
+// before, so only new commits are read; a commit fetched from another remote is read, since that remote may never
+// have run this gate. A destination with no tracking refs here excludes every remote's refs instead. A delete publishes nothing, so it is never stopped: it may be removing a leaked name.
+async function scanPush(remote) {
+ const zero = /^0+$/;
+ const git = (args) => execFileSync('git', args, { maxBuffer: 2 ** 30 }).toString('utf8');
+ const known = sha => { try { execFileSync('git', ['cat-file', '-e', sha + '^{commit}'], { stdio: 'ignore' }); return true; } catch { return false; } };
+ const remotes = git(['remote']).split(/\r?\n/).filter(Boolean);
+ for (const line of (await readStdin()).split(/\r?\n/).filter(Boolean)) {
+  const [localRef, localSha, remoteRef, remoteSha] = line.split(' ');
+  if (!localSha || zero.test(localSha)) continue;
+  for (const ref of new Set([localRef, remoteRef].filter(Boolean))) {
+   files++;
+   scanLines('ref ' + ref, ref.replace(/^refs\/(?:heads|tags)\//, ''), { exempt: false });
+  }
+  // An annotated tag carries its own name, message and tagger email, and may point at another tag that carries more.
+  let object = localSha, depth = 0;
+  for (; depth < 16 && object && git(['cat-file', '-t', object]).trim() === 'tag'; depth++) {
+   const tag = git(['cat-file', '-p', object]);
+   const cut = tag.indexOf('\n\n'), label = 'tag ' + object.slice(0, 12);
+   files += 3;
+   scanLines(label + ' name', tag.match(/^tag (.*)$/m)?.[1] ?? '', { exempt: false });
+   scanLines(label + ' identity', 'tagger-email: ' + identityEmail(tag.match(/^tagger (.*)$/m)?.[1] ?? ''), { exempt: false });
+   scanLines(label + ' message', cut < 0 ? '' : tag.slice(cut + 2).replace(/\n$/, ''), { exempt: false });
+   object = tag.match(/^object ([0-9a-f]+)$/m)?.[1] ?? '';
+  }
+  // A chain of tags deeper than this is never read to its end, so it is refused instead of passed.
+  if (object && git(['cat-file', '-t', object]).trim() === 'tag') finding('tag ' + localSha.slice(0, 12), 1, 'tag chain deeper than 16', null, false, false);
+  if (!known(localSha)) continue;
+  // A remote with no tracking refs here (a URL, a new fork or mirror) falls back to every remote's refs: without it the
+  // whole history is read, and main's squash merges already carry an account email this push cannot change.
+  const own = remotes.includes(remote) && git(['for-each-ref', '--count=1', '--format=%(refname)', 'refs/remotes/' + remote + '/']).trim();
+  const exclude = [own ? '--remotes=' + remote : '--remotes', ...(remoteSha && !zero.test(remoteSha) && known(remoteSha) ? [remoteSha] : [])];
+  const log = git(['log', '--format=%H%x00%ae%x00%ce%x00%B%x00', localSha + '^{commit}', '--not', ...exclude]).split('\0');
+  for (let i = 0; i + 4 <= log.length; i += 4) {
+   const sha = log[i].trim().slice(0, 12);
+   files += 2;
+   scanLines('commit ' + sha + ' identity', 'author-email: ' + log[i + 1] + '\ncommitter-email: ' + log[i + 2], { exempt: false });
+   scanLines('commit ' + sha + ' message', log[i + 3].replace(/\n$/, ''), { exempt: false });
+  }
+ }
+}
 async function scanTexts(sources) {
  if (!sources.length) throw Error('--text needs a file or -');
  for (const source of sources) {
-  const text = source === '-' ? await new Promise((resolve, reject) => {
-   const chunks = [];
-   process.stdin.on('data', c => chunks.push(c)).on('end', () => resolve(Buffer.concat(chunks).toString('utf8'))).on('error', reject);
-  }) : await readFile(source, 'utf8');
+  const text = source === '-' ? await readStdin() : await readFile(source, 'utf8');
   files++;
   scanLines(source === '-' ? 'message' : path.basename(source), text, { exempt: false });
  }
@@ -147,13 +204,15 @@ try {
  else if (mode === '--tracked') scanTracked();
  else if (mode === '--text') await scanTexts(rest);
  else if (mode === '--commit-msg') await scanCommitMessage(rest[0]);
+ else if (mode === '--identity') scanIdentity();
+ else if (mode === '--pre-push') await scanPush(rest[0]);
  else if (mode?.startsWith('--')) throw Error('Unknown option ' + mode);
  else { const root = path.resolve(mode ?? '.'); await walk(root, root); }
 } catch (error) {
  console.error('check-public-tree: ' + error.message);
  process.exit(2);
 }
-const text = mode === '--text' || mode === '--commit-msg';
+const text = ['--text', '--commit-msg', '--identity', '--pre-push'].includes(mode);
 if (!text) console.log('Applied ' + exempted + ' exact exemptions.');
 console.log('Scanned ' + files + (text ? ' texts: ' : ' files: ') + failures + ' failures, ' + reviews + ' review findings.');
 process.exitCode = failures || reviews ? 1 : 0;

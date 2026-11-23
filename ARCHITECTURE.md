@@ -99,11 +99,20 @@ Long jobs run in **controllers**, small state machines that drive the body tick 
 
 | Group | Controllers in `server/runtime/controller/` unless noted |
 |---|---|
-| Movement | `ServerNavigationController`, `ServerTravelController`, `ServerPathPlanner`, `ServerRetraceController`, `ServerFlightController` |
+| Movement | `ServerNavigationController`, `ServerTravelController`, `ServerPathPlanner`, `ServerRetraceController`, `ServerFlightController`, `ServerLookController` |
+| Getting out | `ServerEscapeController` |
 | Mining and pickup | `ServerDigController`, `ServerVeinController`, `ServerItemPickupController` |
 | Building | `ServerBuildController`, `ServerShelterController`, `ServerRestController` |
-| Combat | `ServerFightController`, `ServerFightUntilController`, `ServerFleeController`, `ServerRangedUseController`, `ServerRangedVolleyController` |
+| Combat | `ServerFightController`, `ServerFightUntilController`, `ServerFleeController`, `ServerRangedUseController`, `ServerRangedVolleyController`, `ServerSpawnerHoldController` |
 | Portals and trading | `server/runtime/ServerCastObsidianController.java`, `server/runtime/ServerBarterController.java` |
+
+Most controllers implement `ServerController`; the two ranged ones run as transactions, and `ServerPathPlanner` is the route search that navigation and fights use. The other classes in that folder are shared helpers.
+
+**Body jobs to call, not rewrite.** Some controllers already do a whole move a player makes without thinking. When a change needs one of these moves, start the job instead of building it again from single inputs:
+
+- **Escape**, `ServerEscapeController`: the `escape` action, which the model sends as `do_step escape`. It looks at where the body is and picks a player's way out: swim up to air, walk to a dry bank, fill a flooded shaft, pillar or dig stairs out of a hole, or walk into cover from a shooter. It looks again after each move and hands back once the body has stood safe.
+- **Spawner hold**, `ServerSpawnerHoldController`, with its rules in `SpawnerHold`: a `fight_until` for blaze rods in the Nether, or a `fight_target` on a blaze, with a fortress spawner seen within 24 blocks (with none in view, a `fight_until` looks round for one first). It builds a roofed one-cell shelter 6 to 12 blocks from the spawner, doorway facing it. By default it fights in the open while healthy and goes back into the cell to wall in and heal when hurt; `-Dmineagen.fight.spawnerHoldOpen=false` fights from the cell instead. The hold is on unless `-Dmineagen.fight.spawnerHold=false`; `roof:false` or `sneak:true` keep the ordinary fight, and for `fight_until` so do `pursue:false` or an explicit `x`/`y`/`z`.
+- **Retrace**, `ServerRetraceController`: `travel_to` with `retrace: true`. It follows the route the body really walked, turn by turn, and each leg is an ordinary travel with its own sight, lava brake and brink guard.
 
 ### Perception
 
@@ -125,7 +134,7 @@ flowchart TD
 ```
 
 - `server/runtime/reflex/ReflexEngine.java` runs the rules. A firing takes the body through a reflex input lease; the paused action keeps its place and resumes afterwards.
-- `server/runtime/reflex/ReflexScheduler.java` decides which rule fires for each agent: one at a time, by priority, with a time limit and a cooldown. A rule that fires over and over without progress is switched off. The lava, fire, falling and suffocation defaults form a hazard floor that stays armed.
+- `server/runtime/reflex/ReflexScheduler.java` decides which rule fires for each agent: one at a time, by priority, with a time limit and a cooldown. A rule that fires over and over without progress is switched off. The defaults for standing in lava or fire, low air underwater, suffocation, a fusing creeper (`default-creeper`) and, in the End, dragon breath form a hazard floor that stays armed (`ReflexScheduler.FLOOR_HAZARDS`).
 - `ReflexSpec.java` checks the rule format, `ReflexSensors.java` reads the world, `ReflexActions.java` moves the body, and `CommandFollower.java` decides when a reflex yields to a fresh model command.
 - `default-owed-drops` goes back for kill drops a fight left behind, once the body has been idle 7 s with no hostile near. Fights make room for loot by throwing junk stacks.
 - **Flag-gated: `MINEAGEN_INSTINCTS`** (off by default). When it lists `instincts` (or with `-Dmineagen.instincts=true`), `Instincts.java` turns on the instincts arm in the mod: the retreat stands aside from a chaser it cannot outrun, the eat default does not top up on harmful food, and `travel_to` fights a lone beatable mob instead of stopping. A stance change that only moves a default's numbers keeps its running firing. With the flag unset the mod behaves as before.
@@ -181,7 +190,7 @@ flowchart LR
   BOOK --> RU["reflex_update"]
 ```
 
-**Startup.** `dynamic-main.mjs` reads the config, then wires the agent registry, the planning scheduler, both provider services, the planner, the bridge client and the `DynamicCoordinator` that ties them together. In normal play the mod's coordinator launcher runs `dynamic-main.mjs` with Node; `npm start` in `coordinator/` runs it by hand.
+**Startup.** `dynamic-main.mjs` reads the config through `dynamic-config.mjs`, then wires the agent registry, the planning scheduler, both provider services, the planner, the bridge client and the `DynamicCoordinator` that ties them together. In normal play the mod's coordinator launcher runs `dynamic-main.mjs` with Node; `npm start` in `coordinator/` runs it by hand.
 
 ### Wake loop
 
@@ -195,7 +204,7 @@ Calling the model is slow and costs usage, so most observations do not wake it.
 
 While obtain recovers at low health, the low-health wakes are folded, so a steer the recovery has made stale does not reach the model.
 
-The wake input, built in `dynamic-main.mjs`, holds the event, the goal, a `now` header, the danger line, recent results, memory and the observation. **Flag-gated: `ARENA_LEAN_INPUT`** trims the wake input to the facts the model decides on (`lean-input.mjs`). It is off in the coordinator by default, but the mod's launcher sets it to `1`, so it is on in normal play.
+The wake input, built in `wake-input.mjs` with the danger lines from `danger-lines.mjs` and the observation facts from `observation-facts.mjs`, holds the event, the goal, a `now` header, the danger line, recent results, memory and the observation. **Flag-gated: `ARENA_LEAN_INPUT`** trims the wake input to the facts the model decides on (`lean-input.mjs`). It is off in the coordinator by default, but the mod's launcher sets it to `1`, so it is on in normal play.
 
 ### Model providers
 
@@ -210,11 +219,11 @@ Long Codex sessions rotate to a fresh session, and `context-carry-over.mjs` carr
 
 ### Tools and contracts
 
-- `native-minecraft-tools.mjs` defines the tool list (`MINECRAFT_DYNAMIC_TOOLS`), such as `do_step`, `observe`, `inspect`, `replaceAction`, `runProgram`, `notebook` and `taskMemory`, and the verbs `do_step` accepts (`STEP_VERBS`), such as `obtain`, `find`, `travel_to`, `fight_until` and `cast_obsidian`.
+- `native-minecraft-tools.mjs` defines the tool list (`MINECRAFT_DYNAMIC_TOOLS`), such as `do_step`, `observe`, `inspect`, `replaceAction`, `reflexes`, `notebook` and `taskMemory`, and the verbs `do_step` accepts (`STEP_VERBS`), such as `obtain`, `find`, `travel_to`, `fight_until` and `cast_obsidian`.
 - `native-tool-runtime.mjs` runs every tool call and sends the resulting body work to the mod.
 - `tool-descriptions.json` holds the reviewed text of each tool's description, and the coordinator refuses to define a tool without one. `tool-schema-contract.mjs` checks arguments against the advertised schema. `npm run test:contracts` in `coordinator/` tests these contracts.
-- Compound helpers issue several body actions for one call. `obtain-runner.mjs` and `obtain-plan.mjs` get an item through its whole gather, craft and smelt chain using `coordinator/config/howto-index.json`. At low health, obtain recovers by itself (eats carried food or waits for natural regeneration, by the rule in `fork-rule.mjs`) and hands back `LOW_HEALTH` only at a real fork, with the reason. `find-search.mjs` searches for a block, biome or structure like a player would, and hands off to `find-eyes.mjs` and `find-portal-room.mjs` for the stronghold.
-- `arena-script/` is ArenaScript, a small JavaScript-like language the model can write to keep the body busy between calls. It is parsed with `acorn` and run by its own interpreter, never as real JavaScript. Programs start with `runProgram` and run in `program-runtime-manager.mjs`.
+- Compound helpers issue several body actions for one call. `obtain-runner.mjs` and `obtain-plan.mjs` get an item through its whole gather, craft and smelt chain using `coordinator/config/howto-index.json`. At low health, obtain recovers by itself (eats carried food or waits for natural regeneration, by the rule in `fork-rule.mjs`) and hands back `LOW_HEALTH` only at a real fork, with the reason. `find-search.mjs` searches for a block, biome or structure like a player would. It hands off to `find-fortress.mjs` for the walk along seen Nether fortress floor toward a spawner, and to `find-eyes.mjs` and `find-portal-room.mjs` for the stronghold.
+- `arena-script/` is ArenaScript, a small JavaScript-like language the model can write to keep the body busy between calls. It is parsed with `acorn` and run by its own interpreter, never as real JavaScript. Programs start with `runProgram` and run in `program-runtime-manager.mjs`. **Flag-gated: `MINEAGEN_PROGRAM_TOOLS=on`** (off by default). The six program tools (`PROGRAM_TOOL_NAMES`: `runProgram`, `queueProgram`, `respondProgram`, `programStatus`, `cancelProgram`, `cancelQueuedProgram`) reach the model only with it on; the runtime behind them is the same either way.
 - `standing-orders.mjs` holds short-lived rules the model sets up ("when X happens, do Y").
 
 ### Route suggestions and `now.route`
@@ -228,11 +237,11 @@ Long Codex sessions rotate to a fresh session, and `context-carry-over.mjs` carr
 
 ### Reflex book and default reflexes
 
-`reflexes.mjs` holds the `ReflexBook`: one rule set per agent, made of the model's own rules plus the defaults. The model sets rules through a `reflexes` field on its tool calls and can turn a default off by name. The runtime sends the whole set to the mod as one `reflex_update` and resends it if the mod has not confirmed it. What fired comes back in the wake input as `now.reflexes`.
+`reflexes.mjs` holds the `ReflexBook`: one rule set per agent, made of the model's own rules plus the defaults. The model sets rules through the `reflexes` tool or a `reflexes` field on its tool calls and can turn a default off by name. The runtime sends the whole set to the mod as one `reflex_update` and resends it if the mod has not confirmed it. What fired comes back in the wake input as `now.reflexes`.
 
-The 15 default reflexes in `DEFAULT_REFLEXES`: `default-lava`, `default-lava-flow`, `default-fire`, `default-air`, `default-edge`, `default-creeper`, `default-suffocate`, `default-fireball`, `default-arrow`, `default-retreat`, `default-eat`, `default-defend`, `default-blaze-cover`, `default-cover`, `default-owed-drops`. The model's 12 rules plus these fit the mod's cap of 27 (`MAX_REFLEX_RULES`, `ReflexSpec.MAX_RULES`).
+The 15 default reflexes in `DEFAULT_REFLEXES`: `default-lava`, `default-lava-flow`, `default-fire`, `default-air`, `default-edge`, `default-creeper`, `default-suffocate`, `default-fireball`, `default-arrow`, `default-retreat`, `default-eat`, `default-defend`, `default-blaze-cover`, `default-cover`, `default-owed-drops`. In the End, `DIMENSION_REFLEXES` adds `default-breath` and `default-end-throw` while the body is there. The model's 12 rules plus these 15 and the End's 2 fit the mod's cap of 29 (`MAX_REFLEX_RULES`, `ReflexSpec.MAX_RULES`).
 
-**Flag-gated: `MINEAGEN_INSTINCTS`** (read from the coordinator's environment; the mod starts the coordinator with its own, so one variable sets both). With it on, the book sets an automatic stance (`fight`, `cautious` or `steady`) from the running verb, health and dimension, and rewrites the health lines of the retreat and cover defaults the model has not replaced; the eat default fires below hunger 18. The wake input shows `stance <value> (auto)`. No stance key goes on the wire: it travels as the numbers in the default rules.
+**Flag-gated: `MINEAGEN_INSTINCTS`** (read from the coordinator's environment; the mod starts the coordinator with its own, so one variable sets both). With it on, the book sets an automatic stance (`fight`, `cautious`, `steady`, or `fortress` with a wither skeleton within 16 blocks in the Nether) from the running verb, health and dimension, and rewrites the health lines of the retreat and cover defaults the model has not replaced; the eat default fires below hunger 18. The wake input shows `stance <value> (auto)`. No stance key goes on the wire: it travels as the numbers in the default rules.
 
 ### Memory and notebook
 
@@ -257,8 +266,8 @@ Memory is kept per agent under the coordinator's workspace. It lets the model pi
 |---|---|---|
 | Decision log | `decision-log.mjs` | **Flag-gated: `ARENA_DECISION_LOG`**, on unless set to `0`. Records each decision and links it to its action |
 | Strict spend | `strict-spend-runtime.mjs` | **Flag-gated: `ARENA_STRICT_SPEND_GATE=1`**, off by default. Sends every Claude call through a local spend gateway, for benchmarks |
-| Control protocol | `dynamic-main.mjs` | Config `codex.controlProtocol`: `native_tools` by default, or `arena_script` |
-| Voice | `voice/` | Optional local speech service: text to speech and transcription |
+| Control protocol | `dynamic-config.mjs`, `dynamic-main.mjs` | Config `codex.controlProtocol`: `native_tools` by default, or `arena_script` |
+| Voice | `voice/`, `voice-worker.mjs` | Optional speech: text to speech and transcription providers in `voice/`, and the voice supervisor and speech worker in `voice-worker.mjs` |
 | Simulator | `simulator/` | A small fake world that speaks the bridge protocol, for benchmarks |
 | Decision eval | `decision-eval/` | Replays recorded moments through the real model without running the tool calls |
 
@@ -278,7 +287,7 @@ The client mod lives in `src/client/java/dev/agaminggod/mineagen/client/` and ta
 
 | Part | Path | What it does |
 |---|---|---|
-| Control center | `control/AgentControlClient.java`, `gui/AgentControlScreen.java` | Opens on `G`: create agents, pick provider and model, give tasks, pause, respawn |
+| Control center | `control/AgentControlClient.java`, `gui/AgentControlScreen.java` | Opens on `G`: create agents, pick provider and model, give tasks, pause, respawn. Every layout has a Now card with the agent's state, warnings, what it is doing, its last decision and its queue, built by `src/main/java/dev/agaminggod/mineagen/control/AgentNowCard.java` |
 | Live windows | `control/LiveAgentWindows.java` | Separate windows with an agent's plan and model output |
 | Spectate and takeover | `pov/` | See through an agent's eyes or drive its body |
 | Overlays and skins | `presentation/RiskOverlayClient.java`, `render/` | Risk on name tags, provider skins |
@@ -307,6 +316,7 @@ Gameplay changes are checked by playing, not only by unit tests. These tools liv
 |---|---|
 | Edit loop | `check.mjs --incident ID` gives an offline verdict against the pull request base with no game and no model. Then one recorded incident is replayed with `run-incident.mjs` from `incidents/`. See the [edit loop](scripts/quality/README.md#edit-loop) |
 | Single-mechanic tests | `test-*-live.mjs`: one mechanic on a live server, such as a bed, a shelter or a dragon fight, with no model calls |
+| Practice-room batches | `room-batch.mjs`: plays many practice rooms on cloud machines or Windows PCs, with the new and old mod side by side, and merges the results. A room is judged by its pass rate over repeats |
 | Scenarios | `run-scenarios.mjs`: fixed-seed scenarios from `scenarios.json` with a real model, alone or as paired A/B runs |
 | Ladder | `run-ladder.mjs`: each link of the route from an empty inventory to the dragon, from `ladder.json` |
 | Generality | `run-generality.mjs`: training fixtures graded by two judges from different model families |
@@ -329,14 +339,15 @@ The repository is public, so every file, commit message and pull request text is
 ```mermaid
 flowchart LR
   E["Edit"] --> PC["pre-commit hook<br/>scan staged files"]
-  PC --> CM["commit-msg hook<br/>scan the message"]
-  CM --> PR["Pull request"]
+  PC --> CM["commit-msg hook<br/>scan the message and emails"]
+  CM --> PP["pre-push hook<br/>scan branch names and new commits"]
+  PP --> PR["Pull request"]
   PR --> CI["CI: scan the whole tree,<br/>the PR text and every commit"]
   CI --> T["Tests and builds"]
 ```
 
 - `scripts/check-public-tree.mjs` is the gate. It fails on home-folder paths, private hosts and networks, credentials, recorded usage figures, private email addresses, non-public CI runners and large or binary files. `scripts/public-tree-exemptions.json` exempts single exact lines in files; text such as commit messages has no exemptions.
-- `scripts/hooks/pre-commit` and `scripts/hooks/commit-msg` run it locally. Turn them on with `git config core.hooksPath scripts/hooks`.
+- `scripts/hooks/pre-commit`, `scripts/hooks/commit-msg` and `scripts/hooks/pre-push` run it locally: on staged files, on each commit's message and emails, and on pushed branch and tag names and the commits the remote lacks. Turn them on with `git config core.hooksPath scripts/hooks`.
 - `scripts/pull-request-text.mjs` writes the pull request text and commit messages to files for CI to scan.
 - `scripts/export-public.mjs` copies only the files listed in `scripts/export-public.allowlist`.
 

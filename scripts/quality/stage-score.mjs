@@ -11,6 +11,8 @@ import { itemCount } from '../../coordinator/src/benchmark/quality-metrics.mjs';
 import { terminalCounter, EDIT_LOOP_HELP } from './lib/fixture-run.mjs';
 import { LONG_RUN_MILESTONES } from '../../coordinator/src/benchmark/long-run.mjs';
 import { classifyDeath, countCauses, deathEvidence } from './lib/death-causes.mjs';
+import { gameFacts } from './lib/game-facts.mjs';
+import { logMilestones } from './gate-report.mjs';
 
 const DEATH_EVIDENCE = ['message', 'damageType', 'attacker', 'directAttacker'];
 // How long before the sample that first shows a death its lethal hit may be: samples come every few seconds.
@@ -170,11 +172,13 @@ export async function scoreStageRun(directory, { rawDirectory = null } = {}) {
 	const protocolName = raw && existsSync(path.join(raw, 'quality-protocol.jsonl')) ? 'quality-protocol.jsonl' : 'protocol.jsonl';
 	let protocolStarted = false;
 	const actions = terminalCounter();
+	const facts = gameFacts();
 	const protocol = await streamFiles(raw, protocolName, row => {
 		const e = row.envelope ?? row, p = e.payload ?? {}, at = timestamp(row) ?? timestamp(e);
 		if (e.type === 'goal_control' && p.operation === 'start' && finite(at) && !protocolStarted && (!agentId || e.agentId === agentId)) { agentId ??= e.agentId; startedAt = at; protocolStarted = true; }
 		if (agentId && e.agentId && e.agentId !== agentId) return;
 		if (finite(at) && (!finite(startedAt) || at >= startedAt) && (!finite(startedAt) || !finite(windowMs) || at <= startedAt + windowMs) && (!operatorStop || at <= operatorStop.at)) actions.accept(row);
+		if (e.type === 'action_command') facts.command(at, p);
 		if (e.type === 'goal_control' && p.operation === 'dead') acceptDeath({ at: p.death?.diedAtEpochMs ?? at, cause: p.death?.cause ?? null, message: p.death?.cause ?? null,
 			damageType: p.death?.damageType ?? null, attacker: p.death?.attacker ?? null, directAttacker: p.death?.directAttacker ?? null, source: 'protocol' });
 		if (e.type === 'goal_control' && ['stop', 'complete'].includes(p.operation) && finite(at) && (!finite(startedAt) || at >= startedAt) && (!finite(windowMs) || !finite(startedAt) || at <= startedAt + windowMs + 5000)) { endedAt = at; completed ||= p.operation === 'complete'; }
@@ -189,6 +193,12 @@ export async function scoreStageRun(directory, { rawDirectory = null } = {}) {
 		if (files.length) { watchFiles.push(...files); break; }
 	}
 	const fatalEpisodes = [];
+	// One copy of the progress journal: the retained one, else the server's live original (like the episode files).
+	for (const dir of watchDirs) {
+		const files = (await readdir(dir).catch(() => [])).filter(n => n.endsWith('-progress.jsonl') && (!agentId || n.startsWith(agentId)));
+		for (const n of files) await readJsonl(path.join(dir, n), row => facts.progress(row));
+		if (files.length) break;
+	}
 	for (const f of watchFiles) await readJsonl(f, e => {
 		// The episode keeps the vanilla death message (Episode.deathMessage), the cause when no receipt survives.
 		if (e.outcome === 'death') acceptDeath({ at: e.closedAt?.epochMs, cause: e.source?.type ?? e.kind, message: typeof e.deathMessage === 'string' ? e.deathMessage : null, source: 'watcher' });
@@ -217,6 +227,7 @@ export async function scoreStageRun(directory, { rawDirectory = null } = {}) {
 			recovery._last = { ...sample, inventoryNbt: '[]' };
 		}
 		pushStage(after ? recovery : first, sample, { death: dead && recovery.samples > 0, initial: !previous });
+		facts.sample(sample);
 		if (dead) (after ? recovery : first).deaths++;
 		previous = sample; lastAt = sample.at;
 	};
@@ -279,7 +290,8 @@ export async function scoreStageRun(directory, { rawDirectory = null } = {}) {
 		if (!finite(at) || finite(startedAt) && at < startedAt || finite(lastAt) && at > lastAt || operatorStop && at > operatorStop.at) return;
 		if (row.event === 'native_decision_timing' && row.outcome === 'completed' && finite(row.segmentDurationMs)) latencies.push(row.segmentDurationMs);
 		if (row.event === 'native_model_call' && finite(row.totalMs)) usageLatencies.push(row.totalMs);
-		if (row.event === 'agent_death') { const d = deathEvidence(row); if (d && !deathRow(d, false)) pendingHits.push(d); }
+		if (row.event === 'native_model_call') facts.modelCall(row);
+		if (row.event === 'agent_death') { facts.deathRow(row); const d = deathEvidence(row); if (d && !deathRow(d, false)) pendingHits.push(d); }
 		if (deathTrace && at >= traceStart && at <= traceEnd) {
 			if (row.event === 'native_tool_dispatch_started') deathTrace.dispatchedCommands.push({ at, actionId: row.actionId, actionType: row.actionType, source: 'coordinator' });
 			if (/reflexes_|action_completed/.test(row.event)) (deathTrace.coordinatorEvents ??= []).push(row);
@@ -322,6 +334,10 @@ export async function scoreStageRun(directory, { rawDirectory = null } = {}) {
 	if (!operatorStop && ending.kind === 'unknown') diagnostics.push('Historical stop time/reason absent: do not infer an operator stop from timeout/SIGTERM.');
 	if (!supplied) diagnostics.push('Save-point kit definition absent; initial possession is not proven earned.');
 	const actionCounts = actions.snapshot();
+	const deathRecords = deathRows.map(row => ({ ...row, cause: classifyDeath(row).cause }));
+	const inWindow = at => finite(at) && (!finite(startedAt) || at >= startedAt) && (!finite(startedAt) || !finite(windowMs) || at <= startedAt + windowMs) && (!operatorStop || at <= operatorStop.at);
+	// lava seen and portal lit come from the decision log, the same reading gate-report gives them.
+	const game = facts.finish({ startedAt, deaths: deathRecords, observedDeaths: Math.max(sampleDeaths, deathTimes.length), protocolRecords: protocol.rows, inWindow, logMilestones: raw && existsSync(raw) && (await readdir(raw)).some(n => n.startsWith('decision-') && !n.includes('goal-spec') && (!agentId || n.includes(`--${agentId}-`))) ? logMilestones(raw, { agentId, inWindow }) : null });
 	if (actionCounts.conflicts || actionCounts.missingActionIds) integrity.push({ file: protocolName, error: 'Terminal receipts have conflicting or missing action identities' });
 	const executionStarted = protocolStarted || first.samples + recovery.samples > 0;
 	const cancelledBeforeStart = !executionStarted && (startRecord?.status === 'cancelled_before_start' || operatorStop?.beforeStart === true);
@@ -336,7 +352,9 @@ export async function scoreStageRun(directory, { rawDirectory = null } = {}) {
 		firstLife, afterDeath, suppliedKit: { inventory: supplied, reserveContainers: suppliedReserves(definition?.setup) }, observedDeaths: !lastAt && !deathTimes.length ? null : Math.max(sampleDeaths, deathTimes.length), firstLifeDeathTrace: deathTrace,
 		// A death seen only in the samples has no receipt: unknown. Every other death has the cause its evidence names.
 		deathCauses: countCauses([...deathRows, ...Array.from({ length: Math.max(0, Math.max(sampleDeaths, deathTimes.length) - deathRows.length) }, () => ({}))]),
-		deathRecords: deathRows.map(row => ({ ...row, cause: classifyDeath(row).cause })),
+		deathRecords, game,
+		// The coordinator inputs the runner recorded (lean model input on or off), or null for runs before it recorded them.
+		coordinatorInputs: context?.coordinatorInputs ?? outcome?.coordinatorInputs ?? null,
 		timing: { decisionSegments: latencies.length, decisionP50Ms: p50(latencies), usageRecords: usageLatencies.length, usageRecordP50Ms: p50(usageLatencies), basis: 'completed provider decision segments; usage notification timing shown separately, never substituted' },
 		coverage: { protocolRecords: protocol.rows, samples: first.samples + recovery.samples, watcherFiles: watchFiles.length, diagnostics: [...new Set(diagnostics)] } };
 }

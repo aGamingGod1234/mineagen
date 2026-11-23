@@ -10,7 +10,7 @@ import java.util.Objects;
 
 public final class AgentControlSnapshotCodec {
 	private static final Gson GSON = new Gson();
-	// A complete schema-7 aggregate must fit, including Gson's worst-case six-byte
+	// A complete schema-8 aggregate must fit, including Gson's worst-case six-byte
 	// JSON escapes per UTF-16 unit. Fixed allowances cover keys, punctuation and
 	// numeric/boolean fields. This is below the clientbound custom payload's 1 MiB.
 	private static final int AGENT_TEXT_UNITS = 36 + AgentConstants.SHORT_ID_LENGTH
@@ -20,6 +20,7 @@ public final class AgentControlSnapshotCodec {
 			+ AgentControlAgent.MAX_LAST_SUMMARY_LENGTH + AgentControlAgent.MAX_LAST_ERROR_LENGTH;
 	private static final int MODEL_TEXT_UNITS = 24 + 128 + 96 + 12 * 32 + 8 * 24;
 	public static final int MAX_ENCODED_BYTES = 1_024 + 6 * 160
+			+ 96 + 6 * AgentControlResult.MAX_MESSAGE_LENGTH
 			+ AgentControlSnapshot.MAX_AGENTS * (512 + 6 * AGENT_TEXT_UNITS)
 			+ AgentControlModelOption.MAX_OPTIONS * (256 + 6 * MODEL_TEXT_UNITS)
 			+ AgentControlProvider.MAX_PROVIDERS * (512 + 6 * (24 + 48 + 48 + 48 + 32 + 128 + 24 + 48))
@@ -61,7 +62,8 @@ public final class AgentControlSnapshotCodec {
 					snapshot.generatedAtEpochMs(),
 					snapshot.agents(),
 					snapshot.catalog(),
-					snapshot.providers()
+					snapshot.providers(),
+					snapshot.result()
 			);
 		} catch (RuntimeException exception) {
 			throw new IllegalArgumentException("Invalid control snapshot", exception);
