@@ -246,10 +246,11 @@ try {
 			const diedAfterMs = died ? rate.clock.now() - started : null;
 			const tick = await playEnd(play);
 			const water = (await command('execute if block 0 80 0 minecraft:water')).includes('passed');
+			const bucketBack = ((await observe().catch(() => null))?.inventory?.items ?? []).some((item) => item?.itemId === 'minecraft:water_bucket');
 			const dead = died;
 			if (died) { await command('kill @e[type=minecraft:enderman]'); await (await startAction('respawn', {})).result.catch(() => null); died = false; await sleep(2000); }
 			results[name] = { tick, provoked, healthBefore: before, health: dead ? 0 : health(o), lowest: dead ? 0 : Math.min(...rows.map((row) => row.health)), dead, diedAfterMs,
-				waterAtFeet: water, events: (o.reflexes?.events ?? []).slice(-4), samples: rows.filter((_, index) => index % 4 === 0) };
+				waterAtFeet: water, bucketBack, events: (o.reflexes?.events ?? []).slice(-4), samples: rows.filter((_, index) => index % 4 === 0) };
 			// No anger after three stares: the setup never ran, so the trial measured nothing (INVALID, rerun), not a miss.
 			if (!provoked) results[name].notExercised = 'the stare never provoked the enderman (3 tries)';
 			return results[name];
@@ -268,7 +269,11 @@ try {
 	if (want('angry-water')) {
 		const row = await defend('angry-water', [{ id: 'puddle', priority: 9, when: { type: 'enderman_provoked', within: 16 }, do: { type: 'place', item: 'minecraft:water_bucket', where: 'feet' }, maxS: 3 }],
 			[`item replace entity ${agent} hotbar.0 with minecraft:water_bucket`]);
-		if (row) { row.pass = row.provoked && row.waterAtFeet && row.events.some((event) => event.id === 'puddle' && /at feet/.test(event.detail ?? '')); await settle('angry-water'); }
+		// The pour defends when its water still stands at the feet, or when the reflex held the body in it and scooped it back
+		// once no angry enderman was near: then the body took no hit (unanswered, the enderman takes 6 or more) and the
+		// bucket is full for the next one.
+		const scooped = (row) => row.events.some((event) => event.id === 'puddle' && /scooped it back/.test(event.detail ?? '')) && row.bucketBack && row.lowest >= row.healthBefore - 2;
+		if (row) { row.pass = row.provoked && row.events.some((event) => event.id === 'puddle' && /at feet/.test(event.detail ?? '')) && (row.waterAtFeet || scooped(row)); await settle('angry-water'); }
 	}
 	// Pearl hunting with the body: a provoked enderman fought with fight_target pursue:false and an iron sword, on open
 	// ground or from two cells inside a 1-wide, 2-high tunnel it cannot enter (the instructions' rule). Each fight

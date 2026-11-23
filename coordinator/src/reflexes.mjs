@@ -68,8 +68,10 @@ export const DIMENSION_REFLEXES = Object.freeze({
 		// counts, not only one already after the body (targeting: true): measured in the judged End rooms, deaths were 34
 		// of 40 on main, 25 of 40 with any angry enderman and 23 of 28 with only one after the body. The water stays, so the
 		// bucket is spent and the rule sleeps (item-dependent rules never fire empty-handed), and so does a falling -> place
-		// water_bucket clutch: fall and void deaths were 8 of 40 on main and 7 of 40 with this rule.
-		{ id: 'default-ender-water', kind: 'trigger', priority: 8, when: [{ type: 'enderman_provoked', within: 8 }], do: { type: 'place', item: 'minecraft:water_bucket', where: 'feet' }, maxMs: 3_000, cooldownMs: 10_000, ttlMs: 3_600_000 },
+		// water_bucket clutch: fall and void deaths were 8 of 40 on main and 7 of 40 with this rule. The pour then holds the
+		// body in its water while an angry enderman is within 16 and scoops it back once none is (at most 10 s, less with the
+		// dragon near): left behind, the bucket stayed empty for the next one (dragon room on main: 9 of 14 deaths endermen).
+		{ id: 'default-ender-water', kind: 'trigger', priority: 8, when: [{ type: 'enderman_provoked', within: 8 }], do: { type: 'place', item: 'minecraft:water_bucket', where: 'feet' }, maxMs: 12_000, cooldownMs: 10_000, ttlMs: 3_600_000 },
 	].map((rule) => Object.freeze(rule))),
 });
 const MOST_DIMENSION_REFLEXES = Math.max(0, ...Object.values(DIMENSION_REFLEXES).map((rules) => rules.length));
@@ -634,7 +636,10 @@ export class ReflexBook {
 		if (status !== undefined && status.events.length > 0 && status.events.at(-1).seq < agent.lastSeq) agent.lastSeq = 0;
 		const events = (status?.events ?? []).filter((event) => event.seq > agent.lastSeq);
 		for (const event of events) agent.lastSeq = Math.max(agent.lastSeq, event.seq);
-		for (const event of events) this.#notePour(agentId, event);
+		for (const event of events) { this.#notePour(agentId, event.detail); this.#forgetGonePour(agentId, event.detail); }
+		// A pour held against an angry enderman reports its cell while it runs, so one that ends preempted or yielded (whose
+		// end report names the rule or the command instead) is remembered too; its scoop is read from the inventory.
+		if (typeof status?.firing?.detail === 'string') this.#notePour(agentId, status.firing.detail);
 		// Only a report acknowledging the current definitions can retire them. An old revision may
 		// contain an expiry for an id the model has since deliberately replaced.
 		if (status?.revision === agent.revision && !status.error) {
@@ -653,15 +658,26 @@ export class ReflexBook {
 		return { events, wake: events.some((event) => event.wake === true), resend };
 	}
 
-	// A place firing of a water bucket reports its cell ("placed minecraft:water_bucket at feet X,Y,Z"); the source stays
-	// there until scooped. The bot's block rows are the cells nearest its feet, so a few blocks off they show only the flow.
-	#notePour(agentId, event) {
-		const cell = event.outcome === 'done' && /placed minecraft:water_bucket at (?:feet )?(-?\d+),(-?\d+),(-?\d+)/.exec(event.detail ?? '');
+	// A place firing of a water bucket reports its cell ("placed minecraft:water_bucket at feet X,Y,Z"), at its end however it
+	// ended and while it holds the body in the water; the source stays there until scooped. The bot's block rows are the
+	// cells nearest its feet, so a few blocks off they show only the flow.
+	#notePour(agentId, detail) {
+		const cell = /placed minecraft:water_bucket at (?:feet )?(-?\d+),(-?\d+),(-?\d+)/.exec(detail ?? '');
 		if (!cell) return;
 		const dimension = this.#samples.get(agentId)?.world?.dimension ?? null;
 		const [x, y, z] = cell.slice(1).map(Number);
 		const pours = (this.#pours.get(agentId) ?? []).filter(p => !(p.x === x && p.y === y && p.z === z && p.dimension === dimension));
 		this.#pours.set(agentId, [{ x, y, z, dimension }, ...pours].slice(0, MAX_REMEMBERED_POURS));
+	}
+
+	// A hold that watched its source vanish (the dragon flew through it, or it was pushed off and the flow ran out) says so;
+	// the cell is air now, which no block row shows, so that pour is forgotten here.
+	#forgetGonePour(agentId, detail) {
+		const cell = /poured water at feet (-?\d+),(-?\d+),(-?\d+); the source is gone/.exec(detail ?? '');
+		const pours = this.#pours.get(agentId);
+		if (!cell || !pours?.length) return;
+		const [x, y, z] = cell.slice(1).map(Number);
+		this.#pours.set(agentId, pours.filter(p => !(p.x === x && p.y === y && p.z === z)));
 	}
 
 	// A scooped source turns to air, and the observation lists no air rows, so a scoop is read from the inventory: one more

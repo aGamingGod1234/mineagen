@@ -1758,17 +1758,35 @@ final class ReflexActions {
 		private InteractionHand placedHand;
 		private int placedSlot;
 		private int landedTicks;
+		/**
+		 * Water poured at the feet against an angry enderman, which the body stands in until none is near and then scoops
+		 * back: the bucket is what the next enderman needs. Main's dragon room: 9 of 14 deaths were endermen, nearly all
+		 * after the one pour had been left behind and the bucket stayed empty.
+		 */
+		private BlockPos heldWater;
+		private int holdTicks, calmTicks, scoopTicks;
+		static final double HOLD_ENDERMAN_RANGE = 16.0D;
+		static final double HOLD_CLOSE_RANGE = 6.0D;
+		static final double HOLD_DRAGON_RANGE = 24.0D;
+		static final int HOLD_TICKS = 200;
+		static final int CALM_TICKS = 10;
+		static final int HOLD_SETTLE_TICKS = 3;
 
 		Place(String item, String where) {
 			this.item = item;
 			this.where = where;
 		}
 
+		/** A hold that reaches its rule's time ends done with the water left (its report names the cell), never as a timeout. */
+		@Override
+		public boolean doneAtMaxS() { return heldWater != null; }
+
 		@Override
 		public Step tick(Context context, Consumer<AgentInputState> input) {
 			ServerPlayer player = context.player();
 			ticks++;
 			if (placedWater != null) return scoop(player, input);
+			if (heldWater != null) return holdInWater(player, input);
 			InteractionHand hand;
 			int slot = player.getInventory().getSelectedSlot();
 			if (item.equals(id(player.getOffhandItem()))) hand = InteractionHand.OFF_HAND;
@@ -1824,9 +1842,75 @@ final class ReflexActions {
 			}
 			if (used && bucket && "feet".equals(where)) {
 				BlockPos source = crosshair.getBlockPos().above();
+				// Poured with an angry enderman about (after the body or not): held while one is near, else scooped straight back.
+				if ("minecraft:water_bucket".equals(item) && !player.level().getEntitiesOfClass(McCompat.ENDERMAN, player.getBoundingBox().inflate(HOLD_ENDERMAN_RANGE),
+						enderman -> enderman.isAlive() && McCompat.endermanCreepy(enderman)).isEmpty() && level.getFluidState(source).isSourceOfType(net.minecraft.world.level.material.Fluids.WATER)) {
+					heldWater = source;
+					placedHand = hand;
+					placedSlot = hand == InteractionHand.MAIN_HAND ? slot : player.getInventory().getSelectedSlot();
+					return Step.running("placed " + item + " at feet " + source.getX() + "," + source.getY() + "," + source.getZ() + "; standing in it while an angry enderman is near");
+				}
 				return Step.done("placed " + item + " at feet " + source.getX() + "," + source.getY() + "," + source.getZ() + "; the source stays until scooped");
 			}
 			return used ? Step.done("placed " + item + " " + where) : Step.failed("click accepted but nothing was placed");
+		}
+
+		/**
+		 * An angry enderman after this body within 16 blocks, or any angry one within 6. One angry at something else further
+		 * off does not keep the water down: the rule fires on any angry one within 8, and holding for those left the bucket
+		 * empty again (one dragon-room run poured 12 times).
+		 */
+		private static boolean angryEndermanNear(ServerPlayer player) {
+			return !player.level().getEntitiesOfClass(McCompat.ENDERMAN, player.getBoundingBox().inflate(HOLD_ENDERMAN_RANGE), enderman -> {
+				if (!enderman.isAlive() || !McCompat.endermanCreepy(enderman)) return false;
+				double distance = player.distanceTo(enderman);
+				return distance <= HOLD_CLOSE_RANGE || distance <= HOLD_ENDERMAN_RANGE && enderman.getTarget() == player;
+			}).isEmpty();
+		}
+
+		/**
+		 * Standing in water poured against an angry enderman: still, looking down at the water (never at an enderman's eyes),
+		 * until none has been near ({@link #angryEndermanNear}) for half a second, then the emptied bucket takes the source back. The
+		 * hold ends with the water left (as before) after 10 s, when the dragon comes within 24 blocks (its swoop and breath
+		 * want the body free), or when the body has left the source.
+		 */
+		private Step holdInWater(ServerPlayer player, Consumer<AgentInputState> input) {
+			Level level = player.level();
+			String at = heldWater.getX() + "," + heldWater.getY() + "," + heldWater.getZ();
+			// Every report names the cell while the water stands, so a hold that ends any other way (preempted, a model command,
+			// the rule's time) leaves the pour remembered; the scoop's own done text does not name it.
+			String placed = "placed " + item + " at feet " + at;
+			String left = placed + "; the source stays until scooped";
+			if (!level.getFluidState(heldWater).isSourceOfType(net.minecraft.world.level.material.Fluids.WATER)) return Step.done("poured water at feet " + at + "; the source is gone");
+			holdTicks++;
+			calmTicks = angryEndermanNear(player) ? 0 : calmTicks + 1;
+			Vec3 centre = Vec3.atCenterOf(heldWater);
+			if (player.getEyePosition().distanceTo(centre) > player.blockInteractionRange()) return Step.done(left + " (the body moved off it)");
+			if (calmTicks < CALM_TICKS) {
+				// Knocked onto dry ground within reach of the source, standing still would hold the body exposed: the hold ends
+				// (a few ticks first, for the body's water state to catch up with the pour).
+				if (holdTicks > HOLD_SETTLE_TICKS && !player.isInWater()) return Step.done(left + " (the body was pushed out of it)");
+				if (!level.getEntitiesOfClass(net.minecraft.world.entity.boss.enderdragon.EnderDragon.class, player.getBoundingBox().inflate(HOLD_DRAGON_RANGE), Entity::isAlive).isEmpty()) {
+					return Step.done(left + " (the dragon came near)");
+				}
+				if (holdTicks > HOLD_TICKS) return Step.done(left + " (an angry enderman stayed near for 10 s)");
+				input.accept(look(player, centre, 0.0F, 0.0F, false, false, placedSlot, placedHand));
+				return Step.running(placed + "; standing in it while an angry enderman is near");
+			}
+			ItemStack held = player.getItemInHand(placedHand);
+			if (!held.is(net.minecraft.world.item.Items.BUCKET)) return Step.done(left + " (no empty bucket in hand to scoop it back)");
+			if (++scoopTicks > 30) return Step.done(left + " (could not scoop it back)");
+			input.accept(look(player, centre, 0.0F, 0.0F, false, false, placedSlot, placedHand));
+			if (placedHand == InteractionHand.MAIN_HAND && player.getInventory().getSelectedSlot() != placedSlot) return Step.running(placed + "; no angry enderman near; selecting the bucket");
+			BlockHitResult sight = level.clip(new ClipContext(player.getEyePosition(), player.getEyePosition().add(player.getLookAngle().scale(player.blockInteractionRange())),
+					ClipContext.Block.OUTLINE, ClipContext.Fluid.SOURCE_ONLY, player));
+			if (sight.getType() != HitResult.Type.BLOCK || !sight.getBlockPos().equals(heldWater)) return Step.running(placed + "; no angry enderman near; aiming at the poured water");
+			InteractionResult result = player.gameMode.useItem(player, level, held, placedHand);
+			if (result.consumesAction() && player.getItemInHand(placedHand).is(net.minecraft.world.item.Items.WATER_BUCKET)) {
+				ArmSwing.use(player, placedHand);
+				return Step.done("poured water at feet " + at + ", stood in it until no angry enderman was near, and scooped it back");
+			}
+			return Step.running(placed + "; no angry enderman near; scooping it back");
 		}
 
 		/** After a water clutch: once the body has landed, use the emptied bucket on the source to take it back. */
@@ -2307,6 +2391,8 @@ final class ReflexActions {
 		private Step ending;
 		private Vec3 settleTo;
 		private int settleTicks;
+		/** The climb out of a breath cloud the run had no level way out of ({@link RiseAboveCloud}). */
+		private RiseAboveCloud rise;
 		/** A way back along known walkable cells, taken when no straight heading has safe footing (a tunnel, a bend). */
 		private PathWalk walk;
 		private String walkNote = "";
@@ -2345,6 +2431,13 @@ final class ReflexActions {
 			}
 			if (ending != null) return settle(player, input);
 			double moved = Math.hypot(player.getX() - start.x, player.getZ() - start.z);
+			if (rise != null) return rise.tick(player, input);
+			// Already standing over the breath (on blocks it placed, or a column top): any step off sinks back into it.
+			if (context.focus() == null && dev.agaminggod.mineagen.server.perception.CloudDanger.beneath(player) != null
+					&& dev.agaminggod.mineagen.server.perception.CloudDanger.touching(player) == null && player.onGround()) {
+				rise = RiseAboveCloud.holding(player);
+				return rise.tick(player, input);
+			}
 			// The default sense hands over a lit creeper only within 5 blocks; one lit just beyond is still inside this run's clearance.
 			if (creeper != null && (!creeper.isAlive() || !ReflexSensors.fusing(creeper))) {
 				Creeper next = otherFusing(player, creeper);
@@ -2437,6 +2530,13 @@ final class ReflexActions {
 			if (heading == null) heading = SafeStep.heading(player, away, offsets, lastHeading,
 					List.of(yaw -> runsIntoCloud(player, yaw) || runsTowardVoid(player, yaw), yaw -> runsTowardVoid(player, yaw)), maxDrop);
 			lastHeading = heading;
+			// No level heading out of a breath cloud (a bridge, a column top, a platform rim): the cloud is half a block high,
+			// so a block placed under the feet lifts the body out of it, where running back across it or a drop cost a hit or
+			// more each second. Dragon room: 6 of 14 deaths were breath with no heading out.
+			if (heading == null && context.focus() == null && dev.agaminggod.mineagen.server.perception.CloudDanger.touching(player) != null) {
+				rise = RiseAboveCloud.start(player, dev.agaminggod.mineagen.server.perception.CloudDanger.touching(player));
+				if (rise != null) return rise.tick(player, input);
+			}
 			if (heading == null && dropHeading != null) heading = dropHeading;
 			if (heading == null && spentAcross) return end(player, input, Step.done(String.format(Locale.ROOT, "ran %.1f blocks; no safe heading further", moved) + dropNote + walkNote));
 			if (heading == null) {
@@ -2711,6 +2811,93 @@ final class ReflexActions {
 	private static final int MAX_PATH_CELLS = 1_500;
 
 	/** Go to a cell the model named (cover it chose) by a short safe path over seen terrain. */
+	/**
+	 * Out of a harmful cloud upward: jump and place a block under the feet until the feet stand at or above the cloud's box
+	 * top (vanilla clouds are 0.5 blocks high), then hold there while the cloud stays beneath, as a player stands on a block
+	 * out of dragon breath it cannot run from. Each firing holds {@link #HOLD_TICKS} at most; the breath floor fires again
+	 * while the cloud is in reach and a waiting command stays held, so a dig down or walk off waits for the cloud to go.
+	 */
+	static final class RiseAboveCloud {
+		static final int MAX_BLOCKS = 3;
+		static final int HOLD_TICKS = 40;
+		/** Ticks a rise may take per block before it is given up (a jump and place takes about 8). */
+		static final int TICKS_PER_BLOCK = 30;
+		private final int goalY;
+		private final int fromY;
+		private final int slot;
+		private int ticks;
+		private int held;
+		private int knockedAt = -1;
+
+		private RiseAboveCloud(int fromY, int goalY, int slot) {
+			this.fromY = fromY;
+			this.goalY = goalY;
+			this.slot = slot;
+		}
+
+		/** Holding above a cloud the body already stands over. */
+		static RiseAboveCloud holding(ServerPlayer player) {
+			int feet = Mth.floor(player.getY() + 1.0E-4D);
+			return new RiseAboveCloud(feet, feet, player.getInventory().getSelectedSlot());
+		}
+
+		/** A rise out of {@code cloud}, or null: no plain block in the hotbar, too high a cloud, or no headroom. */
+		static RiseAboveCloud start(ServerPlayer player, net.minecraft.world.entity.AreaEffectCloud cloud) {
+			if (cloud == null || !player.onGround()) return null;
+			int slot = PlaceBlock.blockSlot(player, null);
+			if (slot < 0) return null;
+			int feet = Mth.floor(player.getY() + 1.0E-4D);
+			int goal = Mth.ceil(cloud.getBoundingBox().maxY - 1.0E-4D);
+			if (goal <= feet) goal = feet + 1;
+			if (goal - feet > MAX_BLOCKS) return null;
+			Level level = player.level();
+			for (int y = feet + 2; y <= goal + 1; y++) {
+				BlockPos cell = BlockPos.containing(player.getX(), y, player.getZ());
+				if (!level.getBlockState(cell).getCollisionShape(level, cell).isEmpty() || !level.getFluidState(cell).isEmpty()) return null;
+			}
+			return new RiseAboveCloud(feet, goal, slot);
+		}
+
+		Step tick(ServerPlayer player, Consumer<AgentInputState> input) {
+			ticks++;
+			int feet = Mth.floor(player.getY() + 1.0E-4D);
+			if (feet >= goalY && player.onGround()) {
+				input.accept(new AgentInputState(0.0F, 0.0F, false, false, false, false, false, player.getYRot(), player.getXRot(),
+						player.getInventory().getSelectedSlot(), InteractionHand.MAIN_HAND));
+				String where = String.format(Locale.ROOT, "standing at y %d over the breath cloud", feet);
+				String risen = feet > fromY ? String.format(Locale.ROOT, "placed %d block(s) under the feet, ", feet - fromY) : "";
+				if (dev.agaminggod.mineagen.server.perception.CloudDanger.beneath(player) == null
+						&& dev.agaminggod.mineagen.server.perception.CloudDanger.touching(player) == null) return Step.done(risen + "the cloud below is gone");
+				if (dev.agaminggod.mineagen.server.perception.CloudDanger.touching(player) != null) return Step.failed(risen + "still in the cloud at y " + feet);
+				return ++held >= HOLD_TICKS ? Step.done(risen + where + "; holding until it clears") : Step.running(risen + where);
+			}
+			if (goalY == fromY) {
+				// Holding, knocked off the stand (a wing, knockback): land with the keys up and end, so the breath floor decides
+				// afresh (run or rise again) rather than counting the hit as a failed climb.
+				input.accept(new AgentInputState(0.0F, 0.0F, false, false, false, false, false, player.getYRot(), player.getXRot(),
+						player.getInventory().getSelectedSlot(), InteractionHand.MAIN_HAND));
+				if (knockedAt < 0) knockedAt = ticks;
+				if (player.onGround() || ticks - knockedAt > TICKS_PER_BLOCK) return Step.done(String.format(Locale.ROOT, "knocked off the stand over the breath cloud: feet y %d of %d", feet, goalY));
+				return Step.running("knocked off the stand over the breath cloud; landing");
+			}
+			if (ticks > TICKS_PER_BLOCK * (goalY - fromY)) return Step.failed(String.format(Locale.ROOT, "could not climb out of the breath: feet y %d of %d", feet, goalY));
+			if (!(player.getInventory().getItem(slot).getItem() instanceof BlockItem)) return Step.failed("ran out of blocks climbing out of the breath");
+			boolean high = player.getY() >= feet + 1.0E-3D && player.getY() - feet >= 0.0D && !player.onGround();
+			BlockPos cell = BlockPos.containing(player.getX(), player.getY() - 1.0D + 1.0E-3D, player.getZ());
+			boolean use = false;
+			if (high && player.level().getBlockState(cell).canBeReplaced()) {
+				BlockPos support = cell.below();
+				if (!player.level().getBlockState(support).getCollisionShape(player.level(), support).isEmpty()) {
+					BlockHitResult face = new BlockHitResult(Vec3.atCenterOf(support).add(0.0D, 0.5D, 0.0D), Direction.UP, support, false);
+					use = PlaceBlock.clicksInto(player, face, cell);
+				}
+			}
+			input.accept(new AgentInputState(0.0F, 0.0F, player.onGround(), false, false, false, use, player.getYRot(),
+					AgentInputStates.turnPitch(player.getXRot(), 90.0F), slot, InteractionHand.MAIN_HAND));
+			return Step.running(String.format(Locale.ROOT, "climbing out of the breath: feet y %d of %d", Mth.floor(player.getY() + 1.0E-4D), goalY));
+		}
+	}
+
 	static final class MoveToCell implements Behaviour {
 		private final GridPosition goal;
 		private final boolean sprint;

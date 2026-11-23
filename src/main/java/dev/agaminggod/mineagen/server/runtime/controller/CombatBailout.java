@@ -13,11 +13,31 @@ final class CombatBailout implements ServerController {
 	static final double SEPARATION = 12.0D;
 	private final ServerController retreat;
 	private final String trigger;
+	/** The receipt's reason code: LOW_HEALTH_BAILOUT, or DRAGON_TOOK_OFF for a dragon that lifted off its perch. */
+	private final String code;
 	private TickResult finished;
 
 	CombatBailout(ServerController retreat, String trigger) {
+		this(retreat, trigger, "LOW_HEALTH_BAILOUT");
+	}
+
+	private CombatBailout(ServerController retreat, String trigger, String code) {
 		this.retreat = retreat;
 		this.trigger = trigger;
+		this.code = code;
+	}
+
+	/**
+	 * The perched Ender Dragon whose part was the target has stopped perching: it lifts off over the portal, where its wings
+	 * throw and its head and neck hurt anything near. A player stops swinging and steps clear. Dragon room A/B: 10 of 12
+	 * deaths with the crystals fix came during or right after a perch melee, the large hits while the dragon was already
+	 * airborne over the body.
+	 */
+	static CombatBailout dragonTakeoff(ServerPlayer player, Entity dragon, boolean mayMove, long remainingMs, long now) {
+		String trigger = "The dragon stopped perching and is lifting off (its wings throw and its head hurts anything near)";
+		if (!mayMove) return new CombatBailout(null, trigger + "; hold-ground choice forbids movement; no retreat attempted", "DRAGON_TOOK_OFF");
+		if (budget(remainingMs) == 0L) return new CombatBailout(null, trigger + "; action deadline reached; no retreat attempted", "DRAGON_TOOK_OFF");
+		return new CombatBailout(new ServerFleeController(dragon, SEPARATION, budget(remainingMs), now).retreatOnly(), trigger, "DRAGON_TOOK_OFF");
 	}
 
 	static long budget(long remainingMs) {
@@ -42,17 +62,21 @@ final class CombatBailout implements ServerController {
 	@Override
 	public TickResult tick(ServerPlayer player, long now) {
 		if (finished != null) return finished;
-		if (retreat == null) return finished = TickResult.failed("LOW_HEALTH_BAILOUT", trigger, 0.0D);
+		if (retreat == null) return finished = TickResult.failed(code, trigger, 0.0D);
 		TickResult result = retreat.tick(player, now);
 		if (result.state() == State.RUNNING) return TickResult.running(0.0D);
 		retreat.cancel(player);
-		return finished = receipt(trigger, result);
+		return finished = receipt(code, trigger, result);
 	}
 
 	static TickResult receipt(String trigger, TickResult retreat) {
+		return receipt("LOW_HEALTH_BAILOUT", trigger, retreat);
+	}
+
+	static TickResult receipt(String code, String trigger, TickResult retreat) {
 		// Escaping is not completing the requested kill/count. Preserve the bailout handoff code.
 		if (retreat.reasonCode().equals("AGENT_DEAD")) return retreat;
-		return TickResult.failed("LOW_HEALTH_BAILOUT", trigger + "; retreat attempted: " + retreat.reasonCode()
+		return TickResult.failed(code, trigger + "; retreat attempted: " + retreat.reasonCode()
 				+ "; " + retreat.message() + "; combat stopped; reassess before fighting again", 0.0D);
 	}
 
