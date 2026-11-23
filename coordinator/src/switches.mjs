@@ -131,11 +131,11 @@ export const SWITCHES = Object.freeze([
 		reason: 'Makes the lesson store read-only, for evaluation rounds (#17).',
 		readers: ['coordinator/src/experience-store.mjs experienceSettings (startup)'] }),
 	// coordinator/src/reflexes.mjs instinctsEnabled(environment): per call. Instincts.java enabled(): per call.
-	// On by default since INSTINCTS_PR, so practice rooms play as model games do. Off: MINEAGEN_INSTINCTS set to a list
+	// On by default since #185, so practice rooms play as model games do. Off: MINEAGEN_INSTINCTS set to a list
 	// without `instincts` (for example `off`), or -Dmineagen.instincts=false with the variable unset.
 	entry({ name: 'instincts', env: 'MINEAGEN_INSTINCTS', property: 'mineagen.instincts', side: 'both', default: true, parser: listHas('instincts', { unset: true }),
 		propertyParser: JAVA_GET_BOOLEAN, status: 'default-on',
-		reason: 'Issue 2 Step 2 instincts arm: stance, heal, pace, fight-through, weapon and food (#24). INSTINCTS_REASON',
+		reason: 'Issue 2 Step 2 instincts arm: stance, heal, pace, fight-through, weapon and food (#24). All 300 practice rooms x10, 23 Nov: passes 2,786 of 3,203 off against 2,811 of 3,218 on, deaths 75 against 63; one room changed: travel fights through a zombie instead of stopping (#185).',
 		readers: ['coordinator/src/reflexes.mjs instinctsEnabled (per call; env only)', 'Instincts.java enabled (per call; property or env)'] }),
 	// ServerTravelController.java walkAroundEnabled(): per call; property or env.
 	entry({ name: 'travel.walkAround', env: 'MINEAGEN_TRAVEL_WALK_AROUND', property: 'mineagen.travel.walkAround', side: 'server', default: false, parser: ON_WORD,
