@@ -3133,7 +3133,9 @@ final class ReflexActions {
 			if (target == null) {
 				if (!inBody) return stop(level, "could not place the last wall");
 				// Coming down from the jump that put a block on top of a wall: the roof cell is free once the body lands.
-				input.accept(look(player, null, 0.0F, 0.0F, false, false, player.getInventory().getSelectedSlot(), InteractionHand.MAIN_HAND));
+				// Crouched, a body afloat in the cell's water goes down instead of bobbing at the top.
+				input.accept(new AgentInputState(0.0F, 0.0F, false, true, false, false, false, player.getYRot(), player.getXRot(),
+						player.getInventory().getSelectedSlot(), InteractionHand.MAIN_HAND));
 				return Step.running("landing before the roof over the cell to shut out " + type(shooter));
 			}
 			int slot = PlaceBlock.blockSlot(player, null);
@@ -3149,7 +3151,8 @@ final class ReflexActions {
 					return Step.running("could not reach the wall top to roof over the cell");
 				}
 				Vec3 top = Vec3.atCenterOf(target.below()).add(0.0D, 0.5D, 0.0D);
-				input.accept(look(player, top, 0.0F, 0.0F, true, false, slot, InteractionHand.MAIN_HAND));
+				// Jump held only until the eye clears the wall top: in water the body keeps rising while it is held.
+				input.accept(look(player, top, 0.0F, 0.0F, player.getEyeY() < top.y + 0.15D, false, slot, InteractionHand.MAIN_HAND));
 				return Step.running("jumping to put a block on the wall top to roof over the cell from " + type(shooter));
 			}
 			if (face == null) { skipped.add(target); return Step.running("no face to place against at " + target.toShortString()); }
