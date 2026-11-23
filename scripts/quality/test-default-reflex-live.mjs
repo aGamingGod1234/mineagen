@@ -216,7 +216,7 @@ async function shelterFire(agent) {
 	const row = { case: 'shelter-fire', agent: agent.name, mode: agent.mode, ...(await watch(agent, start)) };
 	await poll;
 	row.tick = await playEnd(play);
-	row.fireLeft = /passed/i.test(await command(`execute if block ${agent.ox} 81 30 minecraft:fire`).catch(() => ''));
+	row.fireLeft = /passed/i.test(await command(`execute if block ${agent.ox} 81 30 minecraft:fire`).catch(() => 'passed'));
 	row.fireOutS = fireOutS;
 	// The bar: the reflex put the fire out. Burning a few seconds is survivable, so being alive alone cannot tell a punch
 	// from standing in the fire (the rule-less control lives too). The control's row is recorded, not judged.
