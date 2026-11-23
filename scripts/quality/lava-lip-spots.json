@@ -67,6 +67,26 @@
 						"ticks": 20
 					}
 				}
+			},
+			{
+				"name": "act",
+				"arguments": {
+					"actionType": "control",
+					"arguments": {
+						"forward": 0,
+						"strafe": 0,
+						"jump": false,
+						"sneak": false,
+						"sprint": false,
+						"attack": false,
+						"use": false,
+						"yaw": -90,
+						"pitch": 0,
+						"selectedSlot": 0,
+						"hand": "main",
+						"ticks": 60
+					}
+				}
 			}
 		]
 	},
@@ -80,7 +100,7 @@
 			}
 		],
 		"monsters": false,
-		"note": "The same deck; the body holds a 40-tick sprint east toward the lip with no jump (raw control keys). Pass is no lava and no death.",
+		"note": "The same deck; the body holds a 40-tick sprint east toward the lip with no jump (raw control keys). Pass is no damage and no death after a 3-second idle at the end.",
 		"setup": [
 			"execute in minecraft:the_nether run forceload add 80 80 120 120",
 			"execute in minecraft:the_nether run fill 82 128 82 118 140 118 minecraft:air",
@@ -138,6 +158,26 @@
 						"ticks": 40
 					}
 				}
+			},
+			{
+				"name": "act",
+				"arguments": {
+					"actionType": "control",
+					"arguments": {
+						"forward": 0,
+						"strafe": 0,
+						"jump": false,
+						"sneak": false,
+						"sprint": false,
+						"attack": false,
+						"use": false,
+						"yaw": -90,
+						"pitch": 0,
+						"selectedSlot": 0,
+						"hand": "main",
+						"ticks": 60
+					}
+				}
 			}
 		]
 	},
@@ -151,7 +191,7 @@
 			}
 		],
 		"monsters": false,
-		"note": "A low deck, then one block up a 1-wide walkway turning north over the lava sea (6 down): move_to the walkway end makes the walk jump up onto a narrow block whose far side drops into lava, the fortress-search death at gate-5. Pass is arriving with no lava and no death.",
+		"note": "A low deck, then one block up a 1-wide walkway turning north over the lava sea (6 down): move_to the walkway end makes the walk jump up onto a narrow block whose far side drops into lava, the fortress-search death at gate-5. Pass is no damage and no death after a 3-second idle at the end.",
 		"setup": [
 			"execute in minecraft:the_nether run forceload add 80 80 120 120",
 			"execute in minecraft:the_nether run fill 82 128 82 118 140 118 minecraft:air",
@@ -204,9 +244,28 @@
 						"timeoutMs": 60000
 					}
 				}
+			},
+			{
+				"name": "act",
+				"arguments": {
+					"actionType": "control",
+					"arguments": {
+						"forward": 0,
+						"strafe": 0,
+						"jump": false,
+						"sneak": false,
+						"sprint": false,
+						"attack": false,
+						"use": false,
+						"yaw": -90,
+						"pitch": 0,
+						"selectedSlot": 0,
+						"hand": "main",
+						"ticks": 60
+					}
+				}
 			}
-		],
-		"expectCode": "DESTINATION_REACHED"
+		]
 	},
 	{
 		"name": "lava-deck-walk",
@@ -218,7 +277,7 @@
 			}
 		],
 		"monsters": false,
-		"note": "A 3-wide, 17-long deck 5 above the lava sea; move_to from one end of its south lip lane to the other. Pass is arriving with no lava and no death; the trail shows which lane the walk kept to.",
+		"note": "A 3-wide, 17-long deck 5 above the lava sea; move_to from one end of its south lip lane to the other. Pass is no damage and no death after a 3-second idle at the end; the trail shows which lane the walk kept to.",
 		"setup": [
 			"execute in minecraft:the_nether run forceload add 80 80 120 120",
 			"execute in minecraft:the_nether run fill 82 128 82 118 140 118 minecraft:air",
@@ -269,9 +328,28 @@
 						"timeoutMs": 60000
 					}
 				}
+			},
+			{
+				"name": "act",
+				"arguments": {
+					"actionType": "control",
+					"arguments": {
+						"forward": 0,
+						"strafe": 0,
+						"jump": false,
+						"sneak": false,
+						"sprint": false,
+						"attack": false,
+						"use": false,
+						"yaw": -90,
+						"pitch": 0,
+						"selectedSlot": 0,
+						"hand": "main",
+						"ticks": 60
+					}
+				}
 			}
-		],
-		"expectCode": "DESTINATION_REACHED"
+		]
 	},
 	{
 		"name": "lava-deck-skeleton",
@@ -283,7 +361,7 @@
 			}
 		],
 		"monsters": true,
-		"note": "The 3-wide deck with a caged skeleton 5 blocks off its south lip shooting through a window; move_to along the south lip lane, no shield. Pass is arriving with no death.",
+		"note": "The 3-wide deck with a caged skeleton 5 blocks off its south lip shooting through a window; move_to along the south lip lane, no shield. Pass is no death after a 3-second idle at the end; damage is recorded.",
 		"setup": [
 			"execute in minecraft:the_nether run forceload add 80 80 120 120",
 			"execute in minecraft:the_nether run fill 82 128 82 118 140 118 minecraft:air",
@@ -341,8 +419,27 @@
 						"timeoutMs": 60000
 					}
 				}
+			},
+			{
+				"name": "act",
+				"arguments": {
+					"actionType": "control",
+					"arguments": {
+						"forward": 0,
+						"strafe": 0,
+						"jump": false,
+						"sneak": false,
+						"sprint": false,
+						"attack": false,
+						"use": false,
+						"yaw": -90,
+						"pitch": 0,
+						"selectedSlot": 0,
+						"hand": "main",
+						"ticks": 60
+					}
+				}
 			}
-		],
-		"expectCode": "DESTINATION_REACHED"
+		]
 	}
 ]
