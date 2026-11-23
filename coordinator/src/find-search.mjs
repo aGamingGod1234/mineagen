@@ -1524,7 +1524,10 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 			// opened an aquifer over the body; the search climbed 36 blocks back to its start and the find timed out (0/20),
 			// where a dig that walled its water off at y38 tunnelled on and found iron. Its own tries: the search's escapes
 			// can be spent near the surface before the descent.
-			if (wetDig && wet && atOreDepth(at) && depthEscapes < MAX_ESCAPES) {
+			// The water often reaches the body a moment after the dig stops: then the next dig or tunnel is the one refused
+			// with the body under water (20261107: the tunnel west on, "The body is under water ... not digging on").
+			const drowned = /^(dig|tunnel)/.test(lastHow) && lastLeg?.underWater === true;
+			if ((wetDig || drowned) && wet && atOreDepth(at) && depthEscapes < MAX_ESCAPES) {
 				depthEscapes += 1;
 				const out = await settle(await leg('escape the water at depth', 'escape', { timeoutMs: 60_000 }));
 				if (out !== null) return out;
