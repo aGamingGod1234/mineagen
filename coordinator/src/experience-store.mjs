@@ -5,6 +5,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'nod
 import { fileURLToPath } from 'node:url';
 import { AtomicAgentStore } from './observed-memory-store.mjs';
 import { lessonId, validLesson } from './experience-lessons.mjs';
+import { getSwitch } from './switches.mjs';
 
 // Experience that outlives one world: one player profile's lessons, written by the coordinator's own review of
 // deaths and failures (never by the model), and read back in later games by situation.
@@ -74,8 +75,8 @@ export function experienceHash(value) {
  * MINEAGEN_EXPERIENCE_EXCLUDE_SEEDS a comma list of seed hashes whose lessons never load (the evaluation pool).
  */
 export function experienceSettings(environment = process.env, { checkoutRoot = CHECKOUT_ROOT } = {}) {
-	const mode = (environment.MINEAGEN_EXPERIENCE ?? 'off').trim().toLowerCase() || 'off';
-	if (!EXPERIENCE_MODES.includes(mode)) throw new TypeError(`MINEAGEN_EXPERIENCE must be one of ${EXPERIENCE_MODES.join(', ')}`);
+	// An unknown mode throws SwitchValueError (a TypeError): MINEAGEN_EXPERIENCE must be one of off, lessons.
+	const mode = getSwitch('experience', environment).value;
 	if (mode === 'off') return null;
 	const directory = environment.MINEAGEN_EXPERIENCE_DIR?.trim();
 	if (!directory) throw new TypeError('MINEAGEN_EXPERIENCE_DIR is required when MINEAGEN_EXPERIENCE is on');
@@ -87,7 +88,7 @@ export function experienceSettings(environment = process.env, { checkoutRoot = C
 	const profile = environment.MINEAGEN_EXPERIENCE_PROFILE?.trim() || 'default';
 	const seedHash = normalizeSeedHash(environment.MINEAGEN_WORLD_SEED_HASH);
 	const excludedSeedHashes = (environment.MINEAGEN_EXPERIENCE_EXCLUDE_SEEDS ?? '').split(',').map(normalizeSeedHash).filter(Boolean);
-	return Object.freeze({ mode, directory: resolve(directory), profile, frozen: environment.MINEAGEN_EXPERIENCE_FROZEN === '1', seedHash,
+	return Object.freeze({ mode, directory: resolve(directory), profile, frozen: getSwitch('experience.frozen', environment).value, seedHash,
 		excludedSeedHashes: Object.freeze([...new Set(excludedSeedHashes)]) });
 }
 

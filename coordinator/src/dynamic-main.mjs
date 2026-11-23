@@ -75,6 +75,7 @@ import { carriedFoodToEat, naturalRegeneration } from './fork-rule.mjs';
 // Danger triggers a running count skill handles itself when they come from its own mob (see countSkillKinds).
 const COUNT_SKILL_HELD = new Set(['damage', 'threat', 'projectile', 'fire']);
 import { DEFAULT_REFLEXES, DIMENSION_REFLEXES, ReflexBook, instinctsEnabled } from './reflexes.mjs';
+import { describeSwitches, resolveSwitches } from './switches.mjs';
 import { kitHabitEnabled } from './kit-habit.mjs';
 // Namespace import: situationStrategyTopic is optional, so the changed line works with or without it.
 import * as strategyReference from './minecraft-strategy-reference.mjs';
@@ -4834,6 +4835,7 @@ async function runCli(reporter = new RuntimeErrorReporter()) {
 	const config = await loadDynamicConfig(configPath);
 	const runtime = resolveDynamicCliRuntime(process.env);
 	const traceWriter = new TraceWriter(runtime.tracePath, { diagnosticFilePath: runtime.diagnosticTracePath });
+	logSwitches(process.env, traceWriter);
 	const protocolAudit = runtime.protocolAuditPath === null ? null : createJsonlAudit(runtime.protocolAuditPath, { runId: runtime.runId, scenarioId: runtime.scenarioId });
 	if (runtime.providerTurnsPath !== null) await mkdir(path.dirname(path.resolve(runtime.providerTurnsPath)), { recursive: true });
 	const providerTurnRecorder = runtime.providerTurnsPath === null ? null : new ProviderTurnRecorder({
@@ -4870,6 +4872,24 @@ async function runCli(reporter = new RuntimeErrorReporter()) {
 	watchCaptureShutdown(process.env.ARENA_CAPTURE_SHUTDOWN_PATH, shutdown);
 	process.once('SIGINT', shutdown);
 	process.once('SIGTERM', shutdown);
+}
+
+/**
+ * Every coordinator start names its gameplay switch set on stderr and in the trace. The server's -D switches show as `?`
+ * here (the mod logs its own line at server start). A value a reader refuses (an unknown experience mode) is logged as
+ * unreadable; the reader itself still refuses it as before.
+ */
+export function logSwitches(environment, traceWriter = null, log = (text) => console.error(text)) {
+	let switches;
+	try { switches = describeSwitches(resolveSwitches(environment)); } catch (error) {
+		try { log(`[coordinator] switches unreadable: ${error.message}`); } catch { /* console output is best effort */ }
+		return null;
+	}
+	try { log(`[coordinator] ${switches.line}`); } catch { /* console output is best effort */ }
+	if (traceWriter !== null && typeof traceWriter?.write === 'function') {
+		try { Promise.resolve(traceWriter.write('switches', { line: switches.line, record: switches.record })).catch(() => {}); } catch { /* trace is best effort */ }
+	}
+	return switches;
 }
 
 export async function startCoordinatorControl(coordinator, voiceSupervisor) {

@@ -2,6 +2,7 @@ import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { attachHits } from './danger-rows.mjs';
 import { refusedBeforeRunning } from './room-evidence.mjs';
+import { switchRecord } from './switch-record.mjs';
 
 const TERMINAL = new Set(['SUCCEEDED', 'FAILED', 'CANCELLED', 'TIMED_OUT']);
 
@@ -92,9 +93,12 @@ export function fixtureSummary(rows, { planned = rows.length } = {}) {
  * that ran in a known window gets row.hits, what hit the bot by attacker, from the Watcher's danger rows under the
  * file's folder (lib/danger-rows.mjs; a server booted by watch-replay.mjs boot() writes them).
  */
-export async function finishRun(rows, { file, planned = rows.length, strict = true, setExitCode = true, hits = true } = {}) {
+export async function finishRun(rows, { file, planned = rows.length, strict = true, setExitCode = true, hits = true, switches } = {}) {
 	if (file && hits) await attachHits(rows, path.dirname(file)).catch(() => null);
-	const summary = fixtureSummary(rows, { planned });
+	// The switch set this run played with: given by a caller that merges runs, else this process's environment and the
+	// line each server under the result's folder logged at start (lib/switch-record.mjs).
+	const played = switches !== undefined ? switches : await switchRecord(file ? path.dirname(file) : null).catch((error) => ({ error: error.message }));
+	const summary = { ...fixtureSummary(rows, { planned }), switches: played };
 	if (file) await writeFile(file, JSON.stringify(rows, null, 2) + '\n');
 	const exitCode = strict ? summary.status === 'INVALID' ? 2 : summary.status === 'FAIL' ? 1 : 0 : 0;
 	if (file) await writeFile(file.replace(/\.json$/, '-summary.json'), JSON.stringify({ ...summary, exitCode }, null, 2) + '\n');

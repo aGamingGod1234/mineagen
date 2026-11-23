@@ -31,6 +31,7 @@ import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-r
 import { MOD_JAR } from './mod-jar.mjs';
 import { deathCounter, deathEvidence } from './lib/damage-counter.mjs';
 import { kitHeld, kitMinutes, kitStatTotal, portalReady, routeCall, routeToolTimeout } from './lib/iron-kit-route.mjs';
+import { getSwitch } from '../../coordinator/src/switches.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const USAGE = 'Usage: test-iron-kit-live.mjs SEEDS.json OUT_DIR [JAR] [--coordinator TGZ|DIR] [--strict|--descriptive] under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME';
@@ -223,7 +224,7 @@ async function joinAgent(s, lane, nextSpot) {
 	};
 	// The kit habit is on in production (MINEAGEN_KIT_HABIT unset): equip the shield and armour, food in reach.
 	const runtime = new NativeToolRuntime({
-		kitHabit: String(process.env.MINEAGEN_KIT_HABIT ?? '').trim().toLowerCase() !== 'off',
+		kitHabit: getSwitch('kit.habit').value,
 		trace: (event, fields) => { if (event === 'native_obtain_step' && fields?.agentId === record.agentId) log.push({ t: Math.round((Date.now() - t0) / 1000), text: fields.text }); },
 		bridge: { send: async (type, agentId, payload) => { if (type === 'action_command') commands.set(payload.actionId, { actionType: payload.actionType, at: Date.now() }); return s.bridge.send(type, agentId, payload); } },
 		requestObservation: observe,

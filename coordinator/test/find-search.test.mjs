@@ -1492,11 +1492,12 @@ test('batch 1 r5 seed 3: a lava dig near water met under an earlier dig down tak
 	assert.equal(await run([{ x: 219, y: 65, z: -219, why: 'water under a dig down' }, { x: 219, y: 65, z: -209, why: 'water under a dig down' }]), 'steep_down');
 	assert.equal(await run([{ x: 100, y: 65, z: -219, why: 'water under a dig down' }]), 'steep_down', 'a lava find digs stairs, water met or not');
 	assert.equal(await run([]), 'steep_down', 'no water met: stairs, not the bucket shaft');
-	process.env.MINEAGEN_LAVA_SHAFT = 'on';
+	// Stairs off (the default): the bucket shaft.
+	delete process.env.MINEAGEN_LAVA_STAIRS;
 	try {
-		assert.equal(await run([{ x: 100, y: 65, z: -219, why: 'water under a dig down' }]), 'shaft', 'switch on: water met far off says nothing of the ground here');
-		assert.equal(await run([]), 'shaft', 'switch on: no water met, the bucket shaft as before');
-	} finally { delete process.env.MINEAGEN_LAVA_SHAFT; }
+		assert.equal(await run([{ x: 100, y: 65, z: -219, why: 'water under a dig down' }]), 'shaft', 'stairs off: water met far off says nothing of the ground here');
+		assert.equal(await run([]), 'shaft', 'stairs off: no water met, the bucket shaft as before');
+	} finally { process.env.MINEAGEN_LAVA_STAIRS = 'on'; }
 });
 
 test('lava-gate-1 and -8: a lava find from spawn digs stairs down, never the 1-wide shaft that flooded or dropped it into a mob cave', async (t) => {
