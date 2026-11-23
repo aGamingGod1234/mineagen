@@ -941,10 +941,12 @@ public final class MinecraftNavigationWorld implements WalkabilityView {
 
 	private BlockState stateAt(int x, int y, int z) {
 		long key = BlockPos.asLong(x, y, z);
-		boolean retained = states.containsKey(key);
-		if (retained && (!refreshCached || refreshed.contains(key))) return states.get(key);
+		// One probe for a cell held with a state; only a held unknown (null) needs the containsKey.
+		BlockState cached = states.get(key);
+		boolean retained = cached != null || states.containsKey(key);
+		if (retained && (!refreshCached || refreshed.contains(key))) return cached;
 		BlockState state = acquiredState(seen, x, y, z);
-		if (retained && state != states.get(key)) {
+		if (retained && state != cached) {
 			cells.remove(new GridPosition(x, y, z));
 			shapeDependencies.remove(key);
 			sweptJumps.clear();
