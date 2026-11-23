@@ -15,6 +15,8 @@
 // scripts/quality/boat-pool.mjs status): free running machines of the same image and size are leased with no boat start,
 // only a shortfall is created (paced under the sandbox start rate limits), and every healthy machine goes back to the
 // pool running when the batch is done with it, for --idle-ttl minutes (ROOM_BATCH_IDLE_TTL_MIN, default 60), and keepalive --warm keeps only the most recent ones.
+// --extra-starts (or ROOM_BATCH_EXTRA_STARTS=1) lets new machines start past the plan's hour and day start limits, up to
+// the wallet's (startLimitsWithWallet in `boat limits`), each such start billed to the wallet; off by default.
 // --machines ID,ID,... (or ROOM_BATCH_MACHINES) uses exactly those running machines instead, made from the image: each is
 // leased so no other batch takes it at once, cleaned the same way, and given back running; none is created or deleted.
 // --ephemeral (or --no-reuse) makes throwaway machines and deletes them, as before. --pool windows plays on the PCs
@@ -49,11 +51,11 @@ import { lithiumJar, targetProperties } from '../prepare-server-template.mjs';
 import { AI_ARM, SCRIPT_ARM, aiRoomCommands, findRefreshedSignIn, selectAiRooms } from './lib/ai-room-lines.mjs';
 import { runBatch } from './lib/room-batch-run.mjs';
 import { boatPool, buildBundle } from './lib/boat-pool.mjs';
-import { warmBoatPool } from './lib/boat-warm.mjs';
+import { extraStartsWanted, warmBoatPool } from './lib/boat-warm.mjs';
 import { parseWindowsHosts, windowsPool } from './lib/windows-pool.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
-const USAGE = 'Usage: room-batch.mjs --commands ROOMS.txt --arm NAME=JAR [--arm NAME=JAR] --pool boat|windows --vms N --out FRESH_DIR [--code REF] [--snapshot NAME] [--type TYPE] [--room-timeout MIN] [--name PREFIX] [--idle-ttl MIN] [--machines ID,...] [--valid N] [--keep-worlds] [--ephemeral] [--no-lithium] [--dry-run]\n       room-batch.mjs --player model --jar JAR --codex-auth AUTH.json [--ai-rooms ROOMS.json] [--rooms NAME,...] [--repeats N] [--no-script] [--model M] --pool boat --vms N --out FRESH_DIR [...]';
+const USAGE = 'Usage: room-batch.mjs --commands ROOMS.txt --arm NAME=JAR [--arm NAME=JAR] --pool boat|windows --vms N --out FRESH_DIR [--code REF] [--snapshot NAME] [--type TYPE] [--room-timeout MIN] [--name PREFIX] [--idle-ttl MIN] [--extra-starts] [--machines ID,...] [--valid N] [--keep-worlds] [--ephemeral] [--no-lithium] [--dry-run]\n       room-batch.mjs --player model --jar JAR --codex-auth AUTH.json [--ai-rooms ROOMS.json] [--rooms NAME,...] [--repeats N] [--no-script] [--model M] --pool boat --vms N --out FRESH_DIR [...]';
 
 function parseFlags(argv) {
 	const flags = { arms: [] };
@@ -64,6 +66,7 @@ function parseFlags(argv) {
 		else if (flag === '--no-script') flags.noScript = true;
 		else if (flag === '--keep-worlds') flags.keepWorlds = true;
 		else if (flag === '--no-lithium') flags.noLithium = true;
+		else if (flag === '--extra-starts') flags.extraStarts = true;
 		else if (flag === '--codex-auth' && flags.codexAuth) flags.codexAuth += `,${argv[++i]}`;
 		else if (flag === '--ephemeral' || flag === '--no-reuse') flags.ephemeral = true;
 		else if (flag === '--arm') { const [name, ...jar] = String(argv[++i] ?? '').split('='); flags.arms.push({ name, jar: jar.join('=') }); }
@@ -120,6 +123,7 @@ const idleTtlMinutes = Number(flags.idleTtl ?? process.env.ROOM_BATCH_IDLE_TTL_M
 if (!Number.isFinite(idleTtlMinutes) || idleTtlMinutes < 5 || idleTtlMinutes > 30 * 24 * 60) fail('--idle-ttl wants 5 to 43200 minutes');
 const startsPerMinute = Number(process.env.ROOM_BATCH_STARTS_PER_MINUTE ?? 20);
 if (!Number.isInteger(startsPerMinute) || startsPerMinute < 1) fail('ROOM_BATCH_STARTS_PER_MINUTE wants a whole number of at least 1');
+const extraStarts = extraStartsWanted(flags.extraStarts);
 commandsText ??= await readFile(flags.commands, 'utf8');
 const rooms = parseCommands(commandsText, flags.arms.map(arm => arm.name));
 const out = path.resolve(flags.out);
@@ -185,7 +189,7 @@ const logFile = path.join(out, 'batch.log');
 // A failed log write (a full disk) must never end the process before the machines are deleted.
 const log = async message => { const line = `${new Date().toISOString()} ${message}`; console.log(line); await writeFile(logFile, line + '\n', { flag: 'a' }).catch(() => {}); };
 const pool = windowsHosts ? windowsPool({ hosts: windowsHosts, batchName: batch.name, bundle, log })
-	: warmPool ? warmBoatPool({ snapshot, type, ttlSeconds: 7200, idleTtlSeconds: Math.round(idleTtlMinutes * 60), startsPerMinute, machines: machines.length ? machines : null, batch: batch.name, bundle, log })
+	: warmPool ? warmBoatPool({ snapshot, type, ttlSeconds: 7200, idleTtlSeconds: Math.round(idleTtlMinutes * 60), startsPerMinute, extraStarts, machines: machines.length ? machines : null, batch: batch.name, bundle, log })
 	: boatPool({ snapshot, type, ttlSeconds: 7200, namePrefix: batch.name, bundle, log });
 const began = new Date().toISOString();
 // A model batch stops at the first fetched room whose Codex sign-in was refreshed: the rotation can sign out every other

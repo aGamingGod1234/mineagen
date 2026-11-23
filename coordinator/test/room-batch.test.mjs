@@ -1180,7 +1180,7 @@ if (command === 'new') {
 	save(box); out({ event: 'ready', id: box.id });
 } else if (command === 'list') out({ sandboxes: readdirSync(boxes).map(file => JSON.parse(readFileSync(path.join(boxes, file), 'utf8'))) });
 else if (command === 'snapshots') out({ named: process.env.FAKE_BOAT_SNAPSHOTS ? JSON.parse(process.env.FAKE_BOAT_SNAPSHOTS) : [{ name: 'img', snapshotId: process.env.FAKE_BOAT_SNAPSHOT_ID ?? 'sid-1' }] });
-else if (command === 'limits') out({ starts: { minute: { remaining: 30 }, hour: { remaining: Number(process.env.FAKE_BOAT_HOUR_LEFT ?? 100) }, day: { remaining: 500 } } });
+else if (command === 'limits') out(process.env.FAKE_BOAT_LIMITS ? JSON.parse(process.env.FAKE_BOAT_LIMITS) : { starts: { minute: { remaining: 30 }, hour: { remaining: Number(process.env.FAKE_BOAT_HOUR_LEFT ?? 100) }, day: { remaining: 500 } } });
 else if (command === 'info') { const box = read(id); if (!box) { console.error('sandbox not found'); process.exit(1); } out({ sandbox: { ...box, hydrated: Date.now() - Date.parse(box.createdAt) >= Number(process.env.FAKE_BOAT_HYDRATE_MS ?? 0) } }); }
 else if (command === 'extend') { const box = read(id); box.archiveAfter = iso(Date.now() + Number(opt('--ttl')) * 1000); save(box); out({}); }
 else if (command === 'delete') { rmSync(path.join(boxes, id + '.json'), { force: true }); out({}); }
@@ -1211,7 +1211,7 @@ async function fakeBoat(env = {}) {
 	};
 }
 const { leaseStore } = await import('../../scripts/quality/lib/pool-leases.mjs');
-const { warmBoatPool, rateLimited, poolMember, machineName } = await import('../../scripts/quality/lib/boat-warm.mjs');
+const { warmBoatPool, rateLimited, poolMember, machineName, startWindows, extraStartsWanted } = await import('../../scripts/quality/lib/boat-warm.mjs');
 const quiet = process.env.POOL_TEST_LOG ? message => console.log(`${Date.now() % 100000} ${message}`) : () => {};
 const warm = (fake, extra = {}) => warmBoatPool({ snapshot: 'img', type: 'default', store: leaseStore({ dir: fake.poolDir }), log: quiet, roomPorts: [1, 0], startsPerMinute: 600, ...extra });
 const exited = child => new Promise(resolve => { if (child.exitCode !== null || child.signalCode !== null) resolve(); else child.once('exit', resolve); });
@@ -1348,6 +1348,103 @@ test('machine starts are paced over every batch on the computer, a full minute i
 		await assert.rejects(warm(full).create(), /hour sandbox start limit has 3 starts left/);
 		assert.equal((await full.calls('new')).length, 0);
 	} finally { await full.close(); }
+});
+
+// Made-up limits: the plan allows 100 starts a day and 25 an hour, the wallet 600 and 150.
+const limitsJson = ({ dayUsed, hourUsed = 10, wallet = { perDay: 600, perHour: 150, perMinute: 90 } }) => JSON.stringify({
+	starts: { minute: { limit: 30, remaining: 30, used: 0 }, hour: { limit: 25, remaining: Math.max(25 - hourUsed, 0), used: hourUsed }, day: { limit: 100, remaining: Math.max(100 - dayUsed, 0), used: dayUsed }, unlimited: false },
+	...(wallet ? { startLimitsWithWallet: wallet } : {}),
+});
+
+test('extra starts check the wallet\'s start windows, keep the reserve, and say once a batch that a start went past the plan', { skip: process.platform === 'win32' }, async () => {
+	const limits = JSON.parse(limitsJson({ dayUsed: 104 }));
+	assert.equal(startWindows(limits), limits.starts, 'off: the plan\'s windows');
+	const on = startWindows(limits, { extraStarts: true });
+	assert.deepEqual(on.day, { limit: 600, remaining: 496, used: 104, planLimit: 100, planRemaining: -4 }, 'counted from used: the plan\'s remaining stops at 0');
+	assert.deepEqual(on.hour, { limit: 150, remaining: 140, used: 10, planLimit: 25, planRemaining: 15 });
+	assert.deepEqual(on.minute, limits.starts.minute, 'the minute window is the plan\'s');
+	const missing = [];
+	assert.deepEqual(startWindows(JSON.parse(limitsJson({ dayUsed: 104, wallet: null })), { extraStarts: true, fallback: window => missing.push(window) }).day, limits.starts.day, 'no wallet limits: the plan\'s window');
+	assert.deepEqual(missing, ['hour', 'day']);
+	for (const [flag, env, want] of [[true, undefined, true], [undefined, '1', true], [undefined, 'on', true], [undefined, ' TRUE ', true], [undefined, '0', false], [undefined, '', false], [undefined, 'false', false], [undefined, undefined, false]]) assert.equal(extraStartsWanted(flag, env), want, `flag ${flag} env ${env}`);
+
+	const logged = () => { const lines = []; return { lines, log: line => lines.push(line) }; };
+	// The plan's day window is full: off refuses a new machine, as before.
+	const full = await fakeBoat({ FAKE_BOAT_LIMITS: limitsJson({ dayUsed: 104 }) });
+	try {
+		await assert.rejects(warm(full).create(), /the day sandbox start limit has 0 starts left, keeping 5 in reserve/);
+		assert.equal((await full.calls('new')).length, 0);
+		// On: three starts go ahead under the wallet's window, and the batch says once that they are past the plan.
+		const { lines, log } = logged();
+		const pool = warm(full, { extraStarts: true, log });
+		for (let i = 0; i < 3; i++) await pool.startNew();
+		assert.equal((await full.calls('new')).length, 3);
+		const past = lines.filter(line => /past the plan/.test(line));
+		assert.equal(past.length, 1, lines.join('\n'));
+		assert.match(past[0], /day start 105 of 100/);
+		assert.doesNotMatch(past[0], /hour/, 'the hour window is still inside the plan');
+		pool.store.stop();
+	} finally { await full.close(); }
+
+	// One start left in the plan's day: the first start is inside it and says nothing, the second goes past it.
+	const edge = await fakeBoat({ FAKE_BOAT_LIMITS: limitsJson({ dayUsed: 99 }) });
+	try {
+		const { lines, log } = logged();
+		const pool = warm(edge, { extraStarts: true, log });
+		await pool.startNew();
+		assert.deepEqual(lines.filter(line => /past the plan/.test(line)), []);
+		await pool.startNew();
+		assert.match(lines.filter(line => /past the plan/.test(line)).join('\n'), /^[^\n]*day start 101 of 100[^\n]*$/);
+		pool.store.stop();
+	} finally { await edge.close(); }
+
+	// Starts in the 30 s before the read are already in its used count: they keep the reserve strict but are not counted
+	// again toward the plan, so start 836 of 840 is not called past it.
+	const ledgerDir = await mkdtemp(path.join(os.tmpdir(), 'pool-extra-'));
+	try {
+		const store = leaseStore({ dir: ledgerDir });
+		const readAt = Date.now();
+		await store.poolId();
+		await writeFile(path.join(ledgerDir, 'starts.json'), JSON.stringify(Array.from({ length: 8 }, (_, i) => readAt - 5_000 - i * 2_500)));
+		const read = startWindows(JSON.parse(limitsJson({ dayUsed: 95, wallet: { perDay: 600, perHour: 150 } })), { extraStarts: true });
+		const calls = [];
+		await store.reserveStart({ perMinute: 600, minGapMs: 0, budget: { starts: read, readAt, reserve: 5 }, onPastPlan: windows => calls.push(windows) });
+		assert.deepEqual(calls, [], 'start 96 of 100 is inside the plan');
+		for (let i = 0; i < 5; i++) await store.reserveStart({ perMinute: 600, minGapMs: 0, budget: { starts: read, readAt, reserve: 5 }, onPastPlan: windows => calls.push(windows) });
+		assert.deepEqual(calls, [[{ window: 'day', start: 101, planLimit: 100 }]], 'only the sixth start after the read (start 101) is past the plan');
+		store.stop();
+	} finally { await rm(ledgerDir, { recursive: true, force: true }); }
+
+	// The wallet's day window at the reserve still refuses, and names the extra starts.
+	const wallet = await fakeBoat({ FAKE_BOAT_LIMITS: limitsJson({ dayUsed: 104, wallet: { perDay: 107, perHour: 150, perMinute: 90 } }) });
+	try {
+		await assert.rejects(warm(wallet, { extraStarts: true }).create(), /the day sandbox start limit with extra starts has 3 starts left, keeping 5 in reserve/);
+		assert.equal((await wallet.calls('new')).length, 0);
+	} finally { await wallet.close(); }
+
+	// No wallet limits in the read: the plan's window applies, and the batch says why once.
+	const none = await fakeBoat({ FAKE_BOAT_LIMITS: limitsJson({ dayUsed: 104, wallet: null }) });
+	try {
+		const { lines, log } = logged();
+		const pool = warm(none, { extraStarts: true, log });
+		await assert.rejects(pool.create(), /the day sandbox start limit has 0 starts left/);
+		await assert.rejects(pool.startNew(), /the day sandbox start limit has 0 starts left/);
+		assert.equal(lines.filter(line => /gave no wallet day limit/.test(line)).length, 1, lines.join('\n'));
+		assert.equal((await none.calls('new')).length, 0);
+	} finally { await none.close(); }
+
+	// boat-pool.mjs warm takes --extra-starts as a switch (the --snapshot after it is still read), and the env var also turns it on.
+	const cli = fileURLToPath(new URL('../../scripts/quality/boat-pool.mjs', import.meta.url));
+	for (const [args, env] of [[['warm', '1', '--extra-starts', '--snapshot', 'img'], {}], [['warm', '1', '--snapshot', 'img'], { ROOM_BATCH_EXTRA_STARTS: '1' }], [['warm', '1', '--snapshot', 'img'], {}]]) {
+		const fake = await fakeBoat({ FAKE_BOAT_LIMITS: limitsJson({ dayUsed: 104 }) });
+		try {
+			const run = spawnSync(process.execPath, [cli, ...args], { env: { ...process.env, ROOM_BATCH_POOL_DIR: fake.poolDir, ROOM_BATCH_EXTRA_STARTS: '', ...env }, encoding: 'utf8' });
+			const on = args.includes('--extra-starts') || env.ROOM_BATCH_EXTRA_STARTS;
+			assert.equal(run.status, on ? 0 : 1, run.stdout + run.stderr);
+			assert.equal((await fake.calls('new')).length, on ? 1 : 0);
+			assert.equal((run.stdout.match(/past the plan/g) ?? []).length, on ? 1 : 0, run.stdout);
+		} finally { await fake.close(); }
+	}
 });
 
 test('only machines this computer\'s pool named are members', () => {
