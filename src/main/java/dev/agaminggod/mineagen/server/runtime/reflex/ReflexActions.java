@@ -2765,6 +2765,7 @@ final class ReflexActions {
 		private final int slot;
 		private int ticks;
 		private int held;
+		private int knockedAt = -1;
 
 		private RiseAboveCloud(int fromY, int goalY, int slot) {
 			this.fromY = fromY;
@@ -2813,7 +2814,8 @@ final class ReflexActions {
 				// afresh (run or rise again) rather than counting the hit as a failed climb.
 				input.accept(new AgentInputState(0.0F, 0.0F, false, false, false, false, false, player.getYRot(), player.getXRot(),
 						player.getInventory().getSelectedSlot(), InteractionHand.MAIN_HAND));
-				if (player.onGround() || ticks > TICKS_PER_BLOCK) return Step.done(String.format(Locale.ROOT, "knocked off the stand over the breath cloud: feet y %d of %d", feet, goalY));
+				if (knockedAt < 0) knockedAt = ticks;
+				if (player.onGround() || ticks - knockedAt > TICKS_PER_BLOCK) return Step.done(String.format(Locale.ROOT, "knocked off the stand over the breath cloud: feet y %d of %d", feet, goalY));
 				return Step.running("knocked off the stand over the breath cloud; landing");
 			}
 			if (ticks > TICKS_PER_BLOCK * (goalY - fromY)) return Step.failed(String.format(Locale.ROOT, "could not climb out of the breath: feet y %d of %d", feet, goalY));

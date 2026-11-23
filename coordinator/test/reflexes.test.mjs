@@ -461,5 +461,10 @@ test('a pour held against an angry enderman is remembered from its running repor
 	book.observe('a', { revision: 1, rules: [], events: [{ seq: 2, id: 'default-ender-water', outcome: 'done', ms: 2000, detail: 'poured water at feet 5,60,-3, stood in it until no angry enderman was near, and scooped it back' }] });
 	book.observeContext('a', at(1));
 	assert.deepEqual(book.pours('a', at(1)), [], 'the scooped pour is forgotten');
+	// Held, then the source vanished under the body: the end report says so and the pour is forgotten with no scoop.
+	book.observe('a', { revision: 1, rules: [], events: [], firing: { id: 'default-ender-water', ms: 400, detail: 'placed minecraft:water_bucket at feet 7,60,-3; standing in it while an angry enderman is near' } });
+	assert.deepEqual(book.pours('a', end), [{ x: 7, y: 60, z: -3 }]);
+	book.observe('a', { revision: 1, rules: [], events: [{ seq: 3, id: 'default-ender-water', outcome: 'done', ms: 1500, detail: 'poured water at feet 7,60,-3; the source is gone' }] });
+	assert.deepEqual(book.pours('a', end), [], 'a pour whose source is gone is forgotten');
 	book.clear('a');
 });
