@@ -13,7 +13,7 @@ final class CombatBailout implements ServerController {
 	static final double SEPARATION = 12.0D;
 	private final ServerController retreat;
 	private final String trigger;
-	/** The receipt's reason code: LOW_HEALTH_BAILOUT, or TARGET_ESCAPED for a dragon that lifted off its perch. */
+	/** The receipt's reason code: LOW_HEALTH_BAILOUT, or DRAGON_TOOK_OFF for a dragon that lifted off its perch. */
 	private final String code;
 	private TickResult finished;
 
@@ -35,9 +35,9 @@ final class CombatBailout implements ServerController {
 	 */
 	static CombatBailout dragonTakeoff(ServerPlayer player, Entity dragon, boolean mayMove, long remainingMs, long now) {
 		String trigger = "The dragon stopped perching and is lifting off (its wings throw and its head hurts anything near)";
-		if (!mayMove) return new CombatBailout(null, trigger + "; hold-ground choice forbids movement; no retreat attempted", "TARGET_ESCAPED");
-		if (budget(remainingMs) == 0L) return new CombatBailout(null, trigger + "; action deadline reached; no retreat attempted", "TARGET_ESCAPED");
-		return new CombatBailout(new ServerFleeController(dragon, SEPARATION, budget(remainingMs), now).retreatOnly(), trigger, "TARGET_ESCAPED");
+		if (!mayMove) return new CombatBailout(null, trigger + "; hold-ground choice forbids movement; no retreat attempted", "DRAGON_TOOK_OFF");
+		if (budget(remainingMs) == 0L) return new CombatBailout(null, trigger + "; action deadline reached; no retreat attempted", "DRAGON_TOOK_OFF");
+		return new CombatBailout(new ServerFleeController(dragon, SEPARATION, budget(remainingMs), now).retreatOnly(), trigger, "DRAGON_TOOK_OFF");
 	}
 
 	static long budget(long remainingMs) {

@@ -1762,6 +1762,7 @@ final class ReflexActions {
 		static final double HOLD_DRAGON_RANGE = 24.0D;
 		static final int HOLD_TICKS = 200;
 		static final int CALM_TICKS = 10;
+		static final int HOLD_SETTLE_TICKS = 3;
 
 		Place(String item, String where) {
 			this.item = item;
@@ -1871,6 +1872,9 @@ final class ReflexActions {
 			Vec3 centre = Vec3.atCenterOf(heldWater);
 			if (player.getEyePosition().distanceTo(centre) > player.blockInteractionRange()) return Step.done(left + " (the body moved off it)");
 			if (calmTicks < CALM_TICKS) {
+				// Knocked onto dry ground within reach of the source, standing still would hold the body exposed: the hold ends
+				// (a few ticks first, for the body's water state to catch up with the pour).
+				if (holdTicks > HOLD_SETTLE_TICKS && !player.isInWater()) return Step.done(left + " (the body was pushed out of it)");
 				if (!level.getEntitiesOfClass(net.minecraft.world.entity.boss.enderdragon.EnderDragon.class, player.getBoundingBox().inflate(HOLD_DRAGON_RANGE), Entity::isAlive).isEmpty()) {
 					return Step.done(left + " (the dragon came near)");
 				}
