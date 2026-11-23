@@ -3,6 +3,7 @@
 import { spawn } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, readdir, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
+import { judgeExitRun } from './benchmark-score.mjs';
 import { finishRun, roomVerdict } from './fixture-run.mjs';
 import { mergeSwitchRecords } from './switch-record.mjs';
 
@@ -216,8 +217,10 @@ export async function armRows(dir) {
  * Per arm, the rows of every room folder (OUT/rooms/ROOM/ARM/result.json) go through finishRun into OUT/ARM/result.json.
  * planned counts every room's rows, and each row a lost or crashed room did not bring back is an INVALID row of that
  * room that never started (so it shows in invalid and in notStarted): the arm reads INVALID, never short.
+ * A room whose fixture writes no finishRun rows file at all (an exit-code room) is one row judged by its exit code and
+ * its own JSON, as the benchmark scorer judges it (judgeExitRun); meta, by room name or repeat group, gives its bar.
  */
-export async function mergeArms({ out, rooms, arms, outcomes }) {
+export async function mergeArms({ out, rooms, arms, outcomes, meta = {} }) {
 	const byRoom = new Map(outcomes.map(outcome => [outcome.room, outcome]));
 	const merged = {};
 	for (const arm of arms) {
@@ -229,6 +232,21 @@ export async function mergeArms({ out, rooms, arms, outcomes }) {
 			// A lost room counts no rows, whatever a partial copy left behind; it is all notStarted.
 			// The rows and their summary are the NAME.json / NAME-summary.json pair finishRun wrote (armRows).
 			const found = outcome.lost ? { rows: [], summary: null, problem: null } : await armRows(dir);
+			const run = outcome.arms?.[arm] ?? {};
+			// Rows an arm wrote before the room timeout, a signal or a launch error killed it are not a finished run.
+			const killed = run.timedOut ? 'room timeout' : run.signal ? `signal ${run.signal}` : run.error ? `launch error: ${run.error}` : null;
+			if (!outcome.lost && !found.file && !found.problem && !found.rows.length) {
+				const judged = await judgeExitRun(dir, { run, killed, log: path.join(out, 'rooms', room.room, `${arm}.log`), meta: meta[room.room] ?? meta[repeatGroup(room.room)] ?? null });
+				planned += 1;
+				switchRecords.push(null);
+				// The arm ran, so its row started: its clock is the run's own, from 0 to the room's seconds.
+				rows.push({ name: room.room, room: room.room, host: outcome.worker ?? null, attempts: outcome.attempts ?? 0, cantKeepUp: run.cantKeepUp ?? null, exitOnly: true,
+					pass: judged.verdict === 'PASS' ? true : judged.verdict === 'FAIL' ? false : null,
+					...(judged.verdict === 'INVALID' ? { measurementStatus: 'INVALID', measurementReason: judged.reason } : judged.verdict === 'FAIL' ? { failReason: judged.reason } : {}),
+					startedAt: 0, finishedAt: Number.isFinite(run.seconds) ? run.seconds * 1000 : null, deaths: judged.deaths, damageTaken: judged.damage });
+				perRoom.push({ room: room.room, lost: false, reason: null, rows: 1, planned: 1, exit: run.exit ?? null, seconds: run.seconds ?? null, timedOut: !!run.timedOut, cantKeepUp: run.cantKeepUp ?? null });
+				continue;
+			}
 			const own = found.summary;
 			const ownValid = Boolean(own && typeof own === 'object' && Number.isInteger(own.planned));
 			if (!outcome.lost) switchRecords.push(ownValid ? own.switches ?? null : null);
@@ -245,10 +263,7 @@ export async function mergeArms({ out, rooms, arms, outcomes }) {
 			// A lost or invalid room always plans at least one row, so it can never leave the arm reading as a clean PASS.
 			const roomPlanned = outcome.lost || roomInvalid ? Math.max(basePlanned, 1) : basePlanned;
 			planned += roomPlanned;
-			const run = outcome.arms?.[arm] ?? {};
 			const roomRows = found.rows;
-			// Rows an arm wrote before the room timeout, a signal or a launch error killed it are not a finished run.
-			const killed = run.timedOut ? 'room timeout' : run.signal ? `signal ${run.signal}` : run.error ? `launch error: ${run.error}` : null;
 			const roomFlags = [...(killed ? [`arm killed (${killed})`] : []), ...(roomInvalid ? [roomInvalid] : [])];
 			for (const row of roomRows) rows.push({ ...row, ...(roomFlags.length ? { integrity: [...(Array.isArray(row.integrity) ? row.integrity : []), ...roomFlags] } : {}),
 				room: room.room, host: outcome.worker ?? null, attempts: outcome.attempts ?? 0, cantKeepUp: run.cantKeepUp ?? null });
@@ -324,14 +339,16 @@ export const repeatGroup = name => String(name).replace(/(?:\.c\d+|-r\d+)$/, '')
 
 /**
  * One arm of a fetched room: { valid, rows }. valid counts its PASS or FAIL rows, as the merge counts them (none when the
- * arm was killed, its rows file is ambiguous, or its summary is missing, corrupt or plans no rows); rows is how many runs
- * a copy of the room plays (its summary's planned), or null when that is unknown.
+ * arm was killed, its rows file is ambiguous, or its summary is missing, corrupt or plans no rows; an exit-code room is
+ * one run); rows is how many runs a copy of the room plays (its summary's planned), or null when that is unknown.
  */
 export async function armValidRuns(dir, run = {}) {
 	const found = await armRows(dir);
 	const planned = Number.isInteger(found.summary?.planned) && found.summary.planned > 0 ? found.summary.planned : null;
 	// A killed arm counts no valid run, but the runs its summary planned still size the copies.
 	if (run.timedOut || run.signal || run.error) return { valid: 0, rows: planned };
+	// An exit-code room (no rows file at all) is one run, valid when its exit code and own JSON judge it PASS or FAIL.
+	if (!found.file && !found.problem && !found.rows.length) return { valid: ['PASS', 'FAIL'].includes((await judgeExitRun(dir, { run })).verdict) ? 1 : 0, rows: 1 };
 	if (found.problem || planned === null) return { valid: 0, rows: null };
 	return { valid: found.rows.filter(row => row && typeof row === 'object' && ['PASS', 'FAIL'].includes(roomVerdict(row).verdict)).length, rows: found.summary.planned };
 }

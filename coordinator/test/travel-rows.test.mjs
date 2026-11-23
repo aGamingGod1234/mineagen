@@ -56,7 +56,7 @@ test('pickaxe wear is uses per 100 blocks gained, and a declared cap is the bar'
 	assert.equal(travelRow(course('t', { arrived: true, targetSeen: 'fortress', progressBlocks: 0, pickaxeUses: 0 }), { maxPickaxeUsesPer100: 20 }).bar, true);
 });
 
-test('a room batch merges travel courses as passes and fails, where the old results.json alone read as INVALID and never started', async () => {
+test('a room batch merges travel courses as passes and fails, and the old results.json alone by its exit code', async () => {
 	const out = await mkdtemp(path.join(os.tmpdir(), 'travel-rows-'));
 	try {
 		const rooms = parseCommands(`@courses ${LINE}\n@legacy ${LINE}`, ['new']);
@@ -76,9 +76,10 @@ test('a room batch merges travel courses as passes and fails, where the old resu
 		const merged = await mergeArms({ out, rooms, arms: ['new'], outcomes });
 		const verdicts = merged.new.summary.rooms.map(room => `${room.name} ${room.verdict}`);
 		assert.deepEqual(verdicts.slice(0, 2), ['ssv-867 PASS', 'entry9-fortress FAIL']);
-		assert.match(verdicts[2], /^legacy INVALID/, 'the old output gave the batch nothing to judge');
+		// The old output has no rows file, so it is an exit-code room, judged as the benchmark scorer judges it: exit 0.
+		assert.equal(verdicts[2], 'legacy PASS');
 		const totals = armTotals(merged.new);
-		assert.equal(totals.pass, 1);
+		assert.equal(totals.pass, 2);
 		assert.equal(totals.fail, 1);
 		assert.equal(merged.new.perRoom.find(room => room.room === 'courses').rows, 2);
 		const written = JSON.parse(await readFile(path.join(dir, 'result-summary.json'), 'utf8'));

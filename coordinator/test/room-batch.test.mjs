@@ -1865,3 +1865,32 @@ test('a lock file another process holds or is deleting reads as held on Windows,
 	assert.equal(lockHeld(error('ENOSPC'), 'win32'), false);
 	assert.equal(lockHeld(null, 'win32'), false);
 });
+
+test('an exit-code room (no rows file) is judged by its exit code and own JSON, as the benchmark scorer judges it', async () => {
+	const out = await mkdtemp(path.join(os.tmpdir(), 'room-batch-exit-only-'));
+	try {
+		const rooms = parseCommands(`@lava-a.c1 ${LINE}\n@lava-b ${LINE}\n@lava-c ${LINE}\n@lava-d ${LINE}`, ['new']);
+		const own = async (name, value) => { const dir = path.join(out, 'rooms', name, 'new'); await mkdir(dir, { recursive: true }); if (value) await writeFile(path.join(dir, 'report.json'), JSON.stringify(value)); };
+		await own('lava-a.c1', { runs: [{ died: false, damageTaken: 2 }] });
+		await own('lava-b', { runs: [{ died: false }] });
+		await own('lava-c', { runs: [{ died: true, damageTaken: 20 }] });
+		await own('lava-d', null);
+		const exits = { 'lava-a.c1': 0, 'lava-b': 1, 'lava-c': 0, 'lava-d': 0 };
+		const outcomes = Object.entries(exits).map(([name, exit]) => ({ room: name, lost: false, worker: 'vm1', attempts: 1, arms: { new: { exit, seconds: 30 } } }));
+		// lava-c's bar is survival (bar "none"), so its exit 0 with a death is a fail; lava-d's has no death record.
+		const meta = { 'lava-a': { room: 'lava-a' }, 'lava-c': { room: 'lava-c', bar: 'none' }, 'lava-d': { room: 'lava-d', bar: 'none' } };
+		const merged = await mergeArms({ out, rooms, arms: ['new'], outcomes, meta });
+		const totals = armTotals(merged.new);
+		assert.deepEqual([totals.pass, totals.fail, totals.invalid, totals.notStarted], [1, 2, 1, 0]);
+		assert.equal(totals.deaths, null, 'lava-d recorded no deaths, so the total is unknown');
+		const text = formatSummary({ batch: { name: 'b', code: 'abc12345' }, merged, arms: ['new'], wallSeconds: 10, vms: 1, rooms });
+		assert.match(text, /^lava-a\.c1: pass d=0 dmg=2 /m);
+		assert.match(text, /^lava-b: fail /m);
+		assert.match(text, /^lava-c: fail d=1 dmg=20 /m);
+		assert.match(text, /^lava-d: INVALID /m);
+		assert.doesNotMatch(text, /no rows/);
+		const { armValidRuns } = await import('../../scripts/quality/lib/room-batch-core.mjs');
+		assert.deepEqual(await armValidRuns(path.join(out, 'rooms', 'lava-a.c1', 'new'), { exit: 0 }), { valid: 1, rows: 1 });
+		assert.deepEqual(await armValidRuns(path.join(out, 'rooms', 'lava-b', 'new'), { exit: 3 }), { valid: 0, rows: 1 });
+	} finally { await rm(out, { recursive: true, force: true }); }
+});
