@@ -42,7 +42,8 @@ if (NO_ENDERMEN && strict) { console.error('--no-endermen is for bring-up: add -
 // idle passes), kept so a script change is judged against it on the same jar. --caged-first (bring-up): open the caged
 // crystals before the open ones.
 const OLD_CRYSTALS = cli.includes('--old-crystal-phase'), CAGED_FIRST = cli.includes('--caged-first');
-// --old-refill: main's stand-in before the walk back to a remembered pour (kept so the walk is judged on the same jar).
+// --old-refill: main's stand-in bucket handling, before the walk back to a remembered pour and the held bucket counted as
+// in the hotbar (kept so both are judged on the same jar).
 const OLD_REFILL = cli.includes('--old-refill');
 const [outArg, jarArg] = cli.filter(arg => !arg.startsWith('--'));
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port = Number(process.env.SLOT_PORT_BASE);
@@ -348,7 +349,9 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 				let refillMissNoted = false;
 				// A cage takes minutes of back-to-back steps: none starts once the judged window is over.
 				const over = async what => { if (await inWindow()) return false; note(`${what}: the window is over`, null); return true; };
-				const hotbarBucket = o => (o?.inventory?.items ?? []).some(i => i.itemId === 'minecraft:water_bucket' && (Number.isInteger(i.slot) ? i.slot < 9 : /hotbar|offhand/.test(String(i.slot))));
+				// The view lists the held stack as slot 'mainhand', and the main hand is a hotbar slot: main's stand-in (--old-refill)
+				// missed it and left the cage with the bucket in hand.
+				const hotbarBucket = o => (o?.inventory?.items ?? []).some(i => i.itemId === 'minecraft:water_bucket' && (Number.isInteger(i.slot) ? i.slot < 9 : (OLD_REFILL ? /hotbar|offhand/ : /hotbar|offhand|mainhand/).test(String(i.slot))));
 				const refill = async () => {
 					const v = await view().catch(() => null);
 					const items = v?.inventory?.items ?? [];
@@ -388,13 +391,14 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 				// An empty bucket before a cage: back to the water the body's own reflex poured, which the End fact names
 				// ("Water source you poured at X (remembered; aim the empty bucket there)"), and fill it there. --old-refill
 				// skips the walk, as main's stand-in did (a cage was left whenever no water was in reach).
+				const dryPours = new Set();
 				const fetchWater = async () => {
 					if (OLD_REFILL) return;
 					const v = await view().catch(() => null);
 					const items = v?.inventory?.items ?? [];
 					if (!v?.player || items.some(i => i.itemId === 'minecraft:water_bucket') || !items.some(i => i.itemId === 'minecraft:bucket')) return;
 					const pour = runtime.reflexPours(record, v).map(p => ({ ...p, d: Math.hypot(p.x + 0.5 - v.player.x, p.z + 0.5 - v.player.z) }))
-						.filter(p => p.d <= 96).sort((a, b) => a.d - b.d)[0];
+						.filter(p => p.d <= 96 && !dryPours.has(`${p.x},${p.y},${p.z}`)).sort((a, b) => a.d - b.d)[0];
 					if (!pour) { note('no water bucket and no remembered pour', null); return; }
 					if (pour.d > 3) {
 						const r = await act('travel_to', { x: pour.x + 0.5, y: pour.y, z: pour.z + 0.5, tolerance: 2, build: true, timeoutMs: 60000 });
@@ -403,6 +407,9 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 					await act('select_item', { itemId: 'minecraft:bucket' });
 					const r = await act('use_item', { expectedItemId: 'minecraft:bucket', aimX: pour.x + 0.5, aimY: pour.y + 0.5, aimZ: pour.z + 0.5, durationMs: 100 });
 					note(`refill the bucket at the remembered pour ${pour.x},${pour.y},${pour.z}`, r);
+					// The bucket met another block there: the source is gone (seen in 2 of 15 runs: the walk was made again and again), as the
+					// player reads from the failed fill, so that pour is not walked to again.
+					if (r?.state !== 'SUCCEEDED') dryPours.add(`${pour.x},${pour.y},${pour.z}`);
 				};
 				const openCage = async c => {
 					c.cageTries += 1;
