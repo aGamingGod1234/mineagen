@@ -903,8 +903,9 @@ public final class BrinkGuard {
 		net.minecraft.world.level.block.state.BlockState state = world instanceof ObservedTerrain observed ? observed.stateAt(at)
 				: world instanceof MinecraftNavigationWorld navigation ? navigation.stateAt(new BlockPos(at.x(), at.y(), at.z())) : null;
 		if (state == null) return "lava";
-		if (state.getFluidState().is(net.minecraft.tags.FluidTags.LAVA)) return "lava";
-		if (state.is(net.minecraft.tags.BlockTags.FIRE)) return "fire";
+		// By fluid type and block, not tags: the same answer, and one a verification without loaded tags gets too.
+		if (state.getFluidState().getType().isSame(net.minecraft.world.level.material.Fluids.LAVA)) return "lava";
+		if (state.is(Blocks.FIRE) || state.is(Blocks.SOUL_FIRE)) return "fire";
 		return null;
 	}
 

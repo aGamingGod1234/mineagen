@@ -56,15 +56,6 @@ public final class EdgeDropCostVerification {
 		net.minecraft.server.Bootstrap.bootStrap();
 		BlockState lava = Blocks.LAVA.defaultBlockState(), stone = Blocks.STONE.defaultBlockState();
 		GridPosition at = new GridPosition(0, 64, 0);
-		{
-			MinecraftNavigationWorld debug = view(new World().pit(1, 0, 59, lava));
-			StringBuilder out = new StringBuilder("EDGE_DEBUG");
-			for (int y = 65; y >= 58; y--) out.append(' ').append(y).append('=').append(debug.cellAt(new GridPosition(1, y, 0)));
-			out.append(" standable=").append(debug.isStandable(new GridPosition(1, 64, 0)));
-			out.append(" fall=").append(BrinkGuard.fall(debug, new net.minecraft.world.phys.AABB(1.2, 64, 0.2, 1.8, 65.8, 0.8), -64, (x, y, z) -> false, 0.0D, 7.0D));
-			out.append(" cost=").append(debug.edgeDropCost(at));
-			System.out.println(out);
-		}
 		check(view(new World()).edgeDropCost(at) == 0, "flat floor all round: no edge");
 		// The fortress-search death on its fixed start: a block beside a hole 5 down to the lava sea.
 		check(view(new World().pit(1, 0, 59, lava)).edgeDropCost(at) == MinecraftNavigationWorld.EDGE_DROP_COST,
