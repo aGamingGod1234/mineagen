@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { request as httpRequest } from 'node:http';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -1645,6 +1645,28 @@ test('a transient profile publish failure does not poison a later flush', async 
 		await persistent.flush();
 		const document = JSON.parse(await readFile(file, 'utf8'));
 		assert.ok(document.assignments[agentUuid(1_001)]);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test('a burst of new assignments publishes once and never replaces the file it just wrote', async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), 'arena-voice-profile-burst-'));
+	const file = path.join(root, 'assignments.json');
+	const renames = [];
+	try {
+		const persistent = await loadPersistentVoiceProfileStore(file, {
+			rename: async (source, destination) => {
+				const kind = await readFile(destination).then(() => 'replace', () => 'create');
+				await rename(source, destination);
+				renames.push(kind);
+			},
+		});
+		const agents = Array.from({ length: 13 }, (_, index) => agentUuid(2_000 + index));
+		const assigned = Object.fromEntries(agents.map((agent) => [agent, persistent.store.resolve(agent).profileId]));
+		await persistent.close();
+		assert.deepEqual(renames, ['create']);
+		assert.deepEqual(JSON.parse(await readFile(file, 'utf8')).assignments, assigned);
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}
