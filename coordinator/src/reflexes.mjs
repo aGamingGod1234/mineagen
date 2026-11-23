@@ -63,12 +63,13 @@ export const DIMENSION_REFLEXES = Object.freeze({
 		// off a calm one's eyes. Priority 8 outranks retreat and defend but never preempts breath (9) or end-throw (8),
 		// whose runs already keep the view off enderman eyes (EndermanGaze.clearPitch); 2 s covers the turn.
 		{ id: 'default-gaze', kind: 'trigger', priority: 8, when: [{ type: 'enderman_gaze', within: 64 }], do: { type: 'look_away' }, maxMs: 2_000, ttlMs: 3_600_000 },
-		// An enderman angry at the body teleports beside it faster than it can run or build: a player empties the water
-		// bucket at the feet, and the spreading water hurts and teleports any enderman that steps in. targeting: one angry
-		// at the dragon is not coming for you. The water stays, so the bucket is spent and the rule sleeps (item-dependent
-		// rules never fire empty-handed), and so does a falling -> place water_bucket clutch: in 40 judged rooms fall and
-		// void deaths were 8 on main and 7 with this rule, while enderman deaths fell from 20 to 12.
-		{ id: 'default-ender-water', kind: 'trigger', priority: 8, when: [{ type: 'enderman_provoked', within: 8, targeting: true }], do: { type: 'place', item: 'minecraft:water_bucket', where: 'feet' }, maxMs: 3_000, cooldownMs: 10_000, ttlMs: 3_600_000 },
+		// An angry enderman near the body teleports beside it faster than it can run or build: a player empties the water
+		// bucket at the feet, and the spreading water hurts and teleports any enderman that steps in. Any angry one within 8
+		// counts, not only one already after the body (targeting: true): measured in the judged End rooms, deaths were 34
+		// of 40 on main, 25 of 40 with any angry enderman and 23 of 28 with only one after the body. The water stays, so the
+		// bucket is spent and the rule sleeps (item-dependent rules never fire empty-handed), and so does a falling -> place
+		// water_bucket clutch: fall and void deaths were 8 of 40 on main and 7 of 40 with this rule.
+		{ id: 'default-ender-water', kind: 'trigger', priority: 8, when: [{ type: 'enderman_provoked', within: 8 }], do: { type: 'place', item: 'minecraft:water_bucket', where: 'feet' }, maxMs: 3_000, cooldownMs: 10_000, ttlMs: 3_600_000 },
 	].map((rule) => Object.freeze(rule))),
 });
 const MOST_DIMENSION_REFLEXES = Math.max(0, ...Object.values(DIMENSION_REFLEXES).map((rules) => rules.length));

@@ -66,8 +66,7 @@
 		"when": [
 			{
 				"type": "enderman_provoked",
-				"within": 8,
-				"targeting": true
+				"within": 8
 			}
 		],
 		"do": {
