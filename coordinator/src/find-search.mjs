@@ -225,6 +225,9 @@ const WET_SIDE_TUNNEL = 10;
 const WET_SIDE_MIN = 8;
 const WET_SIDE_SIGHT = 12;
 const WET_SAME = 12;
+// A stair up out of a flooded way that ends under cover climbs on this far past the remembered open-sky spot's height,
+// stopping where it comes out.
+const SKY_CLIMB = 6;
 const WET_REGION = 64;
 const WET_SPOT = 'water under a dig down';
 const MAX_SWIMS = 6;
@@ -1397,7 +1400,15 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 			const rise = Math.ceil(top.y - at.y);
 			const stair = await leg(`stairs up ${away.name} out of the flooded way`, 'dig_to', { pattern: 'stairs_up', y: Math.floor(top.y), heading: away.name,
 				maxBlocks: Math.min(MAX_DIG_BLOCKS, STEP_CELLS.stairs_up * (rise + 4)), stopWhenSeen: profile.stopId, discard: DISCARD });
-			return settle(stair);
+			const ended = await settle(stair);
+			if (ended !== null || stair.seen || stair.interrupted) return ended;
+			// At the remembered spot's height but still under this ground: that spot can be lower ground some way off, and a
+			// stair top under cover is a 1-wide cut no walk gets out of. On up until out in the open (the stair stops itself
+			// there: OPEN_SKY_REACHED). iron-obtain-6006: the spot 15 blocks west at y61, the ground here at y63; every walk
+			// from the covered stair top stalled in place, 17 of 17 runs.
+			if (stair.result?.reasonCode !== 'DIG_GOAL_REACHED' || observation?.player?.skyOpen !== false || afloat()) return null;
+			return settle(await leg(`stairs on up ${away.name} to the open sky`, 'dig_to', { pattern: 'stairs_up', y: Math.floor(top.y) + SKY_CLIMB, heading: away.name,
+				maxBlocks: Math.min(MAX_DIG_BLOCKS, STEP_CELLS.stairs_up * (SKY_CLIMB + 4)), stopWhenSeen: profile.stopId, discard: DISCARD }));
 		};
 		const wetHeadings = new Set();
 		let depthEscapes = 0;
