@@ -148,6 +148,15 @@ public final class ReflexEngine {
 		return "dodge".equals(rule.action().type()) && (defendStandsAside(activeType) || escapingShooter || firingMoves);
 	}
 
+	/**
+	 * A dodge mid-volley gives way to a cover rule that is due (default-cover, default-blaze-cover: priority 6, as the dodge
+	 * is, and only a strictly higher priority preempts a firing that has not settled). Marked settled, the firing yields to the
+	 * highest ready rule, which is that cover rule or one above it, so a body losing health under a volley goes for cover.
+	 */
+	static boolean dodgeGivesWayToCover(ReflexActions.Behaviour behaviour, boolean coverReady) {
+		return behaviour instanceof ReflexActions.Dodge && coverReady;
+	}
+
 	/** Whether the running firing moves or shelters the body itself, so a dodge must not take it (see dodgeStandsAside). */
 	static boolean firingMovesBody(ReflexActions.Behaviour behaviour) {
 		return behaviour instanceof ReflexActions.TakeCover || behaviour instanceof ReflexActions.SprintAway
@@ -621,7 +630,8 @@ public final class ReflexEngine {
 		}
 		// A firing that has cost 2+ health is not making progress, whatever its action reports.
 		boolean harmed = firing != null && agent.startHealth - player.getHealth() >= HARM_HEALTH;
-		agent.scheduler.settled(firing != null && agent.behaviour != null && agent.behaviour.settled());
+		boolean coverDue = dodgeGivesWayToCover(agent.behaviour, agent.behaviour instanceof ReflexActions.Dodge && agent.scheduler.anyReady("take_cover", now));
+		agent.scheduler.settled(firing != null && agent.behaviour != null && (agent.behaviour.settled() || coverDue));
 		ReflexScheduler.Decision decision = agent.scheduler.step(now, senses, status, agent.detail,
 				agent.behaviour != null && agent.behaviour.holdsWhileTrue(), harmed,
 				agent.behaviour == null ? 0L : agent.behaviour.releaseGraceTicks(), heldBack(player, agent));

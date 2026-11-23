@@ -28,6 +28,7 @@ public final class ArrowDodgeVerification {
 		sleepsWithAShieldInHand();
 		defaultRuleIsAHold();
 		standsAsideForWhatMovesTheBody();
+		givesWayToEmergencyCover();
 		return assertions;
 	}
 
@@ -122,6 +123,33 @@ public final class ArrowDodgeVerification {
 		check(!ReflexEngine.firingMovesBody(new ReflexActions.Defend()), "a defend standing its ground does not");
 		check(ReflexActions.Dodge.MOVE_AFTER_TICKS < 25, "a crossbow's 25-tick reload ends one loaded hold before the next");
 		check(!ReflexEngine.firingMovesBody(null), "nothing running does not");
+	}
+
+	private static void givesWayToEmergencyCover() {
+		List<ReflexSpec.Rule> rules;
+		try {
+			rules = ReflexSpec.parseRules(JsonParser.parseString(java.nio.file.Files.readString(
+					java.nio.file.Path.of("src/test/resources/default-reflex-rules.json"))).getAsJsonArray());
+		} catch (java.io.IOException failure) {
+			throw new java.io.UncheckedIOException(failure);
+		}
+		ReflexScheduler.Sense on = new ReflexScheduler.Sense(true, false);
+		ReflexScheduler.ActionStatus running = ReflexScheduler.ActionStatus.RUNNING;
+		for (String cover : List.of("default-cover", "default-blaze-cover")) {
+			ReflexScheduler scheduler = new ReflexScheduler();
+			scheduler.replace(rules, 0L);
+			check("default-arrow-dodge".equals(scheduler.step(0L, java.util.Map.of("default-arrow-dodge", on), running, "", true).started()), "a draw starts the dodge");
+			java.util.Map<String, ReflexScheduler.Sense> both = java.util.Map.of("default-arrow-dodge", on, cover, on);
+			check(!scheduler.step(1L, both, running, "", true).changed(), cover + " at the dodge's own priority cannot preempt it alone");
+			check(scheduler.anyReady("take_cover", 2L), cover + "'s edge is still pending");
+			ReflexActions.Dodge dodge = new ReflexActions.Dodge();
+			scheduler.settled(ReflexEngine.dodgeGivesWayToCover(dodge, scheduler.anyReady("take_cover", 2L)));
+			ReflexScheduler.Decision decision = scheduler.step(2L, both, running, "", true);
+			check(cover.equals(decision.started()) && decision.endOutcome() == ReflexScheduler.Outcome.PREEMPTED,
+					"the dodge gives way to " + cover + " once it is due");
+		}
+		check(!ReflexEngine.dodgeGivesWayToCover(new ReflexActions.Defend(), true), "only a dodge gives way this way");
+		check(!ReflexEngine.dodgeGivesWayToCover(new ReflexActions.Dodge(), false), "with no cover due the dodge keeps its draw");
 	}
 
 	private static boolean near(float a, float b) {
