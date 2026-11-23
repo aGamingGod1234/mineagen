@@ -410,8 +410,10 @@ public final class ServerBuildController implements ServerController {
 	/** This cell has no spot whose water line misses the lava's cell: pour it from a spot where it crosses (main's way). */
 	private boolean crossAllowed;
 	private int lavaTakes, fetchRetries, fetchWindows, fetchDigs;
-	private BlockPos fetchDigLook;
-	private boolean fetchDigLooked;
+	/** Unknown cells the dig toward lava has turned to look at; one look each, so two unknown cells never take turns. */
+	private final Set<BlockPos> fetchDigLooked = new HashSet<>();
+	/** The running UNCOVER child opens a way for a lava fetch, not the pool's surface: kept out of the pool's counts. */
+	private boolean uncoverForFetch;
 	private int staleScoops;
 	private final java.util.ArrayDeque<BlockPos> wayBack = new java.util.ArrayDeque<>();
 
@@ -629,7 +631,7 @@ public final class ServerBuildController implements ServerController {
 		switch (kind) {
 			case SHELTER -> { return end(player, result); }
 			case UNCOVER -> {
-				if (result.state() == State.SUCCEEDED) { uncovers++; uncovered.add(uncoverCell); }
+				if (result.state() == State.SUCCEEDED) { if (!uncoverForFetch) { uncovers++; uncovered.add(uncoverCell); } }
 				else {
 					uncoverDead.add(uncoverCell);
 					LOGGER.info("[build] {} could not open {}: {} {}", player.getGameProfile().name(), xyz(uncoverCell), result.reasonCode(), result.message());
@@ -1344,6 +1346,7 @@ public final class ServerBuildController implements ServerController {
 			return walkTo(player, spot, now);
 		}
 		uncoverCell = cell;
+		uncoverForFetch = false;
 		releaseInput();
 		try {
 			return startChild(player, Child.UNCOVER, environment.uncover(player, cell, Math.min(15_000L, Math.max(1L, deadline - now))));
@@ -2404,6 +2407,7 @@ public final class ServerBuildController implements ServerController {
 			if (window != null) {
 				fetchWindows++;
 				uncoverCell = window;
+				uncoverForFetch = true;
 				releaseInput();
 				try {
 					LOGGER.info("[build] {} opens {} to scoop the lava behind it", player.getGameProfile().name(), xyz(window));
@@ -2885,7 +2889,7 @@ public final class ServerBuildController implements ServerController {
 			double distance = surface.distanceTo(eye);
 			if (distance > reach || distance >= bestDistance) continue;
 			BlockPos block = onlyBlockBetween(player, eye, surface, source);
-			if (block == null || block.getY() <= source.getY() || uncoverDead.contains(block)
+			if (block == null || block.getY() <= source.getY() || uncoverDead.contains(block) || inFootprint(block) || mould.contains(block)
 					|| block.equals(feet) || block.equals(feet.above()) || block.equals(feet.below())) continue;
 			BlockState state = known(player, block);
 			if (state == null || state.isAir() || !state.getFluidState().isEmpty() || clearTicks(player, level, block, state) > MAX_CLEAR_TICKS) continue;
@@ -2910,7 +2914,8 @@ public final class ServerBuildController implements ServerController {
 	 * through the frame, its footprint or the mould, never onto an open drop or lava floor. Null when no step is left.
 	 */
 	private TickResult digTowardLava(ServerPlayer player, List<BlockPos> sources, long now) {
-		if (fetchDigs >= MAX_FETCH_DIGS || sources.isEmpty()) return null;
+		// A cell is only mined to be stepped into: with no walk left to step, nothing is dug.
+		if (fetchDigs >= MAX_FETCH_DIGS || sources.isEmpty() || walks >= MAX_WALKS - 1) return null;
 		ServerLevel level = (ServerLevel) player.level();
 		BlockPos feet = player.blockPosition();
 		BlockPos target = null;
@@ -2934,6 +2939,8 @@ public final class ServerBuildController implements ServerController {
 				// Up a block: the cell over the head opens too, for the jump onto the step.
 				BlockPos[] cells = rise == 0 ? new BlockPos[] { stand, stand.above() } : new BlockPos[] { feet.above(2), stand, stand.above() };
 				for (BlockPos cell : cells) if (inFootprint(cell) || mould.contains(cell)) continue rises;
+				// Up a block opens the cell over the head: sand or gravel resting on it would drop onto the body.
+				if (rise == 1 && (fallingBlock(known(player, feet.above(3))) || fallingBlock(known(player, stand.above(2))))) continue;
 				for (BlockPos cell : cells) {
 					BlockState state = known(player, cell);
 					if (state == null) {
@@ -2943,9 +2950,16 @@ public final class ServerBuildController implements ServerController {
 					}
 					if (!state.getFluidState().isEmpty()) continue rises;
 					if (state.isAir()) continue;
+					// Water or lava known beside or over the cell would flow into the way once it is open, as for the window.
+					for (Direction side : Direction.values()) {
+						if (side == Direction.DOWN) continue;
+						BlockState beside = known(player, cell.relative(side));
+						if (beside != null && !beside.getFluidState().isEmpty()) continue rises;
+					}
 					if (uncoverDead.contains(cell) || clearTicks(player, level, cell, state) > MAX_CLEAR_TICKS) continue rises;
 					fetchDigs++;
 					uncoverCell = cell.immutable();
+					uncoverForFetch = true;
 					releaseInput();
 					try {
 						LOGGER.info("[build] {} digs {} toward the lava at {}", player.getGameProfile().name(), xyz(cell), xyz(target));
@@ -2972,10 +2986,9 @@ public final class ServerBuildController implements ServerController {
 
 	/** Turn to look at a cell not in sight memory, once; null once it was looked at (still unknown: not seen from here). */
 	private TickResult lookOnce(ServerPlayer player, BlockPos cell) {
-		if (fetchDigLooked && cell.equals(fetchDigLook)) return null;
-		if (!cell.equals(fetchDigLook)) { fetchDigLook = cell.immutable(); fetchDigLooked = false; }
+		if (fetchDigLooked.contains(cell)) return null;
 		releaseInput();
-		if (ServerLookController.turnToward(player, Vec3.atCenterOf(fetchDigLook))) { fetchDigLooked = true; pause = 3; }
+		if (ServerLookController.turnToward(player, Vec3.atCenterOf(cell))) { fetchDigLooked.add(cell.immutable()); pause = 3; }
 		return running();
 	}
 
@@ -3367,6 +3380,10 @@ public final class ServerBuildController implements ServerController {
 		return text.toString();
 	}
 
+
+	private static boolean fallingBlock(BlockState state) {
+		return state != null && state.getBlock() instanceof net.minecraft.world.level.block.FallingBlock;
+	}
 
 	private BlockState known(ServerPlayer player, BlockPos at) {
 		SeenTerrain.Reader<BlockState> seen = SeenTerrain.of(player);

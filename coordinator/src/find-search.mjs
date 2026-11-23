@@ -1434,6 +1434,10 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 				maxBlocks: Math.min(MAX_DIG_BLOCKS, STEP_CELLS.stairs_up * (SKY_CLIMB + 4)), stopWhenSeen: profile.stopId, discard: DISCARD }));
 		};
 		const wetHeadings = new Set();
+		// Headings and walks the walk off seen water before the first dig down spent (dryStart): given back to the wet digs
+		// once a dig down has begun, so a later dig that meets water still has its ways off.
+		const dryHeadings = new Set();
+		let dryWalks = 0;
 		let depthEscapes = 0;
 		let wetStuck = false;
 		// Where each dig stopped and why: the same stop again on the same spot moves the body off it.
@@ -1557,7 +1561,15 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 			// Seen water is checked again after each walk off it, until the first dig (a walk can end by another lake, or
 			// stop short on the shore: round 1, 2 of the first 4 runs with this on).
 			const surfaceStart = profile.depth !== null && at.y > profile.depth + CAVE_BAND;
-			const besideWater = surfaceStart && dryStart() && profile.ids.has('minecraft:lava') && !legs.some((entry) => DESCENTS.test(entry.how) || /^tunnel/.test(entry.how))
+			const dug = legs.some((entry) => DESCENTS.test(entry.how) || /^tunnel/.test(entry.how));
+			if (dug && dryWalks > 0) {
+				for (const name of dryHeadings) wetHeadings.delete(name);
+				wetTunnels = Math.max(0, wetTunnels - dryWalks);
+				dryHeadings.clear();
+				dryWalks = 0;
+			}
+			// Under open sky only: a start in a cave or tunnel above the band keeps the depth it has.
+			const besideWater = surfaceStart && dryStart() && profile.ids.has('minecraft:lava') && !dug && observation?.player?.skyOpen === true
 				? waterBeside(at) : undefined;
 			const nearWet = (legs.length === 0 && surfaceStart ? wetSpots().find((place) => Math.hypot(place.x + 0.5 - at.x, place.z + 0.5 - at.z) <= 12) : undefined) ?? besideWater;
 			const wetDig = counted < legs.length && DESCENTS.test(lastHow) && lastLeg?.reasonCode === 'WATER_AHEAD';
@@ -1595,8 +1607,14 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 				if (away !== null) {
 					wetTunnels += 1;
 					wetHeadings.add(away.name);
-					// Not back the way it came: that is toward the water it walked off.
-					if (!wetDig && besideWater !== undefined && nearWet === besideWater) wetHeadings.add(CARDINALS[(CARDINALS.indexOf(away) + 2) % 4].name);
+					if (!wetDig && besideWater !== undefined && nearWet === besideWater) {
+						// Not back the way it came: that is toward the water it walked off.
+						const back = CARDINALS[(CARDINALS.indexOf(away) + 2) % 4].name;
+						dryHeadings.add(away.name);
+						if (!wetHeadings.has(back)) dryHeadings.add(back);
+						wetHeadings.add(back);
+						dryWalks += 1;
+					}
 					heading = away; base = heading; turns = 0;
 					const here = bodyAt(observation);
 					const top = skyAbove(here, SKY_REACH) ?? origin;
