@@ -3101,11 +3101,20 @@ final class ReflexActions {
 			if (!feet.equals(shelter.center()) && !feet.below().equals(shelter.center())) return false;
 			// Walls that never closed (blocks ran out, a creeper stopped the build) or were opened since are no cover.
 			if (!enclosed(player.level(), shelter.center())) return false;
-			// Once the roof is given up, walls hide nothing from a shooter that sees down into the cell (a skeleton on a ledge):
-			// while it can see the body, the dodge and cover rules come back. While the roof is still going up the walls hold.
-			if (shelter.roofGaveUp() && player.level().getBlockState(shelter.center().above(2)).canBeReplaced()
-					&& (shooter instanceof net.minecraft.world.entity.Mob mob ? mob.getSensing().hasLineOfSight(player) : shooter.hasLineOfSight(player))) return false;
+			// Once the roof is given up, walls hide nothing from a shooter that sees down into the cell (a skeleton on a ledge,
+			// the first one or another): while any can see the body, the dodge and cover rules come back. While the roof is
+			// still going up the walls hold.
+			if (shelter.roofGaveUp() && player.level().getBlockState(shelter.center().above(2)).canBeReplaced() && shooterSees(player)) return false;
 			return Defend.nearestChaser(player, PACK_RANGE) >= PACK_RANGE;
+		}
+
+		/** Range within which a living ranged mob that sees the body makes a roofless shelter no cover. */
+		static final double ROOFLESS_SHOOTER_RANGE = 24.0D;
+
+		private static boolean shooterSees(ServerPlayer player) {
+			return !player.level().getEntitiesOfClass(net.minecraft.world.entity.Mob.class, player.getBoundingBox().inflate(ROOFLESS_SHOOTER_RANGE),
+					mob -> mob.isAlive() && mob instanceof net.minecraft.world.entity.monster.RangedAttackMob
+							&& player.distanceTo(mob) <= ROOFLESS_SHOOTER_RANGE && mob.getSensing().hasLineOfSight(player)).isEmpty();
 		}
 
 		/**
