@@ -1558,6 +1558,15 @@ public final class ServerTravelController implements ServerController {
 					if (!seen.isStandable(at) || seen.exposureCost(at) > 0 || edgeBeside(seen, at)) break;
 					stepSpan = span;
 				}
+				// Stop the march level with the target: past it the plan turns back and the body paces to and fro
+				// under a drop it should pillar up instead of ever standing below it.
+				int axisLeft = direction.getStepX() != 0
+					? (Mth.floor(targetX) - moveFeet.x()) * direction.getStepX()
+					: (Mth.floor(targetZ) - moveFeet.z()) * direction.getStepZ();
+				if (axisLeft >= 1 && stepSpan > axisLeft) {
+					if (DEBUG) LOGGER.info("TRAVEL_STEP_CAP {} span {} -> {} at the target's {}", direction, stepSpan, axisLeft, direction.getStepX() != 0 ? "x" : "z");
+					stepSpan = axisLeft;
+				}
 			}
 		}
 		GridPosition goal = moveFeet.offset(direction.getStepX() * stepSpan, move.count(), direction.getStepZ() * stepSpan);

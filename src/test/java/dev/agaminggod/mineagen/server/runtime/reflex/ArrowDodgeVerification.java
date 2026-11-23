@@ -29,6 +29,7 @@ public final class ArrowDodgeVerification {
 		defaultRuleIsAHold();
 		standsAsideForWhatMovesTheBody();
 		givesWayToEmergencyCover();
+		shelterHoldsTheBackOffRules();
 		return assertions;
 	}
 
@@ -163,6 +164,21 @@ public final class ArrowDodgeVerification {
 			return rules.stream().filter(rule -> rule.id().equals(id)).findFirst().orElseThrow();
 		} catch (java.io.IOException failure) {
 			throw new java.io.UncheckedIOException(failure);
+		}
+	}
+
+	/**
+	 * In its own walls against a shooter, the low-health retreat and cover rules and the dodge do not take the body; hazard
+	 * flinches and defend (which roofs the cell) still do (defend-shallow: all 3 deaths after #209 left the walls this way).
+	 */
+	private static void shelterHoldsTheBackOffRules() {
+		ReflexScheduler scheduler = new ReflexScheduler();
+		for (String id : List.of("default-retreat", "default-cover", "default-blaze-cover", "default-arrow-dodge")) {
+			check(!ReflexEngine.shelterGate(scheduler, rule(id), true, true), id + " waits while the body is in its own walls");
+			check(ReflexEngine.shelterGate(scheduler, rule(id), true, false), id + " fires as before outside them");
+		}
+		for (String id : List.of("default-defend", "default-creeper", "default-lava", "default-air", "default-fire")) {
+			check(ReflexEngine.shelterGate(scheduler, rule(id), true, true), id + " still fires in the walls");
 		}
 	}
 

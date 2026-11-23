@@ -37,6 +37,7 @@
     "PlayerTeleportMarkerMixin",
     "ServerPlayerGameModeBreakAccessor",
     "ServerPlayerGameModeMixin",
+    "ChunkHolderDemotionMixin",
     "ChunkMapPovViewMixin",
     "ChunkMapTrackedEntityPovMixin",
     "PlayerChunkSenderPovMixin",

@@ -10,6 +10,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.material.FlowingFluid;
 import net.minecraft.world.level.material.FluidState;
 import net.minecraft.world.level.material.Fluids;
@@ -250,13 +251,27 @@ public final class LavaSpread {
 		BlockPos feet = player.blockPosition();
 		BlockPos.MutableBlockPos at = new BlockPos.MutableBlockPos();
 		LongArrayList seeds = new LongArrayList();
+		// Per chunk section of the box (at most 2 x 2 x 2): 0 not looked at yet, 1 its palette holds no lava, 2 it may.
+		// A section with no lava in its palette has no lava cell, so its cells are skipped without a read; the section
+		// is fetched at its first cell, where that cell's own read fetched the chunk before.
+		int minChunkX = (feet.getX() - RADIUS) >> 4, minChunkZ = (feet.getZ() - RADIUS) >> 4, minSectionY = (feet.getY() - BELOW) >> 4;
+		int spanX = ((feet.getX() + RADIUS) >> 4) - minChunkX + 1, spanZ = ((feet.getZ() + RADIUS) >> 4) - minChunkZ + 1;
+		byte[] lavaPossible = new byte[(((feet.getY() + ABOVE) >> 4) - minSectionY + 1) * spanX * spanZ];
 		for (int dy = -BELOW; dy <= ABOVE; dy++) {
 			int y = feet.getY() + dy;
 			if (level.isOutsideBuildHeight(y)) continue;
 			for (int dx = -RADIUS; dx <= RADIUS; dx++) {
 				for (int dz = -RADIUS; dz <= RADIUS; dz++) {
 					int x = feet.getX() + dx, z = feet.getZ() + dz;
-					if (!level.getFluidState(at.set(x, y, z)).getType().isSame(Fluids.LAVA)) continue;
+					int section = (((y >> 4) - minSectionY) * spanX + ((x >> 4) - minChunkX)) * spanZ + ((z >> 4) - minChunkZ);
+					// Outside the world's valid bounds the cell read is empty and loads no chunk; neither may the section read.
+					if (!level.isInValidBounds(at.set(x, y, z))) continue;
+					if (lavaPossible[section] == 0) {
+						LevelChunkSection blocks = level.getChunk(x >> 4, z >> 4).getSection(level.getSectionIndex(y));
+						lavaPossible[section] = blocks.hasOnlyAir() || !blocks.maybeHas(LavaSpread::holdsLava) ? (byte) 1 : (byte) 2;
+					}
+					if (lavaPossible[section] == 1) continue;
+					if (!level.getFluidState(at).getType().isSame(Fluids.LAVA)) continue;
 					if (!spreadable(level, x, y, z, at)) continue;
 					if (lava(seen.known(x, y, z))) seeds.add(BlockPos.asLong(x, y, z));
 				}
@@ -270,6 +285,10 @@ public final class LavaSpread {
 		// everywhere else 2 and 2; those getters are not public, the delay is.
 		boolean fast = delay <= 10;
 		return predict(seen::known, seeds, fast ? 1 : 2, wide ? 0 : fast ? 4 : 2, stepSeconds, maxSteps);
+	}
+
+	private static boolean holdsLava(BlockState state) {
+		return state.getFluidState().getType().isSame(Fluids.LAVA);
 	}
 
 	/** Some cell below or beside holds no fluid and lets lava in (world state: only a filter before the known read). */

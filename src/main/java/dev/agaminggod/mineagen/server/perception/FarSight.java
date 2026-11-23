@@ -4,10 +4,13 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import dev.agaminggod.mineagen.agent.AgentDomainException;
 import dev.agaminggod.mineagen.server.perception.SightedFeatures.Cell;
+import dev.agaminggod.mineagen.world.ChunkDemotionHook;
 import dev.agaminggod.mineagen.world.ChunkMutationRevisionAccess;
 import it.unimi.dsi.fastutil.doubles.DoubleArrayList;
 import it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayFIFOQueue;
+import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -430,7 +433,13 @@ public final class FarSight {
 	 * work is capped per game tick across all agents.
 	 */
 	public static final class LevelIndex {
-		private final Map<Long, ChunkScan> chunks = new HashMap<>();
+		// ChunkPos keys boxed as Long hash to chunkX ^ chunkZ and pile into a few HashMap bins; fastutil mixes the bits.
+		// Never iterated for output (only the unloaded-chunk cleanup walks it), so its order does not matter.
+		private final Long2ObjectOpenHashMap<ChunkScan> chunks = new Long2ObjectOpenHashMap<>();
+		// Keys whose scan may no longer match getChunkNow: scans made since the last unloaded-chunk sweep and chunks that
+		// dropped a full status since. Every other scan matched at that sweep and its chunk has stayed full, so it still
+		// matches. Null until the server reports demotions to this index; then every look sweeps all scans.
+		private LongOpenHashSet unchecked;
 		private long budgetTick = Long.MIN_VALUE;
 		private int scansThisTick;
 		private int checksThisTick;
@@ -471,8 +480,14 @@ public final class FarSight {
 			if (scan == null || scan.chunk.get() != chunk) {
 				scan = new ChunkScan(chunk);
 				chunks.put(key, scan);
+				if (unchecked == null && DEMOTIONS_REPORTED && chunk.getLevel() instanceof ServerLevel level) listen(level, this);
+				if (unchecked != null) unchecked.add(key);
 			}
 			return scan;
+		}
+
+		private synchronized void demoted(long key) {
+			if (chunks.containsKey(key)) unchecked.add(key);
 		}
 
 		/**
@@ -510,9 +525,52 @@ public final class FarSight {
 
 		private void forgetUnloaded(ServerLevel level) {
 			if (chunks.size() < 2_048) return;
-			chunks.entrySet().removeIf(entry -> entry.getValue().chunk.get() == null || level.getChunkSource().getChunkNow(
-					ChunkPos.getX(entry.getKey()), ChunkPos.getZ(entry.getKey())) != entry.getValue().chunk.get());
+			// getChunkNow answers null off the server thread, so there the sweep drops every scan, as it always did.
+			if (unchecked == null || !level.getServer().isSameThread()) {
+				chunks.long2ObjectEntrySet().removeIf(entry -> !stillLoaded(level, entry.getLongKey(), entry.getValue()));
+				if (unchecked != null) unchecked.clear();
+				return;
+			}
+			for (LongIterator keys = unchecked.iterator(); keys.hasNext(); ) {
+				long key = keys.nextLong();
+				ChunkScan scan = chunks.get(key);
+				if (scan != null && !stillLoaded(level, key, scan)) chunks.remove(key);
+			}
+			unchecked.clear();
 		}
+
+		private static boolean stillLoaded(ServerLevel level, long key, ChunkScan scan) {
+			LevelChunk chunk = scan.chunk.get();
+			return chunk != null && level.getChunkSource().getChunkNow(ChunkPos.getX(key), ChunkPos.getZ(key)) == chunk;
+		}
+	}
+
+	/** Whether this server's chunk holders report drops below full status (false for verification doubles). */
+	private static final boolean DEMOTIONS_REPORTED = ChunkDemotionHook.class.isAssignableFrom(net.minecraft.server.level.ChunkHolder.class);
+	private static final Map<ServerLevel, List<java.lang.ref.WeakReference<LevelIndex>>> LISTENING = new java.util.WeakHashMap<>();
+
+	// Called with the index's lock held, before its first scan, so no demotion of a scanned chunk is missed.
+	private static void listen(ServerLevel level, LevelIndex index) {
+		synchronized (LISTENING) {
+			LISTENING.computeIfAbsent(level, ignored -> new ArrayList<>()).add(new java.lang.ref.WeakReference<>(index));
+		}
+		index.unchecked = new LongOpenHashSet();
+	}
+
+	/** A chunk of {@code level} dropped a full status (ChunkHolderDemotionMixin); its scans are checked at the next look. */
+	public static void chunkDemoted(ServerLevel level, long key) {
+		List<LevelIndex> indexes;
+		synchronized (LISTENING) {
+			List<java.lang.ref.WeakReference<LevelIndex>> refs = LISTENING.get(level);
+			if (refs == null) return;
+			refs.removeIf(ref -> ref.get() == null);
+			indexes = new ArrayList<>(refs.size());
+			for (java.lang.ref.WeakReference<LevelIndex> ref : refs) {
+				LevelIndex index = ref.get();
+				if (index != null) indexes.add(index);
+			}
+		}
+		for (LevelIndex index : indexes) index.demoted(key);
 	}
 
 	private static long sectionRevision(LevelChunk chunk, int sectionIndex) {
@@ -1044,7 +1102,7 @@ public final class FarSight {
 				if (chunk != null && horizontalDistanceToChunk(eye, chunk.getPos()) <= RANGE) loaded.add(chunk);
 			}
 			List<StartView> starts = new ArrayList<>();
-			Map<Long, List<BoundingBox>> structureBoxes = new HashMap<>();
+			Map<Long, List<BoundingBox>> structureBoxes = new Long2ObjectOpenHashMap<>();
 			collectStructures(level, eye, loaded, starts, structureBoxes);
 			List<Found> built = new ArrayList<>(), lava = new ArrayList<>(), notable = new ArrayList<>(), ore = new ArrayList<>(), poi = new ArrayList<>(), placed = new ArrayList<>();
 			synchronized (index) {
