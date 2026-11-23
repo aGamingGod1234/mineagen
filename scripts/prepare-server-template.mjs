@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 // Prepares a runnable headless Fabric server template with Node and Java 25 on any OS. scripts/prepare-headless-server-
 // template.ps1 does the same on Windows; this script reads its pinned Fabric installer version and hash from that file.
-// It builds nothing and adds no Mineagen JAR: the live fixtures (stageServer in scripts/quality/fixture-servers.mjs) and
-// scripts/quality/run-scenarios.mjs drop any mineagen-*.jar from the template and add the JAR they test.
+// It adds Lithium (a server performance mod that keeps vanilla behaviour, pinned per target in the properties), also to an
+// already prepared template that lacks it. It builds nothing and adds no Mineagen JAR: the live fixtures (stageServer in
+// scripts/quality/fixture-servers.mjs) and scripts/quality/run-scenarios.mjs drop any mineagen-*.jar from the template
+// and add the JAR they test.
 //
 //   node scripts/prepare-server-template.mjs --accept-minecraft-eula [--target 26.2] [--out DIR] [--java PATH]
 //
@@ -66,6 +68,32 @@ export function resolveJava(requested, env = process.env) {
 	throw new Error(`Java 25 is required; checked ${checked.join('; ')}`);
 }
 
+/** The target's pinned Lithium JAR name; templates carry it in mods/ beside Fabric API and Carpet. */
+export const lithiumJarName = properties => `lithium-fabric-${properties.lithium_version}.jar`;
+
+/** True when the template's mods/ lacks the target's Lithium JAR (an older template; prepareTemplate adds it). */
+export function templateLacksLithium(dir, properties) {
+	return !existsSync(path.join(dir, 'mods', lithiumJarName(properties)));
+}
+
+/** The target's Lithium JAR in the shared download folder, fetched and checked against its pinned SHA-256 when missing. */
+export async function lithiumJar(properties, downloads = path.join(path.dirname(fixtureCacheRoot()), 'downloads')) {
+	return verifiedDownload(path.join(downloads, lithiumJarName(properties)), properties.lithium_url, properties.lithium_sha256.toLowerCase());
+}
+
+/** Puts the target's Lithium JAR into an existing template's mods/, replacing any other Lithium version there. */
+export async function addLithium(dir, properties, { downloads, log = console.log } = {}) {
+	const jar = await lithiumJar(properties, downloads ?? path.join(path.dirname(path.resolve(dir)), 'downloads'));
+	for (const name of readdirSync(path.join(dir, 'mods'))) if (/^lithium-.*\.jar$/i.test(name) && name !== path.basename(jar)) rmSync(path.join(dir, 'mods', name));
+	cpSync(jar, path.join(dir, 'mods', path.basename(jar)));
+	const manifest = path.join(dir, 'template-manifest.json');
+	if (existsSync(manifest)) {
+		const data = JSON.parse(readFileSync(manifest, 'utf8'));
+		writeFileSync(manifest, JSON.stringify({ ...data, lithiumVersion: properties.lithium_version, lithiumSha256: sha256(readFileSync(jar)) }, null, 2) + '\n');
+	}
+	log(`Added Lithium ${properties.lithium_version} to ${dir}`);
+}
+
 async function verifiedDownload(file, url, expected) {
 	if (!existsSync(file)) {
 		mkdirSync(path.dirname(file), { recursive: true });
@@ -87,7 +115,8 @@ export async function prepareTemplate({ root = ROOT, target = '', out, java: req
 	if (existsSync(template)) {
 		const problems = templateProblems(template, properties);
 		if (problems.length) throw new Error(`${template} exists but is not a usable template (${problems.join('; ')}); remove it deliberately before rebuilding`);
-		log(`Already prepared: ${template}`);
+		if (templateLacksLithium(template, properties)) await addLithium(template, properties, { downloads: path.join(path.dirname(template), 'downloads'), log });
+		else log(`Already prepared: ${template}`);
 		return template;
 	}
 	const carpet = path.join(root, 'libs', `fabric-carpet-${properties.carpet_version}.jar`);
@@ -97,6 +126,7 @@ export async function prepareTemplate({ root = ROOT, target = '', out, java: req
 		`https://maven.fabricmc.net/net/fabricmc/fabric-installer/${pin.version}/fabric-installer-${pin.version}.jar`, pin.sha256);
 	const fabricApi = await verifiedDownload(path.join(downloads, `fabric-api-${properties.fabric_api_version}.jar`),
 		`https://maven.fabricmc.net/net/fabricmc/fabric-api/fabric-api/${properties.fabric_api_version}/fabric-api-${properties.fabric_api_version}.jar`, properties.fabric_api_sha256.toLowerCase());
+	const lithium = await lithiumJar(properties, downloads);
 	const { java } = resolveJava(requestedJava);
 	const staging = path.join(path.dirname(template), `.staging-${randomUUID()}`);
 	try {
@@ -106,6 +136,7 @@ export async function prepareTemplate({ root = ROOT, target = '', out, java: req
 		mkdirSync(path.join(staging, 'mods'), { recursive: true });
 		cpSync(fabricApi, path.join(staging, 'mods', path.basename(fabricApi)));
 		cpSync(carpet, path.join(staging, 'mods', path.basename(carpet)));
+		cpSync(lithium, path.join(staging, 'mods', path.basename(lithium)));
 		writeFileSync(path.join(staging, 'eula.txt'), 'eula=true\n');
 		const problems = templateProblems(staging, properties);
 		if (problems.length) throw new Error(`Prepared template is incomplete: ${problems.join('; ')}`);
@@ -113,6 +144,7 @@ export async function prepareTemplate({ root = ROOT, target = '', out, java: req
 			schemaVersion: 1, minecraftVersion: properties.minecraft_version, fabricLoaderVersion: properties.loader_version,
 			fabricInstallerVersion: pin.version, fabricApiVersion: properties.fabric_api_version,
 			fabricInstallerSha256: pin.sha256, fabricApiSha256: sha256(readFileSync(fabricApi)), fabricCarpetSha256: sha256(readFileSync(carpet)),
+			lithiumVersion: properties.lithium_version, lithiumSha256: sha256(readFileSync(lithium)),
 			mineagenJar: 'added by each fixture', generatedAt: new Date().toISOString(), thirdPartyBinariesTracked: false,
 		}, null, 2) + '\n');
 		renameSync(staging, template);
@@ -131,7 +163,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
 		else if (['accept-minecraft-eula', 'help'].includes(name)) flags.add(name);
 		else { console.error(`Unknown argument ${args[i]}; see --help`); process.exit(2); }
 	}
-	if (flags.has('help')) { console.log(readFileSync(fileURLToPath(import.meta.url), 'utf8').split('\n').slice(1, 11).map(line => line.replace(/^\/\/ ?/, '')).join('\n')); process.exit(0); }
+	if (flags.has('help')) { console.log(readFileSync(fileURLToPath(import.meta.url), 'utf8').split('\n').slice(1, 12).map(line => line.replace(/^\/\/ ?/, '')).join('\n')); process.exit(0); }
 	if (!flags.has('accept-minecraft-eula')) { console.error('Pass --accept-minecraft-eula to confirm that the person running this accepts the Minecraft EULA (https://aka.ms/MinecraftEULA).'); process.exit(2); }
 	try { await prepareTemplate(options); }
 	catch (error) { console.error(`prepare-server-template: ${error.message}`); process.exit(1); }
