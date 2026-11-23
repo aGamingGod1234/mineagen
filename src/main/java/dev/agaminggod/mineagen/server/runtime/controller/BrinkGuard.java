@@ -900,7 +900,8 @@ public final class BrinkGuard {
 
 	/** "lava" or "fire" for a known hazard cell that burns a body falling into it, else null (magma, cactus, berries). */
 	private static String burning(WalkabilityView world, GridPosition at) {
-		net.minecraft.world.level.block.state.BlockState state = world instanceof ObservedTerrain observed ? observed.stateAt(at) : null;
+		net.minecraft.world.level.block.state.BlockState state = world instanceof ObservedTerrain observed ? observed.stateAt(at)
+				: world instanceof MinecraftNavigationWorld navigation ? navigation.stateAt(new BlockPos(at.x(), at.y(), at.z())) : null;
 		if (state == null) return "lava";
 		if (state.getFluidState().is(net.minecraft.tags.FluidTags.LAVA)) return "lava";
 		if (state.is(net.minecraft.tags.BlockTags.FIRE)) return "fire";

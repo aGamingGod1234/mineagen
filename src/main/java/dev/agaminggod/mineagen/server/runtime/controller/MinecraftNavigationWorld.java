@@ -90,6 +90,7 @@ public final class MinecraftNavigationWorld implements WalkabilityView {
 	// Asked for every search edge: primitive maps keyed by packed position, no boxing.
 	private final Long2DoubleOpenHashMap movementSpeeds = new Long2DoubleOpenHashMap();
 	private final Long2IntOpenHashMap exposureCosts = new Long2IntOpenHashMap();
+	private final Long2IntOpenHashMap edgeDropCosts = new Long2IntOpenHashMap();
 	private final it.unimi.dsi.fastutil.longs.Long2ByteOpenHashMap lavaFillsCache = new it.unimi.dsi.fastutil.longs.Long2ByteOpenHashMap();
 	private static final class CellSample {
 		Cell cell;
@@ -130,6 +131,7 @@ public final class MinecraftNavigationWorld implements WalkabilityView {
 		maxJumpRise = player != null && player.hasEffect(MobEffects.JUMP_BOOST) ? Double.POSITIVE_INFINITY : UNBOOSTED_JUMP_RISE;
 		movementSpeeds.defaultReturnValue(Double.NaN);
 		exposureCosts.defaultReturnValue(-1);
+		edgeDropCosts.defaultReturnValue(-1);
 	}
 
 	boolean blockedMagma() { return blockedMagma; }
@@ -622,6 +624,42 @@ public final class MinecraftNavigationWorld implements WalkabilityView {
 		return cost;
 	}
 
+	/**
+	 * A cell beside an open edge whose drop, as the player knows the columns under it, burns (lava or fire), reaches the
+	 * void, falls {@link #EDGE_DROP_BLOCKS} or more, or has a bottom it has not seen: one slip, a hit's shove or a jump's
+	 * drift there goes over (the fortress search's walk drifted off a block above the lava sea, 5 blocks down, in every
+	 * recorded death on that spot). The fall is judged as the brink guard judges a walk-off ({@link BrinkGuard#fall}).
+	 * A cost, not a refusal: a bridge deck or a ledge that is the only way stays a route, but a way a step inland wins.
+	 */
+	@Override
+	public int edgeDropCost(GridPosition position) {
+		long key = BlockPos.asLong(position.x(), position.y(), position.z());
+		int cost = edgeDropCosts.get(key);
+		if (cost >= 0) return cost;
+		cost = 0;
+		BrinkGuard.VoidProbe voids = level instanceof net.minecraft.world.level.Level world
+				? (x, y, z) -> dev.agaminggod.mineagen.server.perception.VoidColumn.below(world, x, y, z) : (x, y, z) -> false;
+		for (Direction direction : HORIZONTAL_DIRECTIONS) {
+			GridPosition beside = position.offset(direction.getStepX(), 0, direction.getStepZ());
+			// A wall or a floor beside the cell is no edge; only open air the body can be shoved into is.
+			if (!isBodyClear(beside) || !isBodyClear(beside.above()) || isStandable(beside)) continue;
+			double x = beside.x(), z = beside.z();
+			AABB box = new AABB(x + 0.2D, position.y(), z + 0.2D, x + 0.8D, position.y() + 1.8D, z + 0.8D);
+			if (BrinkGuard.fall(this, box, level.getMinY(), voids, 0.0D, EDGE_DROP_HEALTH) != null) {
+				cost = EDGE_DROP_COST;
+				break;
+			}
+		}
+		edgeDropCosts.put(key, cost);
+		return cost;
+	}
+
+	/** About one and a half blocks of walking: a route keeps a step in from such an edge where the ground allows it. */
+	static final int EDGE_DROP_COST = 15;
+	/** A drop of this many blocks costs about 7 hearts (vanilla: distance minus 3), as a fall into lava or the void. */
+	static final int EDGE_DROP_BLOCKS = 10;
+	private static final double EDGE_DROP_HEALTH = EDGE_DROP_BLOCKS - 3.0D;
+
 	@Override
 	public int surfaceCost(GridPosition position) {
 		BlockState below = stateAt(position.x(), position.y() - 1, position.z());
@@ -802,6 +840,7 @@ public final class MinecraftNavigationWorld implements WalkabilityView {
 		sweptJumps.clear();
 		movementSpeeds.clear();
 		exposureCosts.clear();
+		edgeDropCosts.clear();
 		// Lava spreads and drains, and seals fill cells: what lava fills next is read again each frame.
 		lavaFillsCache.clear();
 		unknownRead = false;

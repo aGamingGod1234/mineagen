@@ -143,6 +143,7 @@ public final class VerificationMain {
 		passedAssertions += dev.agaminggod.mineagen.server.watch.WatchVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.watch.KillRowVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.NetherCostsVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.EdgeDropCostVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.TravelVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.perception.WalkedRouteVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.LavaFlowMovementVerification.verify();
