@@ -316,7 +316,8 @@ try {
 		const runs = [];
 		for (let repeat = 0; repeat < REPEATS; repeat++) {
 			await rate.normalRate();
-			runDeadline = Infinity; armedRules = []; windowEnd = null;
+			// The old body's book stops here: a stance change during the clear below would re-arm its defaults.
+			runDeadline = Infinity; armedRules = []; windowEnd = null; book = null;
 			if (record) {
 				// A surviving stance still owns input: end it while its registered body exists.
 				await bridge.send('reflex_update',record.agentId,{revision:++reflexRevision,rules:[],yield:true});
