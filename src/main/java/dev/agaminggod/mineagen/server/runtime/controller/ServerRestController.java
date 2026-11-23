@@ -209,7 +209,7 @@ public final class ServerRestController implements ServerController {
 			return null;
 		}
 		if (carriedTable) return placeTable(player, recipe);
-		return runChild(environment.craft(player, "minecraft:crafting_table", null, STEP_MS), result -> {
+		return runChild(() -> environment.craft(player, "minecraft:crafting_table", null, STEP_MS), result -> {
 			if (result.state() != State.SUCCEEDED) { log.add("crafting a table failed: " + result.reasonCode()); return shelterPlan(player, dev.agaminggod.mineagen.server.runtime.GameClock.nowMs(), null); }
 			log.add("crafted a crafting table");
 			return placeTable(player, recipe);
@@ -232,7 +232,7 @@ public final class ServerRestController implements ServerController {
 	}
 
 	private TickResult craftBed(ServerPlayer player, String recipe, BlockPos table, long now) {
-		return runChild(environment.craft(player, recipe, table, STEP_MS), result -> {
+		return runChild(() -> environment.craft(player, recipe, table, STEP_MS), result -> {
 			if (result.state() != State.SUCCEEDED) { log.add("crafting " + recipe + " failed: " + result.reasonCode()); return shelterPlan(player, dev.agaminggod.mineagen.server.runtime.GameClock.nowMs(), null); }
 			log.add("crafted " + recipe);
 			String bedItem = carriedBed(player);
@@ -393,9 +393,9 @@ public final class ServerRestController implements ServerController {
 	private TickResult digDownStep(ServerPlayer player, BlockPos start, int depth, Direction away) {
 		BlockPos target = start.below(depth);
 		if (!diggable(player, target)) return stuck(player, "could not dig down: under the body is " + describeBelow(player, target));
-		return runChild(environment.clear(player, target, STEP_MS), dug -> {
+		return runChild(() -> environment.clear(player, target, STEP_MS), dug -> {
 			if (dug.state() != State.SUCCEEDED) return stuck(player, "could not dig down: " + dug.reasonCode() + " " + dug.message());
-			return runChild(dropInto(target), dropped -> {
+			return runChild(() -> dropInto(target), dropped -> {
 				if (dropped.state() != State.SUCCEEDED) return stuck(player, "dug " + target.toShortString() + " but did not drop into it");
 				if (depth < 2) return digDownStep(player, start, depth + 1, away);
 				pit = true;
@@ -431,13 +431,13 @@ public final class ServerRestController implements ServerController {
 	/** Digs the column at {@code top}'s two blocks below, judging each from what the body sees, then steps down into it. */
 	private TickResult digHole(ServerPlayer player, BlockPos top, Direction away) {
 		BlockPos first = top.below(), second = top.below(2), floor = top.below(3);
-		return runChild(environment.clear(player, first, STEP_MS), dug -> {
+		return runChild(() -> environment.clear(player, first, STEP_MS), dug -> {
 			if (dug.state() != State.SUCCEEDED) return digDown(player, away, "could not dig the hole: " + dug.reasonCode() + " " + dug.message());
 			return lookThen(second, () -> {
 				String below = describeBelow(player, second);
 				if (!diggable(player, second)) return stuck(player, "under the dug cell " + first.toShortString() + " is " + below
 						+ ": not digging toward a drop; wall in with 10 or more plain blocks, or rest somewhere with solid ground");
-				return runChild(environment.clear(player, second, STEP_MS), dug2 -> {
+				return runChild(() -> environment.clear(player, second, STEP_MS), dug2 -> {
 					if (dug2.state() != State.SUCCEEDED) return digDown(player, away, "could not dig the hole: " + dug2.reasonCode() + " " + dug2.message());
 					return lookThen(floor, () -> {
 						// From beside a 1-wide hole the body's own block hides the hole's floor, so it is nearly always unseen
@@ -447,7 +447,7 @@ public final class ServerRestController implements ServerController {
 						if (!unseen && !solid(player, floor)) return stuck(player, "under the hole at " + second.toShortString() + " is "
 								+ describeBelow(player, floor) + ": not stepping into a drop; wall in with 10 or more plain blocks, or rest on solid ground");
 						log.add("hole dug to " + second.toShortString() + (unseen ? " (its floor hidden from beside it)" : " over solid " + describeBelow(player, floor)));
-						return runChild(new ServerNavigationController(Vec3.atBottomCenterOf(second), 0.35D, false, dev.agaminggod.mineagen.server.runtime.GameClock.nowMs(), STEP_MS, false),
+						return runChild(() -> new ServerNavigationController(Vec3.atBottomCenterOf(second), 0.35D, false, dev.agaminggod.mineagen.server.runtime.GameClock.nowMs(), STEP_MS, false),
 								stepped -> stepped.state() == State.SUCCEEDED || feet(player).equals(second) ? roofHole(player, away)
 										: digDown(player, away, "could not step into the hole: " + stepped.reasonCode() + " " + stepped.message()));
 					});
@@ -498,7 +498,7 @@ public final class ServerRestController implements ServerController {
 		shelter = center;
 		opening = openingSide;
 		log.add((pit ? "roofing the hole at " : "walling in at ") + center.toShortString() + " with " + item);
-		return runChild(environment.seal(center, openingSide, item, STEP_MS, now), result -> {
+		return runChild(() -> environment.seal(center, openingSide, item, STEP_MS, now), result -> {
 			if (result.state() != State.SUCCEEDED) {
 				String why = "walling in failed: " + result.reasonCode() + " " + result.message();
 				// Walls on open ground can be blocked (a mob in a wall cell, no standing spot); the ground under the feet is still there.
@@ -531,12 +531,12 @@ public final class ServerRestController implements ServerController {
 		openHealth = player.getHealth();
 		if (pit) {
 			log.add("morning: digging stairs back up to y " + surfaceY);
-			return runChild(environment.climb(player, surfaceY, STEP_MS), result -> rested(player, result));
+			return runChild(() -> environment.climb(player, surfaceY, STEP_MS), result -> rested(player, result));
 		}
 		BlockPos window = shelter.relative(opening).above(), sill = shelter.relative(opening);
 		log.add("morning: opening the " + opening.getSerializedName() + " wall");
-		return runChild(environment.clear(player, window, STEP_MS), first ->
-				runChild(environment.clear(player, sill, STEP_MS), second -> rested(player, second)));
+		return runChild(() -> environment.clear(player, window, STEP_MS), first ->
+				runChild(() -> environment.clear(player, sill, STEP_MS), second -> rested(player, second)));
 	}
 
 	/** Hostile mobs within {@link #OPEN_CHECK} blocks of the body, nearest first, as "zombie 3.2 blocks N", or null. */
@@ -558,7 +558,15 @@ public final class ServerRestController implements ServerController {
 	}
 
 
-	private TickResult runChild(ServerController controller, Function<TickResult, TickResult> then) {
+	/**
+	 * Starts a step and continues with its result. A step refused at its start or on a tick (a target hidden by leaves,
+	 * a protected plant) is a failed result for the plan to answer, not the end of the rest (rest rooms 23 Nov: a table
+	 * hidden from an eye inside a dark oak canopy ended the rest with TARGET_NOT_VISIBLE and nothing built).
+	 */
+	private TickResult runChild(java.util.function.Supplier<ServerController> start, Function<TickResult, TickResult> then) {
+		ServerController controller;
+		try { controller = start.get(); }
+		catch (AgentDomainException refused) { TickResult failed = TickResult.failed(refused.code(), refused.getMessage(), 0.0D); controller = (player, now) -> failed; }
 		child = controller;
 		afterChild = then;
 		phase = Phase.CHILD;
@@ -566,7 +574,9 @@ public final class ServerRestController implements ServerController {
 	}
 
 	private TickResult childTick(ServerPlayer player, long now) {
-		TickResult result = child.tick(player, now);
+		TickResult result;
+		try { result = child.tick(player, now); }
+		catch (AgentDomainException refused) { result = TickResult.failed(refused.code(), refused.getMessage(), 0.0D); }
 		if (result.state() == State.RUNNING) return TickResult.running(progress(player));
 		child.cancel(player);
 		child = null;
@@ -755,10 +765,11 @@ public final class ServerRestController implements ServerController {
 		return state != null && state.isCollisionShapeFullBlock(player.level(), at);
 	}
 
-	/** A seen full block a player can dig out to stand in: no fluid, no block entity, not bedrock, nothing that falls. */
+	/** A seen full block a player can dig out to stand in: no fluid, no block entity, not bedrock or leaves, nothing that falls. */
 	private static boolean diggable(ServerPlayer player, BlockPos at) {
 		BlockState state = SeenTerrain.of(player).known(at.getX(), at.getY(), at.getZ());
 		return state != null && state.isCollisionShapeFullBlock(player.level(), at) && !state.hasBlockEntity() && !state.is(Blocks.BEDROCK)
+				&& !state.is(net.minecraft.tags.BlockTags.LEAVES)
 				&& !(state.getBlock() instanceof net.minecraft.world.level.block.FallingBlock) && state.getDestroySpeed(player.level(), at) >= 0.0F;
 	}
 
