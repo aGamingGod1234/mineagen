@@ -76,6 +76,8 @@ public final class BrinkGuard {
 		private boolean needsFooting;
 		private int recheck;
 		private int ownJump;
+		/** The input's sprint key this tick (see tick). */
+		private boolean sprintKey;
 		private boolean sneakSet;
 		private Vec3 destination;
 		private int destinationTick;
@@ -247,11 +249,14 @@ public final class BrinkGuard {
 
 	/**
 	 * One tick before the body moves, with the keys its input holds. Returns the keys to move with; the caller applies
-	 * {@link Keys#sneak} only when it differs from the body's shift state (see {@link #applySneak}).
+	 * {@link Keys#sneak} only when it differs from the body's shift state (see {@link #applySneak}). {@code sprintKey} is
+	 * the sprint the body takes this tick (the key held, not sneaking, enough food): a sprint jump from a standstill
+	 * gets sprint's boost on the very tick the key starts the sprint, so its landing is judged as a sprint jump.
 	 */
 	public static synchronized Keys tick(ServerPlayer player, float forward, float strafe, boolean sneak, boolean jump,
-			boolean clickUse, InputPresence input) {
+			boolean clickUse, InputPresence input, boolean sprintKey) {
 		Memory memory = MEMORY.computeIfAbsent(player, ignored -> new Memory());
+		memory.sprintKey = sprintKey;
 		boolean grounded = eligible(player) && player.onGround() && !player.onClimbable() && memory.ownJump == 0;
 		boolean idle = forward == 0.0F && strafe == 0.0F && !jump && !clickUse && !player.isUsingItem();
 		Vec3 motion = player.getDeltaMovement();
@@ -306,10 +311,16 @@ public final class BrinkGuard {
 		if (!brace) memory.bracePoint = null;
 		WalkabilityView world = null;
 		// Ruling 11 covers commanded moves (its exception: a destination below the lip). Control keys, a program's keys, a
-		// fight's crit jump and a rule's jump are the model's own and are not judged (no override exists for them).
-		Fall refusedFall = jump && !brace && player.onGround() && commandedMove(player, memory)
-				? jumpLandsLethal(player, worldHeading(player.getYRot(), forward, strafe), player.isSprinting()) : null;
-		if (refusedFall != null && refusedFall.unknown() && destinationBelow(player, memory)) refusedFall = null;
+		// fight's crit jump and a rule's jump are judged too, but only for a landing no one means to make (NE-LAVA-2):
+		// lava, fire, the void or a killing fall as the player knows it, and in the Nether an edge whose bottom it has
+		// not seen (see refusedForEverySource). A control frame's sprint jump off a deck's lip into lava was let through.
+		Fall refusedFall = null;
+		if (jump && !brace && player.onGround()) {
+			Fall landing = jumpLandsLethal(player, worldHeading(player.getYRot(), forward, strafe), jumpSprints(player, memory, forward));
+			if (commandedMove(player, memory)) refusedFall = landing != null && landing.unknown() && destinationBelow(player, memory) ? null : landing;
+			else if (refusedForEverySource(landing, player.level().dimension() == net.minecraft.world.level.Level.NETHER,
+					HazardExits.fireResistant(player))) refusedFall = landing;
+		}
 		boolean refuseJump = refusedFall != null;
 		// Nether lava safety: a jump that would come down in lava at take-off height (the model's own keys too: a
 		// sprint jump out of a flooded tunnel ended in the flow) is refused like a jump over a lethal drop.
@@ -318,7 +329,7 @@ public final class BrinkGuard {
 			double[] heading = worldHeading(player.getYRot(), forward, strafe);
 			Vec3 now = player.getDeltaMovement();
 			BlockPos lava = jumpLava((x, y, z) -> player.level().getBlockState(new BlockPos(x, y, z)), player.getBoundingBox(),
-					now.x, now.z, heading, player.isSprinting());
+					now.x, now.z, heading, jumpSprints(player, memory, forward));
 			takeOffChecked = lava == null;
 			if (lava != null) {
 				refuseJump = true;
@@ -468,6 +479,27 @@ public final class BrinkGuard {
 
 	/** Upward motion past which a grounded body without its own jump was lifted by a hit (vanilla knockback: 0.4). */
 	static final double SHOVE_LIFT = 0.2D;
+	/**
+	 * Whether a jump taken now gets sprint's boost: the body sprints already, or the sprint key is held with forward (the
+	 * lava-lip room: a sprint jump from rest was judged as a 1-block hop onto the deck and flew 3.5 blocks into the lava).
+	 */
+	private static boolean jumpSprints(ServerPlayer player, Memory memory, float forward) {
+		return player.isSprinting() || memory.sprintKey && forward > 0.0F;
+	}
+
+	/**
+	 * Whether a jump the body's own keys take (not a commanded move's) is refused for its landing: lava, fire, the void or
+	 * a killing fall as the player knows it, and in the Nether also an edge whose bottom it has not seen. Over the lava
+	 * sea a lip's drop is mostly out of sight from the take-off (the lava-lip room: 2 blocks seen open, then nothing,
+	 * above lava 5 down), and no player there sprint-jumps off a lip into the dark. A fire-resistant body may jump into
+	 * lava or fire, as the lava jump check already lets it; a killing fall or the void still counts.
+	 */
+	static boolean refusedForEverySource(Fall landing, boolean nether, boolean fireResistant) {
+		if (landing == null) return false;
+		if (fireResistant && ("lava".equals(landing.below()) || "fire".equals(landing.below()))) return false;
+		return !landing.unknown() || nether;
+	}
+
 	/** Ticks the guard's last save stays in the model's view (player.brink.saved). */
 	static final int SAVED_FACT_TICKS = 100;
 
@@ -576,10 +608,20 @@ public final class BrinkGuard {
 			if (!walled) landing = box.move(shift[0], 0.0D, shift[1]);
 			if (!unsupportedAt(player, landing)) return null;
 			if (world == null) world = ObservedTerrain.of(player);
-			last = fall(player, world, landing);
-			if (last == null) return null;
+			Fall here = fall(player, world, landing);
+			if (here == null) return null;
+			last = worse(last, here);
 		}
 		return last;
+	}
+
+	/**
+	 * The landing a jump is judged by over its possible landing ticks: a known lethal one (lava under the near landings)
+	 * outweighs an unseen bottom further on, so a seen pool is not hidden by the dark beyond it.
+	 */
+	static Fall worse(Fall so, Fall next) {
+		if (so == null) return next;
+		return so.unknown() && !next.unknown() ? next : so;
 	}
 
 	/** Compare actual supported steps; an averaged inward direction can point into a hole in the deck. */
