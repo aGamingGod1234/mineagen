@@ -3005,6 +3005,8 @@ final class ReflexActions {
 		static final double CREEPER_RANGE = 6.0D;
 		static final int CENTER_TICKS = 20;
 		static final int STUCK_TICKS = 40;
+		/** The top of a standing body's head above its cell's floor: a shooter's eyes higher than this see down into it. */
+		static final double ROOF_HEAD_HEIGHT = 1.8D;
 		private final LivingEntity shooter;
 		private BlockPos center;
 		private final List<BlockPos> plan = new ArrayList<>();
@@ -3076,8 +3078,7 @@ final class ReflexActions {
 					BlockPos cell = center.relative(side).above(y);
 					if (level.getBlockState(cell).canBeReplaced()) plan.add(cell);
 				}
-				BlockPos roof = center.above(2);
-				if (shooter.getEyeY() > player.getY() + player.getBbHeight() && level.getBlockState(roof).canBeReplaced()) plan.add(roof);
+				planRoof(level, facing);
 				if (plan.isEmpty()) return Step.done(report(level, "already closed on every side"));
 			}
 			if (unsteadyWater(player)) return stop(level, "the body went into water");
@@ -3107,27 +3108,90 @@ final class ReflexActions {
 				}
 			}
 			List<BlockPos> open = plan.stream().filter(cell -> level.getBlockState(cell).canBeReplaced() && !skipped.contains(cell)).toList();
+			// The roof follows the shooter, not where it stood when the walls began: a skeleton that walks onto a rim or a
+			// rise sees down over 2-high walls (defend-shallow: walled on every side with no roof, shot from the 1-high
+			// rim at 1 block, 3 of 10 runs dead).
+			if (open.isEmpty() && planRoof(level, Direction.getApproximateNearest(shooter.getX() - player.getX(), 0.0D, shooter.getZ() - player.getZ()))) {
+				open = plan.stream().filter(cell -> level.getBlockState(cell).canBeReplaced() && !skipped.contains(cell)).toList();
+			}
 			if (open.isEmpty()) {
 				input.accept(look(player, null, 0.0F, 0.0F, false, false, heldSlot, InteractionHand.MAIN_HAND));
 				return Step.done(report(level, "walled in from " + type(shooter)));
 			}
 			if (open.size() == 1 && insider(player) != null) return stop(level, type(insider(player)) + " got inside before the last wall");
 			BlockPos target = null;
+			boolean inBody = false;
 			for (BlockPos cell : open) {
-				if (player.getBoundingBox().intersects(new AABB(cell))) continue;
+				if (player.getBoundingBox().intersects(new AABB(cell))) { inBody = true; continue; }
 				List<? extends LivingEntity> occupant = level.getEntitiesOfClass(LivingEntity.class, new AABB(cell), mob -> mob != player && mob.isAlive());
 				if (!occupant.isEmpty()) { skipped.add(cell); continue; }
 				target = cell;
 				break;
 			}
-			if (target == null || ++ticks > STUCK_TICKS * plan.size()) return stop(level, "could not place the last wall");
+			if (++ticks > STUCK_TICKS * plan.size()) return stop(level, "could not place the last wall");
+			if (target == null) {
+				if (!inBody) return stop(level, "could not place the last wall");
+				// Coming down from the jump that put a block on top of a wall: the roof cell is free once the body lands.
+				input.accept(look(player, null, 0.0F, 0.0F, false, false, player.getInventory().getSelectedSlot(), InteractionHand.MAIN_HAND));
+				return Step.running("landing before the roof over the cell to shut out " + type(shooter));
+			}
 			int slot = PlaceBlock.blockSlot(player, null);
 			if (slot < 0) return stop(level, "ran out of blocks");
 			BlockHitResult face = PlaceBlock.face(player, target);
+			if (face == null && target.getY() >= center.getY() + 2 && wallTop(level, target)) {
+				// A block on top of a wall: from the floor of a 2-high cell the wall's top face is above the eye, so a player
+				// jumps and clicks it near the top of the jump, then roofs against that block's side.
+				Vec3 top = Vec3.atCenterOf(target.below()).add(0.0D, 0.5D, 0.0D);
+				input.accept(look(player, top, 0.0F, 0.0F, true, false, slot, InteractionHand.MAIN_HAND));
+				return Step.running("jumping to put a block on the wall top to roof over the cell from " + type(shooter));
+			}
 			if (face == null) { skipped.add(target); return Step.running("no face to place against at " + target.toShortString()); }
 			input.accept(look(player, face.getLocation(), 0.0F, 0.0F, false, PlaceBlock.clicksInto(player, face, target), slot, InteractionHand.MAIN_HAND));
 			placed = (int) plan.stream().filter(cell -> !level.getBlockState(cell).canBeReplaced()).count();
 			return Step.running("walling in from " + type(shooter) + ": " + placed + "/" + plan.size());
+		}
+
+		/**
+		 * Adds the roof (and, when nothing borders the roof cell, a block on top of a wall to place it against) while the
+		 * shooter can shoot down into the cell: its eyes above the body's head, or, once the sides are up, a clear line from
+		 * its eyes to the body's over them. True when it added a cell.
+		 */
+		private boolean planRoof(Level level, Direction facing) {
+			BlockPos roof = center.above(2);
+			if (plan.contains(roof) || skipped.contains(roof) || !level.getBlockState(roof).canBeReplaced() || !roofThreat(level)) return false;
+			boolean bordered = false;
+			for (Direction toward : new Direction[] {Direction.UP, Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST}) {
+				BlockPos support = roof.relative(toward);
+				if (level.getBlockState(support).isFaceSturdy(level, support, toward.getOpposite())) { bordered = true; break; }
+			}
+			if (!bordered) {
+				BlockPos support = null;
+				for (Direction side : List.of(facing, facing.getClockWise(), facing.getCounterClockWise(), facing.getOpposite())) {
+					BlockPos cell = roof.relative(side);
+					if (level.getBlockState(cell).canBeReplaced() && wallTop(level, cell)) { support = cell; break; }
+				}
+				if (support == null) return false;
+				plan.add(support);
+			}
+			plan.add(roof);
+			return true;
+		}
+
+		/** Whether the shooter can shoot down into the cell over its walls. */
+		private boolean roofThreat(Level level) {
+			if (!shooter.isAlive() || shooter.level() != level) return false;
+			if (shooter.getEyeY() > center.getY() + ROOF_HEAD_HEIGHT) return true;
+			boolean sidesUp = plan.stream().filter(cell -> cell.getY() < center.getY() + 2).noneMatch(cell -> level.getBlockState(cell).canBeReplaced());
+			if (!sidesUp) return false;
+			Vec3 head = new Vec3(center.getX() + 0.5D, center.getY() + 1.6D, center.getZ() + 0.5D);
+			return level.clip(new net.minecraft.world.level.ClipContext(shooter.getEyePosition(), head, net.minecraft.world.level.ClipContext.Block.COLLIDER,
+					net.minecraft.world.level.ClipContext.Fluid.NONE, shooter)).getType() == net.minecraft.world.phys.HitResult.Type.MISS;
+		}
+
+		/** A cell standing on a wall block whose top a jump can click. */
+		private static boolean wallTop(Level level, BlockPos cell) {
+			BlockPos below = cell.below();
+			return level.getBlockState(below).isFaceSturdy(level, below, Direction.UP);
 		}
 
 		/** A living thing other than the body in the body's own two cells. */
