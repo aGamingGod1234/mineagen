@@ -209,16 +209,18 @@ export async function armRows(dir) {
 		return { rows: bare, summary: null, file: 'result.json', problem: null };
 	}
 	const pick = pairs.find(pair => pair.base === 'result') ?? (pairs.length === 1 ? pairs[0] : null);
-	if (!pick) return { rows: [], summary: null, file: null, problem: pairs.length > 1 ? `several row files (${pairs.map(pair => `${pair.base}.json`).join(', ')}), none named result.json` : null };
+	// A finishRun summary whose rows file is gone: the fixture ran on finishRun, so it is no exit-code room.
+	const orphanSummary = !pick && !pairs.length ? names.find(name => name.endsWith('-summary.json')) ?? null : null;
+	if (!pick) return { rows: [], summary: null, file: null, problem: pairs.length > 1 ? `several row files (${pairs.map(pair => `${pair.base}.json`).join(', ')}), none named result.json` : null, orphanSummary };
 	return { rows: pick.rows, summary: await readJson(path.join(dir, `${pick.base}-summary.json`)).catch(() => null), file: `${pick.base}.json`, problem: null };
 }
 
 /**
  * An exit-code room: its arm wrote no finishRun rows file at all, and its line plans one run. A line with a selector
  * (BUILD_ONLY=a,b,c) belongs to a finishRun fixture, so writing nothing there means it crashed: its planned rows stay
- * INVALID, never one exit-code verdict.
+ * INVALID, never one exit-code verdict. So does a finishRun summary left without its rows file.
  */
-const exitOnly = (found, linePlanned) => !found.file && !found.problem && !found.rows.length && (linePlanned ?? 1) <= 1;
+const exitOnly = (found, linePlanned) => !found.file && !found.problem && !found.orphanSummary && !found.rows.length && (linePlanned ?? 1) <= 1;
 /** A room's benchmark definition (its bar) by room name, or by its repeat group (ROOM.c3 is ROOM). */
 const roomBar = (meta, name) => meta?.[name] ?? meta?.[repeatGroup(name)] ?? null;
 

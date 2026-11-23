@@ -1900,6 +1900,13 @@ test('an exit-code room (no rows file) is judged by its exit code and own JSON, 
 		const broken = await mergeArms({ out, rooms: crashed, arms: ['new'], outcomes: [{ room: 'build-x', lost: false, worker: 'vm1', attempts: 1, arms: { new: { exit: 1, seconds: 2 } } }] });
 		assert.deepEqual([armTotals(broken.new).fail, armTotals(broken.new).invalid, broken.new.summary.status], [0, 3, 'INVALID']);
 		assert.deepEqual(await armValidRuns(path.join(out, 'rooms', 'build-x', 'new'), { exit: 1 }, { linePlanned: 3 }), { valid: 0, rows: null });
+		// A finishRun summary without its rows file is missing evidence, never an exit-code pass.
+		const orphan = parseCommands(`@orphan ${LINE}`, ['new']);
+		await mkdir(path.join(out, 'rooms', 'orphan', 'new'), { recursive: true });
+		await writeFile(path.join(out, 'rooms', 'orphan', 'new', 'result-summary.json'), JSON.stringify({ planned: 3, status: 'PASS' }));
+		const lostRows = await mergeArms({ out, rooms: orphan, arms: ['new'], outcomes: [{ room: 'orphan', lost: false, worker: 'vm1', attempts: 1, arms: { new: { exit: 0, seconds: 2 } } }] });
+		assert.deepEqual([armTotals(lostRows.new).pass, lostRows.new.summary.status], [0, 'INVALID']);
+		assert.deepEqual(await armValidRuns(path.join(out, 'rooms', 'orphan', 'new'), { exit: 0 }), { valid: 0, rows: null });
 		// An arm that never launched did not start its row.
 		const unlaunched = await mergeArms({ out, rooms: rooms.slice(1, 2), arms: ['new'], outcomes: [{ room: 'lava-b', lost: false, worker: 'vm1', attempts: 1, arms: { new: { error: 'spawn failed' } } }] });
 		assert.deepEqual([armTotals(unlaunched.new).invalid, armTotals(unlaunched.new).notStarted], [1, 1]);
