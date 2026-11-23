@@ -243,6 +243,31 @@ public final class TravelVerification {
 		check(TravelBuilder.decide(lavaSea, states::get, feet, Direction.EAST, true, 0).kind() == TravelBuilder.Kind.CLEAR_UP,
 				"under a low ceiling the block over the head is mined before climbing over the lava");
 		states.clear();
+		// A retrace standing in a later tunnel under its own stair's step: the step is one mined block from the way up.
+		Grid underStep = new Grid();
+		underStep.floor(-5, 5, -5, 5, 63);
+		underStep.seenUpTo = 30;
+		GridPosition step = feet.above(2);
+		check(TravelBuilder.shaftHeadroom(underStep, states::get, feet) == null, "clear headroom over a remembered shaft is pillared at once");
+		underStep.solid.add(step);
+		states.put(step, Blocks.DEEPSLATE.defaultBlockState());
+		states.put(feet.above(3), Blocks.AIR.defaultBlockState());
+		check(TravelBuilder.shaftHeadroom(underStep, states::get, feet).kind() == TravelBuilder.Kind.CLEAR_UP,
+				"a seen step over the head with open air above it is mined to reopen the stair");
+		states.put(feet.above(3), Blocks.GRAVEL.defaultBlockState());
+		check("falling".equals(TravelBuilder.shaftHeadroom(underStep, states::get, feet).refusalCode()), "gravel above the headroom would fall on the head: refused");
+		states.put(feet.above(3), Blocks.WATER.defaultBlockState());
+		check("hazard".equals(TravelBuilder.shaftHeadroom(underStep, states::get, feet).refusalCode()), "water above the headroom would pour in: refused");
+		states.put(feet.above(3), Blocks.AIR.defaultBlockState());
+		states.put(step.offset(1, 0, 0), Blocks.LAVA.defaultBlockState());
+		check("hazard".equals(TravelBuilder.shaftHeadroom(underStep, states::get, feet).refusalCode()), "seen lava beside the headroom: refused");
+		states.remove(step.offset(1, 0, 0));
+		states.remove(feet.above(3));
+		check("unseen".equals(TravelBuilder.shaftHeadroom(underStep, states::get, feet).refusalCode()), "an unseen cell above the headroom: refused");
+		states.put(step, Blocks.BEDROCK.defaultBlockState());
+		states.put(feet.above(3), Blocks.AIR.defaultBlockState());
+		check("unmineable".equals(TravelBuilder.shaftHeadroom(underStep, states::get, feet).refusalCode()), "bedrock headroom: refused");
+		states.clear();
 		Grid magma = new Grid();
 		magma.floor(-5, 0, -5, 5, 63);
 		magma.floor(2, 5, -5, 5, 63);

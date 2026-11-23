@@ -1226,9 +1226,20 @@ public final class ServerTravelController implements ServerController {
     glanced=true;lookYaw=player.getYRot();lookPitch=-90;lookTicks=0;phase=Phase.LOOK;
     return look(player,nowEpochMs);
    }
-   if(!world.isBodyClear(feet.above(2))) return fail(player,"NO_ROUTE","Remembered shaft has blocked or unseen headroom above; no new tunnel chosen");
+   if(failedLegs>=MAX_FAILED_LEGS) return fail(player,"NO_ROUTE","Remembered shaft could not be climbed"+(buildRefusal==null?"":": "+buildRefusal));
+   // Blocked headroom under the route's own way up (a later tunnel under the stair's step, a drop it fell) is mined
+   // out first when nothing seen can pour or fall in, as a player digs up into the passage it came down.
+   TravelBuilder.Plan headroom=TravelBuilder.shaftHeadroom(world,states(world),feet);
+   if(headroom!=null && !headroom.possible()) return fail(player,"NO_ROUTE","Remembered shaft has blocked or unseen headroom above: "+headroom.refusal()+"; no new tunnel chosen");
    if(!haveBlocks) return fail(player,"OUT_OF_BLOCKS","Remembered shaft needs a plain carried block per level to pillar up"+offHotbarText(player));
-   best=new TravelBuilder.Plan(TravelBuilder.Kind.PILLAR,Direction.NORTH,1,null,null);
+   if(headroom!=null) {
+    BlockPos over=new BlockPos(feet.x(),feet.y()+2,feet.z());
+    BlockState known=world.stateAt(over);
+    if(!mayModify.test(player,over)) return fail(player,"NO_ROUTE","Remembered shaft has protected headroom at "+cell(over));
+    TravelBuilder.ToolRefusal tool=TravelBuilder.toolRefusal(player,known);
+    if(tool!=null) return fail(player,tool.code(),"Remembered shaft headroom "+BuiltInRegistries.BLOCK.getKey(known.getBlock())+" at "+cell(over)+"; "+tool.facts());
+   }
+   best=headroom!=null?headroom:new TravelBuilder.Plan(TravelBuilder.Kind.PILLAR,Direction.NORTH,1,null,null);
   }
   for (Direction direction : shaft ? new Direction[0] : directionsToward(player)) {
 			TravelBuilder.Plan plan = TravelBuilder.decide(world, states(world), feet, direction, haveBlocks, climb);
