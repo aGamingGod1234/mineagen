@@ -399,3 +399,46 @@ test('replace_action yields only once past every refusal: a cancel racing the yi
 	assert.equal(racedOutcome?.code, 'CANCELLATION_IN_PROGRESS', 'the racing cancel is the call refused');
 	assert.deepEqual(types, ['reflex_update:true', 'action_cancel', 'action_command'], 'the yield goes ahead of the cancel, then the replacement');
 });
+
+test('the book remembers the cells its water reflex poured, per dimension, and forgets one the observation shows scooped', () => {
+	const book = new ReflexBook({ now: () => 0 });
+	const end = { ready: true, world: { dimension: 'minecraft:the_end' }, player: { health: 20 }, inventory: { items: [] }, blocks: [] };
+	book.observeContext('a', end);
+	book.apply('a', normalizeReflexEntries([SWAP]));
+	const pour = (seq, cell, outcome = 'done') => ({ revision: 1, rules: [], events: [{ seq, id: 'default-ender-water', outcome, ms: 50, detail: `placed minecraft:water_bucket at feet ${cell}; the source stays until scooped` }] });
+	book.observe('a', pour(1, '2,62,13'));
+	book.observe('a', pour(2, '9,62,13', 'failed'));
+	book.observe('a', pour(3, '-4,62,0'));
+	assert.deepEqual(book.pours('a', end), [{ x: -4, y: 62, z: 0 }, { x: 2, y: 62, z: 13 }]);
+	assert.deepEqual(book.pours('a', { ...end, world: { dimension: 'minecraft:overworld' } }), [], 'another dimension names none');
+	// A row at the cell that is no water source (a block, or only flow) forgets that pour; an unlisted cell keeps it.
+	assert.deepEqual(book.pours('a', { ...end, blocks: [{ blockId: 'minecraft:obsidian', x: -4, y: 62, z: 0 }] }), [{ x: 2, y: 62, z: 13 }]);
+	assert.deepEqual(book.pours('a', { ...end, blocks: [{ blockId: 'minecraft:water', x: 2, y: 62, z: 13, fluid: { type: 'minecraft:flowing_water' } }] }), []);
+	// A scoop leaves air, which has no row: one more water bucket near a remembered pour forgets the nearest one.
+	book.observe('a', pour(4, '2,62,13'));
+	book.observe('a', pour(5, '40,62,13'));
+	const at = (x, buckets) => ({ ...end, position: { x, y: 62, z: 13.5 }, inventory: { items: buckets ? [{ itemId: 'minecraft:water_bucket', count: buckets }] : [{ itemId: 'minecraft:bucket', count: 1 }] } });
+	book.observeContext('a', at(4.5, 0));
+	book.observeContext('a', at(4.5, 1));
+	assert.deepEqual(book.pours('a', at(4.5, 1)), [{ x: 40, y: 62, z: 13 }], 'the scooped pour beside the bot is forgotten; the far one stays');
+	book.observeContext('a', at(4.5, 0));
+	book.observeContext('a', at(4.5, 1));
+	assert.deepEqual(book.pours('a', at(4.5, 1)), [{ x: 40, y: 62, z: 13 }], 'a refill with no pour in reach forgets none');
+	book.observe('a', pour(6, '3,62,13'));
+	book.observeContext('a', { ...at(4.5, 1), inventory: undefined });
+	book.observeContext('a', at(4.5, 1));
+	assert.deepEqual(book.pours('a', at(4.5, 1)), [{ x: 3, y: 62, z: 13 }, { x: 40, y: 62, z: 13 }], 'a sample without the inventory is no scoop');
+	// A scoop seen only after a sample without the inventory still counts: it is read against the last stocked sample.
+	book.observe('a', pour(8, '-20,62,13'));
+	book.observeContext('a', at(-19.5, 0));
+	book.observeContext('a', { ...at(-19.5, 0), inventory: undefined });
+	book.observeContext('a', at(-19.5, 1));
+	assert.deepEqual(book.pours('a', at(-19.5, 1)), [{ x: 3, y: 62, z: 13 }, { x: 40, y: 62, z: 13 }]);
+	// Two pours in reach, the farther one scooped: the nearer one, still listed as a source, is kept.
+	book.observe('a', pour(7, '6,62,13'));
+	const shown = { blockId: 'minecraft:water', x: 3, y: 62, z: 13, fluid: { type: 'minecraft:water' } };
+	book.observeContext('a', { ...at(3.5, 0), blocks: [shown] });
+	book.observeContext('a', { ...at(3.5, 1), blocks: [shown] });
+	assert.deepEqual(book.pours('a', { ...at(3.5, 1), blocks: [shown] }), [{ x: 3, y: 62, z: 13 }, { x: 40, y: 62, z: 13 }]);
+	book.clear('a');
+});

@@ -51,7 +51,7 @@ function historicalObservation(observation) {
 	return kept;
 }
 
-export function buildNativeEventInput(record, { event, trigger, programId, status, result, mergedEvents, resourceSightings: queuedResourceSightings, planningLeadMs, eventSequence, taskMemory = null, progress = null, goalNow = null, doing = null, skillFits = null, continuity = null, dangerSummary = null, movementLoop = false, observation = {}, conversation = { mode: 'unread', baseSequence: -1, nextSequence: -1, entries: [] }, conversationOnly = false, awaitingConfirmation = false, confirmationFacts = null, dangerWake = false, selfCareWake = false, healing = null, newContext = false, changed = null, strategy = null, contexts = null, uncovered = null, runningActionStart = null, runningAction = null, actionReceipt = observation.lastResult } = {}) {
+export function buildNativeEventInput(record, { event, trigger, programId, status, result, mergedEvents, resourceSightings: queuedResourceSightings, planningLeadMs, eventSequence, taskMemory = null, progress = null, goalNow = null, doing = null, skillFits = null, continuity = null, dangerSummary = null, movementLoop = false, observation = {}, conversation = { mode: 'unread', baseSequence: -1, nextSequence: -1, entries: [] }, conversationOnly = false, awaitingConfirmation = false, confirmationFacts = null, dangerWake = false, selfCareWake = false, healing = null, newContext = false, changed = null, strategy = null, contexts = null, uncovered = null, runningActionStart = null, runningAction = null, actionReceipt = observation.lastResult, ownPours = [] } = {}) {
 	const eventName = typeof event === 'string' && event.length > 0 ? event : event?.event;
 	const normalizedEvent = typeof eventName === 'string' && eventName.length > 0 ? eventName : 'observation';
 	const notice = normalizedEvent === 'program_planning_due' || conversationOnly === true ? [] : workNotices(observation, actionReceipt);
@@ -179,7 +179,7 @@ export function buildNativeEventInput(record, { event, trigger, programId, statu
 	// The side glance is stated once, in the danger line; the raw rows stay in the stored observation.
 	const glance = isPlanningDue || conversationOnly === true ? null : dangerGlance(visibleObservation(observation).player);
 	delete compactObservation.player.edges;
-	const combat = isPlanningDue ? null : combatFacts(observation, { lean: leanInputEnabled() });
+	const combat = isPlanningDue ? null : combatFacts(observation, { lean: leanInputEnabled(), ownPours });
 	// Only the wake that first reports a dimension change: what the arrival spot shows before the first step.
 	const arrival = isPlanningDue || !reportsDimensionChange(changed) ? null : arrivalFacts(observation);
 	const pendingResourceSightings = boundedResourceSightings(record, queuedResourceSightings, status?.decision?.resourceSightings, result?.resourceSightings);
