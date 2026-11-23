@@ -158,9 +158,10 @@ final class TravelBuilder {
 		String why = unmineable(overState);
 		if (why != null) return Plan.refuse(Direction.UP, "unmineable", "the headroom at " + cell(over) + " cannot be mined: " + why);
 		BlockState nextState = states.apply(next);
-		if (nextState == null) return Plan.refuse(Direction.UP, "unseen", "the cell above the headroom at " + cell(next) + " is unseen, so mining up could let lava or water in");
-		if (!nextState.getFluidState().isEmpty()) return Plan.refuse(Direction.UP, "hazard", "fluid at " + cell(next) + " would pour in once the headroom is mined");
-		if (nextState.getBlock() instanceof FallingBlock) return Plan.refuse(Direction.UP, "falling", "the " + BuiltInRegistries.BLOCK.getKey(nextState.getBlock()).getPath()
+		// The cell above is usually hidden behind the headroom (the stair's own step); as for a low ceiling over lava, only
+		// what is seen there refuses, and clearUpTick stops at once if fluid flows in.
+		if (nextState != null && !nextState.getFluidState().isEmpty()) return Plan.refuse(Direction.UP, "hazard", "fluid at " + cell(next) + " would pour in once the headroom is mined");
+		if (nextState != null && nextState.getBlock() instanceof FallingBlock) return Plan.refuse(Direction.UP, "falling", "the " + BuiltInRegistries.BLOCK.getKey(nextState.getBlock()).getPath()
 				+ " at " + cell(next) + " would fall onto the head once the headroom is mined");
 		for (Direction side : Direction.Plane.HORIZONTAL) {
 			if (lava(states.apply(over.offset(side.getStepX(), 0, side.getStepZ()))))

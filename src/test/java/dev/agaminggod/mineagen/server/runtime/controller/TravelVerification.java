@@ -263,7 +263,8 @@ public final class TravelVerification {
 		check("hazard".equals(TravelBuilder.shaftHeadroom(underStep, states::get, feet).refusalCode()), "seen lava beside the headroom: refused");
 		states.remove(step.offset(1, 0, 0));
 		states.remove(feet.above(3));
-		check("unseen".equals(TravelBuilder.shaftHeadroom(underStep, states::get, feet).refusalCode()), "an unseen cell above the headroom: refused");
+		check(TravelBuilder.shaftHeadroom(underStep, states::get, feet).kind() == TravelBuilder.Kind.CLEAR_UP,
+				"the cell above the headroom is hidden behind it (the stair's own step): mined, as a low ceiling over lava is");
 		states.put(step, Blocks.BEDROCK.defaultBlockState());
 		states.put(feet.above(3), Blocks.AIR.defaultBlockState());
 		check("unmineable".equals(TravelBuilder.shaftHeadroom(underStep, states::get, feet).refusalCode()), "bedrock headroom: refused");
