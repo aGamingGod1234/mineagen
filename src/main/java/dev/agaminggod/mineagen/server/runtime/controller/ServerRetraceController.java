@@ -31,6 +31,8 @@ public final class ServerRetraceController implements ServerController {
  private final java.util.Set<WalkedRoute.Point> shortcutRefused=new java.util.HashSet<>();
  private java.util.List<WalkedRoute.Point> shortcuts=java.util.List.of();
  private WalkedRoute.Point shortcut,shortcutsFrom;
+ private WalkedRoute.Path beforeShortcut;
+ private int beforeIndex;
  private int shortcutLook;
  public ServerRetraceController resumeWith(String arguments) { resumeArguments=arguments; return this; }
 
@@ -40,6 +42,10 @@ public final class ServerRetraceController implements ServerController {
  @Override public TickResult tick(ServerPlayer p,long nowEpochMs) {
   if(path==null) {
    path=RouteMemory.of(p).path(p,dimension,x,y,z);
+   // After a climb up a column the route is rebuilt from wherever the body ended; with no footing there yet, keep
+   // following the walked route it had (its arrival checks pick up from the body's new place).
+   if(path==null && beforeShortcut!=null) {path=beforeShortcut;index=beforeIndex;legEnd=beforeIndex;}
+   beforeShortcut=null;
    if(path==null) return TickResult.failed("NO_ROUTE","No walked route connects this position to the target; no straight-line replacement attempted",0);
   }
   if(Double.isNaN(startRemaining)) startRemaining=remaining(p);
@@ -106,7 +112,7 @@ public final class ServerRetraceController implements ServerController {
     if(!arrived) shortcutRefused.add(took);
     if(ServerTravelController.DEBUG) LOGGER.info("RETRACE_SHORTCUT {} {} {}",arrived?"climbed to":"gave up on",took,arrived?"":result.reasonCode()+" "+result.message());
     // The walked route from here, wherever the climb ended: the body's own footsteps up the column are on it.
-    path=null;index=0;legEnd=0;lookedOut=false;
+    beforeShortcut=path;beforeIndex=index;path=null;index=0;legEnd=0;lookedOut=false;
     return TickResult.running(progress());
    }
    WalkedRoute.Point completed=path.points().get(legEnd);
@@ -129,7 +135,7 @@ public final class ServerRetraceController implements ServerController {
   return TickResult.succeeded("ARRIVED","Retraced "+Math.round(path.length())+" blocks along "+path.points().size()+" remembered waypoints; target "+x+","+y+","+z);
  }
  /** Shortcut leg stops that only mean this column does not work: the walked route is still there to follow. */
- static final java.util.Set<String> SHORTCUT_GIVE_UP=java.util.Set.of("NO_ROUTE","BUILD_FAILED","OUT_OF_BLOCKS","TUNNEL_FLOODED","TUNNEL_LAVA_PLUGGED","ORE_TOOL_REQUIRED","NO_TOOL","TOOL_WORN","PATH_BLOCKED");
+ static final java.util.Set<String> SHORTCUT_GIVE_UP=java.util.Set.of("NO_ROUTE","BUILD_FAILED","OUT_OF_BLOCKS","TUNNEL_FLOODED","TUNNEL_LAVA_PLUGGED","ORE_TOOL_REQUIRED","NO_TOOL","TOOL_WORN","PATH_BLOCKED","STALLED_IN_PLACE","SURFACE_NOT_FOUND");
 
  /**
   * A remembered footstep straight overhead (its stair, seen through a gap a later tunnel opened) whose way on is much

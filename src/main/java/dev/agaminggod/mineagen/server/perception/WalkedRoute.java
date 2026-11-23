@@ -104,20 +104,46 @@ public final class WalkedRoute {
   List<Point> above=new ArrayList<>();
   for(Point at:edges.keySet()) if(at.dimension.equals(from.dimension) && at.x==from.x && at.z==from.z && at.y>from.y && at.y-from.y<=maxRise && !skip.contains(at)) above.add(at);
   if(above.isEmpty()) return List.of();
-  Path here=path(from,target);
-  if(here==null) return List.of();
+  // One search backwards from the target's end covers every candidate: the walked cost from each footstep to it.
+  Point end=nearest(target,2.5);
+  if(end==null) return List.of();
+  Map<Point,List<Point>> incoming=new HashMap<>();
+  for(Map.Entry<Point,Set<Point>> e:edges.entrySet()) for(Point next:e.getValue()) incoming.computeIfAbsent(next,k->new ArrayList<>()).add(e.getKey());
+  Map<Point,Double> toEnd=new HashMap<>();
+  record Pending(Point at,double cost) {}
+  PriorityQueue<Pending> queue=new PriorityQueue<>(Comparator.comparingDouble(Pending::cost));
+  toEnd.put(end,0.0);queue.add(new Pending(end,0.0));
+  while(!queue.isEmpty()) {
+   Pending p=queue.remove();
+   if(p.cost>toEnd.get(p.at)) continue;
+   for(Point prev:incoming.getOrDefault(p.at,List.of())) {
+    double cost=p.cost+(prev.dimension.equals(p.at.dimension)?prev.distance(p.at):8);
+    if(cost>=toEnd.getOrDefault(prev,Double.POSITIVE_INFINITY)) continue;
+    toEnd.put(prev,cost);queue.add(new Pending(prev,cost));
+   }
+  }
+  double here=walkedFrom(from,toEnd);
+  if(!Double.isFinite(here)) return List.of();
   record Saving(Point at,double saved) {}
   List<Saving> found=new ArrayList<>();
   for(Point at:above) {
-   Path there=path(at,target);
-   if(there==null) continue;
-   double saved=here.length()-there.length()-(at.y-from.y);
+   double saved=here-walkedFrom(at,toEnd)-(at.y-from.y);
    if(saved>margin) found.add(new Saving(at,saved));
   }
   found.sort(Comparator.comparingDouble(Saving::saved).reversed());
   List<Point> out=new ArrayList<>();
   for(Saving s:found) out.add(s.at());
   return out;
+ }
+ /** The walked cost from a standing point to the search's end, joining the route as path() does (same height, within 2). */
+ private double walkedFrom(Point from,Map<Point,Double> toEnd) {
+  double best=Double.POSITIVE_INFINITY;
+  for(Point entry:edges.keySet()) {
+   double gap=from.distance(entry);
+   Double rest=toEnd.get(entry);
+   if(gap<=2.0 && entry.y==from.y && rest!=null) best=Math.min(best,gap+rest);
+  }
+  return best;
  }
  private Point nearest(Point p,double limit) {
   if (edges.containsKey(p)) return p;
