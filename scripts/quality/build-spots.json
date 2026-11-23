@@ -299,6 +299,9 @@
     "count": 8
    }
   ],
+  "commands": [
+   "fill ~-1 ~2 ~-1 ~1 ~8 ~1 minecraft:air"
+  ],
   "calls": [
    {
     "name": "do_step",
@@ -561,6 +564,7 @@
   "name": "thinroof-1001",
   "seed": 1001,
   "expect": "noharm",
+  "expectCode": "BUILD_SHORT",
   "budgetMs": 240000,
   "inventory": [
    {
@@ -598,6 +602,7 @@
   "name": "thinroof-2002",
   "seed": 2002,
   "expect": "noharm",
+  "expectCode": "BUILD_SHORT",
   "budgetMs": 240000,
   "inventory": [
    {
@@ -635,6 +640,7 @@
   "name": "thinroof-4004",
   "seed": 4004,
   "expect": "noharm",
+  "expectCode": "BUILD_SHORT",
   "budgetMs": 240000,
   "inventory": [
    {

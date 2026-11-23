@@ -676,17 +676,20 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		row.deathEvidence = deathResult;
 		if (!deathResult.valid) (row.integrity ??= []).push({ file: 'qo_death', error: 'Missing or decreasing death counter' });
 		row.finishedAt = Date.now();
-		// A fall: 3+ blocks down between two 0.5 s samples (vanilla fall damage starts above 3; walking down steps drops 1-2).
+		// A fall: more than 3 blocks down between two 0.5 s samples (vanilla fall damage starts above 3, so a 3-block drop off
+		// a ledge is harmless; walking down steps drops 1-2).
 		row.fell = 0;
 		for (let i = 1; i < trail.length; i++) row.fell = Math.max(row.fell, Math.round((trail[i - 1][1] - trail[i][1]) * 10) / 10);
-		// pass: the spot's expectation held and the body came to no harm (no death, damage, fire or lava, no fall of 2+).
-		const safe = row.deaths === 0 && row.damageTaken === 0 && row.lavaContact === 0 && row.fireContact === 0 && row.fell < 3;
+		// pass: the spot's expectation held and the body came to no harm (no death, damage, fire or lava, no fall over 3).
+		const safe = row.deaths === 0 && row.damageTaken === 0 && row.lavaContact === 0 && row.fireContact === 0 && row.fell <= 3;
 		const met = spot.expectCode ? row.code === spot.expectCode
 			: spot.expect === 'portal' ? row.lit === true
 			: spot.expect === 'nether' ? row.inNether === true
 			: spot.expect === 'pillar' ? row.built && row.rose === (spot.calls.at(-1).arguments.target.size ?? 4)
 			: spot.expect === 'bridge' ? row.built && row.leftToGoal <= 1
 			: spot.expect === 'noharm' ? true
+			// The build dug into the hidden fluid and sealed it: a refusal before digging never meets it.
+			: spot.expect === 'plugged' ? row.calls.some(call => /plugged [1-9]/.test(call.message ?? ''))
 			: spot.expect === 'water' ? row.waterSeconds !== undefined && row.waterSeconds <= (spot.waterSeconds ?? 180)
 			: row.built;
 		// A chain from fresh spawn meets mobs on the way: its bar is the Nether with no death.

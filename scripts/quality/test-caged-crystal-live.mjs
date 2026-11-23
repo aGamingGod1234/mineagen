@@ -6,7 +6,7 @@ import { spawn } from 'node:child_process';
 import { randomBytes, createHash } from 'node:crypto';
 import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
-import { rememberEndCrystals, endCrystalFact } from '../../coordinator/src/dragon-fight-facts.mjs';
+import { rememberEndCrystals, endCrystalFact, CAGED_CRYSTAL_FACTS } from '../../coordinator/src/dragon-fight-facts.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 import { installTickRate, fixtureTickRate } from './watch-replay.mjs';
 import { damageCounter, recordDamageEvidence } from './lib/damage-counter.mjs';
@@ -146,7 +146,8 @@ try {
 	check('observation row reads caged', row?.appearance?.caged === true, row?.appearance);
 	const state = {};
 	results.factFromGround = facts(o, state);
-	check('crystal fact names the cage, the method and the height above the player', /caged \(beside it feet y=\d+, \d+ above you\)/.test(results.factFromGround) && /arrows stick in the side walls/.test(results.factFromGround) && /break the 2 wall bars/.test(results.factFromGround), results.factFromGround);
+	// The cage advice is read from the source, so a reworded fact keeps this check true to what the bot is told.
+	check('crystal fact names the cage, the method and the height above the player', /caged \(beside it feet y=\d+, \d+ above you\)/.test(results.factFromGround) && results.factFromGround.includes(CAGED_CRYSTAL_FACTS), results.factFromGround);
 	const inspected = await inspect({ section: 'entities', entityType: 'minecraft:end_crystal', limit: 16 });
 	const inspectRow = (inspected.entities ?? inspected.rows ?? inspected.candidates ?? []).find?.(r => r.uuid === row.uuid) ?? JSON.stringify(inspected).match(/"arrowFromHere":"[^"]*"/g);
 	results.inspectFromGround = inspectRow?.arrowFromHere ?? inspectRow;
@@ -251,6 +252,9 @@ try {
 	check('a shot from the advised distance is not refused at the pillar', results.pillarEdge?.fromAdvised && results.pillarEdge.fromAdvised.reasonCode !== 'TARGET_OBSTRUCTED', results.pillarEdge?.fromAdvised);
 	results.tick = await endPlay();
 	results.summary = Object.fromEntries(Object.entries(results.checks).map(([k, v]) => [k, v.ok]));
+	// The room's verdict: every check held. Without it the scorer saw only the exit code, and a failed check still passed.
+	results.pass = Object.values(results.checks).every(c => c.ok);
+	if (!results.pass) process.exitCode = 1;
 	await writeFile(join(out, 'caged.json'), JSON.stringify(results, null, 2));
 	console.log(JSON.stringify(results, null, 2));
 } finally {

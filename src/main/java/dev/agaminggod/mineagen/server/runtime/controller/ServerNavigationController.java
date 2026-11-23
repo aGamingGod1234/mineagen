@@ -2234,6 +2234,9 @@ public final class ServerNavigationController implements ServerController {
 				// A clear shortcut must preserve the terrain cost that selected this route.
 				if (world.movementSpeedMultiplier(standing) + 1.0E-6D < minimumSpeed
 						|| world.exposureCost(standing) > maximumExposure) return false;
+				// Nor cut back along an edge the route kept a step in from: no cell beside a dangerous drop between the
+				// line's ends (a lip-to-lip walk's shortcut ran straight along the lip again).
+				if (!standing.equals(source) && !standing.equals(target) && world.edgeDropCost(standing) > 0) return false;
 			}
 		}
 		return true;

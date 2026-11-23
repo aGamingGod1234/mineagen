@@ -35,6 +35,8 @@ const fixtures = (fixturesArg ?? 'lake;stair;widelake').split(';');
 // detour-escape: the detour pocket (a solid block over the body, the flooded shaft up one block east) with the escape job
 // (do_step escape) instead of travel_to; it passes only when the escape gets the body out (SUCCEEDED) without harm.
 const ARRIVE = new Set(['lake', 'stair', 'widelake', 'detour-escape']);
+/** The detour's air at the call, in ticks, below which the start missed its setup (it sets about 85). */
+const DETOUR_AIR_MIN = 65;
 // A bridge error (state ERROR) means the harness lost the call: invalid evidence, not a failed trial.
 const judge = (row) => {
 	if (row.state === 'ERROR') row.error = `travel_to never returned: ${row.reasonCode}`;
@@ -201,6 +203,9 @@ try {
 			airBefore, minAir, deepEast: Number.isFinite(maxX) ? Math.round(maxX * 10) / 10 : null, endY: end ? Math.round((end[1] - start[1]) * 10) / 10 : null,
 			message: String(result.message ?? '').slice(0, 240), startedAt, finishedAt: Date.now() };
 		row.pass = judge(row);
+		// detour is set for about 4 s of air at the call (85 ticks read in 8 of 10 runs, 23 Nov). A start a second or more
+		// short of that (35-37 ticks in the other 2, both on one machine) leaves no air for any way up: the setup missed.
+		if (fixture === 'detour' && Number.isFinite(airBefore) && airBefore < DETOUR_AIR_MIN) row.notExercised = `started with ${airBefore} ticks of air, under the ${DETOUR_AIR_MIN} the detour sets`;
 		rows.push(row);
 		console.log(`[${fixture} ${run}] ${row.state} ${row.reasonCode} ${row.seconds}s left=${row.left} hpLost=${row.healthLost} air ${row.airBefore}->${row.minAir} east(low)=${row.deepEast} dy=${row.endY}${row.healthLostAfter !== undefined ? ` hpLostNext${afterMs / 1000}s=${row.healthLostAfter}` : ''}${row.died ? ' DIED' : ''} | ${row.message.slice(0, 140)}`);
 		if (row.died) { await s.command(`mineagen respawn ${NAME}`).catch(() => {}); await s.idleSleep(3000); }

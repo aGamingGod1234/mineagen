@@ -96,7 +96,7 @@
    "waitMs": 3000,
    "answer": true
   },
-  "note": "gate seed 1: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; the body digs its own stairs down (with 10-block tunnels sideways when a dig stops short, up to 4 digs) to y16 (setup, untimed, on peaceful so no mob ends the placing; fresh pickaxes after), then back to normal difficulty and obtain water_bucket; filled within 180 s of the first water call, no death, Air never 0",
+  "note": "gate seed 1: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; the body digs its own stairs down (with 10-block tunnels sideways when a dig stops short, up to 4 digs) to y16 (setup, untimed, on peaceful so no mob ends the placing; fresh pickaxes after), then back to normal difficulty and morning (time set 1000: the dig must not spend the day, or the timed search starts at dusk) and obtain water_bucket; filled within 180 s of the first water call, no death, Air never 0",
   "calls": [
    {
     "command": "difficulty peaceful"
@@ -209,6 +209,9 @@
    },
    {
     "command": "difficulty normal"
+   },
+   {
+    "command": "time set 1000"
    },
    {
     "name": "do_step",
@@ -264,7 +267,7 @@
    "waitMs": 3000,
    "answer": true
   },
-  "note": "gate seed 1: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; the body digs its own stairs down (with 10-block tunnels sideways when a dig stops short, up to 4 digs) to y-54 (setup, untimed, on peaceful so no mob ends the placing; fresh pickaxes after), then back to normal difficulty and obtain water_bucket; filled within 180 s of the first water call, no death, Air never 0",
+  "note": "gate seed 1: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; the body digs its own stairs down (with 10-block tunnels sideways when a dig stops short, up to 4 digs) to y-54 (setup, untimed, on peaceful so no mob ends the placing; fresh pickaxes after), then back to normal difficulty and morning (time set 1000: the dig must not spend the day, or the timed search starts at dusk) and obtain water_bucket; filled within 180 s of the first water call, no death, Air never 0",
   "calls": [
    {
     "command": "difficulty peaceful"
@@ -377,6 +380,9 @@
    },
    {
     "command": "difficulty normal"
+   },
+   {
+    "command": "time set 1000"
    },
    {
     "name": "do_step",
@@ -488,7 +494,7 @@
    "waitMs": 3000,
    "answer": true
   },
-  "note": "gate seed 2: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; the body digs its own stairs down (with 10-block tunnels sideways when a dig stops short, up to 4 digs) to y16 (setup, untimed, on peaceful so no mob ends the placing; fresh pickaxes after), then back to normal difficulty and obtain water_bucket; filled within 180 s of the first water call, no death, Air never 0",
+  "note": "gate seed 2: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; the body digs its own stairs down (with 10-block tunnels sideways when a dig stops short, up to 4 digs) to y16 (setup, untimed, on peaceful so no mob ends the placing; fresh pickaxes after), then back to normal difficulty and morning (time set 1000: the dig must not spend the day, or the timed search starts at dusk) and obtain water_bucket; filled within 180 s of the first water call, no death, Air never 0",
   "calls": [
    {
     "command": "difficulty peaceful"
@@ -601,6 +607,9 @@
    },
    {
     "command": "difficulty normal"
+   },
+   {
+    "command": "time set 1000"
    },
    {
     "name": "do_step",
@@ -656,7 +665,7 @@
    "waitMs": 3000,
    "answer": true
   },
-  "note": "gate seed 2: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; the body digs its own stairs down (with 10-block tunnels sideways when a dig stops short, up to 4 digs) to y-54 (setup, untimed, on peaceful so no mob ends the placing; fresh pickaxes after), then back to normal difficulty and obtain water_bucket; filled within 180 s of the first water call, no death, Air never 0",
+  "note": "gate seed 2: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; the body digs its own stairs down (with 10-block tunnels sideways when a dig stops short, up to 4 digs) to y-54 (setup, untimed, on peaceful so no mob ends the placing; fresh pickaxes after), then back to normal difficulty and morning (time set 1000: the dig must not spend the day, or the timed search starts at dusk) and obtain water_bucket; filled within 180 s of the first water call, no death, Air never 0",
   "calls": [
    {
     "command": "difficulty peaceful"
@@ -769,6 +778,9 @@
    },
    {
     "command": "difficulty normal"
+   },
+   {
+    "command": "time set 1000"
    },
    {
     "name": "do_step",
@@ -880,7 +892,7 @@
    "waitMs": 3000,
    "answer": true
   },
-  "note": "gate seed 3: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; the body digs its own stairs down (with 10-block tunnels sideways when a dig stops short, up to 4 digs) to y16 (setup, untimed, on peaceful so no mob ends the placing; fresh pickaxes after), then back to normal difficulty and obtain water_bucket; filled within 180 s of the first water call, no death, Air never 0",
+  "note": "gate seed 3: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; the body digs its own stairs down (with 10-block tunnels sideways when a dig stops short, up to 4 digs) to y16 (setup, untimed, on peaceful so no mob ends the placing; fresh pickaxes after), then back to normal difficulty and morning (time set 1000: the dig must not spend the day, or the timed search starts at dusk) and obtain water_bucket; filled within 180 s of the first water call, no death, Air never 0",
   "calls": [
    {
     "command": "difficulty peaceful"
@@ -993,6 +1005,9 @@
    },
    {
     "command": "difficulty normal"
+   },
+   {
+    "command": "time set 1000"
    },
    {
     "name": "do_step",
@@ -1048,7 +1063,7 @@
    "waitMs": 3000,
    "answer": true
   },
-  "note": "gate seed 3: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; the body digs its own stairs down (with 10-block tunnels sideways when a dig stops short, up to 4 digs) to y-54 (setup, untimed, on peaceful so no mob ends the placing; fresh pickaxes after), then back to normal difficulty and obtain water_bucket; filled within 180 s of the first water call, no death, Air never 0",
+  "note": "gate seed 3: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; the body digs its own stairs down (with 10-block tunnels sideways when a dig stops short, up to 4 digs) to y-54 (setup, untimed, on peaceful so no mob ends the placing; fresh pickaxes after), then back to normal difficulty and morning (time set 1000: the dig must not spend the day, or the timed search starts at dusk) and obtain water_bucket; filled within 180 s of the first water call, no death, Air never 0",
   "calls": [
    {
     "command": "difficulty peaceful"
@@ -1161,6 +1176,9 @@
    },
    {
     "command": "difficulty normal"
+   },
+   {
+    "command": "time set 1000"
    },
    {
     "name": "do_step",
@@ -1272,7 +1290,7 @@
    "waitMs": 3000,
    "answer": true
   },
-  "note": "gate seed 4: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; the body digs its own stairs down (with 10-block tunnels sideways when a dig stops short, up to 4 digs) to y16 (setup, untimed, on peaceful so no mob ends the placing; fresh pickaxes after), then back to normal difficulty and obtain water_bucket; filled within 180 s of the first water call, no death, Air never 0",
+  "note": "gate seed 4: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; the body digs its own stairs down (with 10-block tunnels sideways when a dig stops short, up to 4 digs) to y16 (setup, untimed, on peaceful so no mob ends the placing; fresh pickaxes after), then back to normal difficulty and morning (time set 1000: the dig must not spend the day, or the timed search starts at dusk) and obtain water_bucket; filled within 180 s of the first water call, no death, Air never 0",
   "calls": [
    {
     "command": "difficulty peaceful"
@@ -1385,6 +1403,9 @@
    },
    {
     "command": "difficulty normal"
+   },
+   {
+    "command": "time set 1000"
    },
    {
     "name": "do_step",
@@ -1440,7 +1461,7 @@
    "waitMs": 3000,
    "answer": true
   },
-  "note": "gate seed 4: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; the body digs its own stairs down (with 10-block tunnels sideways when a dig stops short, up to 4 digs) to y-54 (setup, untimed, on peaceful so no mob ends the placing; fresh pickaxes after), then back to normal difficulty and obtain water_bucket; filled within 180 s of the first water call, no death, Air never 0",
+  "note": "gate seed 4: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; the body digs its own stairs down (with 10-block tunnels sideways when a dig stops short, up to 4 digs) to y-54 (setup, untimed, on peaceful so no mob ends the placing; fresh pickaxes after), then back to normal difficulty and morning (time set 1000: the dig must not spend the day, or the timed search starts at dusk) and obtain water_bucket; filled within 180 s of the first water call, no death, Air never 0",
   "calls": [
    {
     "command": "difficulty peaceful"
@@ -1553,6 +1574,9 @@
    },
    {
     "command": "difficulty normal"
+   },
+   {
+    "command": "time set 1000"
    },
    {
     "name": "do_step",
@@ -1664,7 +1688,7 @@
    "waitMs": 3000,
    "answer": true
   },
-  "note": "gate seed 5: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; the body digs its own stairs down (with 10-block tunnels sideways when a dig stops short, up to 4 digs) to y16 (setup, untimed, on peaceful so no mob ends the placing; fresh pickaxes after), then back to normal difficulty and obtain water_bucket; filled within 180 s of the first water call, no death, Air never 0",
+  "note": "gate seed 5: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; the body digs its own stairs down (with 10-block tunnels sideways when a dig stops short, up to 4 digs) to y16 (setup, untimed, on peaceful so no mob ends the placing; fresh pickaxes after), then back to normal difficulty and morning (time set 1000: the dig must not spend the day, or the timed search starts at dusk) and obtain water_bucket; filled within 180 s of the first water call, no death, Air never 0",
   "calls": [
    {
     "command": "difficulty peaceful"
@@ -1777,6 +1801,9 @@
    },
    {
     "command": "difficulty normal"
+   },
+   {
+    "command": "time set 1000"
    },
    {
     "name": "do_step",
@@ -1832,7 +1859,7 @@
    "waitMs": 3000,
    "answer": true
   },
-  "note": "gate seed 5: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; the body digs its own stairs down (with 10-block tunnels sideways when a dig stops short, up to 4 digs) to y-54 (setup, untimed, on peaceful so no mob ends the placing; fresh pickaxes after), then back to normal difficulty and obtain water_bucket; filled within 180 s of the first water call, no death, Air never 0",
+  "note": "gate seed 5: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; the body digs its own stairs down (with 10-block tunnels sideways when a dig stops short, up to 4 digs) to y-54 (setup, untimed, on peaceful so no mob ends the placing; fresh pickaxes after), then back to normal difficulty and morning (time set 1000: the dig must not spend the day, or the timed search starts at dusk) and obtain water_bucket; filled within 180 s of the first water call, no death, Air never 0",
   "calls": [
    {
     "command": "difficulty peaceful"
@@ -1945,6 +1972,9 @@
    },
    {
     "command": "difficulty normal"
+   },
+   {
+    "command": "time set 1000"
    },
    {
     "name": "do_step",
@@ -2056,7 +2086,7 @@
    "waitMs": 3000,
    "answer": true
   },
-  "note": "gate seed 6: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; the body digs its own stairs down (with 10-block tunnels sideways when a dig stops short, up to 4 digs) to y16 (setup, untimed, on peaceful so no mob ends the placing; fresh pickaxes after), then back to normal difficulty and obtain water_bucket; filled within 180 s of the first water call, no death, Air never 0",
+  "note": "gate seed 6: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; the body digs its own stairs down (with 10-block tunnels sideways when a dig stops short, up to 4 digs) to y16 (setup, untimed, on peaceful so no mob ends the placing; fresh pickaxes after), then back to normal difficulty and morning (time set 1000: the dig must not spend the day, or the timed search starts at dusk) and obtain water_bucket; filled within 180 s of the first water call, no death, Air never 0",
   "calls": [
    {
     "command": "difficulty peaceful"
@@ -2169,6 +2199,9 @@
    },
    {
     "command": "difficulty normal"
+   },
+   {
+    "command": "time set 1000"
    },
    {
     "name": "do_step",
@@ -2224,7 +2257,7 @@
    "waitMs": 3000,
    "answer": true
   },
-  "note": "gate seed 6: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; the body digs its own stairs down (with 10-block tunnels sideways when a dig stops short, up to 4 digs) to y-54 (setup, untimed, on peaceful so no mob ends the placing; fresh pickaxes after), then back to normal difficulty and obtain water_bucket; filled within 180 s of the first water call, no death, Air never 0",
+  "note": "gate seed 6: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; the body digs its own stairs down (with 10-block tunnels sideways when a dig stops short, up to 4 digs) to y-54 (setup, untimed, on peaceful so no mob ends the placing; fresh pickaxes after), then back to normal difficulty and morning (time set 1000: the dig must not spend the day, or the timed search starts at dusk) and obtain water_bucket; filled within 180 s of the first water call, no death, Air never 0",
   "calls": [
    {
     "command": "difficulty peaceful"
@@ -2337,6 +2370,9 @@
    },
    {
     "command": "difficulty normal"
+   },
+   {
+    "command": "time set 1000"
    },
    {
     "name": "do_step",
@@ -2448,7 +2484,7 @@
    "waitMs": 3000,
    "answer": true
   },
-  "note": "gate seed 7: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; the body digs its own stairs down (with 10-block tunnels sideways when a dig stops short, up to 4 digs) to y16 (setup, untimed, on peaceful so no mob ends the placing; fresh pickaxes after), then back to normal difficulty and obtain water_bucket; filled within 180 s of the first water call, no death, Air never 0",
+  "note": "gate seed 7: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; the body digs its own stairs down (with 10-block tunnels sideways when a dig stops short, up to 4 digs) to y16 (setup, untimed, on peaceful so no mob ends the placing; fresh pickaxes after), then back to normal difficulty and morning (time set 1000: the dig must not spend the day, or the timed search starts at dusk) and obtain water_bucket; filled within 180 s of the first water call, no death, Air never 0",
   "calls": [
    {
     "command": "difficulty peaceful"
@@ -2561,6 +2597,9 @@
    },
    {
     "command": "difficulty normal"
+   },
+   {
+    "command": "time set 1000"
    },
    {
     "name": "do_step",
@@ -2616,7 +2655,7 @@
    "waitMs": 3000,
    "answer": true
   },
-  "note": "gate seed 7: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; the body digs its own stairs down (with 10-block tunnels sideways when a dig stops short, up to 4 digs) to y-54 (setup, untimed, on peaceful so no mob ends the placing; fresh pickaxes after), then back to normal difficulty and obtain water_bucket; filled within 180 s of the first water call, no death, Air never 0",
+  "note": "gate seed 7: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; the body digs its own stairs down (with 10-block tunnels sideways when a dig stops short, up to 4 digs) to y-54 (setup, untimed, on peaceful so no mob ends the placing; fresh pickaxes after), then back to normal difficulty and morning (time set 1000: the dig must not spend the day, or the timed search starts at dusk) and obtain water_bucket; filled within 180 s of the first water call, no death, Air never 0",
   "calls": [
    {
     "command": "difficulty peaceful"
@@ -2729,6 +2768,9 @@
    },
    {
     "command": "difficulty normal"
+   },
+   {
+    "command": "time set 1000"
    },
    {
     "name": "do_step",
@@ -2840,7 +2882,7 @@
    "waitMs": 3000,
    "answer": true
   },
-  "note": "gate seed 8: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; the body digs its own stairs down (with 10-block tunnels sideways when a dig stops short, up to 4 digs) to y16 (setup, untimed, on peaceful so no mob ends the placing; fresh pickaxes after), then back to normal difficulty and obtain water_bucket; filled within 180 s of the first water call, no death, Air never 0",
+  "note": "gate seed 8: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; the body digs its own stairs down (with 10-block tunnels sideways when a dig stops short, up to 4 digs) to y16 (setup, untimed, on peaceful so no mob ends the placing; fresh pickaxes after), then back to normal difficulty and morning (time set 1000: the dig must not spend the day, or the timed search starts at dusk) and obtain water_bucket; filled within 180 s of the first water call, no death, Air never 0",
   "calls": [
    {
     "command": "difficulty peaceful"
@@ -2953,6 +2995,9 @@
    },
    {
     "command": "difficulty normal"
+   },
+   {
+    "command": "time set 1000"
    },
    {
     "name": "do_step",
@@ -3008,7 +3053,7 @@
    "waitMs": 3000,
    "answer": true
   },
-  "note": "gate seed 8: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; the body digs its own stairs down (with 10-block tunnels sideways when a dig stops short, up to 4 digs) to y-54 (setup, untimed, on peaceful so no mob ends the placing; fresh pickaxes after), then back to normal difficulty and obtain water_bucket; filled within 180 s of the first water call, no death, Air never 0",
+  "note": "gate seed 8: a bucket, an iron pickaxe and a stone pickaxe at fresh spawn; the body digs its own stairs down (with 10-block tunnels sideways when a dig stops short, up to 4 digs) to y-54 (setup, untimed, on peaceful so no mob ends the placing; fresh pickaxes after), then back to normal difficulty and morning (time set 1000: the dig must not spend the day, or the timed search starts at dusk) and obtain water_bucket; filled within 180 s of the first water call, no death, Air never 0",
   "calls": [
    {
     "command": "difficulty peaceful"
@@ -3121,6 +3166,9 @@
    },
    {
     "command": "difficulty normal"
+   },
+   {
+    "command": "time set 1000"
    },
    {
     "name": "do_step",

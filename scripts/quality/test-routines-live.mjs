@@ -196,6 +196,10 @@ try {
   }
   if(!only||only==='blaze')for(let i=0;i<3;i++){
     const x=i*32;await reset('minecraft:the_nether',x,80,64);
+    // The arena sits in a generated Nether: piglins that wander within 5-6 blocks set off the defend reflex before the
+    // program's first action (3 of 10 blaze-1 runs on 23 Nov, none in a run without them). Only the room's blaze belongs here.
+    await command('gamerule minecraft:spawn_mobs false').catch(()=>command('gamerule doMobSpawning false'));
+    await command(`execute in minecraft:the_nether positioned ${x} 80 64 run kill @e[type=!minecraft:player,distance=..64]`);
     await command(`execute in minecraft:the_nether run fill ${x-4} 79 60 ${x+12} 79 70 minecraft:nether_bricks`);
     await command(`execute in minecraft:the_nether run fill ${x+1} 80 65 ${x+1} 82 65 minecraft:nether_bricks`);
     await command(`execute in minecraft:the_nether run fill ${x-1} 83 62 ${x+10} 83 66 minecraft:nether_bricks`);
