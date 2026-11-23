@@ -27,6 +27,10 @@
 // A room comes home without the server template copies and Fabric's .fabric cache, and an arm that passed without its
 // saved worlds' region files (PACK_EXCLUDES in lib/room-batch-core.mjs, lib/room-worlds.mjs); --keep-worlds
 // brings every arm's region files home.
+// Every arm's server gets Lithium (a server performance mod that keeps vanilla behaviour; the target's pinned JAR,
+// downloaded and checked here, travels as a batch input; lib/room-batch-remote.mjs uses the machine's template when it
+// already holds that JAR, else a copy with it); --no-lithium adds nothing and plays on the template as it is, which is
+// a run without Lithium only when that template has none.
 // AI rooms (the real model plays the room through the production coordinator), instead of --commands and --arm:
 //   node scripts/quality/room-batch.mjs --player model --jar JAR --codex-auth AUTH.json [--ai-rooms ROOMS.json]
 //     [--rooms NAME,...] [--repeats N] [--no-script] [--model M] --pool boat --vms N --out FRESH_DIR
@@ -43,6 +47,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseCommands } from './lib/room-batch-core.mjs';
+import { lithiumJar, targetProperties } from '../prepare-server-template.mjs';
 import { AI_ARM, SCRIPT_ARM, aiRoomCommands, findRefreshedSignIn, selectAiRooms } from './lib/ai-room-lines.mjs';
 import { runBatch } from './lib/room-batch-run.mjs';
 import { boatPool, buildBundle } from './lib/boat-pool.mjs';
@@ -50,7 +55,7 @@ import { extraStartsWanted, warmBoatPool } from './lib/boat-warm.mjs';
 import { parseWindowsHosts, windowsPool } from './lib/windows-pool.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
-const USAGE = 'Usage: room-batch.mjs --commands ROOMS.txt --arm NAME=JAR [--arm NAME=JAR] --pool boat|windows --vms N --out FRESH_DIR [--code REF] [--snapshot NAME] [--type TYPE] [--room-timeout MIN] [--name PREFIX] [--idle-ttl MIN] [--extra-starts] [--machines ID,...] [--valid N] [--keep-worlds] [--ephemeral] [--dry-run]\n       room-batch.mjs --player model --jar JAR --codex-auth AUTH.json [--ai-rooms ROOMS.json] [--rooms NAME,...] [--repeats N] [--no-script] [--model M] --pool boat --vms N --out FRESH_DIR [...]';
+const USAGE = 'Usage: room-batch.mjs --commands ROOMS.txt --arm NAME=JAR [--arm NAME=JAR] --pool boat|windows --vms N --out FRESH_DIR [--code REF] [--snapshot NAME] [--type TYPE] [--room-timeout MIN] [--name PREFIX] [--idle-ttl MIN] [--extra-starts] [--machines ID,...] [--valid N] [--keep-worlds] [--ephemeral] [--no-lithium] [--dry-run]\n       room-batch.mjs --player model --jar JAR --codex-auth AUTH.json [--ai-rooms ROOMS.json] [--rooms NAME,...] [--repeats N] [--no-script] [--model M] --pool boat --vms N --out FRESH_DIR [...]';
 
 function parseFlags(argv) {
 	const flags = { arms: [] };
@@ -60,6 +65,7 @@ function parseFlags(argv) {
 		else if (flag === '--dry-run') flags.dryRun = true;
 		else if (flag === '--no-script') flags.noScript = true;
 		else if (flag === '--keep-worlds') flags.keepWorlds = true;
+		else if (flag === '--no-lithium') flags.noLithium = true;
 		else if (flag === '--extra-starts') flags.extraStarts = true;
 		else if (flag === '--codex-auth' && flags.codexAuth) flags.codexAuth += `,${argv[++i]}`;
 		else if (flag === '--ephemeral' || flag === '--no-reuse') flags.ephemeral = true;
@@ -138,6 +144,16 @@ console.log(`${batch.name}: ${rooms.length} rooms x ${flags.arms.length} arms, $
 for (const pc of windowsHosts ?? []) if (pc.cutoffAt != null) console.log(pc.cutoffAt <= Date.now() ? `${pc.host}: inside its closed window ${pc.cutoff}, so it plays no room in this batch` : `${pc.host}: no room starts after ${new Date(pc.cutoffAt).toString().slice(0, 21)} (cutoff ${pc.cutoff}, in ${Math.round((pc.cutoffAt - Date.now()) / 60_000)} min); a room still playing there then is stopped and re-queued on another PC`);
 if (flags.dryRun) { for (const room of rooms) for (const line of room.lines) console.log(`  ${room.room} [${line.arm}] ${Object.entries(line.env).map(([k, v]) => `${k}=${v}`).join(' ')} node ${line.args.join(' ')}`); process.exit(0); }
 if (!windowsHosts && !snapshot && !machines.length) fail('--snapshot or ROOM_BATCH_SNAPSHOT names the saved image (make it with room-image.mjs)');
+const serverMods = [];
+if (!flags.noLithium) {
+	const jar = await lithiumJar(targetProperties(root)).catch(error => fail(`Lithium: ${error.message} (or pass --no-lithium)`));
+	// Named as is (no number prefix): the machine puts the file into mods/ under this name, and done.json reads the mod
+	// id from it.
+	inputs.push({ local: jar, name: path.basename(jar) });
+	serverMods.push(jar);
+}
+batch.inputs = inputs.map(input => input.name);
+batch.serverMods = serverMods.map(file => path.basename(file));
 await mkdir(out, { recursive: true });
 if ((await readdir(out)).length) fail(`${out} is not empty: use a fresh output folder`);
 await writeFile(path.join(out, 'commands.txt'), commandsText);
@@ -189,7 +205,7 @@ const signInWatch = flags.player === 'model' ? setInterval(async () => {
 }, 5_000) : null;
 try {
 	// The boat poll waits for the room's end itself; a Windows poll answers at once, so it gets a pause between asks.
-	const result = await runBatch({ batch, rooms, arms: flags.arms, pool, vms, out, roomTimeoutMs, log, rewrite, signal: controller.signal, valid, keepWorlds: flags.keepWorlds === true, ...(windowsHosts ? { pollMs: 10_000 } : {}) });
+	const result = await runBatch({ batch, rooms, arms: flags.arms, pool, vms, out, roomTimeoutMs, log, rewrite, signal: controller.signal, valid, keepWorlds: flags.keepWorlds === true, serverMods, ...(windowsHosts ? { pollMs: 10_000 } : {}) });
 	await writeFile(path.join(out, 'batch.json'), JSON.stringify({ ...batch, began, ended: new Date().toISOString(), wallSeconds: result.wallSeconds,
 		switches: Object.fromEntries(Object.entries(result.merged ?? {}).map(([arm, entry]) => [arm, entry.summary?.switches ?? null])), outcomes: result.outcomes, topUps: result.topUps, machines: result.machines }, null, 2) + '\n');
 	await writeFile(path.join(out, 'summary.txt'), result.text + '\n');
