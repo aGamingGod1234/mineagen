@@ -113,6 +113,14 @@ public final class ServerBuildController implements ServerController {
 		default String useBucket(ServerPlayer body, BlockPos clicked, Direction face, double lavaGraceSeconds) {
 			return useBucket(body, clicked, face);
 		}
+
+		/**
+		 * Whether {@link #clear} would refuse the block for lava heard just behind it. Lava seen beside a block also refuses it,
+		 * but the site rules already rule out any site with seen fluid against a cell they break.
+		 */
+		default boolean lavaHeardBehind(ServerPlayer body, BlockPos at) {
+			return false;
+		}
 	}
 
 	/** Ticks a single block may take to mine with the best carried tool for a site to count it as clearable (dirt by hand: 15). */
@@ -333,6 +341,8 @@ public final class ServerBuildController implements ServerController {
 	private final Set<BlockPos> deadSupports = new HashSet<>();
 	/** Every lava source this build has seen (sight memory fades): where to walk back to when none is in view. */
 	private final Set<BlockPos> poolMemory = new HashSet<>();
+	/** Frame cells this build poured lava into and has not taken back: lava there until the eye sees the cell again. */
+	private final Set<BlockPos> ownLava = new HashSet<>();
 	/** How far from the frame the body looks for the next lava: a big pool's open surface often lies past its near rim. */
 	static final int CAST_FETCH_RANGE = 32;
 	private final Set<BlockPos> triedSources = new HashSet<>();
@@ -662,6 +672,7 @@ public final class ServerBuildController implements ServerController {
 		boolean bestSure = true;
 		List<BlockPos> pool = casting ? castPool(player, center, SITE_RADIUS + (int) CAST_POOL_REACH) : List.of();
 		int plain = casting ? plainCount(player) : 0;
+		int lavaRefused = 0;
 		for (Direction.Axis axis : new Direction.Axis[] { Direction.Axis.X, Direction.Axis.Z })
 			for (BlockPos origin : BlockPos.betweenClosed(center.offset(-SITE_RADIUS, -3, -SITE_RADIUS), center.offset(SITE_RADIUS - 3, 2, SITE_RADIUS - 3))) {
 				Portal candidate = new Portal(origin.immutable(), axis);
@@ -686,6 +697,8 @@ public final class ServerBuildController implements ServerController {
 				// for the mould and a roof too low for the step up.
 				if (candidate.equals(carved) && side == carvedBack) cost -= 100.0D;
 				if (lastFrame != null && candidate.equals(lastFrame.origin()) && side == lastFrame.back()) cost -= 80.0D;
+				// A site whose clearing clear's lava gate would refuse (lava heard just behind a block) is no site.
+				if (cost < bestCost && digRefusedByLava(player, siteClears(player, candidate, side)) != null) { lavaRefused++; continue; }
 				if (cost < bestCost) { bestCost = cost; best = candidate; bestBack = side; bestSure = sure; }
 			}
 		// A site fit for the cast but for the blocks carried: more blocks, not another spot, is what it takes.
@@ -693,8 +706,8 @@ public final class ServerBuildController implements ServerController {
 				+ "%d carried; %d more (cobblestone or dirt), then build here again", rejects[10], xyz(center), plain, rejects[10] - plain));
 		if (best == null) siteRejects = String.format(Locale.ROOT, "%d had no flat solid ground row, "
 				+ "%d had water or lava in or beside the footprint, %d had a block too slow to clear or unseen cells, %d had no standing spot in front, "
-				+ "%d had unseen ground, %d were checked%s", rejects[0], rejects[1], rejects[2], rejects[3],
-				rejects[5], rejects[0] + rejects[1] + rejects[2] + rejects[3] + rejects[4] + rejects[5],
+				+ "%d had unseen ground, %d had lava heard right behind a block to clear, %d were checked%s", rejects[0], rejects[1], rejects[2], rejects[3],
+				rejects[5], lavaRefused, rejects[0] + rejects[1] + rejects[2] + rejects[3] + rejects[4] + rejects[5] + lavaRefused,
 				casting ? String.format(Locale.ROOT, "; for casting, %d had no seen open or solid cells behind for the mould or before the frame, %d stood over %.0f blocks from, or %.0f above or below, the %d lava sources seen, %d would let the poured water run into the lava",
 						rejects[6], rejects[7], CAST_POOL_REACH, CAST_RISE, pool.size(), rejects[8]) : "");
 		// After a carve, an open site only the quick bound admits is the dug rock beside the refused carve (away-pair-1: 10
@@ -822,6 +835,7 @@ public final class ServerBuildController implements ServerController {
 				"no standing spot in front", "other", "unseen ground", "unseen or open cells behind for the mould or before the frame",
 				"too far from, or above or below, the lava", "poured water would run into the lava", "short of plain blocks", "" };
 		for (int k = 0; k < 10; k++) if (rejects[k] > 0) return why[k];
+		if (digRefusedByLava(player, siteClears(player, p, wall)) != null) return "lava heard right behind a block to clear";
 		return "passed, but another site cost less";
 	}
 
@@ -1772,6 +1786,8 @@ public final class ServerBuildController implements ServerController {
 	private TickResult chooseAgain(ServerPlayer player, long now, String why) {
 		rejectedSites.add(portal.origin().immutable());
 		rejectNote = "gave up the " + (carving ? "carved " : "") + "site at " + xyz(portal.origin()) + " (" + why + ")";
+		// Given up here, so the next choice does not also report it as refused after a dig it never finished.
+		if (carving) carved = null;
 		carving = false;
 		portal = null;
 		clears.clear();
@@ -1794,6 +1810,43 @@ public final class ServerBuildController implements ServerController {
 		List<BlockPos> cells = new ArrayList<>();
 		for (int k = 1; k >= 0; k--) for (int y = 1; y <= 4; y++) for (int i = 0; i <= 3; i++) cells.add(p.at(i, y).relative(front, k));
 		return cells;
+	}
+
+	/** Every block a carved site has broken by the time its frame is cast: the dig, then the ground row's two middle cells the site clearing takes for the frame's foot. */
+	static List<BlockPos> carveBreaks(Portal p, Direction wall) {
+		List<BlockPos> cells = carveCells(p, wall);
+		cells.add(p.at(1, 0));
+		cells.add(p.at(2, 0));
+		return cells;
+	}
+
+	/** The blocks an open site's clearing breaks (as {@link #chooseSite} and {@link #planCast} list them): the frame's plane and, for a cast, the row in front. */
+	private List<BlockPos> siteClears(ServerPlayer player, Portal p, Direction wall) {
+		List<BlockPos> cells = new ArrayList<>();
+		for (int y = 4; y >= 0; y--) for (int i = 0; i <= 3; i++) {
+			if (y == 0 && (i == 0 || i == 3)) continue;
+			BlockState state = known(player, p.at(i, y));
+			if (state != null && !state.isAir() && !(p.frame().contains(p.at(i, y)) && state.is(Blocks.OBSIDIAN))) cells.add(p.at(i, y));
+		}
+		if (wall != null) for (int y = 1; y <= 4; y++) for (int i = 0; i <= 3; i++) {
+			BlockPos cell = p.at(i, y).relative(wall.getOpposite());
+			BlockState state = known(player, cell);
+			if (state != null && !state.isAir() && state.getFluidState().isEmpty()) cells.add(cell);
+		}
+		return cells;
+	}
+
+	/**
+	 * The first of {@code cells} still to break that clear's lava gate would refuse for lava heard behind it, or null: the dig
+	 * and the chooser judge by the same rule. Fire is cleared without that gate.
+	 */
+	private BlockPos digRefusedByLava(ServerPlayer player, List<BlockPos> cells) {
+		for (BlockPos cell : cells) {
+			BlockState state = known(player, cell);
+			if (state != null && (state.isAir() || state.is(Blocks.FIRE) || state.is(Blocks.SOUL_FIRE))) continue;
+			if (environment.lavaHeardBehind(player, cell)) return cell;
+		}
+		return null;
 	}
 
 	/**
@@ -1857,7 +1910,7 @@ public final class ServerBuildController implements ServerController {
 		Direction bestWall = null;
 		BlockPos bestStand = null;
 		double bestCost = Double.MAX_VALUE;
-		int stands = 0, far = 0, ruled = 0, blocks = 0, bestDig = 0;
+		int stands = 0, far = 0, ruled = 0, blocks = 0, heard = 0, bestDig = 0;
 		for (BlockPos at : BlockPos.betweenClosed(center.offset(-CARVE_RADIUS, -3, -CARVE_RADIUS), center.offset(CARVE_RADIUS, 3, CARVE_RADIUS))) {
 			if (!standable(player, level, at)) continue;
 			BlockPos stand = at.immutable();
@@ -1882,14 +1935,18 @@ public final class ServerBuildController implements ServerController {
 					if (castBlocks(open) > plain) { blocks++; continue; }
 					double cost = 0.5D * dig + 0.6D * open + 0.4D * near + 0.8D * rise + 0.3D * Math.sqrt(stand.distSqr(from));
 					if (spillMeetsLava(cell -> known(player, cell), p, wall, SURE_SPILL_CELLS)) cost += LOOSE_SITE_COST;
+					// The dig breaks each cell through clear's own lava gate, which also refuses lava heard just behind the rock
+					// (lava-gate-7: both carves went beside lava the find heard but never saw, and the first break was refused).
+					if (cost < bestCost && digRefusedByLava(player, carveBreaks(p, wall)) != null) { heard++; continue; }
 					if (cost < bestCost) { bestCost = cost; best = p; bestWall = wall; bestStand = stand; bestDig = dig; }
 				}
 			}
 		}
 		if (best == null) {
 			siteRejects += String.format(Locale.ROOT, "; no site to carve either (%d seen standing spots within %d blocks: %d sites over %.0f blocks from, "
-					+ "or %.0f above or below, or within %.0f of, the lava, %d with water or lava seen in or beside the dig or the ground not rock, %d short of plain blocks for the mould)",
-					stands, CARVE_RADIUS, far, CAST_POOL_REACH, CAST_RISE, CARVE_POOL_MARGIN, ruled, blocks);
+					+ "or %.0f above or below, or within %.0f of, the lava, %d with water or lava seen in or beside the dig or the ground not rock, %d short of plain blocks for the mould, "
+					+ "%d with lava heard right behind a cell the dig would break)",
+					stands, CARVE_RADIUS, far, CAST_POOL_REACH, CAST_RISE, CARVE_POOL_MARGIN, ruled, blocks, heard);
 			return false;
 		}
 		carves++;
@@ -2163,16 +2220,17 @@ public final class ServerBuildController implements ServerController {
 				waterTick = tick;
 				waterPours++;
 				// Against lava poured first: the lava cast as the water landed; scoop the water the very next tick.
-				if (pouredLava != null && !waterFirst) { quickScoop = true; lavaWatered = true; pause = 0; OPEN_CELLS.add(player.getUUID()); }
+				if (pouredLava != null && !waterFirst) { quickScoop = true; lavaWatered = true; pause = 0; OPEN_CELLS.add(player.getUUID()); ownLava.remove(pouredLava); }
 			}
 			case LAVA -> {
 				lavaPours++;
 				// Open from this tick: the reflexes run before the build's next tick and must not pause it with lava standing.
-				if (paired) { pouredLava = target.immutable(); lavaTick = tick; lavaWatered = false; OPEN_CELLS.add(player.getUUID()); }
+				if (paired) { pouredLava = target.immutable(); lavaTick = tick; lavaWatered = false; OPEN_CELLS.add(player.getUUID()); ownLava.add(pouredLava); }
 			}
 			case TAKE -> {
 				// Taken back before it flowed: pour the pair again from a spot whose water click lands.
 				LOGGER.info("[build] {} took the lava back from {} after {} ticks", player.getGameProfile().name(), xyz(target), tick - lavaTick);
+				ownLava.remove(target);
 				pouredLava = null;
 				lavaTakes++;
 				moveForClick = true;
@@ -3153,7 +3211,14 @@ public final class ServerBuildController implements ServerController {
 
 
 	private BlockState known(ServerPlayer player, BlockPos at) {
-		BlockState state = SeenTerrain.of(player).known(at.getX(), at.getY(), at.getZ());
+		SeenTerrain.Reader<BlockState> seen = SeenTerrain.of(player);
+		// Lava the body poured is there though the frame hides its cell from the pouring spot: sight remembers the air it
+		// saw before (lava-gate-7: three pours into one cell, each refetched from the pool, until no empty bucket was left).
+		if (ownLava.contains(at)) {
+			if (!seen.seesNow(at.getX(), at.getY(), at.getZ())) return Blocks.LAVA.defaultBlockState();
+			ownLava.remove(at);
+		}
+		BlockState state = seen.known(at.getX(), at.getY(), at.getZ());
 		// Pool lava this build saw stays lava out of sight: a site is never judged next to it as unseen rock.
 		if (state != null) return state;
 		// So does water or lava a carve met behind the rock and plugged.
