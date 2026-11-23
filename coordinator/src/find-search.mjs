@@ -1550,12 +1550,12 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 			// try the same few headings again.
 			// Only digs count: walling off or a fight in place is not a dig going nowhere.
 			const lastLeg = legs.at(-1), lastHow = lastLeg?.how ?? '';
-			// The start, near a spot where an earlier search's dig down met water, or beside water in sight (the lake a water
-			// bucket was just filled at): off it first, as a player walks away from a lake before digging down, not down into
+			// The start, near a spot where an earlier search's dig down met water, or (for lava) beside water in sight (the lake
+			// a water bucket was just filled at): off it first, as a player walks away from a lake before digging down, not down into
 			// its aquifer. Gate rooms on main (8f309b76): the first dig down met water in 55 of 79 kit-gate runs, which start
 			// at the lake shore after the water fetch; 3 of those 55 lit a portal.
 			const nearWet = legs.length === 0 && profile.depth !== null && at.y > profile.depth + CAVE_BAND
-				? wetSpots().find((place) => Math.hypot(place.x + 0.5 - at.x, place.z + 0.5 - at.z) <= 12) ?? (dryStart() ? waterBeside(at) : undefined) : undefined;
+				? wetSpots().find((place) => Math.hypot(place.x + 0.5 - at.x, place.z + 0.5 - at.z) <= 12) ?? (dryStart() && profile.ids.has('minecraft:lava') ? waterBeside(at) : undefined) : undefined;
 			const wetDig = counted < legs.length && DESCENTS.test(lastHow) && lastLeg?.reasonCode === 'WATER_AHEAD';
 			const wet = lastLeg?.underWater === true || observation?.player?.underWater === true;
 			if (wetDig) miss({ x: Math.floor(at.x), y: Math.floor(at.y + 1e-3), z: Math.floor(at.z) }, WET_SPOT);

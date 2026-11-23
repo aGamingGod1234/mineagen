@@ -2156,10 +2156,11 @@ test('kit gates: a lava find starting on the lake shore it filled its bucket at 
 		const body = fakeBody({ start: sample({ player, blocks, inventory: { items: [{ itemId: 'minecraft:iron_pickaxe', count: 1, slot: 'mainhand' }, { itemId: 'minecraft:water_bucket', count: 1, slot: 1 }] } }),
 			frontier: { candidates: [], coverage: { headings: {} } }, acts: { dig_to: [seen], travel_to: [{ result: { state: 'SUCCEEDED', reasonCode: 'ARRIVED' },
 				move: (at, args) => ({ x: at.x - Math.sin(args.yaw * Math.PI / 180) * args.distance, z: at.z + Math.cos(args.yaw * Math.PI / 180) * args.distance }) }] } });
-		await searchFor({ block: 'minecraft:lava' }, body);
+		await searchFor({ block }, body);
 		return body.calls.filter((call) => ['dig_to', 'travel_to'].includes(call.actionType))
 			.map((call) => (call.actionType === 'dig_to' ? `${call.args.pattern}` : `walk ${call.args.yaw} ${call.args.distance}`));
 	};
+	let block = 'minecraft:lava';
 	// kit-gate-5: the water it scooped lies a block north of the feet; the dig down there met the lake's water.
 	assert.deepEqual(await run([{ blockId: 'minecraft:water', x: 334, y: 62, z: -9 }]), ['walk 0 32', 'shaft'], 'south, away from the water, then down');
 	// Water across the shore to the east: off to the west.
@@ -2169,4 +2170,11 @@ test('kit gates: a lava find starting on the lake shore it filled its bucket at 
 	assert.deepEqual(await run([{ blockId: 'minecraft:water', x: 336, y: 70, z: -8 }]), ['shaft']);
 	// Already down in the band: no walk off, whatever water is in sight.
 	assert.deepEqual(await run([{ blockId: 'minecraft:water', x: 335, y: -40, z: -8 }], { x: 334.5, y: -40, z: -7.5, yaw: 0, health: 20, skyOpen: false }).then((moves) => moves.includes('walk 0 32')), false);
+	// Lava only: an iron find from the same shore keeps its old start (no gate-room evidence for other targets yet).
+	block = 'minecraft:iron_ore';
+	assert.equal((await run([{ blockId: 'minecraft:water', x: 334, y: 62, z: -9 }]))[0]?.startsWith('walk 0 32'), false);
+	// The A/B off arm: the old start.
+	block = 'minecraft:lava';
+	process.env.MINEAGEN_FIND_DRY_START = 'off';
+	try { assert.deepEqual(await run([{ blockId: 'minecraft:water', x: 334, y: 62, z: -9 }]), ['shaft']); } finally { delete process.env.MINEAGEN_FIND_DRY_START; }
 });
