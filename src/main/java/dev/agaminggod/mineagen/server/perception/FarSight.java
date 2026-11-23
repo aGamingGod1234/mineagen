@@ -90,8 +90,6 @@ public final class FarSight {
 	/** Full section reads (4,096 blocks each) per level per tick, shared by every agent and search; palette checks are cheaper. */
 	static final int SECTION_SCANS_PER_TICK = 8;
 	static final int PALETTE_CHECKS_PER_TICK = 2_048;
-	/** Game ticks between sweeps of the shared chunk index for chunks that unloaded. */
-	private static final int FORGET_TICKS = 20;
 	/** Exposed blocks one section read keeps before it stops; the next read resumes at the following block. */
 	static final int MAX_ENTRIES_PER_SECTION = 96;
 	private static final int SECTION_CELLS = 4_096;
@@ -437,7 +435,6 @@ public final class FarSight {
 		// Never iterated for output (only the unloaded-chunk cleanup walks it), so its order does not matter.
 		private final Long2ObjectOpenHashMap<ChunkScan> chunks = new Long2ObjectOpenHashMap<>();
 		private long budgetTick = Long.MIN_VALUE;
-		private long forgotAt = Long.MIN_VALUE;
 		private int scansThisTick;
 		private int checksThisTick;
 		private int passesThisTick;
@@ -516,11 +513,6 @@ public final class FarSight {
 
 		private void forgetUnloaded(ServerLevel level) {
 			if (chunks.size() < 2_048) return;
-			// Dropping scans of unloaded chunks only frees memory (scanOf already replaces a scan whose chunk object
-			// changed), so one sweep a second is enough; sweeping on every look cost each agent's look a full pass.
-			long now = level.getGameTime();
-			if (forgotAt != Long.MIN_VALUE && now >= forgotAt && now - forgotAt < FORGET_TICKS) return;
-			forgotAt = now;
 			chunks.entrySet().removeIf(entry -> entry.getValue().chunk.get() == null || level.getChunkSource().getChunkNow(
 					ChunkPos.getX(entry.getKey()), ChunkPos.getZ(entry.getKey())) != entry.getValue().chunk.get());
 		}

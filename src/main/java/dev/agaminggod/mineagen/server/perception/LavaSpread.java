@@ -264,12 +264,14 @@ public final class LavaSpread {
 				for (int dz = -RADIUS; dz <= RADIUS; dz++) {
 					int x = feet.getX() + dx, z = feet.getZ() + dz;
 					int section = (((y >> 4) - minSectionY) * spanX + ((x >> 4) - minChunkX)) * spanZ + ((z >> 4) - minChunkZ);
+					// Outside the world's valid bounds the cell read is empty and loads no chunk; neither may the section read.
+					if (!level.isInValidBounds(at.set(x, y, z))) continue;
 					if (lavaPossible[section] == 0) {
 						LevelChunkSection blocks = level.getChunk(x >> 4, z >> 4).getSection(level.getSectionIndex(y));
 						lavaPossible[section] = blocks.hasOnlyAir() || !blocks.maybeHas(LavaSpread::holdsLava) ? (byte) 1 : (byte) 2;
 					}
 					if (lavaPossible[section] == 1) continue;
-					if (!level.getFluidState(at.set(x, y, z)).getType().isSame(Fluids.LAVA)) continue;
+					if (!level.getFluidState(at).getType().isSame(Fluids.LAVA)) continue;
 					if (!spreadable(level, x, y, z, at)) continue;
 					if (lava(seen.known(x, y, z))) seeds.add(BlockPos.asLong(x, y, z));
 				}
