@@ -22,6 +22,9 @@
 // slot; @HH:MM[-HH:MM] is a PC's cutoff (and reopen time) on this machine's clock; --vms defaults to every slot.
 // Output: OUT/rooms/ROOM/{ARM/,ARM.log,done.json}, OUT/ARM/result.json and
 // result-summary.json from finishRun, OUT/batch.json (identity, outcomes, machine usage) and OUT/summary.txt.
+// A room comes home without the server template copies and Fabric's .fabric cache, and an arm that passed without its
+// saved worlds' region files (PACK_EXCLUDES in lib/room-batch-core.mjs, lib/room-batch-remote.mjs); --keep-worlds
+// brings every arm's region files home.
 // AI rooms (the real model plays the room through the production coordinator), instead of --commands and --arm:
 //   node scripts/quality/room-batch.mjs --player model --jar JAR --codex-auth AUTH.json [--ai-rooms ROOMS.json]
 //     [--rooms NAME,...] [--repeats N] [--no-script] [--model M] --pool boat --vms N --out FRESH_DIR
@@ -45,7 +48,7 @@ import { warmBoatPool } from './lib/boat-warm.mjs';
 import { parseWindowsHosts, windowsPool } from './lib/windows-pool.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
-const USAGE = 'Usage: room-batch.mjs --commands ROOMS.txt --arm NAME=JAR [--arm NAME=JAR] --pool boat|windows --vms N --out FRESH_DIR [--code REF] [--snapshot NAME] [--type TYPE] [--room-timeout MIN] [--name PREFIX] [--idle-ttl MIN] [--machines ID,...] [--valid N] [--ephemeral] [--dry-run]\n       room-batch.mjs --player model --jar JAR --codex-auth AUTH.json [--ai-rooms ROOMS.json] [--rooms NAME,...] [--repeats N] [--no-script] [--model M] --pool boat --vms N --out FRESH_DIR [...]';
+const USAGE = 'Usage: room-batch.mjs --commands ROOMS.txt --arm NAME=JAR [--arm NAME=JAR] --pool boat|windows --vms N --out FRESH_DIR [--code REF] [--snapshot NAME] [--type TYPE] [--room-timeout MIN] [--name PREFIX] [--idle-ttl MIN] [--machines ID,...] [--valid N] [--keep-worlds] [--ephemeral] [--dry-run]\n       room-batch.mjs --player model --jar JAR --codex-auth AUTH.json [--ai-rooms ROOMS.json] [--rooms NAME,...] [--repeats N] [--no-script] [--model M] --pool boat --vms N --out FRESH_DIR [...]';
 
 function parseFlags(argv) {
 	const flags = { arms: [] };
@@ -54,6 +57,7 @@ function parseFlags(argv) {
 		if (flag === '--help') flags.help = true;
 		else if (flag === '--dry-run') flags.dryRun = true;
 		else if (flag === '--no-script') flags.noScript = true;
+		else if (flag === '--keep-worlds') flags.keepWorlds = true;
 		else if (flag === '--codex-auth' && flags.codexAuth) flags.codexAuth += `,${argv[++i]}`;
 		else if (flag === '--ephemeral' || flag === '--no-reuse') flags.ephemeral = true;
 		else if (flag === '--arm') { const [name, ...jar] = String(argv[++i] ?? '').split('='); flags.arms.push({ name, jar: jar.join('=') }); }
@@ -123,7 +127,7 @@ const rewrite = (value, layout) => layout.inputs[value] ?? value;
 
 const code = execFileSync('git', ['-C', root, 'rev-parse', flags.code ?? 'HEAD'], { encoding: 'utf8' }).trim();
 const sha256 = file => createHash('sha256').update(readFileSync(file)).digest('hex');
-const batch = { player: flags.player ?? 'script', name: flags.name ?? `room-batch-${new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '')}`, pool: poolName, code, snapshot: windowsHosts ? null : snapshot, type: windowsHosts ? null : type, vms, roomTimeoutMs, warmPool,
+const batch = { player: flags.player ?? 'script', name: flags.name ?? `room-batch-${new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '')}`, pool: poolName, code, snapshot: windowsHosts ? null : snapshot, type: windowsHosts ? null : type, vms, roomTimeoutMs, warmPool, keepWorlds: flags.keepWorlds === true,
 	arms: flags.arms.map(arm => ({ name: arm.name, jar: path.basename(arm.jar), sha256: sha256(arm.jar) })), rooms: rooms.map(room => room.room), inputs: inputs.map(input => input.name) };
 const where = windowsHosts ? `${vms} room slots on ${windowsHosts.length} Windows PCs` : `${vms} ${type} machines from ${snapshot ?? '(no snapshot)'}`;
 console.log(`${batch.name}: ${rooms.length} rooms x ${flags.arms.length} arms, ${where}, code ${code.slice(0, 8)}`);
@@ -181,7 +185,7 @@ const signInWatch = flags.player === 'model' ? setInterval(async () => {
 }, 5_000) : null;
 try {
 	// The boat poll waits for the room's end itself; a Windows poll answers at once, so it gets a pause between asks.
-	const result = await runBatch({ batch, rooms, arms: flags.arms, pool, vms, out, roomTimeoutMs, log, rewrite, signal: controller.signal, valid, ...(windowsHosts ? { pollMs: 10_000 } : {}) });
+	const result = await runBatch({ batch, rooms, arms: flags.arms, pool, vms, out, roomTimeoutMs, log, rewrite, signal: controller.signal, valid, keepWorlds: flags.keepWorlds === true, ...(windowsHosts ? { pollMs: 10_000 } : {}) });
 	await writeFile(path.join(out, 'batch.json'), JSON.stringify({ ...batch, began, ended: new Date().toISOString(), wallSeconds: result.wallSeconds,
 		switches: Object.fromEntries(Object.entries(result.merged ?? {}).map(([arm, entry]) => [arm, entry.summary?.switches ?? null])), outcomes: result.outcomes, topUps: result.topUps, machines: result.machines }, null, 2) + '\n');
 	await writeFile(path.join(out, 'summary.txt'), result.text + '\n');

@@ -3,13 +3,13 @@
 // JOB: { room, code, outDir, javaHome, template, timeoutMs, wrapper, portBase, env, lines: [{ arm, jar, env, args }] }. Plays every
 // arm of one room side by side, each in its own fresh OUT folder (outDir/ARM) with its own port range (SLOT_PORT_BASE
 // portBase, portBase + 100, ...; portBase defaults to 28000), writes each arm's output to outDir/ARM.log and, once all have exited, outDir/done.json: per arm the exit
-// code, seconds, whether the room timeout killed it and the "Can't keep up" lines in its server logs, plus the lowest
-// MemAvailable seen while the room played. wrapper (e.g. ["eatmydata"]) is a command each arm's node runs under; its
+// code, seconds, whether the room timeout killed it, the "Can't keep up" lines in its server logs and its saved worlds' region
+// files (dropped once the arm passed, see slimWorlds), plus the lowest MemAvailable seen while the room played. keepWorlds keeps every arm's. wrapper (e.g. ["eatmydata"]) is a command each arm's node runs under; its
 // environment reaches the fixture's servers too. env is added to every arm's environment before the line's own env.
 // It runs on Linux and Windows: on Windows an arm's process tree is killed with taskkill.
 import { spawn, spawnSync } from 'node:child_process';
 import { createWriteStream } from 'node:fs';
-import { mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -39,6 +39,46 @@ async function serverLogs(dir) {
 		else if (entry.name === 'server.log' || entry.name === 'latest.log') found.push(full);
 	}
 	return found;
+}
+
+// A saved world's region files (*.mca, *.mcc: terrain, entities, points of interest) were most of what a room brought
+// home (22.7 GB in one 300-room batch) and nothing at home reads them. An arm drops them once it has shown a pass, and
+// keeps them for replaying when it has not, when the job says keepWorlds (room-batch --keep-worlds) or when its line
+// sets a switch asking its fixture to keep its world (ARENA_FIXTURE_KEEP, KEEP_WORLDS, BUILD_KEEP, KEEP, ...).
+const KEEP_SWITCH = /(^|_)KEEP(_WORLDS?)?$/;
+const asksKeep = env => Object.entries(env ?? {}).some(([key, value]) => KEEP_SWITCH.test(key) && value !== '' && value !== '0');
+/** Why an arm keeps its worlds, or null when it showed a pass: exit 0 in time, no error.txt, and every summary PASS. */
+async function keepReason(dir, run) {
+	if (run.exit !== 0 || run.signal || run.error || run.timedOut) return 'did not exit 0';
+	const names = await readdir(dir).catch(() => []);
+	if (names.includes('error.txt')) return 'error.txt';
+	const summaries = names.filter(name => name.endsWith('-summary.json'));
+	if (!summaries.length) return 'no summary';
+	for (const name of summaries) {
+		const status = await readFile(path.join(dir, name), 'utf8').then(text => { try { return JSON.parse(text)?.status; } catch { return null; } }, () => null);
+		if (status !== 'PASS') return `${name} ${status ?? 'unreadable'}`;
+	}
+	return null;
+}
+async function regionFiles(dir) {
+	const found = [];
+	for (const entry of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
+		const full = path.join(dir, entry.name);
+		if (entry.isDirectory()) found.push(...await regionFiles(full));
+		else if (/\.mc[ac]$/.test(entry.name)) found.push(full);
+	}
+	return found;
+}
+/** { files, bytes, kept: reason } or { files, bytes, dropped, failed }; never throws (a Windows server still closing can hold a file). */
+async function slimWorlds(dir, run, keep) {
+	const files = await regionFiles(dir);
+	const sizes = await Promise.all(files.map(file => stat(file).then(info => info.size, () => 0)));
+	const bytes = sizes.reduce((sum, size) => sum + size, 0);
+	const kept = keep ?? (files.length ? await keepReason(dir, run) : null);
+	if (kept || !files.length) return { files: files.length, bytes, kept };
+	let failed = 0;
+	for (const file of files) await rm(file, { force: true }).catch(() => { failed++; });
+	return { files: files.length, bytes, dropped: files.length - failed, failed };
 }
 
 let minAvailableMb = await memAvailableMb();
@@ -82,7 +122,9 @@ const arms = {};
 for (const run of await Promise.all(runs)) {
 	let cantKeepUp = 0;
 	for (const file of await serverLogs(path.join(job.outDir, run.arm))) cantKeepUp += ((await readFile(file, 'utf8').catch(() => '')).match(/Can't keep up!/g) ?? []).length;
-	arms[run.arm] = { ...run, cantKeepUp };
+	const line = job.lines.find(item => item.arm === run.arm);
+	const keep = job.keepWorlds ? 'keepWorlds' : asksKeep(job.env) || asksKeep(line?.env) ? 'keep switch' : null;
+	arms[run.arm] = { ...run, cantKeepUp, worlds: await slimWorlds(path.join(job.outDir, run.arm), run, keep) };
 }
 clearInterval(sampler);
 const done = { room: job.room, wrapper: job.wrapper ?? [], portBase, startedAt, finishedAt: Date.now(), seconds: Math.round((Date.now() - startedAt) / 1000), arms,

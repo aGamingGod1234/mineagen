@@ -2,7 +2,7 @@
 // then compares the result with a saved baseline.
 //   node scripts/quality/benchmark.mjs --jar JAR --out FRESH_DIR [--rooms FILE ...] [--repeats 10] [--slots 5]
 //     [--only ROOM,ROOM] [--baseline FILE] [--save-baseline FILE] [--targets ROOM,...] [room-batch flags: --code REF --machines ID,...
-//     --vms N --snapshot NAME --type TYPE --room-timeout MIN --name PREFIX]
+//     --vms N --snapshot NAME --type TYPE --room-timeout MIN --name PREFIX --keep-worlds]
 //   node scripts/quality/benchmark.mjs --score OUT [--rooms FILE ...] [--baseline FILE] [--save-baseline FILE] [--targets ROOM,...]
 // --rooms (repeatable, default scripts/quality/benchmark-rooms.json) lists rooms as
 //   [{ room, fixture, stage, skill, skill2, line, estMinutes, tickRate }], `line` being a room-batch command with $OUT
@@ -23,7 +23,7 @@ import { collectRuns, compareScores, formatComparison, formatScoreboard, groupSc
 import { mergeSwitchRecords } from './lib/switch-record.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
-const USAGE = 'Usage: benchmark.mjs --jar JAR --out FRESH_DIR [--rooms FILE ...] [--repeats 10] [--slots 5] [--only ROOM,...] [--baseline FILE] [--save-baseline FILE] [--targets ROOM,...] [--code REF] [--machines ID,...] [--vms N] [--snapshot NAME] [--type TYPE] [--room-timeout MIN] [--name PREFIX] [--dry-run]\n       benchmark.mjs --score OUT [--rooms FILE ...] [--baseline FILE] [--save-baseline FILE] [--targets ROOM,...]';
+const USAGE = 'Usage: benchmark.mjs --jar JAR --out FRESH_DIR [--rooms FILE ...] [--repeats 10] [--slots 5] [--only ROOM,...] [--baseline FILE] [--save-baseline FILE] [--targets ROOM,...] [--code REF] [--machines ID,...] [--vms N] [--snapshot NAME] [--type TYPE] [--room-timeout MIN] [--name PREFIX] [--keep-worlds] [--dry-run]\n       benchmark.mjs --score OUT [--rooms FILE ...] [--baseline FILE] [--save-baseline FILE] [--targets ROOM,...]';
 const PASS_THROUGH = ['code', 'machines', 'vms', 'snapshot', 'type', 'roomTimeout', 'name', 'idleTtl'];
 
 const flags = { rooms: [] };
@@ -32,6 +32,7 @@ for (let i = 0; i < argv.length; i++) {
 	const flag = argv[i];
 	if (flag === '--help') flags.help = true;
 	else if (flag === '--dry-run') flags.dryRun = true;
+	else if (flag === '--keep-worlds') flags.keepWorlds = true;
 	else if (flag === '--rooms') flags.rooms.push(argv[++i]);
 	else if (flag.startsWith('--')) flags[flag.slice(2).replace(/-(\w)/g, (_, ch) => ch.toUpperCase())] = argv[++i];
 	else { console.error(`unexpected argument ${flag}\n${USAGE}`); process.exit(2); }
@@ -104,6 +105,7 @@ const batchArgs = [path.join(root, 'scripts/quality/room-batch.mjs'), '--command
 	...plan.arms.flatMap(arm => ['--arm', `${arm}=${path.resolve(flags.jar)}`])];
 for (const key of PASS_THROUGH) if (flags[key] !== undefined) batchArgs.push(`--${key.replace(/[A-Z]/g, ch => `-${ch.toLowerCase()}`)}`, flags[key]);
 if (flags.dryRun) batchArgs.push('--dry-run');
+if (flags.keepWorlds) batchArgs.push('--keep-worlds');
 const exit = await new Promise(resolve => {
 	const child = spawn(process.execPath, batchArgs, { stdio: 'inherit' });
 	for (const name of ['SIGINT', 'SIGTERM']) process.on(name, () => child.kill(name));

@@ -35,7 +35,7 @@ function raceAbort(promise, signal) {
 }
 
 export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeoutMs = 40 * 60_000, pollMs = 0, retryMs = 15_000, lostAfterMs = 5 * 60_000,
-	keepAliveMs = 15 * 60_000, prepareGraceMs = 120_000, replacements = vms, log = console.log, rewrite = (value) => value, signal = null, valid = null }) {
+	keepAliveMs = 15 * 60_000, prepareGraceMs = 120_000, replacements = vms, log = console.log, rewrite = (value) => value, signal = null, valid = null, keepWorlds = false }) {
 	await mkdir(path.join(out, 'rooms'), { recursive: true });
 	if ((await readdir(path.join(out, 'rooms'))).length) throw new Error(`${out} already holds rooms: use a fresh output folder`);
 	const began = Date.now(), machines = [], layouts = new Map();
@@ -105,7 +105,7 @@ export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeout
 			if (closed()) { await retire(vm, 'past its cutoff'); return { lost: true, requeue: true, reason: 'its machine is past its cutoff' }; }
 			const layout = layouts.get(vm.id);
 			const job = { room: room.room, code: layout.code, outDir: path.posix.join(layout.out, room.room), javaHome: layout.javaHome, template: layout.template, timeoutMs: roomTimeoutMs, wrapper: layout.wrapper ?? [],
-				portBase: layout.portBase ?? 28000, env: layout.env ?? {},
+				portBase: layout.portBase ?? 28000, env: layout.env ?? {}, ...(keepWorlds ? { keepWorlds: true } : {}),
 				lines: room.lines.map(line => ({ arm: line.arm, jar: layout.jars[line.arm], env: Object.fromEntries(Object.entries(line.env).map(([key, value]) => [key, rewrite(value, layout)])), args: line.args.map(arg => rewrite(arg, layout)) })) };
 			log(`room ${room.room} -> ${vm.id} (try ${tries})`);
 			// A machine that cannot start a room leaves the batch now, not at its end (deleted, or checked and kept by a warm pool); the room is re-queued.
