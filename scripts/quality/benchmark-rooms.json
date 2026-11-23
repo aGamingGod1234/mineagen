@@ -3075,6 +3075,17 @@
    "reads": "exit code (throws on a failed check)"
   },
   {
+   "room": "end-refill",
+   "fixture": "test-end-refill-live.mjs",
+   "stage": "end",
+   "skill": "building",
+   "skill2": null,
+   "line": "node scripts/quality/lib/with-jar.mjs $JAR scripts/quality/test-end-refill-live.mjs $OUT",
+   "estMinutes": 1.5,
+   "tickRate": 20,
+   "reads": "exit code (0 a water bucket in hand again, 1 not, 2 no source was poured)"
+  },
+  {
    "room": "kill-drops",
    "fixture": "test-kill-drops-live.mjs",
    "stage": "nether-rods",
