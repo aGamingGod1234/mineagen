@@ -30,9 +30,9 @@ export function flag({ token, means, trim = false, anyCase = false }) {
 	} });
 }
 
-/** On when the comma list (items trimmed, exact case) holds `token`. */
-export function listHas(token) {
-	return Object.freeze({ id: `list-has:${token}`, kind: 'boolean', unset: false, parse(raw) {
+/** On when the comma list (items trimmed, exact case) holds `token`; `unset` is the value when the variable is not set. */
+export function listHas(token, { unset = false } = {}) {
+	return Object.freeze({ id: `list-has:${token}`, kind: 'boolean', unset, parse(raw) {
 		return String(raw).split(',').map((word) => word.trim()).includes(token);
 	} });
 }
@@ -131,9 +131,13 @@ export const SWITCHES = Object.freeze([
 		reason: 'Makes the lesson store read-only, for evaluation rounds (#17).',
 		readers: ['coordinator/src/experience-store.mjs experienceSettings (startup)'] }),
 	// coordinator/src/reflexes.mjs instinctsEnabled(environment): per call. Instincts.java enabled(): per call.
-	entry({ name: 'instincts', env: 'MINEAGEN_INSTINCTS', property: 'mineagen.instincts', side: 'both', default: false, parser: listHas('instincts'),
-		propertyParser: JAVA_GET_BOOLEAN, status: 'experimental',
-		reason: 'Issue 2 Step 2 instincts arm: stance, heal, pace, fight-through, weapon and food (#24).',
+	// On by default since #185, so practice rooms play as model games do. MINEAGEN_INSTINCTS=off (any list without
+	// `instincts`) turns both halves off, unless -Dmineagen.instincts=true turns the mod's half back on (either source on
+	// is on); -Dmineagen.instincts=false with the variable unset turns only the mod's half off, since the coordinator
+	// cannot see the server's -D flags.
+	entry({ name: 'instincts', env: 'MINEAGEN_INSTINCTS', property: 'mineagen.instincts', side: 'both', default: true, parser: listHas('instincts', { unset: true }),
+		propertyParser: JAVA_GET_BOOLEAN, status: 'default-on',
+		reason: 'Issue 2 Step 2 instincts arm: stance, heal, pace, fight-through, weapon and food (#24). All 300 practice rooms x10, 23 Nov: passes 2,786 of 3,203 off against 2,811 of 3,218 on, deaths 75 against 63; one room changed: travel fights through a zombie instead of stopping (#185).',
 		readers: ['coordinator/src/reflexes.mjs instinctsEnabled (per call; env only)', 'Instincts.java enabled (per call; property or env)'] }),
 	// ServerTravelController.java walkAroundEnabled(): per call; property or env.
 	entry({ name: 'travel.walkAround', env: 'MINEAGEN_TRAVEL_WALK_AROUND', property: 'mineagen.travel.walkAround', side: 'server', default: false, parser: ON_WORD,
