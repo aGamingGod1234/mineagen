@@ -95,7 +95,7 @@ public final class ModelPlayerInputBridge {
 		if (operator) return BrinkGuard.passThrough(player, forward, strafe, sneak);
 		boolean jump = state != null && state.jump();
 		boolean clickUse = state != null && state.use() && !player.isUsingItem();
-		return BrinkGuard.tick(player, forward, strafe, sneak, jump, clickUse, inputPresence(state));
+		return BrinkGuard.tick(player, forward, strafe, sneak, jump, clickUse, inputPresence(state), state != null && state.sprint());
 	}
 
 	static BrinkGuard.InputPresence inputPresence(AgentInputState state) {

@@ -76,6 +76,8 @@ public final class BrinkGuard {
 		private boolean needsFooting;
 		private int recheck;
 		private int ownJump;
+		/** The input's sprint key this tick (see tick). */
+		private boolean sprintKey;
 		private boolean sneakSet;
 		private Vec3 destination;
 		private int destinationTick;
@@ -251,7 +253,17 @@ public final class BrinkGuard {
 	 */
 	public static synchronized Keys tick(ServerPlayer player, float forward, float strafe, boolean sneak, boolean jump,
 			boolean clickUse, InputPresence input) {
+		return tick(player, forward, strafe, sneak, jump, clickUse, input, false);
+	}
+
+	/**
+	 * As above, with the sprint key the input holds: a sprint jump from a standstill takes off with sprint's boost on the
+	 * very tick the key starts the sprint, so a jump's landing is judged as a sprint jump whenever the key is held.
+	 */
+	public static synchronized Keys tick(ServerPlayer player, float forward, float strafe, boolean sneak, boolean jump,
+			boolean clickUse, InputPresence input, boolean sprintKey) {
 		Memory memory = MEMORY.computeIfAbsent(player, ignored -> new Memory());
+		memory.sprintKey = sprintKey;
 		boolean grounded = eligible(player) && player.onGround() && !player.onClimbable() && memory.ownJump == 0;
 		boolean idle = forward == 0.0F && strafe == 0.0F && !jump && !clickUse && !player.isUsingItem();
 		Vec3 motion = player.getDeltaMovement();
@@ -311,7 +323,7 @@ public final class BrinkGuard {
 		// reaches the lava sea (see refusedForEverySource). A control frame's sprint jump off a deck's lip was let through.
 		Fall refusedFall = null;
 		if (jump && !brace && player.onGround()) {
-			Fall landing = jumpLandsLethal(player, worldHeading(player.getYRot(), forward, strafe), player.isSprinting());
+			Fall landing = jumpLandsLethal(player, worldHeading(player.getYRot(), forward, strafe), jumpSprints(player, memory, forward));
 			boolean lavaSea = landing != null && intoLavaSea(landing, player);
 			if (commandedMove(player, memory)) refusedFall = landing != null && landing.unknown() && destinationBelow(player, memory) && !lavaSea ? null : landing;
 			else if (landing != null && (!landing.unknown() || lavaSea)) refusedFall = landing;
@@ -324,7 +336,7 @@ public final class BrinkGuard {
 			double[] heading = worldHeading(player.getYRot(), forward, strafe);
 			Vec3 now = player.getDeltaMovement();
 			BlockPos lava = jumpLava((x, y, z) -> player.level().getBlockState(new BlockPos(x, y, z)), player.getBoundingBox(),
-					now.x, now.z, heading, player.isSprinting());
+					now.x, now.z, heading, jumpSprints(player, memory, forward));
 			takeOffChecked = lava == null;
 			if (lava != null) {
 				refuseJump = true;
@@ -474,6 +486,14 @@ public final class BrinkGuard {
 
 	/** Upward motion past which a grounded body without its own jump was lifted by a hit (vanilla knockback: 0.4). */
 	static final double SHOVE_LIFT = 0.2D;
+	/**
+	 * Whether a jump taken now gets sprint's boost: the body sprints already, or the sprint key is held with forward (the
+	 * lava-lip room: a sprint jump from rest was judged as a 1-block hop onto the deck and flew 3.5 blocks into the lava).
+	 */
+	private static boolean jumpSprints(ServerPlayer player, Memory memory, float forward) {
+		return player.isSprinting() || memory.sprintKey && forward > 0.0F;
+	}
+
 	/** An unseen drop at least this deep in the Nether is taken as one into the lava sea. */
 	static final int NETHER_DARK_DROP = 6;
 
