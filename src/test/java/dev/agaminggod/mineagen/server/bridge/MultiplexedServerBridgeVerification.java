@@ -120,6 +120,7 @@ public final class MultiplexedServerBridgeVerification {
 		verifyStaleCancellationOutcome();
 		verifyAcceptedTapFollowsAdmission();
 		verifyObsoletePlannerReadinessIsIgnored();
+		verifyPlanningStateStepStatus();
 		verifyAgentErrorRevisionGate();
 		verifyRespawnContinuationPayload();
 		verifyActionProgressReachesCoordinator();
@@ -173,6 +174,7 @@ public final class MultiplexedServerBridgeVerification {
 		verifyIdleDirectReplyRevisionPolicy(registered.getFirst());
 		verifyConcurrentChatRoute(registered.getFirst());
 		verifyExactTargetObservationLedger(registered.getFirst().agentId());
+		verifyInventoryMarker(registered.getFirst().agentId());
 		verifyConversationAttention(registered.getFirst().agentId());
 		verifyObservationCadence(candidates);
 		verifyObservationPublicationLifecycle(registered.getFirst().agentId());
@@ -1675,6 +1677,102 @@ public final class MultiplexedServerBridgeVerification {
 					Files.deleteIfExists(secretFile);
 				} catch (java.io.IOException exception) {
 					throw new AssertionError("could not remove obsolete readiness secret", exception);
+				}
+			}
+		}
+	}
+
+	/** coordinator/test/protocol-v2.test.mjs checks the Node sanitiser against the same vectors. */
+	private static void verifyPlanningStateStepStatus() {
+		String[][] vectors = {
+				{"Mining iron: need 3", "Mining iron: need 3"},
+				{"  a\n\tb\r\n  c  ", "a b c"},
+				{"\u00a7cRed\u00a7r text", "cRedr text"},
+				{"x\u2028y\u0085z\u007f", "x y z"},
+				{"a\u2029b\u2029", "a b"},
+				{"\u00a7\n ", ""},
+				{"a".repeat(100), "a".repeat(80)},
+				{"a".repeat(79) + "\uD83D\uDE00b", "a".repeat(79)},
+				{"a".repeat(78) + "\uD83D\uDE00b", "a".repeat(78) + "\uD83D\uDE00"},
+				{"a".repeat(79) + " bbbbb", "a".repeat(79)},
+		};
+		for (String[] vector : vectors) {
+			assertEquals(vector[1], MultiplexedServerBridge.sanitizeStepStatus(vector[0]), "step status sanitiser for <" + vector[0] + ">");
+		}
+		assertEquals("", MultiplexedServerBridge.sanitizeStepStatus(null), "a null step status is empty");
+		assertEquals(80, MultiplexedServerBridge.STEP_STATUS_MAX_LENGTH, "step status bound matches the coordinator");
+		assertEquals("stepStatus", MultiplexedServerBridge.STEP_STATUS_FIELD, "step status field matches the coordinator");
+
+		MultiplexedServerBridge bridge = null;
+		Path secretFile = null;
+		try {
+			secretFile = Files.createTempFile("mineagen-step-status-secret-", ".txt");
+			Files.writeString(secretFile, "0123456789abcdef0123456789abcdef");
+			AgentManager manager = uninitializedManager();
+			AgentRecord created = manager.registry().create("gpt-5.6-sol", "high", Optional.of("StepStatus"), 1_800L);
+			AgentRecord started = manager.registry().start(created.agentId(), "keep working", 1_801L).after();
+			bridge = new MultiplexedServerBridge(manager, 0, secretFile);
+			assertTrue(bridge.stepStatus(started.agentId()) == null, "no step status before the coordinator sends one");
+
+			JsonObject withStatus = new JsonObject();
+			withStatus.addProperty("goalRevision", started.goalRevision());
+			withStatus.addProperty("state", "PLANNING");
+			withStatus.addProperty("stepStatus", "Doing: mine \u00a7citer\non");
+			invokePlannerReady(bridge, new BridgeEnvelope(2, "coordinator", started.agentId().toString(), "planning_state", "step-status-1", withStatus));
+			assertEquals("Doing: mine citer on", bridge.stepStatus(started.agentId()), "planning_state stores the sanitised step status");
+			assertEquals(AgentLifecycleState.STARTING, started.state(), "the agent starts in STARTING");
+			assertEquals(AgentLifecycleState.STARTING, manager.registry().require(started.agentId()).state(),
+					"a step-status update is display only and leaves a STARTING agent STARTING");
+
+			JsonObject withoutStatus = new JsonObject();
+			withoutStatus.addProperty("goalRevision", started.goalRevision());
+			withoutStatus.addProperty("state", "PLANNING");
+			invokePlannerReady(bridge, new BridgeEnvelope(2, "coordinator", started.agentId().toString(), "planning_state", "step-status-2", withoutStatus));
+			assertEquals("Doing: mine citer on", bridge.stepStatus(started.agentId()), "a planning_state without the field keeps the status");
+			assertEquals(AgentLifecycleState.PLANNING, manager.registry().require(started.agentId()).state(),
+					"the coordinator's own planning_state still moves a STARTING agent to PLANNING");
+
+			JsonObject wrongType = withoutStatus.deepCopy();
+			wrongType.addProperty("stepStatus", 42);
+			invokePlannerReady(bridge, new BridgeEnvelope(2, "coordinator", started.agentId().toString(), "planning_state", "step-status-3", wrongType));
+			assertEquals("Doing: mine citer on", bridge.stepStatus(started.agentId()), "a non-string step status is ignored, not fatal");
+
+			JsonObject readyWithStatus = new JsonObject();
+			readyWithStatus.addProperty("goalRevision", started.goalRevision());
+			readyWithStatus.addProperty("stepStatus", "ignored on agent_ready");
+			invokePlannerReady(bridge, new BridgeEnvelope(2, "coordinator", started.agentId().toString(), "agent_ready", "step-status-4", readyWithStatus));
+			assertEquals("Doing: mine citer on", bridge.stepStatus(started.agentId()), "agent_ready never sets the step status");
+
+			JsonObject cleared = withoutStatus.deepCopy();
+			cleared.addProperty("stepStatus", "");
+			invokePlannerReady(bridge, new BridgeEnvelope(2, "coordinator", started.agentId().toString(), "planning_state", "step-status-5", cleared));
+			assertTrue(bridge.stepStatus(started.agentId()) == null, "an empty step status clears it");
+
+			JsonObject again = withoutStatus.deepCopy();
+			again.addProperty("stepStatus", "Doing: smelt iron");
+			invokePlannerReady(bridge, new BridgeEnvelope(2, "coordinator", started.agentId().toString(), "planning_state", "step-status-6", again));
+			assertEquals("Doing: smelt iron", bridge.stepStatus(started.agentId()), "a new step status is stored after a clear");
+			AgentRecord paused = manager.registry().stop(started.agentId(), 1_802L).after();
+			assertTrue(paused.goalRevision() != started.goalRevision(), "stopping the agent moves its goal revision");
+			assertTrue(bridge.stepStatus(started.agentId()) == null, "a goal revision change drops the previous step status");
+
+			JsonObject pausedStatus = new JsonObject();
+			pausedStatus.addProperty("goalRevision", paused.goalRevision());
+			pausedStatus.addProperty("state", "PLANNING");
+			pausedStatus.addProperty("stepStatus", "Doing: wait");
+			invokePlannerReady(bridge, new BridgeEnvelope(2, "coordinator", started.agentId().toString(), "planning_state", "step-status-7", pausedStatus));
+			assertEquals("Doing: wait", bridge.stepStatus(started.agentId()), "a step status for the current revision is stored");
+			manager.registry().remove(started.agentId());
+			assertTrue(bridge.stepStatus(started.agentId()) == null, "removing the agent drops its step status");
+		} catch (java.io.IOException exception) {
+			throw new AssertionError("could not prepare step status verification", exception);
+		} finally {
+			if (bridge != null) bridge.close();
+			if (secretFile != null) {
+				try {
+					Files.deleteIfExists(secretFile);
+				} catch (java.io.IOException exception) {
+					throw new AssertionError("could not remove step status secret", exception);
 				}
 			}
 		}
@@ -3606,6 +3704,30 @@ public final class MultiplexedServerBridgeVerification {
 		state.commit(agentId, observation);
 		assertTrue(!state.delta(agentId, observation, 2L, 1_001L).attention(),
 				"committed conversation attention is exact once");
+		verifyResyncFromAcceptedDelivery(agentId);
+	}
+
+	private static void verifyResyncFromAcceptedDelivery(AgentId agentId) {
+		MultiplexedServerBridge.PublishedObservationState state =
+				new MultiplexedServerBridge.PublishedObservationState(AgentConstants.DEFAULT_AGENT_LIMIT);
+		JsonObject breathing = com.google.gson.JsonParser.parseString("{\"eventSequence\":1,\"player\":{\"air\":300}}").getAsJsonObject();
+		JsonObject drowning = com.google.gson.JsonParser.parseString("{\"eventSequence\":2,\"player\":{\"air\":40}}").getAsJsonObject();
+		state.commit(agentId, breathing);
+		state.commit(agentId, drowning); // Sent with the low-air edge, then dropped by the coordinator.
+		JsonObject still = com.google.gson.JsonParser.parseString("{\"eventSequence\":3,\"player\":{\"air\":40}}").getAsJsonObject();
+		assertTrue(!state.delta(agentId, still, 3L, 3L).changedFacts().contains("player.air"), "without a resync the low-air edge is spent");
+		state.forgetDelivered(agentId, 1L);
+		assertTrue(state.delta(agentId, still, 3L, 3L).changedFacts().contains("player.air"),
+				"a resync from the accepted delivery announces low air again");
+		// A lasting fault: 2 dropped, the answer to the first resync (3) dropped too, 4 accepted. Counted from 1 again.
+		state.commit(agentId, still);
+		JsonObject later = com.google.gson.JsonParser.parseString("{\"eventSequence\":4,\"player\":{\"air\":40}}").getAsJsonObject();
+		state.commit(agentId, later);
+		state.forgetDelivered(agentId, 1L);
+		assertTrue(state.delta(agentId, later, 5L, 5L).changedFacts().contains("player.air"),
+				"a resync after a lasting fault still announces low air");
+		state.forgetDelivered(agentId, 99L); // Unknown: falls back to re-announcing threats only.
+		assertEquals(Set.of(), state.threatBaseline(agentId), "an unknown accepted delivery still clears the threat baseline");
 	}
 
 	private static void verifyDeathFacts() {
@@ -4497,6 +4619,14 @@ public final class MultiplexedServerBridgeVerification {
 				"the promoted row carries the owed edge as an urgent fact");
 		assertTrue(changedFacts(publish.apply(eightOld, withOther)).isEmpty(), "after delivery the row may yield again quietly");
 
+		// The coordinator dropped a delivery that announced a swell and asked for a resync: the creeper must wake it again.
+		publish.apply(withCreeper, keys);
+		assertTrue(changedFacts(publish.apply(withCreeper, keys)).isEmpty(), "a delivered swell is not announced twice");
+		publication.publishedState().forgetDelivered(agent, null);
+		JsonObject resynced = publish.apply(withCreeper, keys);
+		assertTrue(changedFacts(resynced).contains("threats." + creeper + ".swelling"),
+				"after a resync the swelling creeper is announced again: " + changedFacts(resynced));
+
 		var mixed = new MultiplexedServerBridge.ObservationPublication(16, 16, 10);
 		mixed.activate(session);
 		mixed.publish(agent, session, threatSample(eightOld, 9_000L), writer, true);
@@ -5012,6 +5142,50 @@ public final class MultiplexedServerBridgeVerification {
 		return observation;
 	}
 
+	private static void verifyInventoryMarker(AgentId agent) {
+		java.util.Map<AgentId, ObservationInventoryMarker.Baseline> delivered = new java.util.HashMap<>();
+		JsonObject observation = com.google.gson.JsonParser.parseString("{\"ready\":true,\"inventory\":{\"items\":[{\"itemId\":\"minecraft:oak_log\",\"count\":3,\"damage\":0,\"maxDamage\":0,\"slot\":0}],\"selectedItem\":\"minecraft:oak_log\"},\"player\":{\"health\":20}}").getAsJsonObject();
+		String original = observation.toString();
+		ObservationInventoryMarker.Outgoing first = ObservationInventoryMarker.prepare(delivered.get(agent), observation);
+		assertEquals(original, observation.toString(), "preparing never mutates the delivered baseline");
+		assertTrue(first.payload().getAsJsonObject("inventory").has("items"), "the first observation of a connection carries the full inventory");
+		String hash = first.payload().get("inventoryHash").getAsString();
+		assertEquals(16, hash.length(), "a 64-bit hex hash names the full inventory");
+		ObservationInventoryMarker.remember(delivered, agent, first);
+		ObservationInventoryMarker.Outgoing repeat = ObservationInventoryMarker.prepare(delivered.get(agent), observation.deepCopy());
+		assertEquals("{\"unchanged\":\"" + hash + "\"}", repeat.payload().get("inventory").toString(), "an unchanged inventory becomes a marker");
+		assertTrue(!repeat.payload().has("inventoryHash"), "a marker carries no second hash");
+		assertEquals(observation.get("player"), repeat.payload().get("player"), "every other field is unchanged");
+		ObservationInventoryMarker.remember(delivered, agent, repeat);
+		JsonObject changed = observation.deepCopy();
+		changed.getAsJsonObject("inventory").getAsJsonArray("items").get(0).getAsJsonObject().addProperty("count", 4);
+		ObservationInventoryMarker.Outgoing afterChange = ObservationInventoryMarker.prepare(delivered.get(agent), changed);
+		assertTrue(afterChange.payload().getAsJsonObject("inventory").has("items"), "a changed inventory is sent in full");
+		assertTrue(!hash.equals(afterChange.payload().get("inventoryHash").getAsString()), "a changed inventory gets a new hash");
+		ObservationInventoryMarker.remember(delivered, agent, afterChange);
+		int markers = 0;
+		for (int index = 0; index < ObservationInventoryMarker.FULL_EVERY; index++) {
+			ObservationInventoryMarker.Outgoing next = ObservationInventoryMarker.prepare(delivered.get(agent), changed.deepCopy());
+			if (!next.payload().getAsJsonObject("inventory").has("items")) markers++;
+			ObservationInventoryMarker.remember(delivered, agent, next);
+		}
+		assertEquals(ObservationInventoryMarker.FULL_EVERY - 1, markers, "an unchanged inventory is still sent in full every FULL_EVERY observations");
+		JsonObject unavailable = com.google.gson.JsonParser.parseString("{\"ready\":false}").getAsJsonObject();
+		ObservationInventoryMarker.Outgoing dead = ObservationInventoryMarker.prepare(delivered.get(agent), unavailable);
+		assertTrue(dead.payload() == unavailable, "an observation without an inventory is sent as is");
+		ObservationInventoryMarker.remember(delivered, agent, dead);
+		assertTrue(delivered.containsKey(agent), "and keeps the inventory baseline");
+		delivered.remove(agent);
+		assertTrue(ObservationInventoryMarker.prepare(delivered.get(agent), observation).payload().getAsJsonObject("inventory").has("items"),
+				"with no stored inventory for the agent the full inventory is sent");
+		JsonObject request = com.google.gson.JsonParser.parseString("{\"goalRevision\":4}").getAsJsonObject();
+		assertEquals(false, MultiplexedServerBridge.requestsFullInventory(request), "a routine observation request keeps the stored inventory");
+		request.addProperty("fullInventory", true);
+		assertEquals(true, MultiplexedServerBridge.requestsFullInventory(request), "a request after a marker miss asks for the inventory in full");
+		request.addProperty("fullInventory", "yes");
+		assertThrowsBridgeCode(() -> MultiplexedServerBridge.requestsFullInventory(request), "INVALID_FIELD", "fullInventory must be a boolean");
+	}
+
 	private static void verifyExactTargetObservationLedger(AgentId agent) {
 		MultiplexedServerBridge.PublishedObservationState state = new MultiplexedServerBridge.PublishedObservationState(16);
 		JsonObject first = com.google.gson.JsonParser.parseString("{\"world\":{\"dimension\":\"minecraft:overworld\"},\"position\":{\"x\":0.5,\"y\":64,\"z\":-0.5},\"player\":{\"health\":20,\"footing\":{\"drop\":4,\"atLeast\":true,\"yaw\":-90}}}").getAsJsonObject();
@@ -5023,6 +5197,12 @@ public final class MultiplexedServerBridgeVerification {
 		repeat = first.deepCopy();
 		state.omitUnchangedFooting(agent, repeat);
 		assertEquals(false, repeat.getAsJsonObject("player").has("footing"), "omitted event retains last delivered footing");
+		state.forgetDelivered(agent, null);
+		JsonObject resynced = first.deepCopy();
+		state.omitUnchangedFooting(agent, resynced);
+		assertEquals(true, resynced.getAsJsonObject("player").has("footing"), "a resync delivers footing again");
+		assertEquals(Set.of(), state.threatBaseline(agent), "a resync announces every current threat again");
+		state.commit(agent, first);
 		for (String field : new String[] {"drop", "atLeast", "into", "yaw"}) {
 			JsonObject changed = first.deepCopy();
 			JsonObject footing = changed.getAsJsonObject("player").getAsJsonObject("footing");

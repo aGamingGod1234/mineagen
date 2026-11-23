@@ -88,9 +88,9 @@ public final class ServerRetraceController implements ServerController {
    WalkedRoute.Point completed=path.points().get(legEnd);
    if(result.reasonCode().equals("REACHED_FRONTIER") && legEnd>index && !lookedOut && Math.abs(p.getY()-completed.y())<=2) {lookedOut=true;return TickResult.running(progress());}
    if(result.reasonCode().equals("TRAVEL_TIMEOUT")) return TickResult.timedOut("TRAVEL_TIMEOUT",timeoutMessage(p, result.message()),progress());
-   if(result.state()!=State.SUCCEEDED) return new TickResult(result.state(),result.reasonCode(),"Retrace "+index+"/"+path.points().size()+" toward "+completed+": "+result.message(),progress());
+   if(result.state()!=State.SUCCEEDED) return legStopped(result,index,path.points().size(),completed,progress());
    if(!result.reasonCode().equals("ARRIVED") && !result.reasonCode().equals("DESTINATION_REACHED")) return result;
-   if(legEnd==index && d>1.75 && Math.abs(p.getY()-next.y())>1.2) return TickResult.failed("NO_ROUTE","Remembered vertical step needs rebuilding; waypoint "+next,progress());
+   if(legEnd==index && d>1.75 && Math.abs(p.getY()-next.y())>1.2) return TickResult.failed("NO_ROUTE","Remembered vertical step needs rebuilding; waypoint "+next,progress()).withNextWaypoint(cell(next));
    index=legEnd+1;lookedOut=false;
   }
   // A death can be between sampled footsteps. Finish the short last leg with normal travel's arrival band.
@@ -104,6 +104,11 @@ public final class ServerRetraceController implements ServerController {
   }
   return TickResult.succeeded("ARRIVED","Retraced "+Math.round(path.length())+" blocks along "+path.points().size()+" remembered waypoints; target "+x+","+y+","+z);
  }
+ /** A leg that stopped short: its own state and reason, the leg target in the message as before and as nextWaypoint. */
+ static TickResult legStopped(TickResult result,int index,int count,WalkedRoute.Point target,double progress) {
+  return new TickResult(result.state(),result.reasonCode(),"Retrace "+index+"/"+count+" toward "+target+": "+result.message(),progress).withNextWaypoint(cell(target));
+ }
+ private static BlockPos cell(WalkedRoute.Point point) {return new BlockPos(point.x(),point.y(),point.z());}
  private double remaining(ServerPlayer p) {
   WalkedRoute.Point from=RouteMemory.point(p);
   double total=0;

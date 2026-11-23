@@ -400,7 +400,7 @@ public final class ServerObservationCollector {
 						String text = lines.get(index).getString();
 						line.addProperty("line", index);
 						line.addProperty("text", ObservationDetails.bounded(text, 768));
-						line.addProperty("truncated", text.codePointCount(0, text.length()) > 768);
+						line.addProperty("truncated", text.length() > 768);
 						return line;
 					}, "normal_item_tooltip", 4_000));
 				}
@@ -447,7 +447,7 @@ public final class ServerObservationCollector {
 						JsonObject value = new JsonObject();
 						value.addProperty("page", index);
 						value.addProperty("text", ObservationDetails.bounded(pages.get(index), 2048));
-						value.addProperty("truncated", pages.get(index).codePointCount(0, pages.get(index).length()) > 2048);
+						value.addProperty("truncated", pages.get(index).length() > 2048);
 						return value;
 					}, "held_book", 8_000);
 					result.add("pages", page);

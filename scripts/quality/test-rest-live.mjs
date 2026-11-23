@@ -7,6 +7,9 @@
 //   nowool: 16 cobblestone at nightfall with 2 zombies and a skeleton summoned 12-14 blocks off: rest should wall in,
 //           wait out the night, open the wall at morning; reports health lost and whether the body is out.
 // Then, on the first seed: day (REST_NOT_NIGHT), a sealed room underground (UNDERGROUND), the Nether (REST_NOT_HERE).
+// CASES also takes thin1/thin2 (3 cobblestone on a 1- or 2-thick stone roof over a cavern: the hole must not open into it)
+// and empty/sand/snow (nothing held at dusk, 12500, on the natural ground of a dry spot or a 9x9 pad of sand or snow
+// blocks): rest's dug hole, the only shelter an empty-handed body has.
 // TICK_RATE (default 60) speeds the server while a walled-in night runs. The fixture otherwise runs at 20 TPS and ignores
 // FIXTURE_TICK_RATE: at 80, 2 of 6 walled-in nights took 3-4 damage and 1 of 6 bed nights could not place its bed, which no
 // run at 20 did; the cause is not known. A night's damage is sampled health (minHealth) while the saturated body heals
@@ -78,20 +81,24 @@ async function session(seed, index) {
 		await s.command(`gamemode survival ${AGENT}`);
 		const readDamage = await damageCounter(text => s.command(text), AGENT);
 
+		// A fresh dry spot each night, away from the last shelter: spreadplayers loads the chunks and avoids water, then the
+		// body drops under any canopy. Seed 1 centres on its world spawn (-272, 32): its 0,0 is ocean. REST_SPOT=x,z names
+		// the centre instead (one seed per room).
+		const drySpot = async () => {
+			const spot = String(process.env.REST_SPOT ?? '').split(',').map(Number);
+			const [cx, cz] = spot.length === 2 && spot.every(Number.isFinite) ? [spot[0] + rows.length * 48, spot[1]]
+				: index === 0 ? [-272 + rows.length * 48, 32] : [index * 400 + rows.length * 48, 0];
+			await s.command(`spreadplayers ${cx} ${cz} 0 24 false ${AGENT}`);
+			await s.gameSleep(1500);
+			await s.command(`execute at ${AGENT} positioned over motion_blocking_no_leaves run tp ${AGENT} ~ ~ ~`);
+		};
 		const prepare = async (kit, at) => {
 			await s.normalRate();
 			await s.command('kill @e[type=!minecraft:player]');
 			await s.command('time set 1000');
 			if (typeof at === 'function') await at();
 			else if (at) await s.command(at);
-			else {
-				// A fresh dry spot each night, away from the last shelter: spreadplayers loads the chunks and avoids water, then the
-				// body drops under any canopy. Seed 1 centres on its world spawn (-272, 32): its 0,0 is ocean.
-				const [cx, cz] = index === 0 ? [-272 + rows.length * 48, 32] : [index * 400 + rows.length * 48, 0];
-				await s.command(`spreadplayers ${cx} ${cz} 0 24 false ${AGENT}`);
-				await s.gameSleep(1500);
-				await s.command(`execute at ${AGENT} positioned over motion_blocking_no_leaves run tp ${AGENT} ~ ~ ~`);
-			}
+			else await drySpot();
 			await s.command(`clear ${AGENT}`);
 			for (const [slot, item] of kit) await s.command(`item replace entity ${AGENT} container.${slot} with minecraft:${item}`);
 			await s.command(`effect clear ${AGENT}`);
@@ -208,8 +215,24 @@ async function session(seed, index) {
 			await s.command(`fill ${x - 8} ${69 + thick} ${z - 8} ${x + 8} 100 ${z + 8} minecraft:air`);
 			await s.command(`tp ${AGENT} ${x + 0.5} ${69 + thick} ${z + 0.5}`);
 		};
-		if (CASES.includes('thin1')) await run('thin1', { kit: [[0, 'cobblestone 3']], at: thin(1) });
-		if (CASES.includes('thin2')) await run('thin2', { kit: [[0, 'cobblestone 3']], at: thin(2) });
+		if (CASES.includes('thin1')) await run('thin1', { kit: [[0, 'cobblestone 3']], at: thin(1), fast: true });
+		if (CASES.includes('thin2')) await run('thin2', { kit: [[0, 'cobblestone 3']], at: thin(2), fast: true });
+		// Empty-handed at dusk on open ground, as a fresh or respawned body is: rest's only way is the dug hole. empty is
+		// the natural ground at a dry spot; sand and snow put a 9x9 pad of that ground under the body there, 4 deep.
+		const pad9 = block => async () => {
+			await drySpot();
+			const p = await pos();
+			if (!p || block === null) return;
+			const [x, y, z] = p.map(Math.floor);
+			// A stone floor under the pad, so sand over a cave or a cliff edge does not fall away under the body.
+			await s.command(`fill ${x - 4} ${y - 5} ${z - 4} ${x + 4} ${y - 5} ${z + 4} minecraft:stone`);
+			await s.command(`fill ${x - 4} ${y - 4} ${z - 4} ${x + 4} ${y - 1} ${z + 4} minecraft:${block}`);
+			await s.command(`fill ${x - 4} ${y} ${z - 4} ${x + 4} ${y + 3} ${z + 4} minecraft:air`);
+			await s.command(`tp ${AGENT} ${x + 0.5} ${y} ${z + 0.5}`);
+		};
+		for (const [name, block] of [['empty', null], ['sand', 'sand'], ['snow', 'snow_block']]) {
+			if (CASES.includes(name)) await run(name, { kit: [], at: pad9(block), setTime: 12500, fast: true });
+		}
 		// A flat stone pad of its own for the bed cases (spreadplayers can leave the body where the last case stood).
 		const pad = async () => {
 			await s.command('forceload add -210 690 -190 710'); await sleep(1500);

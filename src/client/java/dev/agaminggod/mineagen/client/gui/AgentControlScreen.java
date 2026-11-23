@@ -18,6 +18,7 @@ import dev.agaminggod.mineagen.control.AgentControlModelOption;
 import dev.agaminggod.mineagen.control.AgentControlCommandBuilder;
 import dev.agaminggod.mineagen.control.AgentControlPresentation;
 import dev.agaminggod.mineagen.control.AgentControlSelectionState;
+import dev.agaminggod.mineagen.control.AgentControlResult;
 import dev.agaminggod.mineagen.control.AgentControlSnapshot;
 import dev.agaminggod.mineagen.control.AgentNowCard;
 import dev.agaminggod.mineagen.control.AgentRosterEntry;
@@ -107,6 +108,12 @@ public final class AgentControlScreen extends Screen {
 	private String prompt = "";
 	private String feedback = "";
 	private boolean feedbackError;
+	/** True only when the server confirmed the change; a sent command's "Sending..." line is pending, not success. */
+	private boolean feedbackConfirmed;
+	/** The newest server command result this screen has shown (or found when it opened), so each shows once. */
+	private long seenResultSequence;
+	/** Height the status banner reserved when the widgets were last placed; {@link #layout()} pushes content below it. */
+	private int builtBannerInset;
 	private final SingleSubmissionGate summonSubmission = new SingleSubmissionGate();
 	private boolean shownPlanWindowEnabled, shownTerminalEnabled;
 	private ConsoleMutationState mutationState = ConsoleMutationState.initial(0L);
@@ -157,6 +164,18 @@ public final class AgentControlScreen extends Screen {
 	) {
 		AgentControlSnapshot checkedSnapshot = Objects.requireNonNull(nextSnapshot, "nextSnapshot must not be null");
 		if (!mutationState.accepts(checkedSnapshot.generatedAtEpochMs())) return;
+		acceptSnapshotContent(checkedSnapshot, acknowledgedMutationId, contentChanged);
+		// After the content pass, which clears a pending line once the server answers: the answer itself replaces it.
+		AgentControlResult result = checkedSnapshot.result();
+		if (result != null && result.sequence() > seenResultSequence) {
+			seenResultSequence = result.sequence();
+			feedback = result.message();
+			feedbackError = !result.accepted();
+			feedbackConfirmed = result.accepted();
+		}
+	}
+
+	private void acceptSnapshotContent(AgentControlSnapshot checkedSnapshot, long acknowledgedMutationId, boolean contentChanged) {
 		contentChanged = contentChanged || snapshot == null || !snapshot.agents().equals(checkedSnapshot.agents())
 				|| !snapshot.catalog().equals(checkedSnapshot.catalog());
 		boolean mutationWasPending = mutationState.mutationPending();
@@ -165,7 +184,8 @@ public final class AgentControlScreen extends Screen {
 		if (!contentChanged) {
 			snapshot = checkedSnapshot;
 			if (mutationWasPending && !mutationState.mutationPending()) {
-				if (!feedbackError) feedback = "";
+				// The server's answer may arrive a snapshot before this acknowledgement; keep it rather than blank it.
+				if (!feedbackError && !feedbackConfirmed) feedback = "";
 				requestWidgetRefresh();
 			}
 			return;
@@ -278,6 +298,8 @@ public final class AgentControlScreen extends Screen {
 		rosterState.reconcile(candidateEntries);
 		rosterState.focus(managementSelection.selectedAgentId());
 		snapshot = nextSnapshot;
+		// A result already in the snapshot when the screen opens answers an older command; do not replay it.
+		if (nextSnapshot.result() != null) seenResultSequence = nextSnapshot.result().sequence();
 		dev.agaminggod.mineagen.client.control.LiveAgentWindows.select(selectedAgent());
 		mutationState = ConsoleMutationState.initial(nextSnapshot.generatedAtEpochMs());
 		rosterEntries = candidateEntries;
@@ -287,6 +309,7 @@ public final class AgentControlScreen extends Screen {
 	@Override
 	protected void init() {
 		widgetRefreshPending = false;
+		builtBannerInset = bannerInset(bannerLines().size());
 		overviewNow = null;
 		nameInput = null;
 		promptInput = null;
@@ -306,6 +329,7 @@ public final class AgentControlScreen extends Screen {
 	@Override
 	public void tick() {
 		super.tick();
+		if (bannerInset(bannerLines().size()) != builtBannerInset) widgetRefreshPending = true;
 		if (widgetRefreshPending && minecraft != null && !textEditorFocused()) rebuildWidgets();
 		if (page == Page.MANAGE && (shownPlanWindowEnabled != dev.agaminggod.mineagen.client.control.LiveAgentWindows.planEnabled()
 				|| shownTerminalEnabled != dev.agaminggod.mineagen.client.control.LiveAgentWindows.terminalEnabled())) rebuildWidgets();
@@ -391,6 +415,7 @@ public final class AgentControlScreen extends Screen {
 		ConsoleDraw.shadow(graphics, layout.panelLeft(), layout.panelTop(), panelWidth, panelHeight, 0xB0);
 		ConsoleDraw.surface(graphics, layout.panelLeft(), layout.panelTop(), panelWidth, panelHeight, ConsoleDraw.RADIUS_PANEL, PANEL);
 		renderShell(graphics);
+		renderBanner(graphics);
 		renderHeader(graphics);
 		renderInputSurfaces(graphics);
 		switch (page) {
@@ -1434,35 +1459,145 @@ public final class AgentControlScreen extends Screen {
 				: promptInput.isHovered() ? 0xFF2E3846 : 0xFF1E252F);
 	}
 
+	/** The status line: its full text, colour, and the short label the header shows while the banner holds the text. */
+	private record Status(String text, int color, String shortText, boolean danger) {
+	}
+
+	private Status status() {
+		if (!feedback.isBlank()) {
+			AgentControlResult.Tone tone = feedbackTone(feedbackError, feedbackConfirmed);
+			String shortText = switch (tone) {
+				case REFUSED -> "Not done";
+				case SUCCESS -> "Done";
+				case PENDING -> "Working...";
+			};
+			return new Status(feedback, toneColor(tone), shortText, feedbackError);
+		}
+		if (mutationState.mutationPending()) {
+			return new Status("Waiting for the server...", toneColor(AgentControlResult.Tone.PENDING), "Waiting...", false);
+		}
+		if (snapshot == null) return new Status("Connecting", ConsoleTheme.WARNING, "Connecting", false);
+		if (!snapshot.canControl()) {
+			return new Status("View only. Operator permission is needed to make changes", ConsoleTheme.WARNING, "View only", false);
+		}
+		if (!snapshot.automationAvailable()) return new Status(snapshot.automationStatus(), ERROR, "Automation offline", true);
+		return new Status("Online", SUCCESS, "Online", false);
+	}
+
+	/** A feedback line is a success only once the server confirmed it; a line the screen wrote itself is pending. */
+	static AgentControlResult.Tone feedbackTone(boolean error, boolean confirmed) {
+		return error ? AgentControlResult.Tone.REFUSED : confirmed ? AgentControlResult.Tone.SUCCESS : AgentControlResult.Tone.PENDING;
+	}
+
+	/** Pending is neutral: green means the server confirmed the change, red that it refused it. */
+	static int toneColor(AgentControlResult.Tone tone) {
+		return switch (tone) {
+			case PENDING -> MUTED;
+			case SUCCESS -> ConsoleTheme.SUCCESS;
+			case REFUSED -> ConsoleTheme.ERROR;
+		};
+	}
+
+	/** Where the header status may start: after the logo, the name and the longest breadcrumb this page can show. */
+	private int headerStatusLeft(AgentControlLayout layout) {
+		int x = layout.contentLeft() + 22 + ConsoleText.strongWidth(font, "Mineagen") + 8;
+		for (String crumb : breadcrumb()) x += 12 + ConsoleText.width(font, crumb) + 6;
+		return x + 12;
+	}
+
+	/** The status text broken into banner lines, or none when it fits on the header line. */
+	private List<String> bannerLines() {
+		if (font == null) return List.of();
+		AgentControlLayout base = AgentControlLayout.calculate(width, height);
+		String text = status().text();
+		int headerRoom = Math.max(24, base.contentRight() - headerStatusLeft(base) - 10);
+		if (ConsoleText.width(font, text) <= headerRoom) return List.of();
+		java.util.function.ToIntFunction<String> measure = value -> ConsoleText.width(font, value);
+		return capBannerLines(AgentControlResult.wrap(text, bannerTextWidth(base), measure), maxBannerLines(width, height),
+				bannerTextWidth(base), measure);
+	}
+
+	/** Bottom of the Manage page's last control row (its three label-and-row groups), the tallest fixed page. */
+	static int manageRowsBottom(AgentControlLayout layout) {
+		return bodyTop(layout) + 3 * (LABEL_HEIGHT + ROW_HEIGHT + FORM_GAP) - FORM_GAP;
+	}
+
+	/**
+	 * Most banner lines (up to 3) this screen holds while the Manage page's last row still ends above the footer,
+	 * measured on the real layout. 0 means no banner: the header then shows the text shortened, as before.
+	 */
+	static int maxBannerLines(int screenWidth, int screenHeight) {
+		for (int lines = 3; lines > 0; lines--) {
+			AgentControlLayout with = AgentControlLayout.calculate(screenWidth, screenHeight, bannerInset(lines));
+			if (manageRowsBottom(with) <= with.footerY()) return lines;
+		}
+		return 0;
+	}
+
+	/** {@code lines} within {@code max}; the last kept line carries the rest, shortened with "...". */
+	static List<String> capBannerLines(List<String> lines, int max, int width, java.util.function.ToIntFunction<String> measure) {
+		if (lines.size() <= max) return lines;
+		if (max == 0) return List.of();
+		List<String> kept = new java.util.ArrayList<>(lines.subList(0, max - 1));
+		String rest = String.join(" ", lines.subList(max - 1, lines.size()));
+		while (!rest.isEmpty() && measure.applyAsInt(rest + "...") > width) rest = rest.substring(0, rest.length() - 1);
+		kept.add(rest.stripTrailing() + "...");
+		return List.copyOf(kept);
+	}
+
+	static final int BANNER_LINE = 10;
+	static final int BANNER_PAD = 5;
+
+	static int bannerTextWidth(AgentControlLayout layout) {
+		return Math.max(1, layout.contentWidth() - BANNER_PAD * 2);
+	}
+
+	/** Space the banner takes below the header, its 4-pixel gap to the content included; 0 with no banner. */
+	static int bannerInset(int lines) {
+		return lines <= 0 ? 0 : lines * BANNER_LINE + BANNER_PAD * 2 + 4;
+	}
+
+	/** Where the banner sits: from just below the header down to 4 pixels above where the page content starts. */
+	static AgentControlLayout.Bounds bannerBounds(AgentControlLayout layout, int lines) {
+		int top = layout.headerBottom() + 4;
+		return new AgentControlLayout.Bounds(layout.contentLeft(), top, layout.contentRight(), top + Math.max(0, bannerInset(lines) - 4));
+	}
+
+	/** The full result or offline reason, wrapped below the header when the header line is too short for it. */
+	private void renderBanner(GuiGraphicsExtractor graphics) {
+		List<String> lines = bannerLines();
+		if (!bannerHolds(lines)) return;
+		Status status = status();
+		AgentControlLayout layout = layout();
+		int shown = lines.size();
+		AgentControlLayout.Bounds area = bannerBounds(layout, shown);
+		ConsoleDraw.surface(graphics, area.left(), area.top(), area.width(), area.height(), ConsoleDraw.RADIUS_CARD,
+				status.danger() ? ConsoleTheme.DANGER_SURFACE : ConsoleTheme.SURFACE);
+		for (int index = 0; index < shown; index++) {
+			graphics.text(font, ConsoleText.component(lines.get(index)), area.left() + BANNER_PAD,
+					area.top() + BANNER_PAD + index * BANNER_LINE, status.danger() ? TEXT : status.color(), false);
+		}
+	}
+
+	/**
+	 * True when the space reserved at the last widget build holds every banner line. While a focused text box defers
+	 * that rebuild, the header keeps showing the text itself (shortened) rather than a label for a banner not yet drawn.
+	 */
+	private boolean bannerHolds(List<String> lines) {
+		return !lines.isEmpty() && builtBannerInset >= bannerInset(lines.size());
+	}
+
 	/** One status on the header's right: the latest feedback, a pending update, or the link state. */
 	private void renderStatus(GuiGraphicsExtractor graphics, int minimumX, int middle) {
 		AgentControlLayout layout = layout();
-		String text;
-		int color;
-		if (!feedback.isBlank()) {
-			text = feedback;
-			color = feedbackError ? ERROR : SUCCESS;
-		} else if (mutationState.mutationPending()) {
-			text = "Waiting for the server...";
-			color = ConsoleTheme.WARNING;
-		} else if (snapshot == null) {
-			text = "Connecting";
-			color = ConsoleTheme.WARNING;
-		} else if (!snapshot.canControl()) {
-			text = "View only. Operator permission is needed to make changes";
-			color = ConsoleTheme.WARNING;
-		} else if (!snapshot.automationAvailable()) {
-			text = snapshot.automationStatus();
-			color = ERROR;
-		} else {
-			text = "Online";
-			color = SUCCESS;
-		}
+		Status status = status();
 		int right = layout.contentRight();
-		String shown = fit(text, Math.max(24, right - minimumX - 10));
+		int room = Math.max(24, right - minimumX - 10);
+		// A text too long for the header is shown whole in the banner below; the header then names only its kind.
+		String shown = bannerHolds(bannerLines()) ? fit(status.shortText(), room) : fit(status.text(), room);
 		int textWidth = ConsoleText.width(font, shown);
-		graphics.text(font, ConsoleText.component(shown), right - textWidth, middle - 4, color, false);
-		ConsoleDraw.surface(graphics, right - textWidth - 9, middle - 2, 5, 5, ConsoleDraw.RADIUS_SMALL, color);
+		graphics.text(font, ConsoleText.component(shown), right - textWidth, middle - 4, status.color(), false);
+		ConsoleDraw.surface(graphics, right - textWidth - 9, middle - 2, 5, 5, ConsoleDraw.RADIUS_SMALL, status.color());
 	}
 
 	private void submitSummon() {
@@ -1560,6 +1695,7 @@ public final class AgentControlScreen extends Screen {
 	private void setFeedback(String message, boolean error) {
 		feedback = Objects.requireNonNullElse(message, "");
 		feedbackError = error;
+		feedbackConfirmed = false;
 	}
 
 	private void rememberPreferences() {
@@ -1814,7 +1950,7 @@ public final class AgentControlScreen extends Screen {
 	}
 
 	private AgentControlLayout layout() {
-		return AgentControlLayout.calculate(width, height);
+		return AgentControlLayout.calculate(width, height, builtBannerInset);
 	}
 
 	private static String capitalize(String value) {

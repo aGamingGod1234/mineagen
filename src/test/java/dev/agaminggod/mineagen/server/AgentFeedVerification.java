@@ -81,7 +81,7 @@ public final class AgentFeedVerification {
 		}
 		check(AgentChatReporter.failureMessage("PROVIDER_FAILED", "Sign in to Claude again.").equals("Can't continue: Sign in to Claude again."), "fatal error retains short reason");
 		check(AgentChatReporter.failureMessage("PROVIDER_FAILED", "Sensitive details redacted.").equals("Can't continue: provider failed."), "fatal reason survives privacy redaction");
-		return 62 + verifyServerThreadHop() + verifyReplay();
+		return 62 + verifyProgressAndStepLine() + verifyServerThreadHop() + verifyReplay();
 	}
 
 	/** Uses the reporter entry points and Minecraft's real task queue, with no live world or network. */
@@ -209,6 +209,44 @@ public final class AgentFeedVerification {
 		@Override public void broadcastSystemMessage(net.minecraft.network.chat.Component message, boolean overlay) {
 			lines.add(message.getString());
 		}
+	}
+
+	/** UI-STATUS-3: staleness follows progress, the step line fills the bar, and planning shows a timer. */
+	static int verifyProgressAndStepLine() {
+		AgentFeedPolicy feed = new AgentFeedPolicy();
+		feed.body("sol", 0, 64, 0, 0);
+		feed.pack("sol", 7, 0);
+		feed.acting("sol", "travel", "Travelling", 0);
+		feed.body("sol", 0.5, 64, 0.5, 25_000);
+		check(feed.status("sol", 30_000).isEmpty(), "standing within a block is not progress");
+		feed.acting("sol", "travel-2", "Travelling", 40_000);
+		feed.body("sol", 3, 64, 0, 65_000);
+		check(feed.status("sol", 90_000).equals("Travelling"), "a moving body keeps a long action's status 50 s in");
+		check(feed.status("sol", 95_000).isEmpty(), "status still hides 30 s after the last progress");
+		feed.pack("sol", 8, 100_000);
+		check(feed.status("sol", 129_999).equals("Travelling"), "a changed pack counts as progress");
+		feed.pack("sol", 8, 140_000);
+		check(feed.status("sol", 160_000).isEmpty(), "an unchanged pack is not progress");
+		feed.result("sol", "travel-2", true, 161_000);
+		feed.body("sol", 30, 64, 0, 162_000);
+		check(feed.status("sol", 165_999).equals("Travelling ×1"), "progress after the result cannot extend its linger");
+		check(feed.status("sol", 166_000).isEmpty(), "a finished action lingers five seconds");
+
+		String step = "mine iron: need 3 raw iron; via strip mine";
+		feed.acting("opus", "dig", "Digging down", 0);
+		check(feed.line("opus", step, false, 1_000).equals("Digging down · " + step), "the step line follows the action");
+		check(feed.line("opus", step, false, 31_000).equals(step), "a stale action leaves the step line, not a blank bar");
+		check(feed.line("opus", null, false, 31_000).isEmpty(), "no step line and no fresh action shows nothing");
+		check(feed.line("opus", "  ", false, 31_000).isEmpty(), "a blank step line shows nothing");
+		check(feed.line("opus", step, true, 40_000).equals("Thinking... 0 s · " + step), "planning starts the timer at zero");
+		check(feed.line("opus", null, true, 80_000).equals("Thinking... 40 s"), "the timer counts while planning");
+		check(feed.line("opus", null, true, 165_500).equals("Thinking... 2 min 5 s"), "long planning shows minutes");
+		check(feed.line("opus", null, false, 166_000).isEmpty(), "leaving planning stops the timer");
+		check(feed.line("opus", null, true, 170_000).equals("Thinking... 0 s"), "a new planning spell restarts the timer");
+		feed.acting("opus", "dig-2", "Digging down", 171_000);
+		check(feed.line("opus", null, true, 172_000).equals("Digging down"), "a running action wins over the planning timer");
+		check(AgentFeedPolicy.thinking(-5).equals("Thinking... 0 s"), "a clock step back never shows negative time");
+		return 18;
 	}
 
 	private static void check(boolean value, String message) {

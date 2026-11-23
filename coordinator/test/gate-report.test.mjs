@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { buildGate, readRun, compare, verdict, funnel, parseCli, SCHEMA } from '../../scripts/quality/gate-report.mjs';
+import { buildGate, readRun, compare, verdict, funnel, parseCli, SCHEMA, shieldState, actionAtHit, damageBreakdown } from '../../scripts/quality/gate-report.mjs';
 import { findGateFunnel, collectReplays } from '../../scripts/quality/lib/stake-comparison.mjs';
 import { formatFunnel, formatReplays } from '../src/decision-eval/stake-summary.mjs';
 
@@ -478,4 +478,104 @@ test('a counter-only death takes only a receipt from before it, after the timed 
 		assert.equal(game.deaths, 2);
 		assert.deepEqual(game.deathCauses, { lava: 1, zombie: 1 }, 'the zombie receipt stays with the zombie death');
 	} finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('model call latency: per-game p50 and p90 on each run, and the cohort pooled per wall-clock 10 minutes', async () => {
+	const { readFile } = await import('node:fs/promises');
+	const root = await mkdtemp(path.join(os.tmpdir(), 'gate-report-'));
+	try {
+		const withLatency = async (name, seed, latency) => {
+			const dir = await longRun(root, name, { seed });
+			const stage = JSON.parse(await readFile(path.join(dir, 'stage-score.json'), 'utf8'));
+			if (latency !== undefined) stage.game = { modelLatency: latency };
+			await writeFile(path.join(dir, 'stage-score.json'), JSON.stringify(stage));
+			return dir;
+		};
+		const bucket = (from, totalMs) => ({ fromEpochMs: from, calls: totalMs.length, p50Ms: null, p90Ms: null, totalMs });
+		const a = await withLatency('a', '1', { calls: 4, p50Ms: 3000, p90Ms: 5000, maxMs: 5000, byClock10Min: [bucket(600_000, [1000, 3000]), bucket(1_200_000, [4000, 5000])] });
+		const b = await withLatency('b', '2', { calls: 2, p50Ms: 40_000, p90Ms: 41_000, maxMs: 41_000, byClock10Min: [bucket(1_200_000, [40_000, 41_000])] });
+		const old = await withLatency('c', '3', undefined);
+		const [runA] = readRun(a);
+		assert.deepEqual(runA.modelLatency, { calls: 4, p50Ms: 3000, p90Ms: 5000, maxMs: 5000 }, 'the bucket values stay out of the report');
+		assert.equal('modelLatency' in readRun(old)[0], false, 'a score made before latency was measured: not measured');
+		const [cohort] = buildGate({ gate: 'l', title: 'latency', cohorts: [{ name: 'l', label: 'latency', dirs: [a, b, old] }] }).cohorts;
+		assert.deepEqual(cohort.modelLatency, { games: 2, gameP90MedianMs: 23_000, gameP90MaxMs: 41_000, byClock10Min: [
+			{ from: new Date(600_000).toISOString(), calls: 2, p50Ms: 1000, p90Ms: 3000 },
+			{ from: new Date(1_200_000).toISOString(), calls: 4, p50Ms: 5000, p90Ms: 41_000 },
+		] }, 'calls in the same wall-clock 10 minutes pool across games');
+	} finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('hits split by shield state and running action; schema 1 rows are unknown, never "no shield"', async () => {
+	const root = await mkdtemp(path.join(os.tmpdir(), 'gate-report-'));
+	try {
+		const dir = await standardRound(root, [{ id: 'game-1', seed: '780', stages: {}, agentId: 'agent-a' }, { id: 'game-2', seed: '781', stages: {} }]);
+		// A paired hit's cost is its measured health and absorption drop; a fixture's taken stands for that drop.
+		const hit = (minute, fields) => { const row = { type: 'damage', schema: 2, agentId: 'agent-a', atMs: T0 + minute * MIN, gameTime: minute * 1200, blocked: false, paired: true, lethal: false, ...fields };
+			if (row.paired && Number.isFinite(row.taken) && row.healthDrop === undefined) Object.assign(row, { healthDrop: row.taken, absorbed: 0 });
+			return row; };
+		const v1 = (minute, fields) => { const row = hit(minute, fields); row.schema = 1; return row; };
+		const rows = [
+			hit(5, { taken: 0, blocked: true, shieldHand: 'off', blocking: true, action: 'mine_block' }),
+			hit(6, { taken: 3, shieldHand: 'off', blocking: false, action: 'mine_block' }),
+			hit(7, { taken: 4, shieldHand: null, blocking: false, action: null }),
+			// No same-tick read before the hit: the guard and the HP it cost are unknown.
+			hit(8, { taken: 2, paired: false, shieldHand: null, blocking: null, action: 'fight_target' }),
+			v1(9, { taken: 5 }),
+			// The lethal hit has no taken: the health and absorption it used.
+			hit(10, { taken: null, lethal: true, healthDrop: 3, absorbed: 1, shieldHand: null, blocking: false, action: 'fight_target' }),
+			hit(11, { taken: null, lethal: true, paired: false, healthDrop: null, absorbed: null, shieldHand: null, blocking: null, action: 'fight_target' }),
+			hit(70, { taken: 9, shieldHand: null, blocking: false, action: null }),
+			{ type: 'onset', schema: 2, agentId: 'agent-a', atMs: T0 + 5 * MIN, onset: 'aimed' },
+		];
+		const text = rows.map((row) => JSON.stringify(row)).join('\n') + '\n';
+		await mkdir(path.join(dir, 'game-1', 'raw', 'arena-watch'), { recursive: true });
+		await writeFile(path.join(dir, 'game-1', 'raw', 'arena-watch', 'agent-a-danger.jsonl'), text);
+		// The same file still under the server folder counts once; another agent's file adds nothing.
+		await mkdir(path.join(dir, 'game-1', 'raw', 'server', 'arena-watch'), { recursive: true });
+		await writeFile(path.join(dir, 'game-1', 'raw', 'server', 'arena-watch', 'agent-a-danger.jsonl'), text);
+		await writeFile(path.join(dir, 'game-1', 'raw', 'arena-watch', 'agent-b-danger.jsonl'), JSON.stringify({ ...hit(5, { taken: 7 }), agentId: 'agent-b' }) + '\n');
+		const [first, second] = readRun(dir);
+		const bucket = (hits, blocked, damage, damageUnknown = 0) => ({ hits, blocked, damage, damageUnknown });
+		const byShield = { blocking: bucket(1, 1, 0), shieldNotBlocking: bucket(1, 0, 3), noShield: bucket(2, 0, 8), unknown: bucket(3, 0, 5, 2) };
+		const byAction = { fight_target: bucket(3, 0, 4, 2), mine_block: bucket(2, 1, 3), '(none)': bucket(1, 0, 4), '(unknown)': bucket(1, 0, 5) };
+		assert.deepEqual(first.damage, { ...bucket(7, 1, 16, 2), byShield, byAction });
+		assert.deepEqual(Object.keys(first.damage.byAction), ['fight_target', 'mine_block', '(none)', '(unknown)'], 'actions by hits, most first');
+		assert.equal('damage' in second, false, 'no danger file: not measured, not zero hits');
+		const [cohort] = buildGate({ gate: 'r9', title: 'round 9', cohorts: [{ name: 'r9', label: 'round 9', dirs: [dir] }] }).cohorts;
+		assert.deepEqual(cohort.damage, { games: 1, ...bucket(7, 1, 16, 2), byShield, byAction });
+		assert.equal(cohort.damageUnmeasuredGames, 0);
+		assert.ok('deaths' in cohort && 'deathCauses' in cohort && 'nether' in cohort, 'existing cohort keys stay');
+		// A danger file with a row that does not parse is unknown evidence: no breakdown, kept out of the cohort's sums.
+		await mkdir(path.join(dir, 'game-2', 'raw', 'arena-watch'), { recursive: true });
+		// A last fragment with no newline is a copy taken mid-write: dropped, the game still measured.
+		await writeFile(path.join(dir, 'game-2', 'raw', 'arena-watch', 'x-danger.jsonl'), JSON.stringify(hit(5, { taken: 1 })) + '\n{"type":"damage","atMs":');
+		assert.equal(readRun(dir)[1].damage.hits, 1);
+		// A complete line that does not parse is corruption: unknown evidence, not counted.
+		await writeFile(path.join(dir, 'game-2', 'raw', 'arena-watch', 'x-danger.jsonl'), JSON.stringify(hit(5, { taken: 1 })) + '\n{"type":"damage","atMs":\n');
+		const [, corrupt] = readRun(dir);
+		assert.equal('damage' in corrupt, false);
+		assert.match(corrupt.damageUnmeasured, /1 complete danger row\(s\) do not parse/);
+		const [again] = buildGate({ gate: 'r9', title: 'round 9', cohorts: [{ name: 'r9', label: 'round 9', dirs: [dir] }] }).cohorts;
+		assert.deepEqual([again.damage.games, again.damage.hits, again.damageUnmeasuredGames], [1, 7, 1]);
+		// The live server copy is newer than the snapshot: its extra hit counts, the rows both hold count once.
+		await writeFile(path.join(dir, 'game-1', 'raw', 'server', 'arena-watch', 'agent-a-danger.jsonl'), text + JSON.stringify(hit(12, { taken: 1, shieldHand: null, blocking: false, action: null })) + '\n');
+		assert.equal(readRun(dir)[0].damage.hits, 8);
+	} finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('shield state and action read only the fields a schema 2 row carries', () => {
+	assert.equal(shieldState({ schema: 1, blocked: true }), 'unknown', 'a schema 1 shield block says nothing about the hand');
+	assert.equal(shieldState({ schema: 2, shieldHand: 'main', blocking: true }), 'blocking');
+	assert.equal(shieldState({ schema: 2, shieldHand: 'main', blocking: false }), 'shieldNotBlocking');
+	assert.equal(shieldState({ schema: 2, shieldHand: null, blocking: false }), 'noShield');
+	assert.equal(shieldState({ schema: 2, shieldHand: null, blocking: null }), 'unknown');
+	assert.equal(shieldState({ schema: 2, blocking: false }), 'unknown', 'a missing hand field is unknown');
+	assert.equal(actionAtHit({ schema: 1 }), '(unknown)');
+	assert.equal(actionAtHit({ schema: 2, action: null }), '(none)');
+	assert.equal(actionAtHit({ schema: 2, action: 'flee_from' }), 'flee_from');
+	// An armoured hit: Fabric's taken is before armour, the measured drop is what it cost.
+	assert.equal(damageBreakdown([{ schema: 2, type: 'damage', taken: 6, paired: true, healthDrop: 3.5, absorbed: 0.5, shieldHand: null, blocking: false, action: null }]).damage, 4);
+	assert.deepEqual(damageBreakdown([]), { hits: 0, blocked: 0, damage: 0, damageUnknown: 0,
+		byShield: Object.fromEntries(['blocking', 'shieldNotBlocking', 'noShield', 'unknown'].map((state) => [state, { hits: 0, blocked: 0, damage: 0, damageUnknown: 0 }])), byAction: {} });
 });

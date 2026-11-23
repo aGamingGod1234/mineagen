@@ -601,13 +601,18 @@ public final class ServerDigController implements ServerController {
 	 * coordinator's stair budget keeps the same. A winning lava-gate-3 run spent about 150 uses there.
 	 */
 	static final int LAVA_SEARCH_RESERVE = 160;
-	/** Blocks a stairs_down step cuts per block of depth (head, body and floor of the next step); the shaft cuts one. */
-	static final int STAIR_USES_PER_DEPTH = 3;
+	/**
+	 * Blocks the floor check's two-column stairs cut per block of depth; the shaft cuts one. A stairs_down step opens three
+	 * cells, but the two-column stairs turn back every step, so the top one is the column the body just left, already open
+	 * (one descent log: 253 blocks in 123 levels).
+	 */
+	static final int STAIR_USES_PER_DEPTH = 2;
 
 	/**
 	 * Whether the pickaxes can pay for stairs for the rest of the way down and still keep {@link #LAVA_SEARCH_RESERVE}.
 	 * On the lava-gate rooms' kit (an iron and a stone pickaxe, about 380 uses) stairs from the surface wore both out at
-	 * y-54 before lava was seen (lava-gate-3: 10 of 10 runs TOOL_WORN); short of uses, the one-wide shaft goes on.
+	 * y-54 before lava was seen (lava-gate-3: 10 of 10 runs TOOL_WORN); short of uses, the one-wide shaft goes on. With that kit
+	 * a shaft from y71 toward y-54 (wearing one use a level) turns the check on from about y41; at 3 per level it was y-7.
 	 */
 	static boolean stairsAffordable(long uses, int depthLeft) {
 		return uses >= (long) STAIR_USES_PER_DEPTH * Math.max(0, depthLeft) + LAVA_SEARCH_RESERVE;

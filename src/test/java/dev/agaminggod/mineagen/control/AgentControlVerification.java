@@ -30,7 +30,47 @@ public final class AgentControlVerification {
 		assertions += verifyActionSafety();
 		assertions += verifySnapshotOrdering();
 		assertions += verifyStateCues();
+		assertions += verifyCommandResults();
 		return assertions;
+	}
+
+	/** A Control Center command's refusal reaches the viewer's snapshot with its plain reason, and long reasons wrap whole. */
+	private static int verifyCommandResults() {
+		assertEquals(8, AgentControlSnapshot.SCHEMA_VERSION, "the command result field bumps the control snapshot schema to 8");
+		String reason = "Automation is offline: the coordinator could not start because Node.js 22 or newer was not found on the server machine.";
+		AgentControlResult refusal = new AgentControlResult(7L, false, reason);
+		AgentControlSnapshot offline = new AgentControlSnapshot(AgentControlSnapshot.SCHEMA_VERSION, true, false, reason,
+				NOW_EPOCH_MS, List.of(), List.of(), List.of()).withResult(refusal);
+		AgentControlSnapshot decoded = AgentControlSnapshotCodec.decode(AgentControlSnapshotCodec.encode(offline));
+		assertTrue(decoded.result() != null, "a refusal survives the snapshot wire format");
+		assertTrue(!decoded.result().accepted(), "a refusal stays a refusal on the client");
+		assertEquals(reason, decoded.result().message(), "a refusal reaches the client with its full plain reason");
+		assertEquals(7L, decoded.result().sequence(), "a refusal keeps its sequence so the screen shows it once");
+		assertEquals(AgentControlResult.Tone.REFUSED, decoded.result().tone(), "a refusal is drawn as a refusal");
+		AgentControlSnapshot redacted = AgentControlRedaction.forViewer(offline);
+		assertTrue(redacted.result() != null && reason.equals(redacted.result().message()),
+				"viewer redaction keeps a plain refusal reason");
+		assertTrue(AgentControlRedaction.forViewer(new AgentControlSnapshot(true, NOW_EPOCH_MS, List.of())).result() == null,
+				"a snapshot with no command result stays without one");
+		assertTrue(AgentControlSnapshotCodec.decode(AgentControlSnapshotCodec.encode(
+				new AgentControlSnapshot(true, NOW_EPOCH_MS, List.of()))).result() == null,
+				"a snapshot with no command result decodes without one");
+		assertEquals(AgentControlResult.Tone.SUCCESS, new AgentControlResult(8L, true, "Removed Brick.").tone(),
+				"an accepted command is drawn as a confirmed success");
+		assertEquals(AgentControlResult.MAX_MESSAGE_LENGTH, new AgentControlResult(9L, false, "x".repeat(400)).message().length(),
+				"an oversized server message is capped to the wire limit");
+		expectFailure(() -> new AgentControlResult(0L, true, "Done."), "a result without a positive sequence");
+
+		java.util.function.ToIntFunction<String> sixPixels = text -> text.length() * 6;
+		List<String> lines = AgentControlResult.wrap(reason, 200, sixPixels);
+		assertTrue(lines.size() > 1, "a long offline reason wraps onto more than one line");
+		for (String line : lines) assertTrue(sixPixels.applyAsInt(line) <= 200, "every wrapped line fits its width: " + line);
+		assertEquals(reason, String.join(" ", lines), "wrapping keeps every word of the reason; nothing is cut with ...");
+		List<String> longWord = AgentControlResult.wrap("x".repeat(70), 200, sixPixels);
+		assertEquals("x".repeat(70), String.join("", longWord), "a word wider than the line is split, not dropped");
+		assertTrue(longWord.size() == 3, "a 420-pixel word fills three 200-pixel lines");
+		assertEquals(List.of(), AgentControlResult.wrap("  ", 200, sixPixels), "blank text needs no banner lines");
+		return 17;
 	}
 
 	private static int verifySnapshotRoundTripAndBounds() {

@@ -49,7 +49,7 @@ export function ironReserved(items) {
  * under cover, from everything held; a table counts only when held, never one merely in view. reserved: items the
  * obtain just handed back ({ids, count}), never spent on kit.
  */
-export function craftsFromHeld(o, itemId, { reserved = null } = {}) {
+export function craftsFromHeld(o, itemId, { reserved = null, count = 1 } = {}) {
 	const counts = heldCounts(o);
 	const take = map => {
 		if (reserved === null) return map;
@@ -62,15 +62,16 @@ export function craftsFromHeld(o, itemId, { reserved = null } = {}) {
 	const sound = plan => plan.needs.length === 0 && plan.unreachable.length === 0;
 	try {
 		const held = take(keepPickaxeMakings(counts, ids));
-		if (sound(planObtain({ ids, count: 1 }, { held, dimension: o?.world?.dimension }))) return true;
-		return o?.player?.skyOpen === false && sound(planObtain({ ids, count: 1 }, { held: take(counts), dimension: o?.world?.dimension }));
+		if (sound(planObtain({ ids, count }, { held, dimension: o?.world?.dimension }))) return true;
+		return o?.player?.skyOpen === false && sound(planObtain({ ids, count }, { held: take(counts), dimension: o?.world?.dimension }));
 	} catch { return false; }
 }
 
 /**
  * The next kit step from a fresh observation, or null when the kit is kept or the body is hurt:
  * {kind:'equip', sourceSlot, targetSlot, itemId}, {kind:'hotbar', sourceSlot, hotbarSlot, itemId} or {kind:'craft', itemId}.
- * Equips come first (free), then food in reach, then a shield, then one armour piece from spare iron.
+ * Equips come first (free), then food in reach, then a shield, then one armour piece from spare iron, then a spare
+ * shield in the Overworld once the chestplate and boots are worn.
  * reserved ({ids, count}): what the obtain just handed back; kit crafts never spend it.
  */
 export function nextKitStep(o, { reserved = null } = {}) {
@@ -105,7 +106,7 @@ export function nextKitStep(o, { reserved = null } = {}) {
 	const count = re => items.filter(item => re.test(item.itemId)).reduce((n, item) => n + item.count, 0);
 	const kept = reserved !== null && reserved.ids.some(id => bare(id) === 'iron_ingot') ? reserved.count : 0;
 	const ingots = Math.max(0, count(/^minecraft:iron_ingot$/) - kept);
-	const craftable = itemId => craftsFromHeld(o, itemId, { reserved });
+	const craftable = (itemId, count = 1) => craftsFromHeld(o, itemId, { reserved, count });
 	const wood = count(PLANKS) + 4 * count(LOGS);
 	// The iron pickaxe comes first: its 3 ingots are never spent on the shield (obtain iron_ingot count 3 for it would hand back 2).
 	const pickaxeOwed = soundPickaxe(items) ? 0 : 3;
@@ -115,6 +116,15 @@ export function nextKitStep(o, { reserved = null } = {}) {
 		if (worn(piece.slot) || items.some(item => piece.part.test(item.itemId))) continue;
 		if (piece.iron <= spare && craftable(piece.itemId)) return { kind: 'craft', itemId: piece.itemId };
 	}
+	// COMBAT-2: a spare shield before the Nether, from iron left once the route's own armour is on (chestplate and boots,
+	// skill-fits KIT_ARMOUR), so it never takes that armour's iron. A shield that breaks there ("the shield broke") then
+	// has its replacement in the pack, which the equip step above puts in the off hand.
+	// Counted as obtain's planner counts them: a shield about to break is not one (heldCounts), so the step asks for one
+	// more than the usable ones and crafts exactly one, whose 1 iron the spare covers.
+	const routeArmour = worn('chest') && worn('feet');
+	const usable = heldCounts(o).get('shield') ?? 0;
+	if (shields.length === 1 && usable <= 1 && routeArmour && spare >= 1 && wood >= 6 && (o.world?.dimension ?? 'minecraft:overworld') === 'minecraft:overworld'
+		&& craftable('minecraft:shield', usable + 1)) return { kind: 'craft', itemId: 'minecraft:shield', count: usable + 1 };
 	return null;
 }
 
@@ -124,7 +134,7 @@ export function kitHabitEnabled(environment = {}) {
 }
 
 /**
- * Runs kit steps after an obtain: body is obtain's body (observe, act), craft(itemId) runs a nested obtain for one held
+ * Runs kit steps after an obtain: body is obtain's body (observe, act), craft(itemId, count) runs a nested obtain for a held
  * item. Stops at the first step that does not succeed, a repeated craft, or KIT_MAX_STEPS. Returns the steps done;
  * stop.result is set to the result of the step that did not succeed (an interrupted one carries its running action).
  */
@@ -140,7 +150,8 @@ export async function keepKit(body, craft, { stopped = () => false, reserved = n
 		else {
 			if (crafted.has(step.itemId)) break;
 			crafted.add(step.itemId);
-			result = await craft(step.itemId);
+			// count: the total to hold (a spare shield is the second one), as obtain counts.
+			result = await craft(step.itemId, step.count ?? 1);
 		}
 		if (result?.state !== 'SUCCEEDED') {
 			stop.result = result ?? null;

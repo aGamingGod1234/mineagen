@@ -97,12 +97,15 @@ const SERVER_TYPES = new Set(SERVER_TO_COORDINATOR_TYPES);
 const REVISION_GUARDED_INBOUND_TYPES = new Set(['plan_facts', 'advancement_granted', 'entity_killed', 'observation', 'inspection_result', 'conversation_event', 'action_progress', 'action_result', 'goal_completion_result']);
 const REVISION_GUARDED_OUTBOUND_TYPES = new Set(['agent_ready', 'planning_state', 'goal_completed', 'conversation_wake_ack', 'request_observation', 'inspection_request', 'action_command', 'action_cancel', 'agent_error', 'verbose_event']);
 const TERMINAL_ACTION_STATES = new Set(['SUCCEEDED', 'FAILED', 'CANCELLED', 'TIMED_OUT']);
-// Snapshots that the next message of the same type supersedes. When the payload of one of these fails only because the
-// server emits something this schema does not know (SCHEMA_DRIFT_REPAIRS), the message is dropped and reported instead of
-// closing the session: a reconnect cannot cure an emitter and schema that disagree, it replays the same message while
-// in-flight actions are lost. Containment runs after the same guards a valid message passes (duplicate ID, server
-// instance, fragment ordering, agent identity, goal revision), so corruption behind the drift still closes the connection.
+// Snapshots that the next message of the same type supersedes. Once the session is ready, a payload of one of these that
+// fails validation is dropped and reported instead of closing the session: a reconnect cannot cure an emitter and schema
+// that disagree, it replays the same message while in-flight actions are lost. Containment runs after the same guards a
+// valid message passes (envelope header, duplicate ID, server instance, fragment ordering, agent identity, goal revision),
+// so a bad envelope or revision still closes the connection. Unknown fields (SCHEMA_DRIFT_REPAIRS) are dropped for as long
+// as they last; a malformed or oversized known fact closes the connection only after
+// MAX_CONSECUTIVE_SNAPSHOT_REJECTIONS of that agent's snapshots of that type in a row failed.
 const SUPERSEDED_INBOUND_TYPES = new Set(['observation', 'action_progress']);
+const MAX_CONSECUTIVE_SNAPSHOT_REJECTIONS = 8;
 // Only these errors supply a repair that removes schema drift from a private validation copy.
 // Missing or mistyped facts, bad numbers/identifiers and oversized arrays never supply a repair.
 const SCHEMA_DRIFT_REPAIRS = new WeakMap();
@@ -124,6 +127,42 @@ const PENDING_SERVER_INSTANCE_ID = 'pending';
 const MAX_CATALOG_MODELS = 512;
 /** The task view carries the selected agent's plan and events plus every agent's usage; Minecraft enforces the same bound. */
 export const TASK_VIEW_MAX_BYTES = 49_152;
+/**
+ * planning_state.stepStatus: one line saying what the current step is doing, for the player's display. Minecraft
+ * (MultiplexedServerBridge.STEP_STATUS_MAX_LENGTH) applies the same bound in UTF-16 units and the same sanitiser.
+ */
+export const STEP_STATUS_FIELD = 'stepStatus';
+export const STEP_STATUS_MAX_LENGTH = 80;
+
+/**
+ * The display-safe form of a step status: control characters and line separators become one space, the section sign
+ * (Minecraft's formatting code) is dropped, runs of spaces collapse, ends are trimmed, and the text is clipped to
+ * STEP_STATUS_MAX_LENGTH UTF-16 units without ending on a high surrogate. '' means no status.
+ * MultiplexedServerBridge.sanitizeStepStatus mirrors this loop exactly.
+ */
+export function sanitizeStepStatus(value) {
+	const raw = typeof value === 'string' ? value : value == null ? '' : String(value);
+	let out = '';
+	for (let index = 0; index < raw.length; index++) {
+		const code = raw.charCodeAt(index);
+		if (code === 0xa7) continue;
+		if (code <= 0x20 || (code >= 0x7f && code <= 0x9f) || code === 0x2028 || code === 0x2029) {
+			if (out.length > 0 && !out.endsWith(' ')) out += ' ';
+			if (out.length > STEP_STATUS_MAX_LENGTH) break;
+			continue;
+		}
+		out += raw[index];
+		if (out.length > STEP_STATUS_MAX_LENGTH) break;
+	}
+	let end = Math.min(out.length, STEP_STATUS_MAX_LENGTH);
+	if (end < out.length && end > 0 && isHighSurrogateCode(out.charCodeAt(end - 1))) end -= 1;
+	while (end > 0 && out.charCodeAt(end - 1) === 0x20) end -= 1;
+	return out.slice(0, end);
+}
+
+function isHighSurrogateCode(code) {
+	return code >= 0xd800 && code <= 0xdbff;
+}
 const MAX_MODEL_CAPABILITIES = 32;
 const MAX_REGISTRY_SNAPSHOT_AGENTS = 1_024;
 // Covers 256 queued goals, each with escaped request text, 64 item identifiers and
@@ -266,7 +305,7 @@ function normalizeProtocolV2Payload(type, value) {
 				proof: authenticationToken(value.proof, 'proof'),
 			};
 		case 'hello':
-			exactKeys(value, ['replyTo', 'clientNonce', 'serverNonce', 'proof', 'launchId', 'registryFragments', 'actionTiming', 'blockTags', 'planFacts', 'bodyFacts', 'breakExposureFacts', 'breakOutcomeFacts', 'placementFacts', 'dropAheadFacts', 'pausedByFacts', 'actionIssuer', 'killFacts', 'tickClock'], ['replyTo', 'clientNonce', 'serverNonce', 'proof'], type);
+			exactKeys(value, ['replyTo', 'clientNonce', 'serverNonce', 'proof', 'launchId', 'registryFragments', 'actionTiming', 'blockTags', 'planFacts', 'bodyFacts', 'breakExposureFacts', 'breakOutcomeFacts', 'placementFacts', 'dropAheadFacts', 'pausedByFacts', 'actionIssuer', 'killFacts', 'tickClock', 'inventoryMarker'], ['replyTo', 'clientNonce', 'serverNonce', 'proof'], type);
 			return {
 				replyTo: boundedText(value.replyTo, 'replyTo', MAX_COMMAND_ID_LENGTH),
 				clientNonce: authenticationToken(value.clientNonce, 'clientNonce'),
@@ -285,6 +324,7 @@ function normalizeProtocolV2Payload(type, value) {
 				...(value.actionIssuer === undefined ? {} : { actionIssuer: boolean(value.actionIssuer, 'actionIssuer') }),
 				...(value.killFacts === undefined ? {} : { killFacts: boolean(value.killFacts, 'killFacts') }),
 				...(value.tickClock === undefined ? {} : { tickClock: boolean(value.tickClock, 'tickClock') }),
+				...(value.inventoryMarker === undefined ? {} : { inventoryMarker: boolean(value.inventoryMarker, 'inventoryMarker') }),
 				...(value.launchId === undefined ? {} : { launchId: launchIdentity(value.launchId) }),
 			};
 		case 'hello_ack':
@@ -347,9 +387,16 @@ function normalizeProtocolV2Payload(type, value) {
 			return value.reconciled === undefined
 				? { goalRevision: revision(value.goalRevision, 'goalRevision') }
 				: { goalRevision: revision(value.goalRevision, 'goalRevision'), reconciled: boolean(value.reconciled, 'reconciled') };
-		case 'planning_state':
-			exactKeys(value, ['goalRevision', 'state'], ['goalRevision', 'state'], type);
-			return { goalRevision: revision(value.goalRevision, 'goalRevision'), state: boundedText(value.state, 'state', MAX_REASON_CODE_LENGTH) };
+		case 'planning_state': {
+			// stepStatus is optional: absent leaves Minecraft's stored status unchanged, '' clears it. Servers that predate it
+			// ignore the key (plannerReady reads only goalRevision), so no capability gate is needed.
+			exactKeys(value, ['goalRevision', 'state', STEP_STATUS_FIELD], ['goalRevision', 'state'], type);
+			const normalized = { goalRevision: revision(value.goalRevision, 'goalRevision'), state: boundedText(value.state, 'state', MAX_REASON_CODE_LENGTH) };
+			if (value.stepStatus === undefined) return normalized;
+			const stepStatus = boundedText(value.stepStatus, STEP_STATUS_FIELD, STEP_STATUS_MAX_LENGTH, 0);
+			if (sanitizeStepStatus(stepStatus) !== stepStatus) throw new ProtocolV2Error('INVALID_PAYLOAD', `${STEP_STATUS_FIELD} must be sanitised with sanitizeStepStatus`);
+			return { ...normalized, stepStatus };
+		}
 		case 'goal_completed':
 			return normalizeGoalCompletionRequest(value);
 		case 'goal_completion_result':
@@ -428,8 +475,18 @@ function normalizeProtocolV2Payload(type, value) {
 				goalRevision: revision(value.goalRevision, 'goalRevision'),
 			};
 		case 'request_observation':
-			exactKeys(value, ['goalRevision'], ['goalRevision'], type);
-			return { goalRevision: revision(value.goalRevision, 'goalRevision') };
+			// fullInventory goes only to a server that sent an inventory marker; an older server rejects the key.
+			// resync: the coordinator dropped an observation, so the server announces again what it missed, counting from
+			// acceptedEventSequence (its last accepted observation) when given.
+			exactKeys(value, ['goalRevision', 'fullInventory', 'resync', 'acceptedEventSequence'], ['goalRevision'], type);
+			if (value.resync !== undefined && value.resync !== true) throw new ProtocolV2Error('INVALID_PAYLOAD', 'request_observation resync is only true');
+			if (value.acceptedEventSequence !== undefined && value.resync !== true) throw new ProtocolV2Error('INVALID_PAYLOAD', 'request_observation acceptedEventSequence needs resync');
+			return {
+				goalRevision: revision(value.goalRevision, 'goalRevision'),
+				...(value.fullInventory === undefined ? {} : { fullInventory: boolean(value.fullInventory, 'fullInventory') }),
+				...(value.resync === undefined ? {} : { resync: true }),
+				...(value.acceptedEventSequence === undefined ? {} : { acceptedEventSequence: positiveInteger(value.acceptedEventSequence, 'acceptedEventSequence') }),
+			};
 		case 'inspection_request':
 			exactKeys(value, ['goalRevision', 'requestId', 'query'], ['goalRevision', 'requestId', 'query'], type);
 			return { goalRevision: revision(value.goalRevision, 'goalRevision'), requestId: requireIdentifier(value.requestId, 'requestId'), query: normalizeInspectionQuery(value.query) };
@@ -611,6 +668,15 @@ export class MultiplexedServerBridge extends EventEmitter {
 	#retiredAgentIds = new Set();
 	#observedRevisions = new Map();
 	#payloadRejections = new Map();
+	// Per connection: the last full inventory each agent's observations carried, by hash, and agents owed a full one.
+	#inventoryBaselines = new Map();
+	#inventoryResendRequested = new Set();
+	#inventoryMisses = 0;
+	#snapshotRejectionStreaks = new Map();
+	/** Agents asked to re-announce what they missed: the last observation accepted before the drops, and drops since asking. */
+	#resyncRequested = new Map();
+	/** The event sequence of each agent's last accepted observation: a resync counts the server's changes from it. */
+	#acceptedObservationSequence = new Map();
 
 	constructor(config, { audit = null, ...dependencies } = {}) {
 		super();
@@ -719,7 +785,12 @@ export class MultiplexedServerBridge extends EventEmitter {
 	#onConnect(socket, connectionEpoch) {
 		if (!this.#isCurrentConnection(socket, connectionEpoch)) return;
 		this.#inboundMessageIds.clear();
+		this.#snapshotRejectionStreaks.clear();
+		this.#resyncRequested.clear();
+		this.#acceptedObservationSequence.clear();
 		this.#observedRevisions.clear();
+		this.#inventoryBaselines.clear();
+		this.#inventoryResendRequested.clear();
 		this.#clearInboundQueue();
 		this.#clientNonce = authenticationToken(this.#randomNonce(), 'clientNonce');
 		this.#serverNonce = null;
@@ -770,7 +841,7 @@ export class MultiplexedServerBridge extends EventEmitter {
 							if (!this.#isCurrentConnection(socket, connectionEpoch)) return;
 						}
 					}
-					this.#accept(value, socket, connectionEpoch);
+					if (this.#expandInventoryMarker(value, connectionEpoch)) this.#accept(value, socket, connectionEpoch);
 				} catch (error) {
 					this.#fail(withInboundEnvelopeContext(error, value), socket, connectionEpoch);
 					return;
@@ -786,26 +857,36 @@ export class MultiplexedServerBridge extends EventEmitter {
 	#accept(value, socket, connectionEpoch) {
 		let envelope;
 		let payloadError = null;
+		let corruptSnapshot = false;
 		try {
 			envelope = validateProtocolV2Envelope(value, { direction: 'server_to_coordinator' });
 		} catch (error) {
-			if (!this.#ready || !SCHEMA_DRIFT_REPAIRS.has(error)) throw error;
+			if (!this.#ready) throw error;
 			const header = validateEnvelopeHeader(value, 'server_to_coordinator');
 			if (!SUPERSEDED_INBOUND_TYPES.has(header.type)) throw error;
-			// Revalidate a private copy after discarding only explicitly classified drift. A later malformed
-			// known fact remains fatal. This copy is never delivered: the whole snapshot is rejected below.
-			const payload = structuredClone(value.payload);
-			for (;;) {
-				try {
-					envelope = { ...header, payload: validateProtocolV2Payload(header.type, payload) };
-					break;
-				} catch (knownError) {
-					const discard = SCHEMA_DRIFT_REPAIRS.get(knownError);
-					if (discard === undefined) throw knownError;
-					discard();
+			payloadError = error;
+			if (SCHEMA_DRIFT_REPAIRS.has(error)) {
+				// Revalidate a private copy after discarding only explicitly classified drift. This copy is never
+				// delivered: the whole snapshot is rejected below.
+				const payload = structuredClone(value.payload);
+				for (;;) {
+					try {
+						envelope = { ...header, payload: validateProtocolV2Payload(header.type, payload) };
+						break;
+					} catch (knownError) {
+						const discard = SCHEMA_DRIFT_REPAIRS.get(knownError);
+						if (discard !== undefined) { discard(); continue; }
+						payloadError = knownError;
+						break;
+					}
 				}
 			}
-			payloadError = error;
+			if (envelope === undefined) {
+				// A malformed or oversized known fact. The guards below still need a valid goal revision, which
+				// they read straight from the raw payload, so a missing or bad revision stays fatal.
+				corruptSnapshot = true;
+				envelope = { ...header, payload: { goalRevision: value.payload.goalRevision } };
+			}
 		}
 		if (payloadError === null) this.#invokeAudit('server_to_coordinator', envelope.type === 'auth_response'
 			? { ...envelope, payload: { ...envelope.payload, proof: '[REDACTED]' } }
@@ -851,9 +932,49 @@ export class MultiplexedServerBridge extends EventEmitter {
 				&& envelope.type !== 'agent_registered' && !retainedRetiredResult) {
 			throw new ProtocolV2Error('UNKNOWN_AGENT', `Message references unknown agent '${envelope.agentId}'`);
 		}
+		const streak = `${envelope.agentId}\0${envelope.type}`;
 		if (payloadError !== null) {
+			if (corruptSnapshot) {
+				const inARow = (this.#snapshotRejectionStreaks.get(streak) ?? 0) + 1;
+				if (inARow >= MAX_CONSECUTIVE_SNAPSHOT_REJECTIONS) {
+					// The server keeps sending snapshots this agent can never use: reconnect rather than run blind.
+					throw new ProtocolV2Error('REPEATED_SNAPSHOT_REJECTION',
+						`${inARow} ${envelope.type} snapshots in a row for '${envelope.agentId}' failed validation; last: ${payloadError.code ?? 'PROTOCOL_ERROR'} ${payloadError.message}`,
+						{ cause: payloadError });
+				}
+				this.#snapshotRejectionStreaks.delete(streak);
+				if (this.#snapshotRejectionStreaks.size >= MAX_TRACKED_PAYLOAD_REJECTIONS) this.#snapshotRejectionStreaks.delete(this.#snapshotRejectionStreaks.keys().next().value);
+				this.#snapshotRejectionStreaks.set(streak, inARow);
+				// The server counted the dropped observation as delivered, so a wake it carried (a creeper starting to swell)
+				// would never come again. Ask it to announce every current threat again: once now, and once more after the
+				// fault clears if the answer was dropped too, so a fault lasting a few seconds is ridden out at the normal rate.
+				if (envelope.type === 'observation') {
+					const pending = this.#resyncRequested.get(envelope.agentId);
+					if (pending === undefined) {
+						this.#requestResync(envelope.agentId, envelope.payload.goalRevision, this.#acceptedObservationSequence.get(envelope.agentId), connectionEpoch);
+					} else pending.dropped += 1;
+				}
+			}
 			this.#reportRejectedPayload(envelope, value, payloadError, connectionEpoch);
 			return;
+		}
+		this.#snapshotRejectionStreaks.delete(streak);
+		if (envelope.type === 'observation' && envelope.payload.eventSequence !== undefined) {
+			this.#acceptedObservationSequence.delete(envelope.agentId);
+			this.#acceptedObservationSequence.set(envelope.agentId, envelope.payload.eventSequence);
+			if (this.#acceptedObservationSequence.size > MAX_REGISTRY_SNAPSHOT_AGENTS) this.#acceptedObservationSequence.delete(this.#acceptedObservationSequence.keys().next().value);
+		}
+		if (envelope.type === 'observation' && this.#resyncRequested.has(envelope.agentId)) {
+			// Still counted from the last observation accepted before the drops: later ones were changes against dropped ones.
+			// The server forces attention on its answer, so a quiet observation already on its way is not taken for it.
+			const pending = this.#resyncRequested.get(envelope.agentId);
+			if (pending.dropped > 0) this.#requestResync(envelope.agentId, envelope.payload.goalRevision, pending.from, connectionEpoch);
+			else if (envelope.payload.attention === true) this.#resyncRequested.delete(envelope.agentId);
+		}
+		if (envelope.type === 'agent_registered' || envelope.type === 'agent_removed') {
+			this.#resyncRequested.delete(envelope.agentId);
+			this.#acceptedObservationSequence.delete(envelope.agentId);
+			for (const type of SUPERSEDED_INBOUND_TYPES) this.#snapshotRejectionStreaks.delete(`${envelope.agentId}\0${type}`);
 		}
 		if (envelope.type === 'agent_removed') {
 			rememberBounded(this.#retiredAgentIds, envelope.agentId, MAX_TRACKED_TERMINAL_ACTION_IDS);
@@ -864,6 +985,12 @@ export class MultiplexedServerBridge extends EventEmitter {
 		if (envelope.type === 'heartbeat' && !this.#acceptHeartbeat(envelope.payload, socket, connectionEpoch)) return;
 		const event = { ...envelope, connectionEpoch };
 		this.#enqueueInbound(event, socket, connectionEpoch);
+	}
+
+	#requestResync(agentId, goalRevision, from, connectionEpoch) {
+		this.#resyncRequested.set(agentId, { dropped: 0, from });
+		void this.send('request_observation', agentId, { goalRevision, resync: true, ...(from === undefined ? {} : { acceptedEventSequence: from }) },
+			{ connectionEpoch }).catch(() => {});
 	}
 
 	/** Report drift only after the normal delivery, identity and revision guards have passed. */
@@ -909,7 +1036,46 @@ export class MultiplexedServerBridge extends EventEmitter {
 		if (messages.length !== 1) throw new ProtocolV2Error('INVALID_FRAGMENT', 'Fragmented payload must contain exactly one object');
 		const [payload] = messages;
 		decoder.finish();
-		this.#accept({ protocolVersion: 2, serverInstanceId: envelope.serverInstanceId, agentId: pending.agentId, type: pending.type, messageId: pending.messageId, payload }, socket, connectionEpoch);
+		const reassembled = { protocolVersion: 2, serverInstanceId: envelope.serverInstanceId, agentId: pending.agentId, type: pending.type, messageId: pending.messageId, payload };
+		if (this.#expandInventoryMarker(reassembled, connectionEpoch)) this.#accept(reassembled, socket, connectionEpoch);
+	}
+
+	/**
+	 * Runs on the raw message before #accept, so validation, audit and delivery all see the full inventory the server
+	 * would have sent. The full one is kept before validation: an observation dropped for another reason still leaves
+	 * later markers resolvable. False drops the message: a marker whose inventory this connection never received is
+	 * never delivered stale or empty. The server is asked for a fresh observation, which carries the inventory in full.
+	 */
+	#expandInventoryMarker(value, connectionEpoch) {
+		if (!this.#ready || !isPlainObject(value) || typeof value.agentId !== 'string') return true;
+		if (value.type === 'agent_registered' || value.type === 'agent_removed') {
+			this.#inventoryBaselines.delete(value.agentId);
+			this.#inventoryResendRequested.delete(value.agentId);
+			return true;
+		}
+		if (value.type !== 'observation' || !isPlainObject(value.payload) || !this.#knownAgentIds.has(value.agentId)) return true;
+		const expanded = expandInventoryMarker(this.#inventoryBaselines, value.agentId, value.payload);
+		if (expanded !== null) {
+			if (Object.hasOwn(value.payload, 'inventoryHash')) this.#inventoryResendRequested.delete(value.agentId);
+			value.payload = expanded;
+			return true;
+		}
+		this.#inventoryMisses += 1;
+		const count = this.#inventoryMisses;
+		if ((count & (count - 1)) === 0) {
+			const error = new ProtocolV2Error('INBOUND_MESSAGE_REJECTED',
+				`Dropped one observation, connection kept (${count} so far with this error): INVENTORY_BASELINE_UNKNOWN agent '${value.agentId}' inventory marker has no full inventory on this connection`);
+			this.#emitSafely('messageRejected', { error, type: 'observation', agentId: value.agentId, messageId: value.messageId, count, connectionEpoch });
+		}
+		if (!this.#inventoryResendRequested.has(value.agentId)) {
+			this.#inventoryResendRequested.add(value.agentId);
+			// The server counted the dropped observation as delivered: also ask it to announce again what that one carried.
+			const accepted = this.#resyncRequested.get(value.agentId)?.from ?? this.#acceptedObservationSequence.get(value.agentId);
+			const request = { goalRevision: value.payload.goalRevision, fullInventory: true, resync: true, ...(accepted === undefined ? {} : { acceptedEventSequence: accepted }) };
+			Promise.resolve().then(() => this.send('request_observation', value.agentId, request, { connectionEpoch }))
+				.catch(() => this.#inventoryResendRequested.delete(value.agentId));
+		}
+		return false;
 	}
 
 	#acceptRegistryEntry(envelope, socket, connectionEpoch) {
@@ -986,6 +1152,8 @@ export class MultiplexedServerBridge extends EventEmitter {
 				killFacts: true,
 				// Asks the server for heartbeat tickAgeMs and paused, answered off its game thread (an older coordinator rejects them).
 				tickClock: true,
+				// Lets the server send an unchanged inventory as {unchanged: hash}; expandInventoryMarker restores it on arrival.
+				inventoryMarker: true,
 				...(this.#launchId === null ? {} : { launchId: this.#launchId }),
 			},
 		});
@@ -2869,6 +3037,31 @@ function hotbarSlot(value, field) {
 	const slot = nonnegativeInteger(value, field);
 	if (slot > 8) throw new ProtocolV2Error('INVALID_PAYLOAD', `${field} must be in [0, 8]`);
 	return slot;
+}
+
+function isInventoryMarker(value) {
+	return isPlainObject(value) && Object.keys(value).length === 1 && typeof value.unchanged === 'string';
+}
+
+/**
+ * Expands an observation's {unchanged: hash} inventory from the last full one kept for the agent, and keeps a full
+ * inventory sent with inventoryHash. Returns the payload to validate (a copy when anything changed), or null when the
+ * marker names an inventory not kept. A payload without either is returned as is. Malformed values pass through so the
+ * strict observation schema rejects them.
+ */
+export function expandInventoryMarker(baselines, agentId, payload) {
+	if (Object.hasOwn(payload, 'inventoryHash')) {
+		const { inventoryHash, ...rest } = payload;
+		if (typeof inventoryHash !== 'string' || !isPlainObject(rest.inventory) || isInventoryMarker(rest.inventory)) return payload;
+		baselines.delete(agentId);
+		if (baselines.size >= MAX_REGISTRY_SNAPSHOT_AGENTS) baselines.delete(baselines.keys().next().value);
+		baselines.set(agentId, { hash: inventoryHash, inventory: structuredClone(rest.inventory) });
+		return rest;
+	}
+	if (!isInventoryMarker(payload.inventory)) return payload;
+	const baseline = baselines.get(agentId);
+	if (baseline?.hash !== payload.inventory.unchanged) return null;
+	return { ...payload, inventory: structuredClone(baseline.inventory) };
 }
 
 function inventoryObservation(value) {

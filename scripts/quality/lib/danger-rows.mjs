@@ -5,7 +5,8 @@ import { existsSync } from 'node:fs';
 import { readFile, readdir, copyFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 
-const SCHEMA = 1;
+// Schema 2 (DangerLog) added fields to damage rows and changed none this fold reads.
+const SCHEMAS = new Set([1, 2]);
 // World and server folders hold thousands of files and never a watch folder of their own.
 const SKIP = new Set(['world', 'libraries', 'mods', 'versions', 'logs', 'config', 'crash-reports', '.fabric', 'node_modules', '.git']);
 
@@ -52,7 +53,7 @@ export async function readDangerRows(root) {
 				let row;
 				// A cut line could have been a hit, and so could a damage row of another schema: both leave hits unknown.
 				try { row = JSON.parse(line); } catch { dropped++; lostDamage++; continue; }
-				if (row?.schema !== SCHEMA) { dropped++; if (row?.type === 'damage') lostDamage++; continue; }
+				if (!SCHEMAS.has(row?.schema)) { dropped++; if (row?.type === 'damage') lostDamage++; continue; }
 				// Every row of any type is evidence the server was capturing then.
 				if (Number.isFinite(row.atMs)) { const span = activity.get(server) ?? [Infinity, -Infinity]; activity.set(server, [Math.min(span[0], row.atMs), Math.max(span[1], row.atMs)]); }
 				if (row.type !== 'damage') continue;

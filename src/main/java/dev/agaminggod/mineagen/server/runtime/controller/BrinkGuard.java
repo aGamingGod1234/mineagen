@@ -26,7 +26,7 @@ public final class BrinkGuard {
 	static final int RECHECK_TICKS = 4;
 	/** Horizontal input acceleration per tick at most (sprinting on the ground), for the look-ahead. */
 	private static final double INPUT_ACCELERATION = 0.13D;
-	private static final double[] BRACE_STEPS = {0.35D, 0.7D, 1.05D, BRACE_REACH};
+	static final double[] BRACE_STEPS = {0.35D, 0.7D, 1.05D, BRACE_REACH};
 	private static final double[] LEVEL_BRACE_STEPS = {0.35D, 0.7D, 1.05D, BRACE_REACH, 2.0D, 2.7D};
 
 	private static final Map<ServerPlayer, Memory> MEMORY = new WeakHashMap<>();
@@ -692,21 +692,107 @@ public final class BrinkGuard {
 		AABB box = player.getBoundingBox();
 		Memory memory = MEMORY.get(player);
 		if (keepLevel && memory != null && memory.anchor != null) box = box.move(0.0D, memory.anchor.y - player.getY(), 0.0D);
+		// A drop whose bottom the body has not seen counts too (fall's UNKNOWN): a shoved body has not looked behind it
+		// (the lava sea under a ledge it stood on with its back to the edge), and walking back to where it stood is safe
+		// whatever is down there. A level-keeping stance counts every drop off its deck.
+		java.util.function.Function<AABB, Fall> drops = keepLevel ? shifted -> OFF_DECK : shifted -> fall(player, world, shifted);
+		return brinkWithin(box, brace ? LEVEL_BRACE_STEPS : BRACE_STEPS, blocked(player), shifted -> unsupportedAt(player, shifted), drops) != null;
+	}
+
+	/** Any drop off a level-keeping stance's deck, survivable or not. */
+	private static final Fall OFF_DECK = new Fall("drop", 0);
+
+	private static java.util.function.Predicate<AABB> blocked(ServerPlayer player) {
+		return shifted -> !player.level().noCollision(player, shifted.deflate(1.0E-3D));
+	}
+
+	/**
+	 * The first drop a shove of up to the last of {@code reaches} any of eight ways would put {@code box} over that
+	 * {@code drops} names (non-null), or null. A wall (or a step up) that way ends the reach: the body is not shoved
+	 * through it; the first unsupported shift that way decides it.
+	 */
+	static Fall brinkWithin(AABB box, double[] reaches, java.util.function.Predicate<AABB> blocked,
+			java.util.function.Predicate<AABB> unsupported, java.util.function.Function<AABB, Fall> drops) {
 		for (int index = 0; index < 8; index++) {
 			double angle = Math.PI / 4.0D * index, cos = Math.cos(angle), sin = Math.sin(angle);
-			for (double reach : brace ? LEVEL_BRACE_STEPS : BRACE_STEPS) {
+			for (double reach : reaches) {
 				AABB shifted = box.move(cos * reach, 0.0D, sin * reach);
-				// A wall (or a step up) this way ends the reach: the body is not shoved through it.
-				if (!player.level().noCollision(player, shifted.deflate(1.0E-3D))) break;
-				if (!unsupportedAt(player, shifted)) continue;
-				// A drop whose bottom the body has not seen counts too: a shoved body has not looked behind it (the
-				// lava sea under a ledge it stood on with its back to the edge), and walking back to where it stood is
-				// safe whatever is down there.
-				if (keepLevel || fall(player, world, shifted) != null) return true;
+				if (blocked.test(shifted)) break;
+				if (!unsupported.test(shifted)) continue;
+				Fall drop = drops.apply(shifted);
+				if (drop != null) return drop;
 				break;
 			}
 		}
-		return false;
+		return null;
+	}
+
+	/**
+	 * The drop a shove of at most {@link #BRACE_REACH} would put the body over if it stood with its feet centred on
+	 * {@code feet}: lava or fire, the void, a fall that kills at its health, or a drop whose bottom it has not seen
+	 * (as the player knows the terrain); null when every way within that reach is wall, level floor or a seen
+	 * survivable drop. A reflex about to stand still under fire asks this first: defend's wall-in on a fortress bridge's
+	 * edge column, centring and placing with a blaze's fireballs landing, was shoved off into the lava sea (NE-LAVA-1).
+	 */
+	public static Fall brinkFrom(ServerPlayer player, Vec3 feet, Vec3 shooter) {
+		WalkabilityView world = ObservedTerrain.of(player);
+		AABB box = player.getBoundingBox().move(feet.x - player.getX(), feet.y - player.getY(), feet.z - player.getZ());
+		double awayX = shooter == null ? 0.0D : feet.x - shooter.x, awayZ = shooter == null ? 0.0D : feet.z - shooter.z;
+		return brinkWithin(box, BRACE_STEPS, blocked(player), shifted -> unsupportedAt(player, shifted), shifted -> {
+			Fall drop = fall(player, world, shifted);
+			return shooter == null ? drop : pushSide(drop, box, shifted, awayX, awayZ);
+		});
+	}
+
+	/**
+	 * Whether a lethal or unseen drop lies within the braced level reach (the guard's longest, {@code LEVEL_BRACE_STEPS})
+	 * of the body as it stands: a deck where a stance standing still under fire should keep its level.
+	 */
+	public static boolean exposedDeck(ServerPlayer player) {
+		WalkabilityView world = ObservedTerrain.of(player);
+		return brinkWithin(player.getBoundingBox(), LEVEL_BRACE_STEPS, blocked(player), shifted -> unsupportedAt(player, shifted),
+				shifted -> fall(player, world, shifted)) != null;
+	}
+
+	/**
+	 * A hit pushes away from the shooter: an unseen drop on the shooter's side of the body is no brink (a hit does not
+	 * push the body that way), while one on the far side is, and a known lethal drop counts whichever way it lies.
+	 */
+	static Fall pushSide(Fall drop, AABB box, AABB shifted, double awayX, double awayZ) {
+		if (drop == null || !drop.unknown()) return drop;
+		double dx = shifted.getCenter().x - box.getCenter().x, dz = shifted.getCenter().z - box.getCenter().z;
+		return dx * awayX + dz * awayZ > 0.0D ? drop : null;
+	}
+
+	/**
+	 * The nearest cell centre within {@code within} blocks on the body's own level, reached in a straight line over seen
+	 * level floor, where {@link #brinkFrom} finds no brink; null when none. A player on a bridge's edge under fire steps
+	 * to its middle (or off it) before standing still to build.
+	 */
+	public static Vec3 inlandStand(ServerPlayer player, int within, Vec3 shooter) {
+		WalkabilityView world = ObservedTerrain.of(player);
+		return inlandStand(world, player.getX(), player.getY(), player.getZ(), within, at -> brinkFrom(player, at, shooter) == null);
+	}
+
+	static Vec3 inlandStand(WalkabilityView world, double x, double y, double z, int within, java.util.function.Predicate<Vec3> standsClear) {
+		// The feet cell as the wall-in takes it (soul sand and slabs put the feet a fraction below the cell's top).
+		int feetY = Mth.floor(y + 0.2D);
+		double floorY = feetY;
+		Vec3 best = null;
+		double bestDistance = Double.POSITIVE_INFINITY;
+		for (int dx = -within; dx <= within; dx++) {
+			for (int dz = -within; dz <= within; dz++) {
+				double cx = Mth.floor(x) + dx + 0.5D, cz = Mth.floor(z) + dz + 0.5D, distance = Math.hypot(cx - x, cz - z);
+				if (distance > within || distance >= bestDistance) continue;
+				if (!world.isStandable(new GridPosition(Mth.floor(cx), feetY, Mth.floor(cz)))) continue;
+				if (distance > 1.0E-3D && !levelFooting(world, x, floorY, z, new double[]{(cx - x) / distance, (cz - z) / distance}, distance)) continue;
+				Vec3 at = new Vec3(cx, y, cz);
+				if (!standsClear.test(at)) continue;
+				best = at;
+				bestDistance = distance;
+			}
+		}
+		return best;
 	}
 
 	private static boolean unsupportedAt(ServerPlayer player, AABB box) {

@@ -1726,3 +1726,26 @@ test('keepalive --warm never deletes a pool machine matching --keep, and a lease
 		store.stop();
 	} finally { await fake.close(); }
 });
+
+test('a lock file another process holds or is deleting reads as held on Windows, not as an error', async () => {
+	const { lockHeld, lockWait } = await import('../../scripts/quality/lib/pool-leases.mjs');
+	const error = code => Object.assign(new Error(code), { code });
+	assert.equal(lockHeld(error('EEXIST'), 'linux'), true);
+	assert.equal(lockHeld(error('EEXIST'), 'win32'), true);
+	for (const code of ['EPERM', 'EBUSY']) {
+		assert.equal(lockHeld(error(code), 'win32'), true, `${code} on Windows: a lock being held or released`);
+		assert.equal(lockHeld(error(code), 'linux'), false, `${code} elsewhere is a real error`);
+	}
+	assert.equal(lockHeld(error('EACCES'), 'win32'), false, 'EACCES is a permanent condition on Windows');
+	// A Windows code is waited on only for a few seconds: a folder that refuses the file fails, never hangs.
+	let t = 0;
+	const waits = lockWait({ platform: 'win32', clock: () => t, heldMs: 5_000 });
+	assert.equal(waits(error('EPERM')), true);
+	t = 4_000; assert.equal(waits(error('EBUSY')), true);
+	t = 4_500; assert.equal(waits(error('EEXIST')), true, 'a real lock resets the wait');
+	t = 9_000; assert.equal(waits(error('EPERM')), true);
+	t = 14_001; assert.throws(() => waits(error('EPERM')), /EPERM/);
+	assert.throws(() => lockWait({ platform: 'linux' })(error('EPERM')), /EPERM/);
+	assert.equal(lockHeld(error('ENOSPC'), 'win32'), false);
+	assert.equal(lockHeld(null, 'win32'), false);
+});

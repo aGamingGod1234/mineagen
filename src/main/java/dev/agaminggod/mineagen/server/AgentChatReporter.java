@@ -68,12 +68,18 @@ public final class AgentChatReporter {
 				for (String warning : feed.danger(id, player.getHealth(), player.getFoodData().getFoodLevel(), player.isAlive())) {
 					report(manager, record, warning, ChatFormatting.RED);
 				}
+				feed.body(id, player.getX(), player.getY(), player.getZ(), now);
 				if (server.getTickCount() % 20 == 0) {
 					java.util.Set<String> inventory = new java.util.HashSet<>();
+					int pack = 0;
 					for (int slot = 0; slot < player.getInventory().getContainerSize(); slot++) {
 						var stack = player.getInventory().getItem(slot);
-						if (!stack.isEmpty()) inventory.add(net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(stack.getItem()).toString());
+						if (stack.isEmpty()) continue;
+						String item = net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+						inventory.add(item);
+						pack = 31 * pack + (slot + 1) * (item.hashCode() * 31 + stack.getCount());
 					}
+					feed.pack(id, pack, now);
 					for (String item : feed.items(id, inventory)) {
 						report(manager, record, "Obtained " + item.substring(item.indexOf(':') + 1).replace('_', ' ') + ".", ChatFormatting.GREEN);
 					}
@@ -88,7 +94,10 @@ public final class AgentChatReporter {
 						report(manager, record, "Entered " + place + ".", ChatFormatting.LIGHT_PURPLE);
 					}
 				}
-				String status = feed.status(id, now);
+				// Between actions the server holds the agent in STARTING until the next command: the model is deciding then too.
+				boolean planning = record.state() == dev.agaminggod.mineagen.agent.AgentLifecycleState.PLANNING
+						|| record.state() == dev.agaminggod.mineagen.agent.AgentLifecycleState.STARTING;
+				String status = feed.line(id, stepLine(server, record), planning, now);
 				if (manager.automaticProgress(record.agentId()) && record.state().isActive() && player.isAlive() && !status.isBlank()) {
 					statuses.add(noticeLine(manager.displayName(record), record.profile().provider(), "info", status));
 				}
@@ -117,6 +126,18 @@ public final class AgentChatReporter {
 	}
 
 	private AgentChatReporter() {
+	}
+
+	/**
+	 * The coordinator's step line for the action bar, or null. It carries model-written text, so it passes the same
+	 * credential and technical-detail filter as chat; a line the filter would replace is not shown at all. The
+	 * goal-prompt check is left out: the bar reaches only operators and the owner, who set the goal.
+	 */
+	static String stepLine(MinecraftServer server, AgentRecord record) {
+		String step = AgentServerRuntime.stepStatus(server, record.agentId());
+		if (step == null || step.isBlank()) return null;
+		String safe = AgentChatSanitizer.sanitizeMessage(step);
+		return safe.endsWith("redacted.") || safe.equals("Technical details hidden.") || safe.equals("No details.") ? null : safe;
 	}
 
 	/**
@@ -175,7 +196,7 @@ public final class AgentChatReporter {
 	}
 
 	public static void stillPlanning(AgentManager manager, AgentRecord record) {
-		// Periodic planner heartbeats do not belong in player chat.
+		// Periodic planner heartbeats do not belong in player chat; tick() shows "Thinking... N s" on the action bar.
 	}
 
 	public static void acting(AgentManager manager, AgentRecord record, ServerActionRequest request) {

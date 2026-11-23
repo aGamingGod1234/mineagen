@@ -25,6 +25,32 @@ import { AWAITING_CONFIRMATION_EVENT_INSTRUCTION, burnFacts, BURNING_INSTRUCTION
 
 const PLANNING_EVENT_INSTRUCTION = 'Planning due soon; prepare the next intention while the current routine runs. Advisory: no pending decisionId needed. Use current programVersion and timing; do not blindly renew or cancel the program.';
 
+// An owed event the model has not seen yet (mergedEvents) keeps its own facts: what happened to the body and what the
+// action or program reported. Its copy of the world (blocks, mobs, inventory, landmarks) is left out: the wake's own
+// observation is always the newest, and in a long step 86 owed copies made one wake 1 MB.
+const HISTORICAL_OBSERVATION_KEYS = ['observedAtEpochMs', 'eventSequence', 'player', 'perception', 'currentAction', 'lastResult', 'toolBroke',
+	'death', 'deathScreen', 'recovery', 'failureClass'];
+// Older failed receipts an owed program result re-attaches, beside its newest 8 receipts; the rest are counted.
+const MAX_HISTORY_FAILED_RECEIPTS = 8;
+const FAILED_RECEIPT_STATES = new Set(['FAILED', 'TIMED_OUT', 'REJECTED', 'CANCELLED']);
+// The wake's own sample is the newest on every path but one: a steer that failed after newer wakes were queued is merged
+// back on top of them. An owed event newer than the wake's own sample, or one that cannot be ordered, keeps its world.
+// Each sample's own timestamp decides first (a merge can pair one request's sequence with another's sample); sequences
+// order samples that carry no timestamp.
+function newestFirst(entry, eventSequence, observation) {
+	const ownAt = observation?.observedAtEpochMs, theirAt = entry?.observation?.observedAtEpochMs;
+	if (Number.isFinite(ownAt) && Number.isFinite(theirAt)) return theirAt <= ownAt;
+	if (Number.isFinite(ownAt) || Number.isFinite(theirAt)) return false;
+	const own = Number.isFinite(observation?.eventSequence) ? observation.eventSequence : eventSequence;
+	const theirs = Number.isFinite(entry?.observation?.eventSequence) ? entry.observation.eventSequence : entry?.eventSequence;
+	return Number.isFinite(own) && Number.isFinite(theirs) && theirs <= own;
+}
+function historicalObservation(observation) {
+	const kept = Object.fromEntries(HISTORICAL_OBSERVATION_KEYS.filter((key) => observation[key] !== undefined).map((key) => [key, observation[key]]));
+	if (typeof observation.world?.dimension === 'string') kept.world = { dimension: observation.world.dimension };
+	return kept;
+}
+
 export function buildNativeEventInput(record, { event, trigger, programId, status, result, mergedEvents, resourceSightings: queuedResourceSightings, planningLeadMs, eventSequence, taskMemory = null, progress = null, goalNow = null, doing = null, skillFits = null, continuity = null, dangerSummary = null, movementLoop = false, observation = {}, conversation = { mode: 'unread', baseSequence: -1, nextSequence: -1, entries: [] }, conversationOnly = false, awaitingConfirmation = false, confirmationFacts = null, dangerWake = false, selfCareWake = false, healing = null, newContext = false, changed = null, strategy = null, contexts = null, uncovered = null, runningActionStart = null, runningAction = null, actionReceipt = observation.lastResult } = {}) {
 	const eventName = typeof event === 'string' && event.length > 0 ? event : event?.event;
 	const normalizedEvent = typeof eventName === 'string' && eventName.length > 0 ? eventName : 'observation';
@@ -175,11 +201,13 @@ export function buildNativeEventInput(record, { event, trigger, programId, statu
 					if (entry.result[key] !== undefined) facts.program.result[key] = entry.result[key];
 				}
 				if (entry.result.receipts !== undefined) {
-					facts.program.result.receipts = entry.result.receipts.filter((receipt, index, rows) =>
-						index >= rows.length - 8 || ['FAILED', 'TIMED_OUT', 'REJECTED', 'CANCELLED'].includes(receipt.state));
-					facts.program.result.omittedReceipts = (entry.result.omittedReceipts ?? 0) + entry.result.receipts.length - facts.program.result.receipts.length;
+					const rows = entry.result.receipts;
+					const olderFailed = rows.slice(0, Math.max(0, rows.length - 8)).filter((receipt) => FAILED_RECEIPT_STATES.has(receipt.state)).slice(-MAX_HISTORY_FAILED_RECEIPTS);
+					facts.program.result.receipts = [...olderFailed, ...rows.slice(-8)];
+					facts.program.result.omittedReceipts = (entry.result.omittedReceipts ?? 0) + rows.length - facts.program.result.receipts.length;
 				}
 			}
+			if (facts.observation != null && typeof facts.observation === 'object' && newestFirst(entry, eventSequence, observation)) facts.observation = historicalObservation(facts.observation);
 			return facts;
 		}) }),
 		trigger: typeof trigger === 'string' && trigger.length > 0 ? trigger : (isPlanningDue ? normalizedEvent : 'observation'),

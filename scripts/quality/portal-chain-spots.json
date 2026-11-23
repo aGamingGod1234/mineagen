@@ -3,6 +3,10 @@
   "name": "chain-gate-1",
   "seed": "5433312384530337025",
   "expect": "nether",
+  "time": 1000,
+  "commands": [
+   "gamerule minecraft:advance_time false"
+  ],
   "inventory": [],
   "totalMs": 1800000,
   "budgetMs": 900000,
@@ -206,6 +210,10 @@
   "name": "chain-gate-2",
   "seed": "313280743662651985",
   "expect": "nether",
+  "time": 1000,
+  "commands": [
+   "gamerule minecraft:advance_time false"
+  ],
   "inventory": [],
   "totalMs": 1800000,
   "budgetMs": 900000,
@@ -409,6 +417,10 @@
   "name": "chain-gate-3",
   "seed": "3244043502755372002",
   "expect": "nether",
+  "time": 1000,
+  "commands": [
+   "gamerule minecraft:advance_time false"
+  ],
   "inventory": [],
   "totalMs": 1800000,
   "budgetMs": 900000,
@@ -612,6 +624,10 @@
   "name": "chain-gate-4",
   "seed": "3315172112810107624",
   "expect": "nether",
+  "time": 1000,
+  "commands": [
+   "gamerule minecraft:advance_time false"
+  ],
   "inventory": [],
   "totalMs": 1800000,
   "budgetMs": 900000,
@@ -815,6 +831,10 @@
   "name": "chain-gate-5",
   "seed": "3228933235070990393",
   "expect": "nether",
+  "time": 1000,
+  "commands": [
+   "gamerule minecraft:advance_time false"
+  ],
   "inventory": [],
   "totalMs": 1800000,
   "budgetMs": 900000,
@@ -1018,6 +1038,10 @@
   "name": "chain-gate-6",
   "seed": "8196621077778941313",
   "expect": "nether",
+  "time": 1000,
+  "commands": [
+   "gamerule minecraft:advance_time false"
+  ],
   "inventory": [],
   "totalMs": 1800000,
   "budgetMs": 900000,
@@ -1221,6 +1245,10 @@
   "name": "chain-gate-7",
   "seed": "4514800570176826331",
   "expect": "nether",
+  "time": 1000,
+  "commands": [
+   "gamerule minecraft:advance_time false"
+  ],
   "inventory": [],
   "totalMs": 1800000,
   "budgetMs": 900000,
@@ -1424,6 +1452,10 @@
   "name": "chain-gate-8",
   "seed": "5593788349168817449",
   "expect": "nether",
+  "time": 1000,
+  "commands": [
+   "gamerule minecraft:advance_time false"
+  ],
   "inventory": [],
   "totalMs": 1800000,
   "budgetMs": 900000,
@@ -1627,6 +1659,10 @@
   "name": "kit-gate-1",
   "seed": "5433312384530337025",
   "expect": "nether",
+  "time": 1000,
+  "commands": [
+   "gamerule minecraft:advance_time false"
+  ],
   "inventory": [
    {
     "item": "minecraft:iron_pickaxe",
@@ -1651,6 +1687,18 @@
    {
     "item": "minecraft:bread",
     "count": 8
+   },
+   {
+    "item": "minecraft:stick",
+    "count": 4
+   },
+   {
+    "item": "minecraft:oak_planks",
+    "count": 2
+   },
+   {
+    "item": "minecraft:crafting_table",
+    "count": 1
    }
   ],
   "totalMs": 900000,
@@ -1674,7 +1722,7 @@
    "waitMs": 3000,
    "answer": true
   },
-  "note": "gate seed gate-1: fresh spawn with the kit (iron pickaxe, a spare stone pickaxe, two buckets, flint and steel, 16 cobblestone, 8 bread); water, lava, portal, in, 15 minutes",
+  "note": "gate seed gate-1: fresh spawn with the kit (iron pickaxe, a spare stone pickaxe, two buckets, flint and steel, 16 cobblestone, 8 bread, and the makings of two more stone pickaxes: 4 sticks, 2 planks, a crafting table); water, lava, portal, in, 15 minutes",
   "calls": [
    {
     "name": "do_step",
@@ -1761,6 +1809,10 @@
   "name": "kit-gate-2",
   "seed": "313280743662651985",
   "expect": "nether",
+  "time": 1000,
+  "commands": [
+   "gamerule minecraft:advance_time false"
+  ],
   "inventory": [
    {
     "item": "minecraft:iron_pickaxe",
@@ -1785,6 +1837,18 @@
    {
     "item": "minecraft:bread",
     "count": 8
+   },
+   {
+    "item": "minecraft:stick",
+    "count": 4
+   },
+   {
+    "item": "minecraft:oak_planks",
+    "count": 2
+   },
+   {
+    "item": "minecraft:crafting_table",
+    "count": 1
    }
   ],
   "totalMs": 900000,
@@ -1808,7 +1872,7 @@
    "waitMs": 3000,
    "answer": true
   },
-  "note": "gate seed gate-2: fresh spawn with the kit (iron pickaxe, a spare stone pickaxe, two buckets, flint and steel, 16 cobblestone, 8 bread); water, lava, portal, in, 15 minutes",
+  "note": "gate seed gate-2: fresh spawn with the kit (iron pickaxe, a spare stone pickaxe, two buckets, flint and steel, 16 cobblestone, 8 bread, and the makings of two more stone pickaxes: 4 sticks, 2 planks, a crafting table); water, lava, portal, in, 15 minutes",
   "calls": [
    {
     "name": "do_step",
@@ -1895,6 +1959,10 @@
   "name": "kit-gate-3",
   "seed": "3244043502755372002",
   "expect": "nether",
+  "time": 1000,
+  "commands": [
+   "gamerule minecraft:advance_time false"
+  ],
   "inventory": [
    {
     "item": "minecraft:iron_pickaxe",
@@ -1919,6 +1987,18 @@
    {
     "item": "minecraft:bread",
     "count": 8
+   },
+   {
+    "item": "minecraft:stick",
+    "count": 4
+   },
+   {
+    "item": "minecraft:oak_planks",
+    "count": 2
+   },
+   {
+    "item": "minecraft:crafting_table",
+    "count": 1
    }
   ],
   "totalMs": 900000,
@@ -1942,7 +2022,7 @@
    "waitMs": 3000,
    "answer": true
   },
-  "note": "gate seed gate-3: fresh spawn with the kit (iron pickaxe, a spare stone pickaxe, two buckets, flint and steel, 16 cobblestone, 8 bread); water, lava, portal, in, 15 minutes",
+  "note": "gate seed gate-3: fresh spawn with the kit (iron pickaxe, a spare stone pickaxe, two buckets, flint and steel, 16 cobblestone, 8 bread, and the makings of two more stone pickaxes: 4 sticks, 2 planks, a crafting table); water, lava, portal, in, 15 minutes",
   "calls": [
    {
     "name": "do_step",
@@ -2029,6 +2109,10 @@
   "name": "kit-gate-4",
   "seed": "3315172112810107624",
   "expect": "nether",
+  "time": 1000,
+  "commands": [
+   "gamerule minecraft:advance_time false"
+  ],
   "inventory": [
    {
     "item": "minecraft:iron_pickaxe",
@@ -2053,6 +2137,18 @@
    {
     "item": "minecraft:bread",
     "count": 8
+   },
+   {
+    "item": "minecraft:stick",
+    "count": 4
+   },
+   {
+    "item": "minecraft:oak_planks",
+    "count": 2
+   },
+   {
+    "item": "minecraft:crafting_table",
+    "count": 1
    }
   ],
   "totalMs": 900000,
@@ -2076,7 +2172,7 @@
    "waitMs": 3000,
    "answer": true
   },
-  "note": "gate seed gate-4: fresh spawn with the kit (iron pickaxe, a spare stone pickaxe, two buckets, flint and steel, 16 cobblestone, 8 bread); water, lava, portal, in, 15 minutes",
+  "note": "gate seed gate-4: fresh spawn with the kit (iron pickaxe, a spare stone pickaxe, two buckets, flint and steel, 16 cobblestone, 8 bread, and the makings of two more stone pickaxes: 4 sticks, 2 planks, a crafting table); water, lava, portal, in, 15 minutes",
   "calls": [
    {
     "name": "do_step",
@@ -2163,6 +2259,10 @@
   "name": "kit-gate-5",
   "seed": "937420255288055328",
   "expect": "nether",
+  "time": 1000,
+  "commands": [
+   "gamerule minecraft:advance_time false"
+  ],
   "inventory": [
    {
     "item": "minecraft:iron_pickaxe",
@@ -2187,6 +2287,18 @@
    {
     "item": "minecraft:bread",
     "count": 8
+   },
+   {
+    "item": "minecraft:stick",
+    "count": 4
+   },
+   {
+    "item": "minecraft:oak_planks",
+    "count": 2
+   },
+   {
+    "item": "minecraft:crafting_table",
+    "count": 1
    }
   ],
   "totalMs": 900000,
@@ -2210,7 +2322,7 @@
    "waitMs": 3000,
    "answer": true
   },
-  "note": "gate seed gate-5: fresh spawn with the kit (iron pickaxe, a spare stone pickaxe, two buckets, flint and steel, 16 cobblestone, 8 bread); water, lava, portal, in, 15 minutes",
+  "note": "gate seed gate-5: fresh spawn with the kit (iron pickaxe, a spare stone pickaxe, two buckets, flint and steel, 16 cobblestone, 8 bread, and the makings of two more stone pickaxes: 4 sticks, 2 planks, a crafting table); water, lava, portal, in, 15 minutes",
   "calls": [
    {
     "name": "do_step",
@@ -2297,6 +2409,10 @@
   "name": "kit-gate-6",
   "seed": "8196621077778941313",
   "expect": "nether",
+  "time": 1000,
+  "commands": [
+   "gamerule minecraft:advance_time false"
+  ],
   "inventory": [
    {
     "item": "minecraft:iron_pickaxe",
@@ -2321,6 +2437,18 @@
    {
     "item": "minecraft:bread",
     "count": 8
+   },
+   {
+    "item": "minecraft:stick",
+    "count": 4
+   },
+   {
+    "item": "minecraft:oak_planks",
+    "count": 2
+   },
+   {
+    "item": "minecraft:crafting_table",
+    "count": 1
    }
   ],
   "totalMs": 900000,
@@ -2344,7 +2472,7 @@
    "waitMs": 3000,
    "answer": true
   },
-  "note": "gate seed gate-6: fresh spawn with the kit (iron pickaxe, a spare stone pickaxe, two buckets, flint and steel, 16 cobblestone, 8 bread); water, lava, portal, in, 15 minutes",
+  "note": "gate seed gate-6: fresh spawn with the kit (iron pickaxe, a spare stone pickaxe, two buckets, flint and steel, 16 cobblestone, 8 bread, and the makings of two more stone pickaxes: 4 sticks, 2 planks, a crafting table); water, lava, portal, in, 15 minutes",
   "calls": [
    {
     "name": "do_step",
@@ -2431,6 +2559,10 @@
   "name": "kit-gate-7",
   "seed": "4514800570176826331",
   "expect": "nether",
+  "time": 1000,
+  "commands": [
+   "gamerule minecraft:advance_time false"
+  ],
   "inventory": [
    {
     "item": "minecraft:iron_pickaxe",
@@ -2455,6 +2587,18 @@
    {
     "item": "minecraft:bread",
     "count": 8
+   },
+   {
+    "item": "minecraft:stick",
+    "count": 4
+   },
+   {
+    "item": "minecraft:oak_planks",
+    "count": 2
+   },
+   {
+    "item": "minecraft:crafting_table",
+    "count": 1
    }
   ],
   "totalMs": 900000,
@@ -2478,7 +2622,7 @@
    "waitMs": 3000,
    "answer": true
   },
-  "note": "gate seed gate-7: fresh spawn with the kit (iron pickaxe, a spare stone pickaxe, two buckets, flint and steel, 16 cobblestone, 8 bread); water, lava, portal, in, 15 minutes",
+  "note": "gate seed gate-7: fresh spawn with the kit (iron pickaxe, a spare stone pickaxe, two buckets, flint and steel, 16 cobblestone, 8 bread, and the makings of two more stone pickaxes: 4 sticks, 2 planks, a crafting table); water, lava, portal, in, 15 minutes",
   "calls": [
    {
     "name": "do_step",
@@ -2565,6 +2709,10 @@
   "name": "kit-gate-8",
   "seed": "5593788349168817449",
   "expect": "nether",
+  "time": 1000,
+  "commands": [
+   "gamerule minecraft:advance_time false"
+  ],
   "inventory": [
    {
     "item": "minecraft:iron_pickaxe",
@@ -2589,6 +2737,18 @@
    {
     "item": "minecraft:bread",
     "count": 8
+   },
+   {
+    "item": "minecraft:stick",
+    "count": 4
+   },
+   {
+    "item": "minecraft:oak_planks",
+    "count": 2
+   },
+   {
+    "item": "minecraft:crafting_table",
+    "count": 1
    }
   ],
   "totalMs": 900000,
@@ -2612,7 +2772,7 @@
    "waitMs": 3000,
    "answer": true
   },
-  "note": "gate seed gate-8: fresh spawn with the kit (iron pickaxe, a spare stone pickaxe, two buckets, flint and steel, 16 cobblestone, 8 bread); water, lava, portal, in, 15 minutes",
+  "note": "gate seed gate-8: fresh spawn with the kit (iron pickaxe, a spare stone pickaxe, two buckets, flint and steel, 16 cobblestone, 8 bread, and the makings of two more stone pickaxes: 4 sticks, 2 planks, a crafting table); water, lava, portal, in, 15 minutes",
   "calls": [
    {
     "name": "do_step",
@@ -2699,6 +2859,10 @@
   "name": "lava-gate-1",
   "seed": "5433312384530337025",
   "expect": "nether",
+  "time": 1000,
+  "commands": [
+   "gamerule minecraft:advance_time false"
+  ],
   "inventory": [
    {
     "item": "minecraft:iron_pickaxe",
@@ -2727,6 +2891,18 @@
    {
     "item": "minecraft:bread",
     "count": 8
+   },
+   {
+    "item": "minecraft:stick",
+    "count": 4
+   },
+   {
+    "item": "minecraft:oak_planks",
+    "count": 2
+   },
+   {
+    "item": "minecraft:crafting_table",
+    "count": 1
    }
   ],
   "totalMs": 720000,
@@ -2750,7 +2926,7 @@
    "waitMs": 3000,
    "answer": true
   },
-  "note": "gate seed gate-1: fresh spawn holding the whole kit (iron pickaxe, a spare stone pickaxe, a water bucket, an empty bucket, flint and steel, 16 cobblestone, 8 bread); lava, portal, in, 12 minutes",
+  "note": "gate seed gate-1: fresh spawn holding the whole kit (iron pickaxe, a spare stone pickaxe, a water bucket, an empty bucket, flint and steel, 16 cobblestone, 8 bread, and the makings of two more stone pickaxes: 4 sticks, 2 planks, a crafting table); lava, portal, in, 12 minutes",
   "calls": [
    {
     "name": "do_step",
@@ -2828,6 +3004,10 @@
   "name": "lava-gate-2",
   "seed": "313280743662651985",
   "expect": "nether",
+  "time": 1000,
+  "commands": [
+   "gamerule minecraft:advance_time false"
+  ],
   "inventory": [
    {
     "item": "minecraft:iron_pickaxe",
@@ -2856,6 +3036,18 @@
    {
     "item": "minecraft:bread",
     "count": 8
+   },
+   {
+    "item": "minecraft:stick",
+    "count": 4
+   },
+   {
+    "item": "minecraft:oak_planks",
+    "count": 2
+   },
+   {
+    "item": "minecraft:crafting_table",
+    "count": 1
    }
   ],
   "totalMs": 720000,
@@ -2879,7 +3071,7 @@
    "waitMs": 3000,
    "answer": true
   },
-  "note": "gate seed gate-2: fresh spawn holding the whole kit (iron pickaxe, a spare stone pickaxe, a water bucket, an empty bucket, flint and steel, 16 cobblestone, 8 bread); lava, portal, in, 12 minutes",
+  "note": "gate seed gate-2: fresh spawn holding the whole kit (iron pickaxe, a spare stone pickaxe, a water bucket, an empty bucket, flint and steel, 16 cobblestone, 8 bread, and the makings of two more stone pickaxes: 4 sticks, 2 planks, a crafting table); lava, portal, in, 12 minutes",
   "calls": [
    {
     "name": "do_step",
@@ -2957,6 +3149,10 @@
   "name": "lava-gate-3",
   "seed": "3244043502755372002",
   "expect": "nether",
+  "time": 1000,
+  "commands": [
+   "gamerule minecraft:advance_time false"
+  ],
   "inventory": [
    {
     "item": "minecraft:iron_pickaxe",
@@ -2985,6 +3181,18 @@
    {
     "item": "minecraft:bread",
     "count": 8
+   },
+   {
+    "item": "minecraft:stick",
+    "count": 4
+   },
+   {
+    "item": "minecraft:oak_planks",
+    "count": 2
+   },
+   {
+    "item": "minecraft:crafting_table",
+    "count": 1
    }
   ],
   "totalMs": 720000,
@@ -3008,7 +3216,7 @@
    "waitMs": 3000,
    "answer": true
   },
-  "note": "gate seed gate-3: fresh spawn holding the whole kit (iron pickaxe, a spare stone pickaxe, a water bucket, an empty bucket, flint and steel, 16 cobblestone, 8 bread); lava, portal, in, 12 minutes",
+  "note": "gate seed gate-3: fresh spawn holding the whole kit (iron pickaxe, a spare stone pickaxe, a water bucket, an empty bucket, flint and steel, 16 cobblestone, 8 bread, and the makings of two more stone pickaxes: 4 sticks, 2 planks, a crafting table); lava, portal, in, 12 minutes",
   "calls": [
    {
     "name": "do_step",
@@ -3086,6 +3294,10 @@
   "name": "lava-gate-4",
   "seed": "3315172112810107624",
   "expect": "nether",
+  "time": 1000,
+  "commands": [
+   "gamerule minecraft:advance_time false"
+  ],
   "inventory": [
    {
     "item": "minecraft:iron_pickaxe",
@@ -3114,6 +3326,18 @@
    {
     "item": "minecraft:bread",
     "count": 8
+   },
+   {
+    "item": "minecraft:stick",
+    "count": 4
+   },
+   {
+    "item": "minecraft:oak_planks",
+    "count": 2
+   },
+   {
+    "item": "minecraft:crafting_table",
+    "count": 1
    }
   ],
   "totalMs": 720000,
@@ -3137,7 +3361,7 @@
    "waitMs": 3000,
    "answer": true
   },
-  "note": "gate seed gate-4: fresh spawn holding the whole kit (iron pickaxe, a spare stone pickaxe, a water bucket, an empty bucket, flint and steel, 16 cobblestone, 8 bread); lava, portal, in, 12 minutes",
+  "note": "gate seed gate-4: fresh spawn holding the whole kit (iron pickaxe, a spare stone pickaxe, a water bucket, an empty bucket, flint and steel, 16 cobblestone, 8 bread, and the makings of two more stone pickaxes: 4 sticks, 2 planks, a crafting table); lava, portal, in, 12 minutes",
   "calls": [
    {
     "name": "do_step",
@@ -3215,6 +3439,10 @@
   "name": "lava-gate-5",
   "seed": "937420255288055328",
   "expect": "nether",
+  "time": 1000,
+  "commands": [
+   "gamerule minecraft:advance_time false"
+  ],
   "inventory": [
    {
     "item": "minecraft:iron_pickaxe",
@@ -3243,6 +3471,18 @@
    {
     "item": "minecraft:bread",
     "count": 8
+   },
+   {
+    "item": "minecraft:stick",
+    "count": 4
+   },
+   {
+    "item": "minecraft:oak_planks",
+    "count": 2
+   },
+   {
+    "item": "minecraft:crafting_table",
+    "count": 1
    }
   ],
   "totalMs": 720000,
@@ -3266,7 +3506,7 @@
    "waitMs": 3000,
    "answer": true
   },
-  "note": "gate seed gate-5: fresh spawn holding the whole kit (iron pickaxe, a spare stone pickaxe, a water bucket, an empty bucket, flint and steel, 16 cobblestone, 8 bread); lava, portal, in, 12 minutes",
+  "note": "gate seed gate-5: fresh spawn holding the whole kit (iron pickaxe, a spare stone pickaxe, a water bucket, an empty bucket, flint and steel, 16 cobblestone, 8 bread, and the makings of two more stone pickaxes: 4 sticks, 2 planks, a crafting table); lava, portal, in, 12 minutes",
   "calls": [
    {
     "name": "do_step",
@@ -3344,6 +3584,10 @@
   "name": "lava-gate-6",
   "seed": "8196621077778941313",
   "expect": "nether",
+  "time": 1000,
+  "commands": [
+   "gamerule minecraft:advance_time false"
+  ],
   "inventory": [
    {
     "item": "minecraft:iron_pickaxe",
@@ -3372,6 +3616,18 @@
    {
     "item": "minecraft:bread",
     "count": 8
+   },
+   {
+    "item": "minecraft:stick",
+    "count": 4
+   },
+   {
+    "item": "minecraft:oak_planks",
+    "count": 2
+   },
+   {
+    "item": "minecraft:crafting_table",
+    "count": 1
    }
   ],
   "totalMs": 720000,
@@ -3395,7 +3651,7 @@
    "waitMs": 3000,
    "answer": true
   },
-  "note": "gate seed gate-6: fresh spawn holding the whole kit (iron pickaxe, a spare stone pickaxe, a water bucket, an empty bucket, flint and steel, 16 cobblestone, 8 bread); lava, portal, in, 12 minutes",
+  "note": "gate seed gate-6: fresh spawn holding the whole kit (iron pickaxe, a spare stone pickaxe, a water bucket, an empty bucket, flint and steel, 16 cobblestone, 8 bread, and the makings of two more stone pickaxes: 4 sticks, 2 planks, a crafting table); lava, portal, in, 12 minutes",
   "calls": [
    {
     "name": "do_step",
@@ -3473,6 +3729,10 @@
   "name": "lava-gate-7",
   "seed": "4514800570176826331",
   "expect": "nether",
+  "time": 1000,
+  "commands": [
+   "gamerule minecraft:advance_time false"
+  ],
   "inventory": [
    {
     "item": "minecraft:iron_pickaxe",
@@ -3501,6 +3761,18 @@
    {
     "item": "minecraft:bread",
     "count": 8
+   },
+   {
+    "item": "minecraft:stick",
+    "count": 4
+   },
+   {
+    "item": "minecraft:oak_planks",
+    "count": 2
+   },
+   {
+    "item": "minecraft:crafting_table",
+    "count": 1
    }
   ],
   "totalMs": 720000,
@@ -3524,7 +3796,7 @@
    "waitMs": 3000,
    "answer": true
   },
-  "note": "gate seed gate-7: fresh spawn holding the whole kit (iron pickaxe, a spare stone pickaxe, a water bucket, an empty bucket, flint and steel, 16 cobblestone, 8 bread); lava, portal, in, 12 minutes",
+  "note": "gate seed gate-7: fresh spawn holding the whole kit (iron pickaxe, a spare stone pickaxe, a water bucket, an empty bucket, flint and steel, 16 cobblestone, 8 bread, and the makings of two more stone pickaxes: 4 sticks, 2 planks, a crafting table); lava, portal, in, 12 minutes",
   "calls": [
    {
     "name": "do_step",
@@ -3602,6 +3874,10 @@
   "name": "lava-gate-8",
   "seed": "5593788349168817449",
   "expect": "nether",
+  "time": 1000,
+  "commands": [
+   "gamerule minecraft:advance_time false"
+  ],
   "inventory": [
    {
     "item": "minecraft:iron_pickaxe",
@@ -3630,6 +3906,18 @@
    {
     "item": "minecraft:bread",
     "count": 8
+   },
+   {
+    "item": "minecraft:stick",
+    "count": 4
+   },
+   {
+    "item": "minecraft:oak_planks",
+    "count": 2
+   },
+   {
+    "item": "minecraft:crafting_table",
+    "count": 1
    }
   ],
   "totalMs": 720000,
@@ -3653,7 +3941,7 @@
    "waitMs": 3000,
    "answer": true
   },
-  "note": "gate seed gate-8: fresh spawn holding the whole kit (iron pickaxe, a spare stone pickaxe, a water bucket, an empty bucket, flint and steel, 16 cobblestone, 8 bread); lava, portal, in, 12 minutes",
+  "note": "gate seed gate-8: fresh spawn holding the whole kit (iron pickaxe, a spare stone pickaxe, a water bucket, an empty bucket, flint and steel, 16 cobblestone, 8 bread, and the makings of two more stone pickaxes: 4 sticks, 2 planks, a crafting table); lava, portal, in, 12 minutes",
   "calls": [
    {
     "name": "do_step",

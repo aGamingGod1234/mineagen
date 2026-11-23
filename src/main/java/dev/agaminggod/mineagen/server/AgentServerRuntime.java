@@ -813,6 +813,12 @@ public final class AgentServerRuntime {
 		return active != null && active.requestTaskView(agentId);
 	}
 
+	/** The coordinator's latest step line for the agent (planning_state.stepStatus), or null when there is none. */
+	static String stepStatus(MinecraftServer server, dev.agaminggod.mineagen.agent.AgentId agentId) {
+		MultiplexedServerBridge bridge = bridge(server);
+		return bridge == null ? null : bridge.stepStatus(agentId);
+	}
+
 	private static MultiplexedServerBridge bridge(MinecraftServer server) {
 		BridgeSlot slot = BRIDGE_SLOTS.get(server);
 		return slot == null ? null : slot.bridge();
