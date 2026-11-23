@@ -1317,6 +1317,23 @@ test('extra starts check the wallet\'s start windows, keep the reserve, and say 
 		pool.store.stop();
 	} finally { await edge.close(); }
 
+	// Starts in the 30 s before the read are already in its used count: they keep the reserve strict but are not counted
+	// again toward the plan, so start 836 of 840 is not called past it.
+	const ledgerDir = await mkdtemp(path.join(os.tmpdir(), 'pool-extra-'));
+	try {
+		const store = leaseStore({ dir: ledgerDir });
+		const readAt = Date.now();
+		await store.poolId();
+		await writeFile(path.join(ledgerDir, 'starts.json'), JSON.stringify(Array.from({ length: 8 }, (_, i) => readAt - 5_000 - i * 2_500)));
+		const read = startWindows(JSON.parse(limitsJson({ dayUsed: 95, wallet: { perDay: 600, perHour: 150 } })), { extraStarts: true });
+		const calls = [];
+		await store.reserveStart({ perMinute: 600, minGapMs: 0, budget: { starts: read, readAt, reserve: 5 }, onPastPlan: windows => calls.push(windows) });
+		assert.deepEqual(calls, [], 'start 96 of 100 is inside the plan');
+		for (let i = 0; i < 5; i++) await store.reserveStart({ perMinute: 600, minGapMs: 0, budget: { starts: read, readAt, reserve: 5 }, onPastPlan: windows => calls.push(windows) });
+		assert.deepEqual(calls, [[{ window: 'day', start: 101, planLimit: 100 }]], 'only the sixth start after the read (start 101) is past the plan');
+		store.stop();
+	} finally { await rm(ledgerDir, { recursive: true, force: true }); }
+
 	// The wallet's day window at the reserve still refuses, and names the extra starts.
 	const wallet = await fakeBoat({ FAKE_BOAT_LIMITS: limitsJson({ dayUsed: 104, wallet: { perDay: 107, perHour: 150, perMinute: 90 } }) });
 	try {

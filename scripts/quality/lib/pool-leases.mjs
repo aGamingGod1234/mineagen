@@ -274,12 +274,15 @@ export function leaseStore({ dir = defaultPoolDir(), leaseStaleMs = 5 * 60_000, 
 					past.length = 0;
 					if (budget?.starts && !budget.starts.unlimited) {
 						const since = times.filter(time => time > budget.readAt - 30_000).length;
+						// The 30 s overlap keeps the reserve safe, but a start just before the read is already in its used count:
+						// counting it again would call a start past the plan while the plan still covers it.
+						const afterRead = times.filter(time => time >= budget.readAt).length;
 						for (const window of ['hour', 'day']) {
 							const read = budget.starts[window];
 							const left = (read?.remaining ?? Infinity) - since;
 							const extra = Number.isFinite(read?.planRemaining);
 							if (left <= budget.reserve) throw new Error(`the ${window} sandbox start limit${extra ? ' with extra starts' : ''} has ${Math.max(left, 0)} starts left, keeping ${budget.reserve} in reserve: no new machine`);
-							if (extra && read.planRemaining - since <= 0) past.push({ window, start: read.planLimit - read.planRemaining + since + 1, planLimit: read.planLimit });
+							if (extra && read.planRemaining - afterRead <= 0) past.push({ window, start: read.planLimit - read.planRemaining + afterRead + 1, planLimit: read.planLimit });
 						}
 					}
 					const minute = times.filter(time => at - time < 60_000);
