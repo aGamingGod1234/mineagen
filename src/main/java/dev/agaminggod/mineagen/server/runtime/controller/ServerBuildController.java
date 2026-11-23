@@ -338,6 +338,8 @@ public final class ServerBuildController implements ServerController {
 	private final Set<BlockPos> deadSupports = new HashSet<>();
 	/** Every lava source this build has seen (sight memory fades): where to walk back to when none is in view. */
 	private final Set<BlockPos> poolMemory = new HashSet<>();
+	/** Frame cells this build poured lava into and has not taken back: lava there until the eye sees the cell again. */
+	private final Set<BlockPos> ownLava = new HashSet<>();
 	/** How far from the frame the body looks for the next lava: a big pool's open surface often lies past its near rim. */
 	static final int CAST_FETCH_RANGE = 32;
 	private final Set<BlockPos> triedSources = new HashSet<>();
@@ -2211,16 +2213,17 @@ public final class ServerBuildController implements ServerController {
 				waterTick = tick;
 				waterPours++;
 				// Against lava poured first: the lava cast as the water landed; scoop the water the very next tick.
-				if (pouredLava != null && !waterFirst) { quickScoop = true; lavaWatered = true; pause = 0; OPEN_CELLS.add(player.getUUID()); }
+				if (pouredLava != null && !waterFirst) { quickScoop = true; lavaWatered = true; pause = 0; OPEN_CELLS.add(player.getUUID()); ownLava.remove(pouredLava); }
 			}
 			case LAVA -> {
 				lavaPours++;
 				// Open from this tick: the reflexes run before the build's next tick and must not pause it with lava standing.
-				if (paired) { pouredLava = target.immutable(); lavaTick = tick; lavaWatered = false; OPEN_CELLS.add(player.getUUID()); }
+				if (paired) { pouredLava = target.immutable(); lavaTick = tick; lavaWatered = false; OPEN_CELLS.add(player.getUUID()); ownLava.add(pouredLava); }
 			}
 			case TAKE -> {
 				// Taken back before it flowed: pour the pair again from a spot whose water click lands.
 				LOGGER.info("[build] {} took the lava back from {} after {} ticks", player.getGameProfile().name(), xyz(target), tick - lavaTick);
+				ownLava.remove(target);
 				pouredLava = null;
 				lavaTakes++;
 				moveForClick = true;
@@ -3201,7 +3204,14 @@ public final class ServerBuildController implements ServerController {
 
 
 	private BlockState known(ServerPlayer player, BlockPos at) {
-		BlockState state = SeenTerrain.of(player).known(at.getX(), at.getY(), at.getZ());
+		SeenTerrain.Reader<BlockState> seen = SeenTerrain.of(player);
+		// Lava the body poured is there though the frame hides its cell from the pouring spot: sight remembers the air it
+		// saw before (lava-gate-7: three pours into one cell, each refetched from the pool, until no empty bucket was left).
+		if (ownLava.contains(at)) {
+			if (!seen.seesNow(at.getX(), at.getY(), at.getZ())) return Blocks.LAVA.defaultBlockState();
+			ownLava.remove(at);
+		}
+		BlockState state = seen.known(at.getX(), at.getY(), at.getZ());
 		// Pool lava this build saw stays lava out of sight: a site is never judged next to it as unseen rock.
 		if (state != null) return state;
 		// So does water or lava a carve met behind the rock and plugged.
