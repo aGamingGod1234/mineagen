@@ -41,16 +41,19 @@ public final class EscapeMoves {
 		// across, not up), or the move hands the choice back.
 		double[] mark = {Double.NaN, 0.0D, 0.0D};
 		int[] ticks = {0};
+		// Swimming back to the last breath can lead down: there a sink counts as way made too.
+		boolean[] backing = {false};
 		return (player, input) -> {
 			double eye = player.getEyeY();
 			if (Double.isNaN(mark[0])) { mark[0] = eye; mark[1] = player.getX(); mark[2] = player.getZ(); }
 			if (++ticks[0] % BLIND_WINDOW_TICKS == 0) {
-				if (!madeWay(eye - mark[0], Math.hypot(player.getX() - mark[1], player.getZ() - mark[2])) && ReflexActions.airRoute(player) == null) {
+				if (!madeWay(backing[0] ? Math.abs(eye - mark[0]) : eye - mark[0], Math.hypot(player.getX() - mark[1], player.getZ() - mark[2])) && ReflexActions.airRoute(player) == null) {
 					return new Result(Status.FAILED, "not getting toward air (no seen air route, under 0.5 blocks up or across in 2 s)");
 				}
 				mark[0] = eye; mark[1] = player.getX(); mark[2] = player.getZ();
 			}
-			var back = player.isUnderWater() && ReflexActions.airRoute(player) == null ? wayBack(LastBreath.wayBack(player), player.getAirSupply()) : null;
+			var back = wayBack(player);
+			backing[0] = back != null;
 			if (back != null) {
 				input.accept(swimBack(player, back.path().get(1)));
 				return new Result(Status.RUNNING, "swimming back to where it last breathed at " + back.x() + "," + back.openY() + "," + back.z()
@@ -75,6 +78,19 @@ public final class EscapeMoves {
 				dev.agaminggod.mineagen.server.runtime.input.AgentInputStates.shortestAngleDelta(yaw, heading)) : 0.0F;
 		return new AgentInputState(forward, 0.0F, dy > -0.3D, dy < -0.3D, false, false, false, yaw, pitch,
 				player.getInventory().getSelectedSlot(), net.minecraft.world.InteractionHand.MAIN_HAND);
+	}
+
+	/** Eyes under water, the seen-air search done with no route, and the way back to the last breath within the breath left. */
+	public static boolean knowsWayBack(ServerPlayer player) {
+		return wayBack(player) != null;
+	}
+
+	private static SwimPlanning.Surface wayBack(ServerPlayer player) {
+		if (!player.isUnderWater()) return null;
+		// Still searching is not "no air seen": the search spreads over ticks, and a near surface may come next tick.
+		var lookup = dev.agaminggod.mineagen.server.perception.WaterAirFacts.surface(player);
+		if (lookup.searching() || lookup.surface() != null && lookup.surface().path().size() >= 2) return null;
+		return wayBack(LastBreath.wayBack(player), player.getAirSupply());
 	}
 
 	/**

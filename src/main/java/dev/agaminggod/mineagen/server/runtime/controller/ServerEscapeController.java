@@ -207,6 +207,14 @@ public final class ServerEscapeController implements ServerController {
 			refund = () -> wades--;
 			return startMove(player, wadeUp(ledge.immutable()), "wade up onto the flooded step at " + ledge.toShortString());
 		}
+		// Eyes under water with no seen air, and the way it swam from its last breath known and within the breath left (a
+		// sealed pocket past the air search's reach): a player swims back the way they came. A bank seen from there is no
+		// way out (travel stops BREATH_NOT_COVERED with no seen way up: sealed-pocket room, every try until the timeout).
+		if (player.isUnderWater() && swims < MAX_TRIES && EscapeMoves.knowsWayBack(player)) {
+			swims++;
+			refund = () -> swims--;
+			return startMove(player, EscapeMoves.swimUp(), "swim back to where it last breathed");
+		}
 		int tries = bank == null ? 0 : bankTries.merge(bank, 1, Integer::sum);
 		boolean bankAbove = bank != null && bank.getY() > player.getBlockY();
 		String block = plainBlock(player);
