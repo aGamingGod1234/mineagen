@@ -3034,7 +3034,7 @@ final class ReflexActions {
 
 		/** Why the body must not wall in here now, or null. */
 		static String refusal(ServerPlayer player, BlockPos center, Vec3 shooter) {
-			if (unsteadyWater(player)) return "the body is in water";
+			if (unsteadyWater(player) && (player.isUnderWater() || !enclosed(player.level(), center))) return "the body is in water";
 			for (Creeper creeper : player.level().getEntitiesOfClass(Creeper.class, player.getBoundingBox().inflate(CREEPER_RANGE), Creeper::isAlive)) {
 				if (player.distanceTo(creeper) <= CREEPER_RANGE) return "a creeper is within " + (int) CREEPER_RANGE + " blocks";
 			}
@@ -3067,6 +3067,8 @@ final class ReflexActions {
 			Level level = player.level();
 			if (center == null) {
 				center = BlockPos.containing(player.getX(), player.getY() + 0.2D, player.getZ());
+				// Afloat in the jump that roofs a closed cell: the cell is the one below the body.
+				if (!enclosed(level, center) && enclosed(level, center.below()) && level.getBlockState(center.below()).canBeReplaced()) center = center.below();
 				String no = refusal(player, center, shooter.position());
 				if (no != null) return Step.failed("not walling in: " + no);
 				heldSlot = player.getInventory().getSelectedSlot();
@@ -3080,7 +3082,9 @@ final class ReflexActions {
 				planRoof(level, facing);
 				if (plan.isEmpty()) return Step.done(report(level, "already closed on every side"));
 			}
-			if (unsteadyWater(player)) return stop(level, "the body went into water");
+			// In a cell closed on every side the still water there cannot carry the body off, and the jump that roofs it
+			// lifts the body off the bottom.
+			if (unsteadyWater(player) && (player.isUnderWater() || !enclosed(level, center))) return stop(level, "the body went into water");
 			for (Creeper creeper : level.getEntitiesOfClass(Creeper.class, player.getBoundingBox().inflate(CREEPER_RANGE), Creeper::isAlive)) {
 				if (player.distanceTo(creeper) <= CREEPER_RANGE) return stop(level, "a creeper came within " + (int) CREEPER_RANGE + " blocks");
 			}
@@ -3119,7 +3123,7 @@ final class ReflexActions {
 			BlockPos target = null;
 			boolean inBody = false;
 			for (BlockPos cell : open) {
-				if (player.getBoundingBox().intersects(new AABB(cell))) { inBody = true; continue; }
+				if (player.getBoundingBox().intersects(new AABB(cell))) { inBody |= cell.getY() >= center.getY() + 2; continue; }
 				List<? extends LivingEntity> occupant = level.getEntitiesOfClass(LivingEntity.class, new AABB(cell), mob -> mob != player && mob.isAlive());
 				if (!occupant.isEmpty()) { skipped.add(cell); continue; }
 				target = cell;
@@ -3187,6 +3191,15 @@ final class ReflexActions {
 		 */
 		private boolean roofThreat(Level level) {
 			return shooter.isAlive() && shooter.level() == level;
+		}
+
+		/** Whether the cell is closed on every side at feet and head. */
+		static boolean enclosed(Level level, BlockPos center) {
+			for (Direction side : Direction.Plane.HORIZONTAL) {
+				BlockPos feet = center.relative(side);
+				if (level.getBlockState(feet).canBeReplaced() || level.getBlockState(feet.above()).canBeReplaced()) return false;
+			}
+			return true;
 		}
 
 		/** A cell standing on a wall block whose top a jump can click. */
