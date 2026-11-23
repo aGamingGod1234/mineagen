@@ -92,9 +92,15 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 			...(fast ? { clock: gameClockFromObservations({ tickRate: s.clock.rate }) } : {}),
 		});
 		let latest = null;
+		// Each rule's firings: the most seen in any End sample, kept as each arrives (also during a long command the body
+		// dies in; a death drops the End rules). A run subtracts what it started with.
+		const firedAt = rules => Object.fromEntries((Array.isArray(rules) ? rules : []).map(rule => [rule.id, Number(rule.fired) || 0]));
+		let firedMost = {};
+		const noteFired = payload => { if (payload?.world?.dimension !== 'minecraft:the_end') return; for (const [id, n] of Object.entries(firedAt(payload.reflexes?.rules))) firedMost[id] = Math.max(firedMost[id] ?? 0, n); };
 		s.bridge.on('observation', ev => {
 			if (ev.agentId !== record.agentId || !ev.payload.ready) return;
 			latest = ev.payload;
+			try { noteFired(latest); } catch { /* counting never stops the feed */ }
 			runtime.updateObservation(record, adaptObservation(ev.payload), { eventSequence: ev.payload.eventSequence });
 		});
 		s.bridge.on('action_result', ev => {
@@ -211,10 +217,8 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 				// An enderman provoked by a stare is at full health (40); one hurt by the body (a sweep, a blast it caused) is not.
 				const angerHealth = async fresh => { for (const [entry, uuid] of fresh) if (typeof uuid === 'string' && /^[0-9a-f-]{36}$/.test(uuid)) entry.health = number(await end(s, `data get entity ${uuid} Health`).catch(() => '')); };
 				let lastDealt = null;
-				// Each rule's firings in this run: the most seen while in the End (a death drops the End rules) less the start.
-				const firedAt = rules => Object.fromEntries((rules ?? []).map(rule => [rule.id, Number(rule.fired) || 0]));
-				const firedStart = firedAt(latest?.reflexes?.rules), firedMost = {};
-				const noteFired = () => { for (const [id, n] of Object.entries(firedAt(latest?.reflexes?.rules))) firedMost[id] = Math.max(firedMost[id] ?? 0, n); };
+				const firedStart = firedAt(latest?.reflexes?.rules);
+				firedMost = { ...firedStart };
 				const note = (what, r) => { log.push([Math.round((now() - t0) / 1000), what, r?.state, r?.reasonCode, r?.message?.slice(0, 120)]); };
 				while (await inWindow()) {
 					// The raw sample decides death: a dead body's sample may not adapt, and it respawns in the Overworld.
@@ -229,7 +233,7 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 					try { o = raw ? adaptObservation(raw) : null; } catch { o = null; }
 					if (o) minY = Math.min(minY, o.player?.y ?? minY);
 					lastDealt = await readDealt().catch(() => null);
-					if (o?.player) try { noteFired(); await angerHealth(traceEndermen(o)); } catch { /* a trace never fails the run */ }
+					if (o?.player) try { await angerHealth(traceEndermen(o)); } catch { /* a trace never fails the run */ }
 					if (!SURVIVE) {
 						const health = await dragonHealth();
 						if (Number.isFinite(health)) { if (health < lastDragon) dragonDrops += lastDragon - health; lastDragon = health; lowestDragon = Math.min(lowestDragon, health); }
