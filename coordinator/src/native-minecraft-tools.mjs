@@ -28,6 +28,7 @@ import { OBTAIN_DEFAULT_TIMEOUT_MS, OBTAIN_MAX_TIMEOUT_MS } from './obtain-runne
 import { STANDING_TEMPLATES } from './standing-templates.mjs';
 import { MAX_REFLEXES, normalizeReflexEntries } from './reflexes.mjs';
 import { compactStandingOrder, DEFAULT_STANDING_TTL_S, MAX_STANDING_SOURCE_BYTES, MAX_STANDING_TTL_S, MAX_STANDING_WHEN_BYTES, STANDING_ORDER_ID } from './standing-orders.mjs';
+import { getSwitch } from './switches.mjs';
 
 export const MAX_TOOL_RESULT_BYTES = 16_384;
 const COORDINATE_LIMIT = 30_000_000;
@@ -282,7 +283,7 @@ const WITHOUT_PROGRAM_TOOLS = Object.freeze(MINECRAFT_DYNAMIC_TOOLS.filter(tool 
 
 /** Whether this environment offers the program tools to the model (MINEAGEN_PROGRAM_TOOLS=on; off by default). */
 export function programToolsOffered(environment = process.env) {
-	return String(environment?.MINEAGEN_PROGRAM_TOOLS ?? '').trim().toLowerCase() === 'on';
+	return getSwitch('tools.program', environment).value;
 }
 
 /** The tools sent to the model on every call: all of them with the program tools on, else all but the program tools. */

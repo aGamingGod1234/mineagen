@@ -2,6 +2,7 @@
 // (22 Nov, 16 games): 10 of 14 deaths were surface mobs at night, and in each the body had walked or climbed up into the
 // dark for a search (water for a bucket, gravel, logs, sheep) or respawned at night into the same pack.
 const DAY_TICKS = 24_000;
+import { getSwitch } from './switches.mjs';
 /** Mobs spawn on open ground from dusk; sunrise burns zombies and skeletons from about here. */
 export const NIGHT_FROM = 12_000;
 export const NIGHT_UNTIL = 23_500;
@@ -75,7 +76,7 @@ function walkLength(args, at) {
  */
 export function nightMoveStop(observation, actionType, args = {}, { environment = process.env, openSky = null } = {}) {
 	// MINEAGEN_NIGHT_COVER=off restores the old behaviour, for room A/Bs on one code bundle.
-	if (String(environment?.MINEAGEN_NIGHT_COVER ?? '').trim().toLowerCase() === 'off') return null;
+	if (!getSwitch('night.cover', environment).value) return null;
 	const phase = nightFor(observation);
 	if (phase === null || !(WALKS.has(actionType) || actionType === 'dig_to')) return null;
 	const player = observation.player ?? {};

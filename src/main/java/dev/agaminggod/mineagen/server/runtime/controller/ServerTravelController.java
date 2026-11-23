@@ -236,10 +236,7 @@ public final class ServerTravelController implements ServerController {
 	 * against 141.8 (34 each); a 5-8 block sidestep does not get round a netherrack hill.
 	 */
 	static boolean walkAroundEnabled() {
-		// Read into a local first: the result-code scanner (failure-code-sources.mjs) takes a capitalised string in the
-		// result expression for a result code.
-		String environment = System.getenv("MINEAGEN_TRAVEL_WALK_AROUND");
-		return Boolean.getBoolean("mineagen.travel.walkAround") || "on".equalsIgnoreCase(String.valueOf(environment).trim());
+		return dev.agaminggod.mineagen.server.Switches.get("travel.walkAround");
 	}
 	static final double WALK_AROUND_MIN_LEFT = 8.0D;
 	private int walkArounds, walkedAround;
@@ -870,8 +867,8 @@ public final class ServerTravelController implements ServerController {
 	}
 
 	/**
-	 * The seen dry standing cell a swimmer can climb out onto (it borders water at its own level or one below: vanilla lets
-	 * a swimmer step up one block, never two) that leaves the least trip, the swim itself counting half. A bank behind
+	 * The seen dry standing cell a swimmer can climb out onto (bordersWater: within the water-exit climb of water beside
+	 * it) that leaves the least trip, the swim itself counting half. A bank behind
 	 * the body loses to one across the water toward the target when both are seen.
 	 */
 	private GridPosition nearestShore(ServerPlayer player, MinecraftNavigationWorld world) {
@@ -942,11 +939,16 @@ public final class ServerTravelController implements ServerController {
 		return false;
 	}
 
-	/** A bank a swimmer reaches: water beside it at its own level or one block below. */
+	/**
+	 * A bank a swimmer reaches: water beside it whose top is within the water-exit climb of the bank's floor
+	 * (SwimPlanning.climbsOut, shared with escape). On whole blocks that is water at the bank's own level or one below.
+	 */
 	private static boolean bordersWater(MinecraftNavigationWorld world, GridPosition cell) {
 		int[][] sides = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
-		for (int[] side : sides) for (int down = 0; down <= 1; down++) {
-			if (world.cellAt(new GridPosition(cell.x() + side[0], cell.y() - down, cell.z() + side[1])) == WalkabilityView.Cell.WATER) return true;
+		for (int[] side : sides) for (int down = 0; down <= 2; down++) {
+			// Water in the cell `down` below the bank's floor level tops out at least at that cell's top face.
+			if (world.cellAt(new GridPosition(cell.x() + side[0], cell.y() - down, cell.z() + side[1])) == WalkabilityView.Cell.WATER
+					&& SwimPlanning.climbsOut(cell.y(), cell.y() - down + 1)) return true;
 		}
 		return false;
 	}

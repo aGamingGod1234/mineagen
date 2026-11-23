@@ -231,7 +231,9 @@ public final class ReflexBodyVerification {
 				[{"id":"default-eat","coordinatorDefault":true,"priority":3,"when":{"type":"hunger_below","value":18},"do":{"type":"eat"}}]""").get(0).action();
 		check(ReflexActions.topUpApplies(eatAction, true) && !ReflexActions.topUpApplies(eatAction, false),
 				"the top-up food choice covers the coordinator's eat rule in both arms, not a model's own eat rule");
-		check(Instincts.listed("aim, instincts") && !Instincts.listed("") && !Instincts.listed(null) && !Instincts.listed("instinct"), "the flag reads a comma list");
+		dev.agaminggod.mineagen.server.Switches.Flag listed = dev.agaminggod.mineagen.server.Switches.ALL.stream()
+				.filter(item -> item.name().equals("instincts")).findFirst().orElseThrow().parser();
+		check(listed.parse("aim, instincts") && !listed.parse("") && !listed.parse("instinct"), "the flag reads a comma list");
 		slots.put(20, none);
 		slots.put(30, held("minecraft:torch"));
 		check(ReflexActions.lacks(parsed.get(4).action(), inventory, 0, none) == null, "select reaches the main inventory");

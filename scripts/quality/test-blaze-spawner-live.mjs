@@ -466,8 +466,8 @@ try {
 					if (type === 'use_ranged') (run.openerResults ??= []).push(`${Math.round((now() - startedAt) / 1000)}s ${res.reasonCode}: ${String(res.message ?? '').slice(0, 900)}`);
 					if (type === 'fight_until' || type === 'fight_target') {
 						const m = String(res.message ?? '');
-						const fire = m.match(/fire: ([0-9.]+) s burning, (\d+) steps? off fire; shield: raised (\d+) times? at shots, (\d+) blocked; cover: (\d+) moves?/);
-						if (fire) { run.fireS = (run.fireS ?? 0) + Number(fire[1]); run.fireSteps = (run.fireSteps ?? 0) + Number(fire[2]); run.shieldRaised = (run.shieldRaised ?? 0) + Number(fire[3]); run.shieldBlocks = (run.shieldBlocks ?? 0) + Number(fire[4]); run.coverMoves = (run.coverMoves ?? 0) + Number(fire[5]); }
+						const fire = m.match(/fire: ([0-9.]+) s burning, (\d+) steps? off fire; shield: raised (\d+) times? at shots, (\d+) blocked/);
+						if (fire) { run.fireS = (run.fireS ?? 0) + Number(fire[1]); run.fireSteps = (run.fireSteps ?? 0) + Number(fire[2]); run.shieldRaised = (run.shieldRaised ?? 0) + Number(fire[3]); run.shieldBlocks = (run.shieldBlocks ?? 0) + Number(fire[4]); }
 						if (!refusedBeforeRunning(res)) run.fightResults[res.reasonCode] = (run.fightResults[res.reasonCode] ?? 0) + 1;
 						(run.untilMessages ??= []).push(`${Math.round((now() - startedAt) / 1000)}s ${res.reasonCode}: ${String(res.message ?? '').slice(0, 1200)}`);
 						if (res.reasonCode === 'UNTIL_COUNT_REACHED') run.reachedS ??= Math.round((now() - startedAt) / 1000);
