@@ -19,7 +19,7 @@ function fixture() {
 	const base = mkdtempSync(path.join(os.tmpdir(), 'doctor-'));
 	const checkout = path.join(base, 'checkout'), main = path.join(base, 'main');
 	for (const root of [checkout, main]) {
-		write(path.join(root, 'gradle.properties'), 'minecraft_version=26.3\nmc_compat=26.3\nfabric_api_version=0.1+26.3\ncarpet_version=26.3+v1\nlibs_checksums=checksums.sha256\n');
+		write(path.join(root, 'gradle.properties'), `minecraft_version=26.3\nmc_compat=26.3\nfabric_api_version=0.1+26.3\ncarpet_version=26.3+v1\nlibs_checksums=checksums.sha256\nlithium_version=0.1+mc26.3\nlithium_url=https://example.invalid/lithium.jar\nlithium_sha256=${sha('lithium')}\n`);
 		write(path.join(root, 'libs/checksums.sha256'), `${sha('carpet')}  fabric-carpet-26.3+v1.jar\n`);
 		write(path.join(root, 'coordinator/package.json'), JSON.stringify({ dependencies: { acorn: '8.18.0' } }));
 		write(path.join(root, 'coordinator/test/private-inputs.json'), JSON.stringify({ tests: [
@@ -42,8 +42,9 @@ const stubRun = (command, args) => {
 const context = (root, overrides = {}) => doctorContext({ root, platform: 'linux', env: { ARENA_SLOT_LOCKS: path.join(root, 'no-locks') }, run: stubRun, availableMb: () => 8000, defaultTemplate: path.join(root, 'no-template'), ...overrides });
 const result = (ctx, name) => runChecks(ctx).find(entry => entry.name === name);
 
-function template(dir, { fabricApi = '0.1+26.3' } = {}) {
+function template(dir, { fabricApi = '0.1+26.3', lithium = true } = {}) {
 	for (const name of ['server.jar', 'fabric-server-launch.jar', 'eula.txt', `mods/fabric-api-${fabricApi}.jar`, 'mods/fabric-carpet-26.3+v1.jar', 'libraries/x.jar']) write(path.join(dir, name), 'x');
+	if (lithium) write(path.join(dir, 'mods/lithium-fabric-0.1+mc26.3.jar'), 'lithium');
 	write(path.join(dir, 'server.properties'), 'online-mode=false\nserver-ip=127.0.0.1\n');
 	return dir;
 }
@@ -96,6 +97,27 @@ test('the server template check names the prepare command, a stale template, and
 		assert.deepEqual(unset.env, { ARENA_HEADLESS_SERVER_TEMPLATE: good });
 		const steps = await applyFixes(context(checkout), { from: null });
 		assert.ok(steps.some(step => /pass --accept-minecraft-eula/.test(step)), 'the EULA is never accepted implicitly');
+	} finally { cleanup(); }
+});
+
+test('a template without the pinned Lithium JAR warns, and --fix adds the checked download to it', async () => {
+	const { base, checkout, cleanup } = fixture();
+	try {
+		const older = template(path.join(base, 'older'), { lithium: false });
+		write(path.join(older, 'mods/lithium-fabric-0.0+mc26.3.jar'), 'old lithium');
+		const ctx = context(checkout, { env: { ARENA_HEADLESS_SERVER_TEMPLATE: older }, defaultTemplate: older });
+		const check = result(ctx, 'server template');
+		assert.equal(check.status, 'warn');
+		assert.match(check.detail, /lacks mods\/lithium-fabric-0\.1\+mc26\.3\.jar/);
+		write(path.join(base, 'downloads/lithium-fabric-0.1+mc26.3.jar'), 'lithium');
+		const steps = await applyFixes(ctx, { from: null });
+		assert.ok(steps.some(step => /Added Lithium 0\.1\+mc26\.3/.test(step)), steps.join('\n'));
+		assert.equal(readFileSync(path.join(older, 'mods/lithium-fabric-0.1+mc26.3.jar'), 'utf8'), 'lithium');
+		assert.equal(existsSync(path.join(older, 'mods/lithium-fabric-0.0+mc26.3.jar')), false, 'the older Lithium version is replaced');
+		assert.equal(result(ctx, 'server template').status, 'ok');
+		write(path.join(base, 'downloads/lithium-fabric-0.1+mc26.3.jar'), 'tampered');
+		rmSync(path.join(older, 'mods/lithium-fabric-0.1+mc26.3.jar'));
+		await assert.rejects(applyFixes(ctx, { from: null }), /SHA-256 mismatch/);
 	} finally { cleanup(); }
 });
 

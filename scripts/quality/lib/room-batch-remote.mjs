@@ -1,20 +1,40 @@
 // Runs on a batch machine, copied there by room-batch.mjs (so it imports nothing from the code under test):
 //   node room-batch-remote.mjs JOB.json
-// JOB: { room, code, outDir, javaHome, template, timeoutMs, wrapper, portBase, env, lines: [{ arm, jar, env, args }] }. Plays every
+// JOB: { room, code, outDir, javaHome, template, serverMods, timeoutMs, wrapper, portBase, env, lines: [{ arm, jar, env, args }] }. Plays every
 // arm of one room side by side, each in its own fresh OUT folder (outDir/ARM) with its own port range (SLOT_PORT_BASE
 // portBase, portBase + 100, ...; portBase defaults to 28000), writes each arm's output to outDir/ARM.log and, once all have exited, outDir/done.json: per arm the exit
 // code, seconds, whether the room timeout killed it and the "Can't keep up" lines in its server logs, plus the lowest
 // MemAvailable seen while the room played. wrapper (e.g. ["eatmydata"]) is a command each arm's node runs under; its
 // environment reaches the fixture's servers too. env is added to every arm's environment before the line's own env.
+// serverMods (JAR paths on this machine, e.g. Lithium) go into every arm's server: rooms play on a copy of the template
+// with them added to mods/ (TEMPLATE+NAMES beside it, made once per machine), so the image's own template, which other
+// batches on a shared pool machine use, is never changed. done.json counts the server logs that list each added mod.
 // It runs on Linux and Windows: on Windows an arm's process tree is killed with taskkill.
 import { spawn, spawnSync } from 'node:child_process';
-import { createWriteStream } from 'node:fs';
-import { mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { createWriteStream, existsSync } from 'node:fs';
+import { cp, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
 const job = JSON.parse(await readFile(process.argv[2], 'utf8'));
 await mkdir(job.outDir, { recursive: true });
+const serverMods = job.serverMods ?? [];
+if (serverMods.length) {
+	const names = serverMods.map(file => path.basename(file));
+	const target = `${job.template}+${names.map(name => name.replace(/\.jar$/i, '')).join('+')}`;
+	if (!existsSync(path.join(target, 'mods', names[0]))) {
+		// Built beside the target and renamed into place, so two rooms starting at once on one machine never see half a copy.
+		const temp = `${target}.tmp-${process.pid}-${Date.now()}`;
+		await cp(job.template, temp, { recursive: true });
+		for (const file of serverMods) await cp(file, path.join(temp, 'mods', path.basename(file)));
+		await rename(temp, target).catch(() => {});
+		await rm(temp, { recursive: true, force: true });
+		if (!existsSync(path.join(target, 'mods', names[0]))) throw new Error(`could not make the template copy ${target}`);
+	}
+	job.template = target;
+}
+// The mod id a Fabric server lists for an added JAR: lithium-fabric-0.26.4+mc26.3.jar lists as "lithium".
+const modIds = serverMods.map(file => path.basename(file).split(/[-_.+]/)[0].toLowerCase());
 const expand = (text, values) => String(text).replace(/\$(OUT|JAR)\b/g, (_, key) => values[key]);
 const windows = process.platform === 'win32';
 const portBase = job.portBase ?? 28000;
@@ -80,12 +100,18 @@ const runs = job.lines.map((line, slot) => new Promise(resolve => {
 }));
 const arms = {};
 for (const run of await Promise.all(runs)) {
-	let cantKeepUp = 0;
-	for (const file of await serverLogs(path.join(job.outDir, run.arm))) cantKeepUp += ((await readFile(file, 'utf8').catch(() => '')).match(/Can't keep up!/g) ?? []).length;
-	arms[run.arm] = { ...run, cantKeepUp };
+	let cantKeepUp = 0, logs = 0;
+	const listed = Object.fromEntries(modIds.map(id => [id, 0]));
+	for (const file of await serverLogs(path.join(job.outDir, run.arm))) {
+		const text = await readFile(file, 'utf8').catch(() => '');
+		logs++;
+		cantKeepUp += (text.match(/Can't keep up!/g) ?? []).length;
+		for (const id of modIds) if (new RegExp(`^\\s*- ${id} `, 'm').test(text)) listed[id]++;
+	}
+	arms[run.arm] = { ...run, cantKeepUp, ...(modIds.length ? { serverMods: { logs, listed } } : {}) };
 }
 clearInterval(sampler);
-const done = { room: job.room, wrapper: job.wrapper ?? [], portBase, startedAt, finishedAt: Date.now(), seconds: Math.round((Date.now() - startedAt) / 1000), arms,
+const done = { room: job.room, wrapper: job.wrapper ?? [], portBase, template: path.basename(job.template), startedAt, finishedAt: Date.now(), seconds: Math.round((Date.now() - startedAt) / 1000), arms,
 	machine: { cpus: os.cpus().length, memoryMb: Math.round(os.totalmem() / 2 ** 20), minAvailableMb } };
 await writeFile(path.join(job.outDir, 'done.json.tmp'), JSON.stringify(done, null, 2) + '\n');
 await rename(path.join(job.outDir, 'done.json.tmp'), path.join(job.outDir, 'done.json'));

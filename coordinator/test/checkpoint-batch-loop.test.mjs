@@ -22,7 +22,7 @@ if [ -f "$F/OUTAGE" ]; then
   echo "connection refused" >&2; exit 1; fi
 [ -f "$F/$1/VANISH" ] && { echo "sandbox not found: $1" >&2; exit 1; }
 map() { case $1 in bx_*:*) echo "$F/\${1%%:*}/\${1#*:}";; *) echo "$1";; esac; }
-seed() { mkdir -p "$1/rooms/jdk/bin" "$1/.local/bin"; : > "$1/rooms/jdk/bin/java"; chmod +x "$1/rooms/jdk/bin/java"; printf '#!/bin/bash\\necho codex-cli 0.1.0\\n' > "$1/.local/bin/codex"; chmod +x "$1/.local/bin/codex"; }
+seed() { mkdir -p "$1/rooms/jdk/bin" "$1/rooms/template-26.3/mods" "$1/.local/bin"; : > "$1/rooms/jdk/bin/java"; chmod +x "$1/rooms/jdk/bin/java"; printf '#!/bin/bash\\necho codex-cli 0.1.0\\n' > "$1/.local/bin/codex"; chmod +x "$1/.local/bin/codex"; }
 case $cmd in
   ssh) id=$1; shift; [ "$1" = -- ] && shift; [ -f "$F/$id.deleted" ] && { echo gone >&2; exit 255; }
     # A STALLSSH file makes every ssh hang for minutes in a child that holds the pipes, as a stalled ssh under boat does.
@@ -82,6 +82,7 @@ function setup({ refresh = false, plan: overrides = {} } = {}) {
 	if (refresh) writeFileSync(path.join(root, 'REFRESH'), '');
 	for (const id of ['bx_aaaaaaaa', 'bx_bbbbbbbb']) {
 		const home = path.join(root, id);
+		mkdirSync(path.join(home, 'rooms/template-26.3/mods'), { recursive: true });
 		mkdirSync(path.join(home, 'rooms/jdk/bin'), { recursive: true }); writeFileSync(path.join(home, 'rooms/jdk/bin/java'), ''); chmodSync(path.join(home, 'rooms/jdk/bin/java'), 0o755);
 		mkdirSync(path.join(home, '.local/bin'), { recursive: true }); writeFileSync(path.join(home, '.local/bin/codex'), '#!/bin/bash\necho codex-cli 0.1.0\n'); chmodSync(path.join(home, '.local/bin/codex'), 0o755);
 	}
@@ -91,9 +92,10 @@ function setup({ refresh = false, plan: overrides = {} } = {}) {
 	execFileSync('git', ['init', '-q', arm]); execFileSync('git', ['-C', arm, 'add', 'README']);
 	execFileSync('git', ['-C', arm, '-c', 'user.email=t@example.invalid', '-c', 'user.name=t', 'commit', '-qm', 'arm']);
 	writeFileSync(path.join(root, 'mod.jar'), 'jar'); writeFileSync(path.join(root, 'sp.json'), '{}');
+	writeFileSync(path.join(root, 'lithium-fabric-0.1+mc26.3.jar'), 'lithium');
 	mkdirSync(path.join(root, 'signin')); writeFileSync(path.join(root, 'signin/auth.json'), '{"tokens":"fake"}');
 	const plan = { minutes: 1, deadline: new Date(Date.now() + 3 * 3_600_000).toISOString(), codexHome: path.join(root, 'signin'),
-		vms: ['bx_aaaaaaaa', 'bx_bbbbbbbb'], drain: 'delete', copyConcurrency: 2,
+		vms: ['bx_aaaaaaaa', 'bx_bbbbbbbb'], drain: 'delete', copyConcurrency: 2, lithium: path.join(root, 'lithium-fabric-0.1+mc26.3.jar'),
 		arms: { main: { root: arm, ref: 'HEAD', jar: path.join(root, 'mod.jar') }, other: { root: arm, ref: 'HEAD', jar: path.join(root, 'mod.jar'), env: { A_SWITCH: 'on', B_SWITCH: '2' } } },
 		savepoints: { nether: { file: path.join(root, 'sp.json'), repeats: 2, targets: ['fortress'] } } };
 	writeFileSync(path.join(root, 'plan.json'), JSON.stringify({ ...plan, ...overrides }));
@@ -118,6 +120,11 @@ test('checkpoint batch copies every game home, writes each env switch on its own
 			assert.match(listing, /raw\/coordinator\.jsonl/); assert.doesNotMatch(listing, /auth\.json|\.codex-home|level\.dat/);
 		}
 		assert.equal(readFileSync(path.join(root, 'bx_aaaaaaaa/ck/arms/other/env'), 'utf8'), 'A_SWITCH=on\nB_SWITCH=2\n');
+		// Games play on a copy of the machine's template with Lithium added; the machine's own template is left as it was.
+		for (const id of ['bx_aaaaaaaa', 'bx_bbbbbbbb']) {
+			assert.equal(readFileSync(path.join(root, id, 'rooms/template-26.3+lithium-fabric-0.1+mc26.3/mods/lithium-fabric-0.1+mc26.3.jar'), 'utf8'), 'lithium');
+			assert.deepEqual(readdirSync(path.join(root, id, 'rooms/template-26.3/mods')), []);
+		}
 		assert.deepEqual(readFileSync(path.join(root, 'deleted.log'), 'utf8').trim().split('\n').sort(), ['bx_aaaaaaaa', 'bx_bbbbbbbb']);
 		assert.equal(leftSignIns(root), '0');
 	} finally { rmSync(root, { recursive: true, force: true }); }

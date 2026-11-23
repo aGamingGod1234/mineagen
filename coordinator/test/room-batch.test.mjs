@@ -370,6 +370,45 @@ process.exit(res.status ?? 1);\n`);
 	} finally { await rm(dir, { recursive: true, force: true }); }
 });
 
+test('the machine helper adds the batch server mods to a copy of the template, never the template itself, and counts the logs listing them', async () => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'room-batch-mods-'));
+	try {
+		const template = path.join(dir, 'template-26.3');
+		await mkdir(path.join(template, 'mods'), { recursive: true });
+		await writeFile(path.join(template, 'mods', 'fabric-api.jar'), 'api');
+		const lithium = path.join(dir, 'inputs', 'lithium-fabric-0.1+mc26.3.jar');
+		await mkdir(path.dirname(lithium), { recursive: true });
+		await writeFile(lithium, 'lithium');
+		// The fixture records which template it was given and writes a server log as Fabric does, listing lithium only for arm new.
+		const fixture = path.join(dir, 'fixture.mjs');
+		await writeFile(fixture, `import { mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+const [out, arm] = process.argv.slice(2);
+mkdirSync(out + '/server/logs', { recursive: true });
+const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE;
+writeFileSync(out + '/seen.json', JSON.stringify({ template, mods: readdirSync(template + '/mods').sort() }));
+writeFileSync(out + '/server/logs/latest.log', 'Loading 3 mods:\\n\\t- fabric-api 0.1\\n' + (arm === 'new' ? '\\t- lithium 0.1+mc26.3\\n' : ''));\n`);
+		const job = { room: 'r', code: dir, outDir: path.join(dir, 'out', 'r'), javaHome: '/jdk', template, serverMods: [lithium], timeoutMs: 60_000, portBase: 28000, env: {},
+			lines: ['new', 'old'].map(arm => ({ arm, jar: `/j/${arm}.jar`, env: {}, args: [fixture, '$OUT', arm] })) };
+		await writeFile(path.join(dir, 'job.json'), JSON.stringify(job));
+		const helper = fileURLToPath(new URL('../../scripts/quality/lib/room-batch-remote.mjs', import.meta.url));
+		const { spawnSync } = await import('node:child_process');
+		const run = spawnSync(process.execPath, [helper, path.join(dir, 'job.json')], { encoding: 'utf8' });
+		assert.equal(run.status, 0, run.stderr);
+		const copy = `${template}+lithium-fabric-0.1+mc26.3`;
+		const seen = JSON.parse(await readFile(path.join(job.outDir, 'new', 'seen.json'), 'utf8'));
+		assert.deepEqual(seen, { template: copy, mods: ['fabric-api.jar', 'lithium-fabric-0.1+mc26.3.jar'] });
+		assert.deepEqual(await readdir(path.join(template, 'mods')), ['fabric-api.jar'], 'the machine template stays as it was');
+		const done = JSON.parse(await readFile(path.join(job.outDir, 'done.json'), 'utf8'));
+		assert.equal(done.template, 'template-26.3+lithium-fabric-0.1+mc26.3');
+		assert.deepEqual(done.arms.new.serverMods, { logs: 1, listed: { lithium: 1 } });
+		assert.deepEqual(done.arms.old.serverMods, { logs: 1, listed: { lithium: 0 } });
+		// A second room on the same machine reuses the copy.
+		await writeFile(path.join(job.outDir, '..', 'job2.json'), JSON.stringify({ ...job, outDir: path.join(dir, 'out', 'r2') }));
+		assert.equal(spawnSync(process.execPath, [helper, path.join(dir, 'out', 'job2.json')], { encoding: 'utf8' }).status, 0);
+		assert.deepEqual((await readdir(dir)).filter(name => name.startsWith('template-26.3')).sort(), ['template-26.3', 'template-26.3+lithium-fabric-0.1+mc26.3']);
+	} finally { await rm(dir, { recursive: true, force: true }); }
+});
+
 const REGION = 'server/world/dimensions/minecraft/overworld/region/r.0.0.mca';
 /** An arm folder as a room leaves it: region and entity files, the small world files, logs, Watcher rows and its own results. */
 async function writeWorldArm(dir, files = {}) {
