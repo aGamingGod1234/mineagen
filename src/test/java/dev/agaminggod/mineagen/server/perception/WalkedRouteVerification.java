@@ -44,7 +44,20 @@ public final class WalkedRouteVerification {
   for(int y=64;y<=70;y++) straight.step(p("ow",5,y,0),false);
   for(int x=6;x<=10;x++) straight.step(p("ow",x,70,0),false);
   check(straight.columnShortcuts(p("ow",5,64,0),p("ow",10,70,0),12,4,java.util.Set.of()).isEmpty(),"the walked shaft itself is no shortcut");
-  return 16;
+  // A stair dug down (step forward, then drop in place) is walked back up as diagonal steps, not a pillar per step.
+  WalkedRoute stair=new WalkedRoute();
+  for(int i=0;i<=6;i++) {stair.step(p("ow",0,70-i,i),false);stair.step(p("ow",0,70-i,i+1),false);}
+  stair.step(p("ow",0,63,7),false);
+  WalkedRoute.Path climb=stair.path(p("ow",0,63,7),p("ow",0,70,0));
+  boolean straightUp=false;
+  for(int i=1;i<climb.points().size();i++) {WalkedRoute.Point a=climb.points().get(i-1),b=climb.points().get(i);straightUp|=a.x()==b.x() && a.z()==b.z();}
+  check(!straightUp,"no stair step is climbed straight up");
+  check(climb.points().size()<=5,"the stair compacts into a few diagonal legs");
+  WalkedRoute rungs=new WalkedRoute();
+  for(int y=64;y<=68;y++) {rungs.step(p("ow",0,y,0),false);rungs.mark(p("ow",0,y,0),WalkedRoute.CLIMBABLE);}
+  rungs.step(p("ow",1,68,0),false);
+  check(rungs.path(p("ow",0,64,0),p("ow",1,68,0)).points().contains(p("ow",0,68,0)),"a ladder's top rung stays a waypoint");
+  return 19;
  }
  private static WalkedRoute.Point p(String d,int x,int y,int z) {return new WalkedRoute.Point(d,x,y,z);}
  private static void check(boolean condition,String message) {if(!condition) throw new AssertionError(message);}

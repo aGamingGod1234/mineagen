@@ -65,8 +65,16 @@ public final class WalkedRoute {
   List<Point> full=new ArrayList<>(); Set<String> risks=new LinkedHashSet<>();
   for (Point at=end; at!=null; at=parent.get(at)) { full.add(at); risks.addAll(hazards.getOrDefault(at,Set.of())); }
   Collections.reverse(full);
-  List<Point> compact=new ArrayList<>();
+  // A dug stair is remembered as drop-in-place then step forward (or step then drop), so every stair step reads as a
+  // straight-up waypoint. Walk it as the stair it is: drop the corner footstep when the body's way passes through the
+  // corner's own open cells (rise in the corner's column then step out, or step into it then drop), never a ladder rung.
+  List<Point> walk=new ArrayList<>();
   for (Point p: full) {
+   if (walk.size()>=2 && stairCorner(walk.get(walk.size()-2),walk.getLast(),p) && !climbable(walk.getLast())) walk.removeLast();
+   walk.add(p);
+  }
+  List<Point> compact=new ArrayList<>();
+  for (Point p: walk) {
    if (compact.size()>=2) {
     Point a=compact.get(compact.size()-2),b=compact.getLast();
     if (a.dimension.equals(p.dimension) && b.dimension.equals(p.dimension) && a.distance(p)<=4
@@ -80,6 +88,12 @@ public final class WalkedRoute {
   double walked=from.distance(full.getFirst())+end.distance(target);
   for(int i=1;i<full.size();i++) if(full.get(i-1).dimension.equals(full.get(i).dimension)) walked+=full.get(i-1).distance(full.get(i));
   return new Path(List.copyOf(compact),walked,Set.copyOf(risks));
+ }
+ static boolean stairCorner(Point a,Point b,Point p) {
+  if (!a.dimension.equals(b.dimension) || !b.dimension.equals(p.dimension)) return false;
+  boolean up=a.x==b.x && a.z==b.z && b.y==a.y+1 && p.y==b.y && Math.abs(p.x-b.x)+Math.abs(p.z-b.z)==1;
+  boolean down=a.y==b.y && Math.abs(a.x-b.x)+Math.abs(a.z-b.z)==1 && p.x==b.x && p.z==b.z && p.y==b.y-1;
+  return up || down;
  }
  /**
   * Remembered footsteps straight above from (same column, at most maxRise higher) whose walked way on to the target is

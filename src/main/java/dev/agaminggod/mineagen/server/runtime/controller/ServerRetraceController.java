@@ -92,6 +92,7 @@ public final class ServerRetraceController implements ServerController {
      if(!ServerLookController.turnToward(p,new net.minecraft.world.phys.Vec3(next.x()+0.5,p.getY()+1.0,next.z()+0.5))) return TickResult.running(progress());
     } else if(navigate && horizontal>0.4 && Math.abs(p.getY()-target.y())<=2 && !ServerLookController.turnToward(p,new net.minecraft.world.phys.Vec3(target.x()+0.5,target.y()+1.0,target.z()+0.5))) return TickResult.running(progress());
     boolean down=target.y()<p.getY()-0.6 && horizontal<0.8;
+    if(ServerTravelController.DEBUG) LOGGER.info("RETRACE_LEG {}..{}/{} from {} to {} by {}",index,legEnd,path.points().size(),RouteMemory.point(p),target,navigate?"navigation":down && build?"shaft down":"travel");
     leg=navigate ? new ServerNavigationController(new net.minecraft.world.phys.Vec3(target.x()+0.5,target.y(),target.z()+0.5),verticalNext?0.2:0.3,false,nowEpochMs,timeoutMs-(nowEpochMs-startedAt)) : down && build ? shaft.apply(target.y()) : new ServerTravelController(target.x()+0.5,target.y(),target.z()+0.5,1,timeoutMs-(nowEpochMs-startedAt),build,stop,health,modify,nowEpochMs).routeLeg();
    }
    TickResult result=leg.tick(p,nowEpochMs);
