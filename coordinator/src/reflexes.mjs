@@ -24,7 +24,9 @@ export const DEFAULT_REFLEXES = Object.freeze([
 	// The same drawn bow with no shield in either hand (it sleeps while one is held): step across the shot's line. Shieldless,
 	// the body stood still facing the archer and took every arrow (no-shield archers room: died 10 of 10, 35-39 HP taken).
 	// A hold like default-arrow: its release grace bridges a volley, so two skeletons do not fire it 40 times a minute.
-	{ id: 'default-arrow-dodge', kind: 'trigger', priority: 7, when: [{ type: 'incoming_projectile', withinS: 0.6, drawn: true }], do: { type: 'dodge' }, maxMs: 10_000, ttlMs: 3_600_000 },
+	// Priority 6, under default-retreat: at 7 a volley held the body through the low-health run (only a higher priority
+	// preempts), and over default-defend, so a draw takes the body from defend's stand to step aside.
+	{ id: 'default-arrow-dodge', kind: 'trigger', priority: 6, when: [{ type: 'incoming_projectile', withinS: 0.6, drawn: true }], do: { type: 'dodge' }, maxMs: 10_000, ttlMs: 3_600_000 },
 	// Air and fire must interrupt a retreat already in progress; only a strictly higher priority preempts.
 	{ id: 'default-retreat', kind: 'trigger', priority: 7, when: [{ type: 'health_below', value: 7 }, { type: 'hostile_near', within: 6 }], do: { type: 'sprint_away', blocks: 10 }, cooldownMs: 5_000, ttlMs: 3_600_000 },
 	// Each firing eats one item. A stance retries after cooldown while hungry and releases if a hostile comes within 8 blocks.

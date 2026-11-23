@@ -56,6 +56,11 @@ public final class ArrowDodgeVerification {
 		ReflexActions.Dodge.Answer again = ReflexActions.Dodge.answer(first, 7, 160L);
 		check(again.side() == -1, "the same skeleton drawing again is met on the other side");
 		check(ReflexActions.Dodge.answer(again, 8, 162L).side() == 1, "a second skeleton's draw is a new draw too");
+		// A loaded crossbow has no draw start: its hold keeps the side while a shot was seen coming in the last moments.
+		ReflexActions.Dodge.Answer bolt = ReflexActions.Dodge.held(again, 9, 300L, Long.MIN_VALUE / 2);
+		check(bolt.side() == 1 && bolt.shooterId() == 9, "a crossbow's loaded hold first seen is a new shot");
+		check(ReflexActions.Dodge.held(bolt, 9, 310L, 309L) == bolt, "the same hold keeps its side tick to tick");
+		check(ReflexActions.Dodge.held(bolt, 9, 345L, 320L).side() == -1, "after the reload gap the next loaded hold takes the other side");
 	}
 
 	private static void unsafeFootingIsRefused() {
@@ -87,10 +92,12 @@ public final class ArrowDodgeVerification {
 		ReflexSpec.Condition when = dodge.when().getFirst();
 		check("incoming_projectile".equals(when.type()) && when.flag("drawn") && when.number("withinS", 0.0D) == 0.6D,
 				"it answers the same drawn bow as the arrow shield");
-		check(dodge.priority() == 7 && dodge.maxMs() == 10_000L, "priority 7 with a 10 s hold");
+		check(dodge.priority() == 6 && dodge.maxMs() == 10_000L, "priority 6 with a 10 s hold");
+		check(dodge.priority() < rule("default-retreat").priority(), "the low-health retreat preempts a dodge mid-volley");
+		check(dodge.priority() > rule("default-defend").priority(), "a draw takes the body from defend's stand");
 		ReflexActions.Dodge behaviour = new ReflexActions.Dodge();
 		check(behaviour.holdsWhileTrue() && behaviour.doneAtMaxS(), "it holds through a volley and its maxS ends it done, not failed");
-		check(!behaviour.settled(), "while answering a draw it keeps its priority: a lower rule (defend, eat) cannot take the body mid-draw");
+		check(!behaviour.settled(), "a dodge starts unsettled: only its between-shots watch lets a lower rule in");
 		// Skeletons draw 20 ticks after a 20-40 tick interval: a 30-tick grace joins a volley into one firing, so two of them
 		// fire it at most about once per 2 s, under the 40-a-minute limit that would switch it off.
 		check(ReflexActions.Dodge.GRACE_TICKS >= 20L && 60.0D * 20.0D / (ReflexActions.Dodge.GRACE_TICKS + ReflexSensors.DRAW_RAISE_TICKS) < ReflexScheduler.MAX_FIRINGS_PER_MINUTE,
@@ -113,6 +120,7 @@ public final class ArrowDodgeVerification {
 		check(ReflexEngine.firingMovesBody(new ReflexActions.TakeCover(8, true)), "take_cover moves the body");
 		check(ReflexEngine.firingMovesBody(new ReflexActions.SprintAway(8.0D)), "sprint_away moves the body");
 		check(!ReflexEngine.firingMovesBody(new ReflexActions.Defend()), "a defend standing its ground does not");
+		check(ReflexActions.Dodge.MOVE_AFTER_TICKS < 25, "a crossbow's 25-tick reload ends one loaded hold before the next");
 		check(!ReflexEngine.firingMovesBody(null), "nothing running does not");
 	}
 

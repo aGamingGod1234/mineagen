@@ -620,10 +620,11 @@ final class ReflexActions {
 
 		/**
 		 * Backing out, walling in or walking to cover: the body is already leaving the shot line. Stepping inland off a brink
-		 * or bracing on one counts too: a strafe there would pull the body off the step that keeps it from the drop.
+		 * or bracing on one counts too, and so does waiting to land after a hit's hop there: a strafe would pull the body off
+		 * the step that keeps it from the drop.
 		 */
 		boolean movingBody() {
-			return backOut != null || walls != null || cover != null || inland != null || braceInPlace;
+			return backOut != null || walls != null || cover != null || inland != null || braceInPlace || landing;
 		}
 
 		@Override
@@ -644,6 +645,8 @@ final class ReflexActions {
 		private int inlandTicks;
 		/** Set during a tick: no stand off the brink was found, so the body braces where it is (the guard leans inland). */
 		private boolean braceInPlace;
+		/** Set during a tick: in the air after a hit off a brink, waiting to land before judging it. */
+		private boolean landing;
 		/** Until this tick the body braces in place without looking again for a stand (the search reads many columns). */
 		private int braceUntil = Integer.MIN_VALUE;
 		private String braceNote;
@@ -653,6 +656,7 @@ final class ReflexActions {
 		@Override
 		public Step tick(Context context, Consumer<AgentInputState> input) {
 			braceInPlace = false;
+			landing = false;
 			inlandTouched = false;
 			if (context.player().onGround()) airTicks = 0;
 			Step step = act(context, input);
@@ -674,6 +678,7 @@ final class ReflexActions {
 			if (!player.onGround()) airTicks++;
 			// Afloat, climbing or caught in a web is not a hit's hop: no wait there, and none past a second.
 			if (!player.onGround() && !player.isInWater() && !player.isInLava() && !player.onClimbable() && airTicks <= 20) {
+				landing = true;
 				dev.agaminggod.mineagen.server.runtime.controller.BrinkGuard.braceArmed(player);
 				input.accept(look(player, ReflexSensors.aimPoint(shooter), 0.0F, 0.0F, false, false, player.getInventory().getSelectedSlot(),
 						InteractionHand.MAIN_HAND));
@@ -1070,6 +1075,8 @@ final class ReflexActions {
 		 * same entry, so one draw gets one side however many firings start during it, and the next draw the other side.
 		 */
 		private static final Map<java.util.UUID, Answer> ANSWERED = new java.util.concurrent.ConcurrentHashMap<>();
+		/** Per body, the game tick any dodge last saw a shot coming or in flight: a loaded crossbow's hold has no draw start. */
+		private static final Map<java.util.UUID, Long> SEEN = new java.util.concurrent.ConcurrentHashMap<>();
 		/** A draw by its shooter and the game tick it began, and the side that met it. */
 		record Answer(int shooterId, long drawStart, int side) { }
 		private int side;
@@ -1118,20 +1125,42 @@ final class ReflexActions {
 			return new Answer(shooterId, drawStart, nextSide(last == null ? 0 : last.side()));
 		}
 
+		/**
+		 * The side for a shot with no draw start (a loaded crossbow held at the body): the answer already given to this
+		 * shooter while any dodge saw its shot coming within {@link #MOVE_AFTER_TICKS} ticks, else a new one (the other side).
+		 * Between two crossbow shots the reload (25 ticks) is a gap, so each loaded hold is its own shot.
+		 */
+		static Answer held(Answer last, int shooterId, long now, long lastSeen) {
+			if (last != null && last.shooterId() == shooterId && now - lastSeen <= MOVE_AFTER_TICKS) return last;
+			return answer(last, shooterId, now);
+		}
+
 		@Override
 		public Step tick(Context context, Consumer<AgentInputState> input) {
 			ServerPlayer player = context.player();
 			Entity focus = context.focus() != null && context.focus().isAlive() ? context.focus() : null;
 			Entity from = focus instanceof Projectile shot && shot.getOwner() != null ? shot.getOwner() : focus;
+			// Two archers drawing at once: the draw already answered is answered until it ends. The focus is the nearer of the
+			// two, and following it as the strafe changes which is nearer flipped the side back and forth on both lines.
+			if (shooter instanceof Mob answering && answering != from && answering.isAlive() && !(focus instanceof Projectile)
+					&& from instanceof Mob && ReflexSensors.shotComing(answering, player)) {
+				from = answering;
+				focus = answering;
+			}
 			if (from != null) shooter = from;
 			// Only a live threat keeps the strafe going: the engine hands a firing its last focus while the condition is false,
-			// a skeleton between draws or an arrow stuck in the ground.
-			boolean drawing = from instanceof Mob mob && mob.isUsingItem();
+			// a skeleton between draws or an arrow stuck in the ground. A loaded crossbow aimed at the body is one too (the
+			// drawn condition reads it), held 20-39 ticks before the bolt flies.
+			boolean drawing = from instanceof Mob mob && ReflexSensors.shotComing(mob, player);
 			boolean flying = focus instanceof Projectile shot && ReflexSensors.inFlight(shot);
 			if (drawing || flying) {
 				lastThreatTick = player.tickCount;
+				long gameTime = player.level().getGameTime();
 				Answer last = ANSWERED.get(player.getUUID());
-				Answer now = drawing ? answer(last, from.getId(), player.level().getGameTime() - ((Mob) from).getTicksUsingItem())
+				Long seen = SEEN.put(player.getUUID(), gameTime);
+				Mob drawer = drawing ? (Mob) from : null;
+				Answer now = drawer != null && drawer.isUsingItem() ? answer(last, drawer.getId(), gameTime - drawer.getTicksUsingItem())
+						: drawer != null ? held(last, drawer.getId(), gameTime, seen == null ? Long.MIN_VALUE / 2 : seen)
 						: last != null ? last : answer(null, from == null ? -1 : from.getId(), Long.MIN_VALUE);
 				if (now != last) ANSWERED.put(player.getUUID(), now);
 				if (now.side() != side) lastHeading = null;

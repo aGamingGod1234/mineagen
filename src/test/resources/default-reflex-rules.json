@@ -149,7 +149,7 @@
 	{
 		"id": "default-arrow-dodge",
 		"kind": "trigger",
-		"priority": 7,
+		"priority": 6,
 		"when": [
 			{
 				"type": "incoming_projectile",
