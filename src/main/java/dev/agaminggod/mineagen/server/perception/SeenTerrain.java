@@ -464,6 +464,10 @@ public final class SeenTerrain {
 		return new Source<>() {
 			// Built on the first sight ray: most ticks answer every read from memory.
 			private ObservationVisibility.Frame sight;
+			// A frame built by sees() is asked each cell at most once (the Reader resolves a cell once, and seesNow
+			// replaces the frame), so it skips the frame's memo. A frame built by seesNow() keeps it: a later sees()
+			// can ask that same cell again once another Reader of this pose has taken it out of the shared hidden set.
+			private boolean sightMemoized;
 
 			@Override
 			public BlockState live(int x, int y, int z) {
@@ -474,12 +478,13 @@ public final class SeenTerrain {
 			@Override
 			public boolean sees(int x, int y, int z) {
 				if (sight == null) sight = ObservationVisibility.frame(level, player);
-				return sight.seesCell(cursor.set(x, y, z));
+				return sightMemoized ? sight.seesCell(cursor.set(x, y, z)) : sight.seesCellOnce(cursor.set(x, y, z));
 			}
 
 			@Override
 			public boolean seesNow(int x, int y, int z) {
 				sight = ObservationVisibility.frame(level, player);
+				sightMemoized = true;
 				return sight.seesCell(cursor.set(x, y, z));
 			}
 
