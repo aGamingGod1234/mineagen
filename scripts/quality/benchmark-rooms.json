@@ -1808,7 +1808,7 @@
    "estMinutes": 1.2,
    "tickRate": 20,
    "bar": "none",
-   "reads": "no pass bar: OUT/runs.json died, healthLost, defendFired; a run where no wall went up (so no creeper came) is notExercised; exit 0 (errors go to error.txt)"
+   "reads": "no pass bar: OUT/runs.json died, healthLost, defendFired; the creeper comes on the first wall, defend or arrow-dodge firing; a run with none is notExercised; exit 0 (errors go to error.txt)"
   },
   {
    "room": "defend-command",
@@ -1820,7 +1820,7 @@
    "estMinutes": 1.2,
    "tickRate": 20,
    "bar": "none",
-   "reads": "no pass bar: OUT/runs.json died, healthLost, defendFired; a run where no wall went up (so no command was sent) is notExercised; exit 0 (errors go to error.txt)"
+   "reads": "no pass bar: OUT/runs.json died, healthLost, defendFired; the command comes on the first wall, defend or arrow-dodge firing; a run with none is notExercised; exit 0 (errors go to error.txt)"
   },
   {
    "room": "defend-shallow",
