@@ -401,13 +401,17 @@ test('a room home drops the region files of each arm that passed, judged as the 
 			errorTxt: [ok, { 'error.txt': 'boom' }],
 			corrupt: [ok, { 'results.json': '{' }],
 			asked: [ok, { 'tick.json': { ticks: 5 } }],
+			askedZero: [ok, { 'tick.json': { ticks: 5 } }],
+			integrity: [ok, { 'results.json': { integrity: [{ file: 'samples.jsonl', error: 'cut short' }] } }],
+			// Documented gap: without the room's definition a survival room with no death record cannot be failed here.
+			noDeathRecord: [ok, { 'results.json': { pearls: 3 } }],
 		};
 		const done = { room: 'r', arms: {} };
 		for (const [arm, [run, files]] of Object.entries(arms)) { done.arms[arm] = run; await writeWorldArm(path.join(dir, arm), files); }
-		const worlds = await slimRoom({ roomDir: dir, done, lines: [{ arm: 'asked', env: { KEEP_WORLDS: '1' } }, { arm: 'exitOnly', env: { ARENA_FIXTURE_KEEP: '0' } }] });
+		const worlds = await slimRoom({ roomDir: dir, done, lines: [{ arm: 'asked', env: { KEEP_WORLDS: '1' } }, { arm: 'askedZero', env: { BUILD_KEEP: '0' } }, { arm: 'exitOnly', env: { ARENA_FIXTURE_KEEP: '' } }] });
 		const kept = { failRow: 'row FAIL', short: 'a planned row is missing', noSummary: 'missing or corrupt summary', garbled: 'missing or corrupt summary',
-			exit1: 'did not exit 0', timedOut: 'did not exit 0', died: 'died', passFalse: 'pass false', errorTxt: 'error.txt', corrupt: 'corrupt JSON', asked: 'keep switch' };
-		for (const arm of ['pass', 'exitOnly']) {
+			exit1: 'did not exit 0', timedOut: 'did not exit 0', died: 'died', passFalse: 'pass false', errorTxt: 'error.txt', corrupt: 'corrupt JSON', asked: 'keep switch', askedZero: 'keep switch', integrity: 'integrity' };
+		for (const arm of ['pass', 'exitOnly', 'noDeathRecord']) {
 			assert.deepEqual(worlds[arm], { files: 3, bytes: 5196, dropped: 3 }, arm);
 			assert.deepEqual(await regionFiles(path.join(dir, arm)), [], `${arm}: region files dropped`);
 			for (const rel of ['server/world/level.dat', 'server/logs/latest.log', 'server/arena-watch/a-danger.jsonl']) assert.ok(existsSync(path.join(dir, arm, rel)), `${arm}: ${rel} stays`);

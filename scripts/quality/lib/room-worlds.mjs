@@ -8,8 +8,9 @@ import { roomVerdict } from './fixture-run.mjs';
 import { armRows } from './room-batch-core.mjs';
 
 // A line that asks its fixture to keep its world (ARENA_FIXTURE_KEEP, KEEP_WORLDS, BUILD_KEEP, KEEP, ...) keeps it here too.
+// Any value counts, as most of those fixtures read it (BUILD_KEEP=0 keeps the build room's world).
 const KEEP_SWITCH = /(^|_)KEEP(_WORLDS?)?$/;
-export const asksKeep = env => Object.entries(env ?? {}).some(([key, value]) => KEEP_SWITCH.test(key) && value !== '' && value !== '0');
+export const asksKeep = env => Object.entries(env ?? {}).some(([key, value]) => KEEP_SWITCH.test(key) && value !== '' && value != null);
 
 /**
  * Why an arm keeps its worlds, or null when it shows a pass. It judges the way benchmark-score.mjs collectRuns does
