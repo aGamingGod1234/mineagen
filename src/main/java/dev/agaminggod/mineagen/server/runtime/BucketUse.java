@@ -91,18 +91,20 @@ final class BucketUse {
 	/**
 	 * An empty bucket aimed at flowing fluid: its vanilla ray passes flowing cells (SOURCE_ONLY) and meets whatever is
 	 * behind them, usually the floor. A player scoops the source the flow comes from, so the aim moves to the nearest
-	 * source connected to the aimed flow that the ray can meet. An aim whose ray already meets a source is kept.
+	 * source connected to the aimed flow that the ray can meet. Even an aim whose ray happens to cross a source moves:
+	 * past a source toward far flow it grazes the surface, and a body the flow pushes then misses it (End refill room).
 	 */
 	private static Vec3 flowAim(Player player, Vec3 requested, BlockPos cell, FluidState flowing) {
-		BlockHitResult direct = VanillaItemRay.atAim(player, requested, ClipContext.Fluid.SOURCE_ONLY);
-		if (direct.getType() == HitResult.Type.BLOCK && player.level().getFluidState(direct.getBlockPos()).isSource()) return requested;
 		BlockPos unreachable = null;
 		for (BlockPos source : flowSources(player.level(), cell, flowing)) {
-			Vec3 point = visibleSourcePoint(player, source);
+			// A source whose nearest face is past reach has no point the bucket meets: skip its rays.
+			Vec3 point = player.getEyePosition().distanceTo(Vec3.atCenterOf(source)) > player.blockInteractionRange() + 0.9D ? null
+					: visibleSourcePoint(player, source);
 			if (point != null) return point;
 			if (unreachable == null) unreachable = source;
 		}
 		Vec3 eye = player.getEyePosition();
+		BlockHitResult direct = VanillaItemRay.atAim(player, requested, ClipContext.Fluid.SOURCE_ONLY);
 		String aimed = "The aim at " + xyz(cell) + " is " + fluidId(flowing) + " (flowing); an empty bucket fills only from a source";
 		if (unreachable == null) throw new AgentDomainException("TARGET_OBSTRUCTED", aimed
 				+ ", and no source feeds that flow; toward the aim the bucket ray meets " + describe(player.level(), eye, direct, player.blockInteractionRange()));
