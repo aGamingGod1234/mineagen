@@ -427,7 +427,11 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 					// 2. Onto the cell beside the wall, feet centred, and pillar a whole column to the crystal's feet height.
 					// The facts' descent needs a water bucket in the hotbar: without one, the method is not used at all.
 					if (!hotbarBucket(await view().catch(() => null))) await fetchWater();
-					if (!hotbarBucket(await view().catch(() => null))) { note(`no water bucket in the hotbar: caged crystal ${where(c)} left for now`, null); c.gaveUp = true; return; }
+					const gate = await view().catch(() => null);
+					if (!hotbarBucket(gate)) {
+						const buckets = (gate?.inventory?.items ?? []).filter(i => /bucket/.test(i.itemId)).map(i => `${i.itemId.replace('minecraft:', '')}@${i.slot}`).join(' ') || 'none';
+						note(`no water bucket in the hotbar (${buckets}): caged crystal ${where(c)} left for now`, null); c.gaveUp = true; return;
+					}
 					if (await over('to the cage')) return;
 					r = await act('travel_to', { x: S.x + 0.5, y: base, z: S.z + 0.5, tolerance: 1, build: true, timeoutMs: 60000 }); note('to the spot beside the cage', r);
 					let f = await feetNow();

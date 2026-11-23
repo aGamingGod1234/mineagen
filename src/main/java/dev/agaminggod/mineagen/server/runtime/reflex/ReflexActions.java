@@ -1758,6 +1758,7 @@ final class ReflexActions {
 		private BlockPos heldWater;
 		private int holdTicks, calmTicks, scoopTicks;
 		static final double HOLD_ENDERMAN_RANGE = 16.0D;
+		static final double HOLD_CLOSE_RANGE = 6.0D;
 		static final double HOLD_DRAGON_RANGE = 24.0D;
 		static final int HOLD_TICKS = 200;
 		static final int CALM_TICKS = 10;
@@ -1828,7 +1829,9 @@ final class ReflexActions {
 			}
 			if (used && bucket && "feet".equals(where)) {
 				BlockPos source = crosshair.getBlockPos().above();
-				if ("minecraft:water_bucket".equals(item) && angryEndermanNear(player) && level.getFluidState(source).isSourceOfType(net.minecraft.world.level.material.Fluids.WATER)) {
+				// Poured with an angry enderman about (after the body or not): held while one is near, else scooped straight back.
+				if ("minecraft:water_bucket".equals(item) && !player.level().getEntitiesOfClass(McCompat.ENDERMAN, player.getBoundingBox().inflate(HOLD_ENDERMAN_RANGE),
+						enderman -> enderman.isAlive() && McCompat.endermanCreepy(enderman)).isEmpty() && level.getFluidState(source).isSourceOfType(net.minecraft.world.level.material.Fluids.WATER)) {
 					heldWater = source;
 					placedHand = hand;
 					placedSlot = hand == InteractionHand.MAIN_HAND ? slot : player.getInventory().getSelectedSlot();
@@ -1839,14 +1842,22 @@ final class ReflexActions {
 			return used ? Step.done("placed " + item + " " + where) : Step.failed("click accepted but nothing was placed");
 		}
 
+		/**
+		 * An angry enderman after this body within 16 blocks, or any angry one within 6. One angry at something else further
+		 * off does not keep the water down: the rule fires on any angry one within 8, and holding for those left the bucket
+		 * empty again (one dragon-room run poured 12 times).
+		 */
 		private static boolean angryEndermanNear(ServerPlayer player) {
-			return !player.level().getEntitiesOfClass(McCompat.ENDERMAN, player.getBoundingBox().inflate(HOLD_ENDERMAN_RANGE),
-					enderman -> enderman.isAlive() && McCompat.endermanCreepy(enderman) && player.distanceTo(enderman) <= HOLD_ENDERMAN_RANGE).isEmpty();
+			return !player.level().getEntitiesOfClass(McCompat.ENDERMAN, player.getBoundingBox().inflate(HOLD_ENDERMAN_RANGE), enderman -> {
+				if (!enderman.isAlive() || !McCompat.endermanCreepy(enderman)) return false;
+				double distance = player.distanceTo(enderman);
+				return distance <= HOLD_CLOSE_RANGE || distance <= HOLD_ENDERMAN_RANGE && enderman.getTarget() == player;
+			}).isEmpty();
 		}
 
 		/**
 		 * Standing in water poured against an angry enderman: still, looking down at the water (never at an enderman's eyes),
-		 * until no angry one has been within 16 blocks for half a second, then the emptied bucket takes the source back. The
+		 * until none has been near ({@link #angryEndermanNear}) for half a second, then the emptied bucket takes the source back. The
 		 * hold ends with the water left (as before) after 10 s, when the dragon comes within 24 blocks (its swoop and breath
 		 * want the body free), or when the body has left the source.
 		 */
