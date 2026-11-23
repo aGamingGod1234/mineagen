@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { DEFAULT_REFLEXES, DIMENSION_REFLEXES, MAX_REFLEXES, MAX_REFLEX_RULES, ReflexBook, STANCES, STANCE_SETTINGS, instinctsEnabled, materializeDefault, normalizeReflexEntries, resolveAutoStance } from '../src/reflexes.mjs';
+import { DEFAULT_REFLEXES, MAX_REFLEXES, MAX_REFLEX_RULES, ReflexBook, STANCES, STANCE_SETTINGS, instinctsEnabled, materializeDefault, normalizeReflexEntries, resolveAutoStance } from '../src/reflexes.mjs';
 
 const OVERWORLD = 'minecraft:overworld', NETHER = 'minecraft:the_nether';
 const live = (dimension = OVERWORLD) => ({ world: { dimension }, player: { health: 20 } });
@@ -30,7 +30,7 @@ test('the model switches a default off by id until the next respawn or dimension
 	book.apply('a', normalizeReflexEntries([{ id: '*', remove: true }]));
 	assert.deepEqual(ids(book), ['default-lava*', 'default-lava-flow*', 'default-fire*', 'default-air*', 'default-creeper*', 'default-suffocate*', 'default-fireball*', 'default-arrow*', 'default-arrow-dodge*', 'default-retreat*', 'default-eat*', 'default-defend*', 'default-blaze-cover*', 'default-cover*', 'default-owed-drops*'], '"*" leaves the defaults');
 	assert.equal(book.observeContext('a', live(NETHER)), true, 'a dimension change arms the defaults again');
-	assert.deepEqual(ids(book), ['default-lava*', 'default-lava-flow*', 'default-fire*', 'default-air*', 'default-creeper*', 'default-suffocate*', 'default-fireball*', 'default-arrow*', 'default-arrow-dodge*', 'default-retreat*', 'default-eat*', 'default-defend*', 'default-blaze-cover*', 'default-cover*', 'default-owed-drops*', 'default-edge*', 'default-burn-cover*']);
+	assert.deepEqual(ids(book), ['default-lava*', 'default-lava-flow*', 'default-fire*', 'default-air*', 'default-creeper*', 'default-suffocate*', 'default-fireball*', 'default-arrow*', 'default-arrow-dodge*', 'default-retreat*', 'default-eat*', 'default-defend*', 'default-blaze-cover*', 'default-cover*', 'default-owed-drops*', 'default-edge*']);
 	book.apply('a', normalizeReflexEntries([{ id: 'default-air', remove: true }]));
 	assert.equal(book.observeContext('a', dead()), false);
 	assert.equal(book.observeContext('a', live(NETHER)), true, 'a respawn arms the defaults again');
@@ -46,8 +46,7 @@ test('a default the model replaces by id is its own rule and is not overwritten;
 	assert.equal(lava.when[0].type, 'lava_flowing', 'the model\'s replacement survives a dimension change');
 	assert.equal(book.list('a').find((row) => row.id === 'default-lava').default, undefined);
 	book.apply('a', normalizeReflexEntries(Array.from({ length: MAX_REFLEXES - 1 }, (_, index) => ({ ...FIRE, id: `own-${index}` }))));
-	// In the Nether: its own default (burn cover) is armed beside the rest.
-	assert.equal(book.payload('a').rules.length, MAX_REFLEXES + DEFAULT_REFLEXES.length - 1 + DIMENSION_REFLEXES['minecraft:the_nether'].length);
+	assert.equal(book.payload('a').rules.length, MAX_REFLEXES + DEFAULT_REFLEXES.length - 1);
 	assert.throws(() => book.apply('a', normalizeReflexEntries([{ ...FIRE, id: 'one-more' }])), /At most 12 reflexes of your own besides the default rules/);
 });
 
@@ -231,20 +230,4 @@ test('flag on: the fortress stance takes effect without the 3 s dwell', () => {
 	assert.equal(book.stance('a'), 'fortress');
 	assert.equal(valueOf(book, 'default-retreat', 'health_below'), 14);
 	assert.match(book.takeReport('a'), /; stance fortress \(auto\)/);
-});
-
-test('burning in a blaze\'s sight is a Nether default: out of the fireballs at any health; MINEAGEN_BURN_COVER=off leaves it out', async () => {
-	const book = new ReflexBook();
-	book.observeContext('a', live('minecraft:the_nether'));
-	const burn = book.rules('a').find((rule) => rule.id === 'default-burn-cover');
-	assert.deepEqual(burn.when.map((condition) => condition.type), ['on_fire', 'exposed']);
-	assert.ok(burn.when[1].mobs.includes('minecraft:blaze'));
-	assert.equal(burn.do.type, 'take_cover');
-	const overworld = new ReflexBook();
-	overworld.observeContext('a', live());
-	assert.ok(!overworld.rules('a').some((rule) => rule.id === 'default-burn-cover'), 'not outside the Nether');
-	const { execFileSync } = await import('node:child_process');
-	const off = execFileSync(process.execPath, ['--input-type=module', '-e', "const m = await import(process.argv[1]); console.log(m.DIMENSION_REFLEXES['minecraft:the_nether'].length)", new URL('../src/reflexes.mjs', import.meta.url).href],
-		{ env: { ...process.env, MINEAGEN_BURN_COVER: 'off' }, encoding: 'utf8' });
-	assert.equal(off.trim(), '0');
 });

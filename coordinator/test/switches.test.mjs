@@ -145,7 +145,6 @@ const READS = [
 	['experience', 'coordinator/src/experience-store.mjs', "getSwitch('experience', environment)"],
 	['experience.frozen', 'coordinator/src/experience-store.mjs', "getSwitch('experience.frozen', environment)"],
 	['instincts', 'coordinator/src/reflexes.mjs', "getSwitch('instincts', environment)"],
-	['reflex.burnCover', 'coordinator/src/reflexes.mjs', "getSwitch('reflex.burnCover')"],
 	['instincts', 'src/main/java/dev/agaminggod/mineagen/server/runtime/reflex/Instincts.java', 'Switches.get("instincts")'],
 	['travel.walkAround', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerTravelController.java', 'Switches.get("travel.walkAround")'],
 	['fight.chargeGuard', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerFightUntilController.java', 'static final boolean CHARGE_GUARD = dev.agaminggod.mineagen.server.Switches.get("fight.chargeGuard");'],
