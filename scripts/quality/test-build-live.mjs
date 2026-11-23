@@ -676,11 +676,12 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 		row.deathEvidence = deathResult;
 		if (!deathResult.valid) (row.integrity ??= []).push({ file: 'qo_death', error: 'Missing or decreasing death counter' });
 		row.finishedAt = Date.now();
-		// A fall: 3+ blocks down between two 0.5 s samples (vanilla fall damage starts above 3; walking down steps drops 1-2).
+		// A fall: more than 3 blocks down between two 0.5 s samples (vanilla fall damage starts above 3, so a 3-block drop off
+		// a ledge is harmless; walking down steps drops 1-2).
 		row.fell = 0;
 		for (let i = 1; i < trail.length; i++) row.fell = Math.max(row.fell, Math.round((trail[i - 1][1] - trail[i][1]) * 10) / 10);
-		// pass: the spot's expectation held and the body came to no harm (no death, damage, fire or lava, no fall of 2+).
-		const safe = row.deaths === 0 && row.damageTaken === 0 && row.lavaContact === 0 && row.fireContact === 0 && row.fell < 3;
+		// pass: the spot's expectation held and the body came to no harm (no death, damage, fire or lava, no fall over 3).
+		const safe = row.deaths === 0 && row.damageTaken === 0 && row.lavaContact === 0 && row.fireContact === 0 && row.fell <= 3;
 		const met = spot.expectCode ? row.code === spot.expectCode
 			: spot.expect === 'portal' ? row.lit === true
 			: spot.expect === 'nether' ? row.inNether === true
