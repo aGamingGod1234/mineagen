@@ -13,6 +13,7 @@
 import { execFileSync, spawn } from 'node:child_process';
 import { copyFile, mkdir, mkdtemp, readFile, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
+import { PACK_EXCLUDES } from './room-batch-core.mjs';
 
 export function boat(args, { timeoutMs = 10 * 60_000, input = null, binary = false, anyExit = false, signal = null } = {}) {
 	return new Promise((resolve, reject) => {
@@ -88,10 +89,7 @@ export function readWait(id, data) {
 	if (data.length > 2 && data.subarray(0, 2).equals(GZIP)) return data;
 	throw new Error(`no answer from ${id}${data.length ? `: ${data.subarray(0, 200).toString().trim()}` : ''}`);
 }
-// secret.txt is a throwaway per-run RCON secret; worlds are already deleted unless kept. A fixture's server folder also
-// holds its copy of the server template (server.jar, libraries, versions, mods: about 140 MB per run) that nothing reads
-// back; copying it home made a 40 s room take 2-8 min to return. Its logs, world and properties still come back.
-export const PACK_EXCLUDES = ['secret.txt', '*/server/server.jar', '*/server/libraries', '*/server/versions', '*/server/mods'];
+export { PACK_EXCLUDES };
 const packScript = ({ outDir, room }) => `cd ${quote(outDir)} && tar ${PACK_EXCLUDES.map(item => `--exclude=${quote(item)}`).join(' ')} -cz ${quote(room)}`;
 
 // What a batch machine needs of the code: what scripts/quality/test-*-live.mjs and watch-replay.mjs import (scripts/,
