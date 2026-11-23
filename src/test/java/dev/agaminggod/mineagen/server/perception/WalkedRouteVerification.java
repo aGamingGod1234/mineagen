@@ -30,7 +30,34 @@ public final class WalkedRouteVerification {
   check(shaft.path(p("ow",0,62,0),p("ow",0,64,0)).hazards().stream().anyMatch(h->h.startsWith("shaft:")),"unit shaft steps retain the tools and blocks needed in reverse");
   n.step(p("ow",1,64,0),true);n.step(p("nether",10,64,1),false);
   check(n.path(p("nether",10,64,1),p("nether",11,64,0)).points().stream().allMatch(point->point.dimension().equals("nether")),"a shifted portal exit joins the nearby walked route instead of crossing twice");
-  return 12;
+  // A lower tunnel walked back under the upper one: the upper footstep straight overhead is the climb that saves the loop.
+  WalkedRoute loop=new WalkedRoute();
+  for(int z=0;z<=10;z++) loop.step(p("ow",0,70,z),false);
+  for(int i=1;i<=6;i++) loop.step(p("ow",0,70-i,10+i),false);
+  for(int z=15;z>=2;z--) loop.step(p("ow",0,64,z),false);
+  java.util.List<WalkedRoute.Point> up=loop.columnShortcuts(p("ow",0,64,2),p("ow",0,70,0),12,4,java.util.Set.of());
+  check(up.equals(java.util.List.of(p("ow",0,70,2))),"the upper tunnel overhead cuts the walked loop short");
+  check(loop.columnShortcuts(p("ow",0,64,2),p("ow",0,70,0),12,4,java.util.Set.of(p("ow",0,70,2))).isEmpty(),"a refused column is not offered again");
+  check(loop.columnShortcuts(p("ow",0,64,2),p("ow",0,70,0),5,4,java.util.Set.of()).isEmpty(),"a footstep higher than the climb limit is left out");
+  // A shaft walked straight up saves nothing beyond its own climb, so the plain route stands.
+  WalkedRoute straight=new WalkedRoute();
+  for(int y=64;y<=70;y++) straight.step(p("ow",5,y,0),false);
+  for(int x=6;x<=10;x++) straight.step(p("ow",x,70,0),false);
+  check(straight.columnShortcuts(p("ow",5,64,0),p("ow",10,70,0),12,4,java.util.Set.of()).isEmpty(),"the walked shaft itself is no shortcut");
+  // A stair dug down (step forward, then drop in place) is walked back up as diagonal steps, not a pillar per step.
+  WalkedRoute stair=new WalkedRoute();
+  for(int i=0;i<=6;i++) {stair.step(p("ow",0,70-i,i),false);stair.step(p("ow",0,70-i,i+1),false);}
+  stair.step(p("ow",0,63,7),false);
+  WalkedRoute.Path climb=stair.path(p("ow",0,63,7),p("ow",0,70,0));
+  boolean straightUp=false;
+  for(int i=1;i<climb.points().size();i++) {WalkedRoute.Point a=climb.points().get(i-1),b=climb.points().get(i);straightUp|=a.x()==b.x() && a.z()==b.z();}
+  check(!straightUp,"no stair step is climbed straight up");
+  check(climb.points().size()<=5,"the stair compacts into a few diagonal legs");
+  WalkedRoute rungs=new WalkedRoute();
+  for(int y=64;y<=68;y++) {rungs.step(p("ow",0,y,0),false);rungs.mark(p("ow",0,y,0),WalkedRoute.CLIMBABLE);}
+  rungs.step(p("ow",1,68,0),false);
+  check(rungs.path(p("ow",0,64,0),p("ow",1,68,0)).points().contains(p("ow",0,68,0)),"a ladder's top rung stays a waypoint");
+  return 19;
  }
  private static WalkedRoute.Point p(String d,int x,int y,int z) {return new WalkedRoute.Point(d,x,y,z);}
  private static void check(boolean condition,String message) {if(!condition) throw new AssertionError(message);}

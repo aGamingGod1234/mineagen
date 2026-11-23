@@ -62,6 +62,10 @@ public final class RouteMemory {
  public WalkedRoute.Path path(ServerPlayer p, String dimension, double x,double y,double z) {
   return route.path(point(p),new WalkedRoute.Point(dimension,(int)Math.floor(x),(int)Math.floor(y),(int)Math.floor(z)));
  }
+ /** Remembered footsteps straight overhead that cut the walked way to the target short (see WalkedRoute.columnShortcuts). */
+ public java.util.List<WalkedRoute.Point> columnShortcuts(ServerPlayer p,String dimension,double x,double y,double z,int maxRise,double margin,java.util.Set<WalkedRoute.Point> skip) {
+  return route.columnShortcuts(point(p),new WalkedRoute.Point(dimension,(int)Math.floor(x),(int)Math.floor(y),(int)Math.floor(z)),maxRise,margin,skip);
+ }
  public boolean climbable(WalkedRoute.Point at) { return route.climbable(at); }
  public void mark(ServerPlayer p,String hazard) {route.mark(point(p),hazard);}
  public void seen(ServerPlayer p, JsonArray blocks) {
