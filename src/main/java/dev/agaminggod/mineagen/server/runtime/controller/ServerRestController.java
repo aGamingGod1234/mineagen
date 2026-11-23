@@ -25,7 +25,9 @@ import net.minecraft.world.phys.Vec3;
  * is carried or can be crafted from what is carried (3 wool of one colour and 3 planks, at a crafting table within reach,
  * a carried one, or one made from 4 more planks); sleeping also sets the spawn there. Without a bed, or when sleep is
  * refused, it walls itself in where it stands with carried blocks (build_shelter's sealed cell), or with too few blocks
- * digs a 1x2 hole and roofs it with what it dug. At morning it opens the walls (or digs stairs back up) and hands back.
+ * digs a 1x2 hole and roofs it with what it dug. When neither works (no open cell beside it, a mob in the wall, a hole it
+ * could not finish) it digs the two blocks under its feet, drops in and roofs over, as a player does on any diggable
+ * ground. At morning it opens the walls (or digs stairs back up) and hands back.
  * Underground (more than 4 blocks of ground over its eyes) the night changes nothing, so it hands back at once and the work goes on.
  * It hands back too when stuck (no safe cell, no blocks, attacked inside) and at timeoutMs.
  */
@@ -102,6 +104,14 @@ public final class ServerRestController implements ServerController {
 	private int lookTicks;
 	private int lookWaited;
 	private java.util.function.Supplier<TickResult> afterLook;
+	/** Cells a bed or table placement was refused at (body in the way, a look that never lined up): never chosen again. */
+	private final java.util.Set<BlockPos> refusedSpots = new java.util.HashSet<>();
+	/** What to do when a placement is refused for {@code placeTicks}: plan another spot, or null to stop. */
+	private java.util.function.Supplier<TickResult> placeRetry;
+	/** The dig-down fallback runs at most once a rest. */
+	private boolean dugDown;
+	/** Bed and table spots are searched within this many cells of the feet (a bed this near is in vanilla sleep range). */
+	static final int SPOT_RADIUS = 2;
 
 	public ServerRestController(long timeoutMs, long now, Environment environment) {
 		this.environment = environment;
@@ -185,6 +195,12 @@ public final class ServerRestController implements ServerController {
 			return null;
 		}
 		String recipe = "minecraft:" + color + "_bed";
+		// A bed needs a flat 2-cell spot within reach: with none, the planks are better kept as wall blocks than spent on a
+		// table and a bed that cannot go down.
+		if (bedSpot(player) == null) {
+			log.add("no flat 2-cell spot within " + SPOT_RADIUS + " blocks for a bed");
+			return null;
+		}
 		BlockPos table = tableInReach(player);
 		if (table != null) return craftBed(player, recipe, table, now);
 		boolean carriedTable = count(player, stack -> stack.is(Items.CRAFTING_TABLE)) > 0;
@@ -192,25 +208,27 @@ public final class ServerRestController implements ServerController {
 			log.add("wool for a bed but " + planks + " planks: no crafting table near and not enough planks for one (7)");
 			return null;
 		}
-		Runnable placeTable = () -> {
-			BlockPos spot = tableSpot(player);
-			if (spot == null) { log.add("no free cell beside the body for a crafting table"); phase = Phase.PLAN; return; }
-			startPlace(spot, "minecraft:crafting_table", null, () -> {
-				log.add("placed a crafting table at " + spot.toShortString());
-				TickResult crafting = craftBed(player, recipe, spot, dev.agaminggod.mineagen.server.runtime.GameClock.nowMs());
-				if (crafting.state() != State.RUNNING) phase = Phase.PLAN;
-			});
-		};
-		if (carriedTable) {
-			placeTable.run();
-			return TickResult.running(0.05D);
-		}
+		if (carriedTable) return placeTable(player, recipe);
 		return runChild(environment.craft(player, "minecraft:crafting_table", null, STEP_MS), result -> {
 			if (result.state() != State.SUCCEEDED) { log.add("crafting a table failed: " + result.reasonCode()); return shelterPlan(player, dev.agaminggod.mineagen.server.runtime.GameClock.nowMs(), null); }
 			log.add("crafted a crafting table");
-			placeTable.run();
-			return TickResult.running(0.1D);
+			return placeTable(player, recipe);
 		});
+	}
+
+	/** Places the carried table on a free cell within reach that the bed spot does not need, then crafts the bed there. */
+	private TickResult placeTable(ServerPlayer player, String recipe) {
+		BlockPos spot = tableSpot(player, bedSpot(player));
+		if (spot == null) {
+			log.add("no free cell within " + SPOT_RADIUS + " blocks for a crafting table");
+			return shelterPlan(player, dev.agaminggod.mineagen.server.runtime.GameClock.nowMs(), null);
+		}
+		startPlace(spot, "minecraft:crafting_table", null, () -> {
+			log.add("placed a crafting table at " + spot.toShortString());
+			TickResult crafting = craftBed(player, recipe, spot, dev.agaminggod.mineagen.server.runtime.GameClock.nowMs());
+			if (crafting.state() != State.RUNNING) phase = Phase.PLAN;
+		}, () -> placeTable(player, recipe));
+		return TickResult.running(0.05D);
 	}
 
 	private TickResult craftBed(ServerPlayer player, String recipe, BlockPos table, long now) {
@@ -223,23 +241,71 @@ public final class ServerRestController implements ServerController {
 	}
 
 	private TickResult placeBed(ServerPlayer player, String bedItem) {
+		BedSpot spot = bedSpot(player);
+		if (spot == null) {
+			log.add("no flat 2-cell spot within " + SPOT_RADIUS + " blocks for a bed");
+			return shelterPlan(player, dev.agaminggod.mineagen.server.runtime.GameClock.nowMs(), null);
+		}
+		bedFacing = spot.facing();
+		startPlace(spot.foot(), bedItem, spot.facing(), () -> {
+			bed = spot.foot();
+			log.add("placed " + bedItem + " at " + spot.foot().toShortString());
+			phase = Phase.SLEEP;
+			sleepTicks = 0;
+		}, () -> placeBed(player, bedItem));
+		return TickResult.running(0.3D);
+	}
+
+	/** A bed's foot cell and the way its head points (the body's facing when it clicks the foot cell). */
+	record BedSpot(BlockPos foot, Direction facing) {
+		BlockPos head() { return foot.relative(facing); }
+	}
+
+	/**
+	 * Foot offsets (dx, dz) within {@link #SPOT_RADIUS} whose direction from the body is clearly one side, nearest first: the
+	 * body faces that side when it clicks the foot cell, so the head goes one further that way (vanilla bed placement).
+	 */
+	static List<int[]> bedOffsets() {
+		List<int[]> offsets = new ArrayList<>();
+		for (int dx = -SPOT_RADIUS; dx <= SPOT_RADIUS; dx++)
+			for (int dz = -SPOT_RADIUS; dz <= SPOT_RADIUS; dz++)
+				if (Math.abs(dx) != Math.abs(dz)) offsets.add(new int[] {dx, dz});
+		offsets.sort((a, b) -> Integer.compare(a[0] * a[0] + a[1] * a[1], b[0] * b[0] + b[1] * b[1]));
+		return offsets;
+	}
+
+	/** The side an offset lies on (its larger axis), for an offset whose axes differ in size. */
+	static Direction sideOf(int dx, int dz) {
+		return Math.abs(dx) > Math.abs(dz) ? (dx > 0 ? Direction.EAST : Direction.WEST) : (dz > 0 ? Direction.SOUTH : Direction.NORTH);
+	}
+
+	/**
+	 * The nearest flat 2-cell spot the body has seen within {@link #SPOT_RADIUS} (feet level or one step up or down), clear of
+	 * its own body and of refused cells, or null. Only the cells right beside the feet were tried before, so a flower, a
+	 * slope or a trunk on each side left the body without a bed on open ground (rest rooms 23 Nov).
+	 */
+	private BedSpot bedSpot(ServerPlayer player) {
 		BlockPos feet = feet(player);
 		Direction preferred = player.getDirection();
-		for (int turn = 0; turn < 4; turn++) {
-			Direction side = turn == 0 ? preferred : SIDES[(indexOf(preferred) + turn) % 4];
-			BlockPos foot = feet.relative(side), head = foot.relative(side);
-			if (!open(player, foot) || !open(player, head) || !solid(player, foot.below()) || !solid(player, head.below())) continue;
-			bedFacing = side;
-			startPlace(foot, bedItem, side, () -> {
-				bed = foot;
-				log.add("placed " + bedItem + " at " + foot.toShortString());
-				phase = Phase.SLEEP;
-				sleepTicks = 0;
-			});
-			return TickResult.running(0.3D);
+		BedSpot best = null;
+		int bestScore = Integer.MAX_VALUE;
+		for (int[] offset : bedOffsets()) {
+			Direction facing = sideOf(offset[0], offset[1]);
+			for (int dy : new int[] {0, -1, 1}) {
+				BedSpot spot = new BedSpot(feet.offset(offset[0], dy, offset[1]), facing);
+				if (!freeSpot(player, spot.foot()) || !freeSpot(player, spot.head())) continue;
+				// Nearest first; at equal distance, level ground and the way the body already faces.
+				int score = (offset[0] * offset[0] + offset[1] * offset[1]) * 4 + Math.abs(dy) * 2 + (facing == preferred ? 0 : 1);
+				if (score < bestScore) { bestScore = score; best = spot; }
+			}
 		}
-		log.add("no flat 2-cell spot beside the body for a bed");
-		return shelterPlan(player, dev.agaminggod.mineagen.server.runtime.GameClock.nowMs(), null);
+		return best;
+	}
+
+	/** An open, seen cell on solid seen ground, clear of the body and not refused before. */
+	private boolean freeSpot(ServerPlayer player, BlockPos at) {
+		return !refusedSpots.contains(at) && open(player, at) && solid(player, at.below())
+				&& !player.getBoundingBox().inflate(0.1D).intersects(new net.minecraft.world.phys.AABB(at));
 	}
 
 	private TickResult sleep(ServerPlayer player, long now) {
@@ -307,7 +373,45 @@ public final class ServerRestController implements ServerController {
 			return digHole(player, feet.relative(side), away);
 		}
 		if (item != null && blocks >= 4) return seal(player, feet, away, item, now);
-		return stuck(player, "no shelter possible: " + blocks + " plain blocks carried (" + SEAL_BLOCKS + " wall in on open ground) and the ground below cannot be dug 2 deep");
+		return digDown(player, away, "no open cell beside the body to dig a hole in and " + blocks + " plain blocks carried (" + SEAL_BLOCKS + " wall in on open ground)");
+	}
+
+	/**
+	 * The shelter a player always has on diggable ground: dig the block under the feet, drop in, dig the next, drop in,
+	 * and roof over with what was dug. It needs only the ground the body stands on, which it touches, so nothing beside
+	 * it (flowers, a slope, a mob in a wall cell) can block it. Runs once a rest; {@code why} says what failed before it.
+	 */
+	private TickResult digDown(ServerPlayer player, Direction away, String why) {
+		if (dugDown) return stuck(player, why);
+		dugDown = true;
+		BlockPos start = feet(player);
+		surfaceY = start.getY();
+		log.add(why + "; digging down 2 where it stands");
+		return digDownStep(player, start, 1, away);
+	}
+
+	private TickResult digDownStep(ServerPlayer player, BlockPos start, int depth, Direction away) {
+		BlockPos target = start.below(depth);
+		if (!diggable(player, target)) return stuck(player, "could not dig down: under the body is " + describeBelow(player, target));
+		return runChild(environment.clear(player, target, STEP_MS), dug -> {
+			if (dug.state() != State.SUCCEEDED) return stuck(player, "could not dig down: " + dug.reasonCode() + " " + dug.message());
+			return runChild(dropInto(target), dropped -> {
+				if (dropped.state() != State.SUCCEEDED) return stuck(player, "dug " + target.toShortString() + " but did not drop into it");
+				if (depth < 2) return digDownStep(player, start, depth + 1, away);
+				pit = true;
+				log.add("dug down to " + target.toShortString());
+				return roofHole(player, away);
+			});
+		});
+	}
+
+	/** Succeeds once the feet stand in {@code cell} on the ground, fails after 2 s. */
+	private static ServerController dropInto(BlockPos cell) {
+		int[] ticks = {0};
+		return (player, now) -> {
+			if (player.onGround() && feet(player).getY() <= cell.getY()) return TickResult.succeeded("DROPPED", "in the hole");
+			return ++ticks[0] > 40 ? TickResult.failed("NOT_DROPPED", "still above the hole", 0.0D) : TickResult.running(0.1D);
+		};
 	}
 
 	private TickResult lookDown(ServerPlayer player, BlockPos feet, int index, java.util.function.Supplier<TickResult> then) {
@@ -328,13 +432,13 @@ public final class ServerRestController implements ServerController {
 	private TickResult digHole(ServerPlayer player, BlockPos top, Direction away) {
 		BlockPos first = top.below(), second = top.below(2), floor = top.below(3);
 		return runChild(environment.clear(player, first, STEP_MS), dug -> {
-			if (dug.state() != State.SUCCEEDED) return stuck(player, "could not dig the hole: " + dug.reasonCode() + " " + dug.message());
+			if (dug.state() != State.SUCCEEDED) return digDown(player, away, "could not dig the hole: " + dug.reasonCode() + " " + dug.message());
 			return lookThen(second, () -> {
 				String below = describeBelow(player, second);
 				if (!diggable(player, second)) return stuck(player, "under the dug cell " + first.toShortString() + " is " + below
 						+ ": not digging toward a drop; wall in with 10 or more plain blocks, or rest somewhere with solid ground");
 				return runChild(environment.clear(player, second, STEP_MS), dug2 -> {
-					if (dug2.state() != State.SUCCEEDED) return stuck(player, "could not dig the hole: " + dug2.reasonCode() + " " + dug2.message());
+					if (dug2.state() != State.SUCCEEDED) return digDown(player, away, "could not dig the hole: " + dug2.reasonCode() + " " + dug2.message());
 					return lookThen(floor, () -> {
 						// From beside a 1-wide hole the body's own block hides the hole's floor, so it is nearly always unseen
 						// (from-scratch game 13: rest refused every night hole at 1.3 health with an empty inventory). A player
@@ -345,7 +449,7 @@ public final class ServerRestController implements ServerController {
 						log.add("hole dug to " + second.toShortString() + (unseen ? " (its floor hidden from beside it)" : " over solid " + describeBelow(player, floor)));
 						return runChild(new ServerNavigationController(Vec3.atBottomCenterOf(second), 0.35D, false, dev.agaminggod.mineagen.server.runtime.GameClock.nowMs(), STEP_MS, false),
 								stepped -> stepped.state() == State.SUCCEEDED || feet(player).equals(second) ? roofHole(player, away)
-										: stuck(player, "could not step into the hole: " + stepped.reasonCode() + " " + stepped.message()));
+										: digDown(player, away, "could not step into the hole: " + stepped.reasonCode() + " " + stepped.message()));
 					});
 				});
 			});
@@ -395,7 +499,11 @@ public final class ServerRestController implements ServerController {
 		opening = openingSide;
 		log.add((pit ? "roofing the hole at " : "walling in at ") + center.toShortString() + " with " + item);
 		return runChild(environment.seal(center, openingSide, item, STEP_MS, now), result -> {
-			if (result.state() != State.SUCCEEDED) return stuck(player, "walling in failed: " + result.reasonCode() + " " + result.message());
+			if (result.state() != State.SUCCEEDED) {
+				String why = "walling in failed: " + result.reasonCode() + " " + result.message();
+				// Walls on open ground can be blocked (a mob in a wall cell, no standing spot); the ground under the feet is still there.
+				return pit ? stuck(player, why) : digDown(player, openingSide, why);
+			}
 			shelterHealth = player.getHealth();
 			if (buildHealth - shelterHealth >= 0.5F) log.add(String.format(Locale.ROOT, "lost %.1f health while building", buildHealth - shelterHealth));
 			phase = Phase.WAIT;
@@ -468,7 +576,8 @@ public final class ServerRestController implements ServerController {
 		return then.apply(result);
 	}
 
-	private void startPlace(BlockPos at, String item, Direction facing, Runnable then) {
+	private void startPlace(BlockPos at, String item, Direction facing, Runnable then, java.util.function.Supplier<TickResult> retry) {
+		placeRetry = retry;
 		placeAt = at;
 		placeFacing = facing;
 		placeItem = item;
@@ -479,7 +588,17 @@ public final class ServerRestController implements ServerController {
 
 	/** Turns to the placement like a player (facing the bed's way for a bed), then one vanilla placement click. */
 	private TickResult placeTick(ServerPlayer player) {
-		if (++placeTicks > 80) return stuck(player, "could not place " + placeItem + " at " + placeAt.toShortString() + ": " + placeRefusal);
+		if (++placeTicks > 80) {
+			String why = "could not place " + placeItem + " at " + placeAt.toShortString() + ": " + placeRefusal;
+			// One refused cell (the body drifted into it, a look that never lined up) is not the end: try the next spot.
+			if (placeRetry == null || refusedSpots.size() >= 4) return stuck(player, why);
+			refusedSpots.add(placeAt);
+			log.add(why + "; trying another spot");
+			var retry = placeRetry;
+			placeRetry = null;
+			phase = Phase.PLAN;
+			return retry.get();
+		}
 		Vec3 aim;
 		try { aim = environment.aim(player, placeAt, Direction.UP, placeItem); }
 		catch (AgentDomainException refused) { placeRefusal = refused.code() + ": " + refused.getMessage(); aim = Vec3.atCenterOf(placeAt.below()).add(0.0D, 0.5D, 0.0D); }
@@ -602,15 +721,22 @@ public final class ServerRestController implements ServerController {
 		return best;
 	}
 
-	/** An open cell with solid floor beside the body, not where a bed would go, for a crafting table. */
-	private static BlockPos tableSpot(ServerPlayer player) {
+	/** The nearest free cell within {@link #SPOT_RADIUS} for a crafting table, not one the bed spot needs, or null. */
+	private BlockPos tableSpot(ServerPlayer player, BedSpot bedSpot) {
 		BlockPos feet = feet(player);
-		Direction facing = player.getDirection();
-		for (int turn = 2; turn < 6; turn++) {
-			BlockPos at = feet.relative(SIDES[(indexOf(facing) + turn) % 4]);
-			if (open(player, at) && solid(player, at.below())) return at;
-		}
-		return null;
+		BlockPos best = null;
+		int bestScore = Integer.MAX_VALUE;
+		for (int dx = -SPOT_RADIUS; dx <= SPOT_RADIUS; dx++)
+			for (int dz = -SPOT_RADIUS; dz <= SPOT_RADIUS; dz++)
+				for (int dy : new int[] {0, -1, 1}) {
+					if (dx == 0 && dz == 0) continue;
+					BlockPos at = feet.offset(dx, dy, dz);
+					if (bedSpot != null && (at.equals(bedSpot.foot()) || at.equals(bedSpot.head()))) continue;
+					if (!freeSpot(player, at)) continue;
+					int score = (dx * dx + dz * dz) * 4 + Math.abs(dy);
+					if (score < bestScore) { bestScore = score; best = at; }
+				}
+		return best;
 	}
 
 	private static int indexOf(Direction side) {
