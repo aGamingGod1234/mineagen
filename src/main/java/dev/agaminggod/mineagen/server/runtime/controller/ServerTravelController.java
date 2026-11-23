@@ -315,6 +315,20 @@ public final class ServerTravelController implements ServerController {
 		return Double.isFinite(targetY) && feetY - targetY > heightTolerance + (heightTolerance >= 1.0D && heightTolerance < 3.0D ? 0.0D : 1.0D);
 	}
 
+	/**
+	 * Whether a lower target is walked toward across the surface rather than dug to: the body stands under open sky and
+	 * the target lies farther off than a staircase from here would run before reaching its level. A player on a hill above
+	 * a lake 80 blocks off walks down to it; only a target about as deep as it is far (a cave or ore level) is dug to.
+	 * Practice rooms 23 Nov: 4 of 10 climbs out of a mine dug a 10-level staircase toward water 80 blocks off (about 30 s)
+	 * and ran out of time on the way.
+	 */
+	static boolean walksDownTo(double horizontal, double drop, boolean underSky) {
+		return underSky && horizontal > drop + WALK_DOWN_MARGIN;
+	}
+
+	/** Blocks farther off than deep before a lower target under open sky is walked to instead of dug to. */
+	static final double WALK_DOWN_MARGIN = 8.0D;
+
 	static boolean digsUp(double feetY, double targetY, double heightTolerance) {
 		return Double.isFinite(targetY) && targetY - feetY > heightTolerance;
 	}
@@ -1051,7 +1065,10 @@ public final class ServerTravelController implements ServerController {
 			}
 		}
 		if (!build) return fail(player, "NO_ROUTE", "No seen standing spot ahead gets closer, and build is false" + lastFailureText());
-		if (descent != null && digs < MAX_DIGS && (digsDown(player.getY(), targetY, heightTolerance()) || !surfacedHere(player) && digsUp(player.getY(), targetY, heightTolerance())))
+		if (descent != null && digs < MAX_DIGS && (digsDown(player.getY(), targetY, heightTolerance())
+				&& !walksDownTo(Math.hypot(targetX - player.getX(), targetZ - player.getZ()), player.getY() - targetY,
+						player.level().canSeeSky(BlockPos.containing(player.getEyePosition())))
+				|| !surfacedHere(player) && digsUp(player.getY(), targetY, heightTolerance())))
 			return startDig(player, nowEpochMs);
 		if (buildRefusal != null) return fail(player, buildRefusalCode, "No seen way on toward the target, and building cannot continue: " + buildRefusal + lastFailureText());
 		return startBuild(player, world, nowEpochMs);
