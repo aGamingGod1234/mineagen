@@ -239,7 +239,16 @@ public final class SafeStep {
 	 * unseen depths count as the most). Falling into water counts as no drop; a hazard below counts as the most.
 	 */
 	public static int dropDepth(ServerPlayer player, GridPosition cell) {
-		WalkabilityView world = ObservedTerrain.of(player);
+		return dropDepth(player, ObservedTerrain.of(player), cell);
+	}
+
+	/** The player's seen-terrain view, for a caller that probes several cells in one call with {@link #dropDepth(ServerPlayer, WalkabilityView, GridPosition)}. */
+	public static WalkabilityView knownTerrain(ServerPlayer player) {
+		return ObservedTerrain.of(player);
+	}
+
+	/** {@link #dropDepth(ServerPlayer, GridPosition)} on a view from {@link #knownTerrain}, which keeps its cell answers between probes. */
+	public static int dropDepth(ServerPlayer player, WalkabilityView world, GridPosition cell) {
 		if (CombatPlanning.walkable(world, cell) || !CombatPlanning.open(world, cell)) return 0;
 		for (int depth = 1; depth <= MAX_COUNTED_DROP; depth++) {
 			GridPosition below = cell.below(depth);

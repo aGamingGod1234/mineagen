@@ -7,6 +7,7 @@ import dev.agaminggod.mineagen.server.perception.SightedFeatures.Cell;
 import dev.agaminggod.mineagen.world.ChunkMutationRevisionAccess;
 import it.unimi.dsi.fastutil.doubles.DoubleArrayList;
 import it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayFIFOQueue;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import java.util.ArrayList;
@@ -430,7 +431,9 @@ public final class FarSight {
 	 * work is capped per game tick across all agents.
 	 */
 	public static final class LevelIndex {
-		private final Map<Long, ChunkScan> chunks = new HashMap<>();
+		// ChunkPos keys boxed as Long hash to chunkX ^ chunkZ and pile into a few HashMap bins; fastutil mixes the bits.
+		// Never iterated for output (only the unloaded-chunk cleanup walks it), so its order does not matter.
+		private final Long2ObjectOpenHashMap<ChunkScan> chunks = new Long2ObjectOpenHashMap<>();
 		private long budgetTick = Long.MIN_VALUE;
 		private int scansThisTick;
 		private int checksThisTick;
@@ -1044,7 +1047,7 @@ public final class FarSight {
 				if (chunk != null && horizontalDistanceToChunk(eye, chunk.getPos()) <= RANGE) loaded.add(chunk);
 			}
 			List<StartView> starts = new ArrayList<>();
-			Map<Long, List<BoundingBox>> structureBoxes = new HashMap<>();
+			Map<Long, List<BoundingBox>> structureBoxes = new Long2ObjectOpenHashMap<>();
 			collectStructures(level, eye, loaded, starts, structureBoxes);
 			List<Found> built = new ArrayList<>(), lava = new ArrayList<>(), notable = new ArrayList<>(), ore = new ArrayList<>(), poi = new ArrayList<>(), placed = new ArrayList<>();
 			synchronized (index) {
