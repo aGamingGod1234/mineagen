@@ -629,6 +629,7 @@ public final class ServerRangedUseController implements ServerTransactionAdapter
 				}
 				return "you lost sight of it; impact not confirmed";
 			}
+			sightLostAt = -1;
 			boolean alive = arrow.isAlive() && !arrow.isRemoved();
 			net.minecraft.world.phys.Vec3 now = alive ? arrow.position() : last;
 			if (target.isAlive() && ObservationVisibility.canSeeEntity(player, target)) {

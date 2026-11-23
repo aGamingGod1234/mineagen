@@ -636,7 +636,10 @@ export class ReflexBook {
 		if (status !== undefined && status.events.length > 0 && status.events.at(-1).seq < agent.lastSeq) agent.lastSeq = 0;
 		const events = (status?.events ?? []).filter((event) => event.seq > agent.lastSeq);
 		for (const event of events) agent.lastSeq = Math.max(agent.lastSeq, event.seq);
-		for (const event of events) this.#notePour(agentId, event);
+		for (const event of events) this.#notePour(agentId, event.detail);
+		// A pour held against an angry enderman reports its cell while it runs, so one that ends preempted or yielded (whose
+		// end report names the rule or the command instead) is remembered too; its scoop is read from the inventory.
+		if (typeof status?.firing?.detail === 'string') this.#notePour(agentId, status.firing.detail);
 		// Only a report acknowledging the current definitions can retire them. An old revision may
 		// contain an expiry for an id the model has since deliberately replaced.
 		if (status?.revision === agent.revision && !status.error) {
@@ -655,10 +658,11 @@ export class ReflexBook {
 		return { events, wake: events.some((event) => event.wake === true), resend };
 	}
 
-	// A place firing of a water bucket reports its cell ("placed minecraft:water_bucket at feet X,Y,Z"); the source stays
-	// there until scooped. The bot's block rows are the cells nearest its feet, so a few blocks off they show only the flow.
-	#notePour(agentId, event) {
-		const cell = event.outcome === 'done' && /placed minecraft:water_bucket at (?:feet )?(-?\d+),(-?\d+),(-?\d+)/.exec(event.detail ?? '');
+	// A place firing of a water bucket reports its cell ("placed minecraft:water_bucket at feet X,Y,Z"), at its end however it
+	// ended and while it holds the body in the water; the source stays there until scooped. The bot's block rows are the
+	// cells nearest its feet, so a few blocks off they show only the flow.
+	#notePour(agentId, detail) {
+		const cell = /placed minecraft:water_bucket at (?:feet )?(-?\d+),(-?\d+),(-?\d+)/.exec(detail ?? '');
 		if (!cell) return;
 		const dimension = this.#samples.get(agentId)?.world?.dimension ?? null;
 		const [x, y, z] = cell.slice(1).map(Number);

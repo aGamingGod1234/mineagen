@@ -1769,6 +1769,10 @@ final class ReflexActions {
 			this.where = where;
 		}
 
+		/** A hold that reaches its rule's time ends done with the water left (its report names the cell), never as a timeout. */
+		@Override
+		public boolean doneAtMaxS() { return heldWater != null; }
+
 		@Override
 		public Step tick(Context context, Consumer<AgentInputState> input) {
 			ServerPlayer player = context.player();
@@ -1836,7 +1840,7 @@ final class ReflexActions {
 					heldWater = source;
 					placedHand = hand;
 					placedSlot = hand == InteractionHand.MAIN_HAND ? slot : player.getInventory().getSelectedSlot();
-					return Step.running("poured water at the feet; standing in it while an angry enderman is near");
+					return Step.running("placed " + item + " at feet " + source.getX() + "," + source.getY() + "," + source.getZ() + "; standing in it while an angry enderman is near");
 				}
 				return Step.done("placed " + item + " at feet " + source.getX() + "," + source.getY() + "," + source.getZ() + "; the source stays until scooped");
 			}
@@ -1865,7 +1869,10 @@ final class ReflexActions {
 		private Step holdInWater(ServerPlayer player, Consumer<AgentInputState> input) {
 			Level level = player.level();
 			String at = heldWater.getX() + "," + heldWater.getY() + "," + heldWater.getZ();
-			String left = "placed " + item + " at feet " + at + "; the source stays until scooped";
+			// Every report names the cell while the water stands, so a hold that ends any other way (preempted, a model command,
+			// the rule's time) leaves the pour remembered; the scoop's own done text does not name it.
+			String placed = "placed " + item + " at feet " + at;
+			String left = placed + "; the source stays until scooped";
 			if (!level.getFluidState(heldWater).isSourceOfType(net.minecraft.world.level.material.Fluids.WATER)) return Step.done("poured water at feet " + at + "; the source is gone");
 			holdTicks++;
 			calmTicks = angryEndermanNear(player) ? 0 : calmTicks + 1;
@@ -1880,22 +1887,22 @@ final class ReflexActions {
 				}
 				if (holdTicks > HOLD_TICKS) return Step.done(left + " (an angry enderman stayed near for 10 s)");
 				input.accept(look(player, centre, 0.0F, 0.0F, false, false, placedSlot, placedHand));
-				return Step.running("standing in the poured water while an angry enderman is near");
+				return Step.running(placed + "; standing in it while an angry enderman is near");
 			}
 			ItemStack held = player.getItemInHand(placedHand);
 			if (!held.is(net.minecraft.world.item.Items.BUCKET)) return Step.done(left + " (no empty bucket in hand to scoop it back)");
 			if (++scoopTicks > 30) return Step.done(left + " (could not scoop it back)");
 			input.accept(look(player, centre, 0.0F, 0.0F, false, false, placedSlot, placedHand));
-			if (placedHand == InteractionHand.MAIN_HAND && player.getInventory().getSelectedSlot() != placedSlot) return Step.running("no angry enderman near; selecting the bucket");
+			if (placedHand == InteractionHand.MAIN_HAND && player.getInventory().getSelectedSlot() != placedSlot) return Step.running(placed + "; no angry enderman near; selecting the bucket");
 			BlockHitResult sight = level.clip(new ClipContext(player.getEyePosition(), player.getEyePosition().add(player.getLookAngle().scale(player.blockInteractionRange())),
 					ClipContext.Block.OUTLINE, ClipContext.Fluid.SOURCE_ONLY, player));
-			if (sight.getType() != HitResult.Type.BLOCK || !sight.getBlockPos().equals(heldWater)) return Step.running("no angry enderman near; aiming at the poured water");
+			if (sight.getType() != HitResult.Type.BLOCK || !sight.getBlockPos().equals(heldWater)) return Step.running(placed + "; no angry enderman near; aiming at the poured water");
 			InteractionResult result = player.gameMode.useItem(player, level, held, placedHand);
 			if (result.consumesAction() && player.getItemInHand(placedHand).is(net.minecraft.world.item.Items.WATER_BUCKET)) {
 				ArmSwing.use(player, placedHand);
 				return Step.done("poured water at feet " + at + ", stood in it until no angry enderman was near, and scooped it back");
 			}
-			return Step.running("no angry enderman near; scooping the poured water");
+			return Step.running(placed + "; no angry enderman near; scooping it back");
 		}
 
 		/** After a water clutch: once the body has landed, use the emptied bucket on the source to take it back. */
@@ -2800,6 +2807,14 @@ final class ReflexActions {
 						&& dev.agaminggod.mineagen.server.perception.CloudDanger.touching(player) == null) return Step.done(risen + "the cloud below is gone");
 				if (dev.agaminggod.mineagen.server.perception.CloudDanger.touching(player) != null) return Step.failed(risen + "still in the cloud at y " + feet);
 				return ++held >= HOLD_TICKS ? Step.done(risen + where + "; holding until it clears") : Step.running(risen + where);
+			}
+			if (goalY == fromY) {
+				// Holding, knocked off the stand (a wing, knockback): land with the keys up and end, so the breath floor decides
+				// afresh (run or rise again) rather than counting the hit as a failed climb.
+				input.accept(new AgentInputState(0.0F, 0.0F, false, false, false, false, false, player.getYRot(), player.getXRot(),
+						player.getInventory().getSelectedSlot(), InteractionHand.MAIN_HAND));
+				if (player.onGround() || ticks > TICKS_PER_BLOCK) return Step.done(String.format(Locale.ROOT, "knocked off the stand over the breath cloud: feet y %d of %d", feet, goalY));
+				return Step.running("knocked off the stand over the breath cloud; landing");
 			}
 			if (ticks > TICKS_PER_BLOCK * (goalY - fromY)) return Step.failed(String.format(Locale.ROOT, "could not climb out of the breath: feet y %d of %d", feet, goalY));
 			if (!(player.getInventory().getItem(slot).getItem() instanceof BlockItem)) return Step.failed("ran out of blocks climbing out of the breath");

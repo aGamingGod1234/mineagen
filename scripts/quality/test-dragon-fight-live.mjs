@@ -400,16 +400,18 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 					const pour = runtime.reflexPours(record, v).map(p => ({ ...p, d: Math.hypot(p.x + 0.5 - v.player.x, p.z + 0.5 - v.player.z) }))
 						.filter(p => p.d <= 96 && !dryPours.has(`${p.x},${p.y},${p.z}`)).sort((a, b) => a.d - b.d)[0];
 					if (!pour) { note('no water bucket and no remembered pour', null); return; }
+					let reached = true;
 					if (pour.d > 3) {
 						const r = await act('travel_to', { x: pour.x + 0.5, y: pour.y, z: pour.z + 0.5, tolerance: 2, build: true, timeoutMs: 60000 });
 						note(`to the remembered pour at ${pour.x},${pour.y},${pour.z}`, r);
+						reached = r?.state === 'SUCCEEDED';
 					}
 					await act('select_item', { itemId: 'minecraft:bucket' });
 					const r = await act('use_item', { expectedItemId: 'minecraft:bucket', aimX: pour.x + 0.5, aimY: pour.y + 0.5, aimZ: pour.z + 0.5, durationMs: 100 });
 					note(`refill the bucket at the remembered pour ${pour.x},${pour.y},${pour.z}`, r);
 					// The bucket met another block there: the source is gone (seen in 2 of 15 runs: the walk was made again and again), as the
 					// player reads from the failed fill, so that pour is not walked to again.
-					if (r?.state !== 'SUCCEEDED') dryPours.add(`${pour.x},${pour.y},${pour.z}`);
+					if (reached && r?.state !== 'SUCCEEDED') dryPours.add(`${pour.x},${pour.y},${pour.z}`);
 				};
 				const openCage = async c => {
 					c.cageTries += 1;
