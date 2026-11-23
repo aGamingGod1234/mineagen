@@ -567,6 +567,16 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 					// Not below 10 health: a player heals before walking under it, and steps out at 8 (fleeAtHealth); at 3 health
 					// one hit of its head (10, about 6 through iron) kills.
 					if (perch?.head?.id && (OLD_REFILL || !(me.health < 10))) {
+						// From the far side of the island fight_target refuses (its chase reach is 32 blocks to the head) and a short
+						// perch ends during the walk: a player sprints in first, to 8 blocks short of the head on their own side, as
+						// the facts say (a sprint covers about 5.6 blocks a second). Main's stand-in swung from where it stood.
+						const flat = Math.hypot(perch.head.x - me.x, perch.head.z - me.z);
+						if (!OLD_REFILL && flat > 20 && Number.isFinite(flat)) {
+							const k = (flat - 8) / flat, tx = me.x + (perch.head.x - me.x) * k, tz = me.z + (perch.head.z - me.z) * k;
+							const gy = await groundY(tx, tz).catch(() => NaN);
+							const r = await act('travel_to', { x: tx, y: Number.isFinite(gy) && gy > 40 ? gy + 1 : Math.floor(me.y), z: tz, tolerance: 3, build: false, timeoutMs: 10000 });
+							note(`run in to the perched head (${Math.round(flat)} blocks)`, r);
+						}
 						const before = await dragonHealth();
 						const r = await act('fight_target', { targetId: perch.head.id, timeoutMs: 12000, ...(OLD_REFILL ? {} : { fleeAtHealth: 8 }) });
 						const after = await dragonHealth();
