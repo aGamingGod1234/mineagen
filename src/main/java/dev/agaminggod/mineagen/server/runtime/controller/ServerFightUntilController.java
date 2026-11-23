@@ -55,9 +55,7 @@ import net.minecraft.world.phys.Vec3;
  * once a look around of 3 to 5 s finds none left; {@link AreaCleared}), when two engagements in a row fail with the same reason, or when the model
  * cancels. Fire alone does not hand back: as a player plays blazes, the body steps off a
  * fire block and fights on while it burns; with a shield in the offhand it lowers the weapon and raises the shield
- * toward a shot it sees flying at it (vanilla blocking: activation delay, front arc), then fights on; and between
- * engagements with two or more blazes in line of fire it steps to a seen cell within 3 blocks that fewer of them see
- * (fixtures only: {@link #COVER} is off by default).
+ * toward a shot it sees flying at it (vanilla blocking: activation delay, front arc), then fights on.
  *
  * <p>fight_target and use_ranged with untilItem+untilCount run this engine too: the model's named target is fought
  * first and its type is the mob. roof:true (endermen only) first builds a one-cell shelter with carried blocks: two-high
@@ -82,15 +80,6 @@ public final class ServerFightUntilController implements ServerController {
 	static final double GUARD_SHOT_S = 1.5D;
 	/** It stays toward that line this many ticks after the last inbound shot (a blaze volley is three shots in 0.6 s). */
 	static final long GUARD_HOLD_TICKS = 12L;
-	/** Cover is weighed between engagements at most this often (ticks), within this many blocks. */
-	static final long COVER_EVERY_TICKS = 40L;
-	/**
-	 * Fixture A/B switch (-Dmineagen.fight.cover=true); off by default. Cover never ran before review 3 (an overflowed
-	 * sentinel); once it ran, the d41 floor fixture went from 0/5 deaths and 20 rods (48f02318) to 2/5 and 16, then 4/5 and
-	 * 6 (evals/d41-review3-fix wip1, wip2), so it stays off until it is reworked and measured again.
-	 */
-	static final boolean COVER = "true".equals(System.getProperty("mineagen.fight.cover"));
-	static final int COVER_RADIUS = 3;
 	/** How long the body looks toward a kill for a drop it did not see fall (a turn and a glance). */
 	static final long DROP_LOOK_MS = 1_500L;
 	/** One engagement's own limit; it is then re-chosen (weapon and target) like a player re-reads the fight. */
@@ -259,7 +248,7 @@ public final class ServerFightUntilController implements ServerController {
 	/** Seen blazes glowing charged, since which game tick; shield raises at a charged blaze's due volley. */
 	private final Map<UUID, Long> chargedSince = new HashMap<>();
 	private int chargeGuards;
-	static final boolean CHARGE_GUARD = !"false".equals(System.getProperty("mineagen.fight.chargeGuard"));
+	static final boolean CHARGE_GUARD = dev.agaminggod.mineagen.server.Switches.get("fight.chargeGuard");
 	static final double CHARGE_RANGE = 16.0D;
 	/** A blaze charges 60 ticks before its first fireball; the shield goes up 10 ticks before (turn and 5-tick raise). */
 	static final long CHARGE_DUE_TICKS = 50L;
@@ -277,7 +266,7 @@ public final class ServerFightUntilController implements ServerController {
 	private float recoverLookYaw;
 	private long recoverMs;
 	/** Fixture A/B switch (-Dmineagen.fight.recover=false); on by default. */
-	static final boolean RECOVER = !"false".equals(System.getProperty("mineagen.fight.recover"));
+	static final boolean RECOVER = dev.agaminggod.mineagen.server.Switches.get("fight.recover");
 	static final float RECOVER_MARGIN = 8.0F;
 	static final float RECOVER_DONE = 18.0F;
 	static final long RECOVER_MS = 30_000L;
@@ -287,11 +276,6 @@ public final class ServerFightUntilController implements ServerController {
 	static final int FIRE_STEP_TICKS = 15;
 	private boolean inFire;
 	private Vec3 fireExit;
-	/** Never weighed yet: a sentinel compared by {@link #coverDue}, never subtracted (Long.MIN_VALUE overflowed). */
-	static final long COVER_NEVER = Long.MIN_VALUE;
-	private long coverCheckTick = COVER_NEVER;
-	private Vec3 coverGoal;
-	private int coverMoves;
 	/** After a kill that gained nothing, the body looks where the target died (until this elapsed ms) for its drop. */
 	private long dropLookUntilMs = -1L;
 	private int heldAtEngage;
@@ -357,7 +341,7 @@ public final class ServerFightUntilController implements ServerController {
 	private boolean lintelPlaced;
 	private int lintelTicks;
 	private ServerNavigationController step;
-	/** The game tick the short walk (cover, recover, roof) was last ticked on. */
+	/** The game tick the short walk (recover, roof) was last ticked on. */
 	private long stepTick;
 	private Vec3 stepGoal;
 	/** Hunt: endermen seen (by id) where and when the body last saw them, the walk to one, and its counts. */
@@ -501,7 +485,6 @@ public final class ServerFightUntilController implements ServerController {
 		if (step != null && stepIdle(player.level().getGameTime(), stepTick)) {
 			step.cancel(player);
 			step = null;
-			if (coverGoal != null && coverGoal.equals(stepGoal)) coverGoal = null;
 		}
 		if (ledge != null && stepIdle(player.level().getGameTime(), ledgeTick)) ledge.suspend(player);
 		// New lava contact hands back before anything else this tick (low health, the perch, a roof or a forest walk).
@@ -723,17 +706,6 @@ public final class ServerFightUntilController implements ServerController {
 		if (target != null && !roofed && mob == McEntityTypes.ENDERMAN) {
 			TickResult open = tickOpenEnderman(player, target, elapsed);
 			if (open != null) return open;
-		}
-		boolean coverTick = COVER && target != null && !roofed && spot == null && mob == McEntityTypes.BLAZE && choices.mayReposition();
-		// A cover walk not ticked this tick is put down: its navigation lease expires after 40 idle ticks (LeasedServerInputController
-		// LEASE_TIMEOUT_TICKS) and a later tick on it threw "input lease is no longer active" (review-3 floor fixture).
-		if (!coverTick && coverGoal != null) {
-			if (step != null && coverGoal.equals(stepGoal)) { step.cancel(player); step = null; }
-			coverGoal = null;
-		}
-		if (coverTick) {
-			TickResult moving = takeCover(player, nowEpochMs, gameTick);
-			if (moving != null) { lastTargetMs = elapsed; return moving; }
 		}
 		if (target != null) {
 			provoking = null;
@@ -2294,11 +2266,6 @@ public final class ServerFightUntilController implements ServerController {
 		return !terminal && recovering && !guardHeld && !inFire;
 	}
 
-	/** Whether cover is weighed this tick: the first time, then every {@link #COVER_EVERY_TICKS}. */
-	static boolean coverDue(long gameTick, long lastCheckTick) {
-		return lastCheckTick == COVER_NEVER || gameTick - lastCheckTick >= COVER_EVERY_TICKS;
-	}
-
 	/** The nearest seen exit from a fire cell: level, no gap, no lava first; kept until reached. */
 	private Vec3 fireExit(ServerPlayer player) {
 		if (fireExit != null && player.position().distanceToSqr(fireExit) > 0.04D) return fireExit;
@@ -2312,52 +2279,6 @@ public final class ServerFightUntilController implements ServerController {
 		}
 		if (fireExit == null) fireExit = fallback;
 		return fireExit;
-	}
-
-	/**
-	 * Between engagements, with two or more seen blazes having a clear line to the body's eyes: walk to the seen standing
-	 * cell within {@link #COVER_RADIUS} blocks that the fewest of them see (a wall or pillar between), nearest first. A
-	 * blaze that cannot see its target flies toward it, so the fight comes to the body one blaze at a time. Null when
-	 * staying; a running tick while walking.
-	 */
-	private TickResult takeCover(ServerPlayer player, long now, long gameTick) {
-		if (coverGoal == null) {
-			if (!coverDue(gameTick, coverCheckTick)) return null;
-			coverCheckTick = gameTick;
-			List<LivingEntity> shooters = new ArrayList<>();
-			for (LivingEntity entity : player.level().getEntitiesOfClass(LivingEntity.class, player.getBoundingBox().inflate(radius),
-					e -> e.getType() == mob && e.isAlive() && !e.isDeadOrDying()))
-				if (ObservationVisibility.canSeeEntity(player, entity)) shooters.add(entity);
-			if (shooters.size() < 2) return null;
-			BlockPos here = player.blockPosition();
-			int exposedHere = exposure(player, shooters, Vec3.atBottomCenterOf(here));
-			if (exposedHere < 2) return null;
-			var seen = dev.agaminggod.mineagen.server.perception.SeenTerrain.of(player);
-			BlockPos best = null;
-			double bestScore = exposedHere * 10.0D;
-			for (int dx = -COVER_RADIUS; dx <= COVER_RADIUS; dx++) for (int dz = -COVER_RADIUS; dz <= COVER_RADIUS; dz++) for (int dy = -1; dy <= 1; dy++) {
-				BlockPos cell = here.offset(dx, dy, dz);
-				if (cell.equals(here) || !standable(player, seen, cell)) continue;
-				double score = exposure(player, shooters, Vec3.atBottomCenterOf(cell)) * 10.0D + Math.sqrt(dx * dx + dy * dy + dz * dz);
-				if (score < bestScore) { bestScore = score; best = cell; }
-			}
-			if (best == null) return null;
-			coverGoal = Vec3.atBottomCenterOf(best);
-			note(String.format(Locale.ROOT, "cover: %d of %d seen blazes see %s; moving to %s", exposedHere, shooters.size(), here.toShortString(), best.toShortString()));
-		}
-		if (step == null || !coverGoal.equals(stepGoal)) {
-			if (step != null) step.cancel(player);
-			step = new ServerNavigationController(coverGoal, 0.4D, false, now, 6_000L, false).crouched(choices.sneak());
-			stepGoal = coverGoal;
-		}
-		TickResult result = tickStep(player, now);
-		if (result.state() == State.RUNNING) return TickResult.running(progress(player));
-		step.cancel(player);
-		step = null;
-		if (result.state() == State.SUCCEEDED) coverMoves++;
-		else note("cover walk to " + cell(coverGoal) + " " + result.reasonCode());
-		coverGoal = null;
-		return null;
 	}
 
 	/** Seen blazes with a clear block line from their eyes to the body's eyes standing at {@code feet}. */
@@ -2421,8 +2342,8 @@ public final class ServerFightUntilController implements ServerController {
 				via.equals("fight_until") ? "fight_until" : via + " count", mobId, kills, kills == 1 ? "" : "s", untilItemId, Math.max(0, startCount), held, held - Math.max(0, startCount), untilCount,
 				Math.max(0, startArrows - arrows(player)), startArrows - arrows(player) == 1 ? "" : "s", bowEngagements, meleeEngagements,
 				bowEngagements + meleeEngagements == 1 ? "" : "s"));
-		text.append(String.format(Locale.ROOT, "; fire: %.1f s burning, %d step%s off fire; shield: raised %d time%s at shots, %d blocked; cover: %d move%s; looked for %d unseen drop%s, found %d",
-				burnTicks / 20.0D, fireSteps, fireSteps == 1 ? "" : "s", guards, guards == 1 ? "" : "s", shieldBlocks, coverMoves, coverMoves == 1 ? "" : "s",
+		text.append(String.format(Locale.ROOT, "; fire: %.1f s burning, %d step%s off fire; shield: raised %d time%s at shots, %d blocked; looked for %d unseen drop%s, found %d",
+				burnTicks / 20.0D, fireSteps, fireSteps == 1 ? "" : "s", guards, guards == 1 ? "" : "s", shieldBlocks,
 				dropLooks, dropLooks == 1 ? "" : "s", dropsFound));
 		if (ledgeTrips > 0 || !ledgeRefusals.isEmpty()) text.append(String.format(Locale.ROOT, "; ledge: %d trip%s up for drops seen landing above, %d picked up%s",
 				ledgeTrips, ledgeTrips == 1 ? "" : "s", ledgeRods, ledgeRefusals.isEmpty() ? "" : ", not tried " + ledgeRefusals));

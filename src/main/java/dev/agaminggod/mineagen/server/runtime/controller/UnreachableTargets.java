@@ -38,7 +38,7 @@ final class UnreachableTargets {
 	 * benchmark had the unreachable-enderman room at 0 of 10 with it off and 10 of 10 with it on.
 	 */
 	static UnreachableTargets fromProperty() {
-		return new UnreachableTargets(!"false".equals(System.getProperty(PROPERTY)));
+		return new UnreachableTargets(dev.agaminggod.mineagen.server.Switches.get("fight.skipUnreachable"));
 	}
 
 	boolean enabled() {

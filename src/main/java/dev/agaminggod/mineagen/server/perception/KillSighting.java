@@ -24,7 +24,7 @@ public final class KillSighting {
 	}
 
 	public static boolean enabled() {
-		return !"false".equalsIgnoreCase(System.getProperty(ENABLE_PROPERTY, "true").trim());
+		return dev.agaminggod.mineagen.server.Switches.get("killPosition");
 	}
 
 	/** The mob's block position when the body saw it die, else null. */
