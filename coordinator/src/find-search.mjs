@@ -1400,6 +1400,7 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 			return settle(stair);
 		};
 		const wetHeadings = new Set();
+		let depthEscapes = 0;
 		let wetStuck = false;
 		// Where each dig stopped and why: the same stop again on the same spot moves the body off it.
 		const stopsAt = new Set();
@@ -1517,7 +1518,20 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 			const wetDig = counted < legs.length && DESCENTS.test(lastHow) && lastLeg?.reasonCode === 'WATER_AHEAD';
 			const wet = lastLeg?.underWater === true || observation?.player?.underWater === true;
 			if (wetDig) miss({ x: Math.floor(at.x), y: Math.floor(at.y + 1e-3), z: Math.floor(at.z) }, WET_SPOT);
-			if (wetDig && !wet && profile.depth !== null && Math.abs(at.y - profile.depth) <= CAVE_BAND) { level = true; counted = legs.length; previous = at; continue; }
+			const atOreDepth = (point) => point !== null && profile.depth !== null && Math.abs(point.y - profile.depth) <= CAVE_BAND;
+			// Flooded at the ore's depth: out of the water where it is (the escape job), then on along this depth as from a
+			// dry wet dig, not back up to the surface it came down from. iron-obtain-20261107: a steep dig down to y30
+			// opened an aquifer over the body; the search climbed 36 blocks back to its start and the find timed out (0/20),
+			// where a dig that walled its water off at y38 tunnelled on and found iron. Its own tries: the search's escapes
+			// can be spent near the surface before the descent.
+			if (wetDig && wet && atOreDepth(at) && depthEscapes < MAX_ESCAPES) {
+				depthEscapes += 1;
+				const out = await settle(await leg('escape the water at depth', 'escape', { timeoutMs: 60_000 }));
+				if (out !== null) return out;
+				const now = bodyAt(observation);
+				if (!inWater() && atOreDepth(now)) { level = true; counted = legs.length; previous = now; continue; }
+			}
+			if (wetDig && !wet && atOreDepth(at)) { level = true; counted = legs.length; previous = at; continue; }
 			if ((wetDig || nearWet !== undefined) && wetTunnels < MAX_WET_TUNNELS) {
 				// On open ground, a look round first unless the last one was from here: the walk off goes where it shows land.
 				if (observation?.player?.skyOpen === true && observation?.player?.underWater !== true && (ground === null || Math.hypot(ground.at.x - at.x, ground.at.z - at.z) > 4)) {

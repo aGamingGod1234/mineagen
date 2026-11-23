@@ -2057,3 +2057,24 @@ test('stairs into a mob cave: when neither the flee nor the walk back up gets aw
 	const flee = body.calls.find((call) => call.actionType === 'flee_from');
 	assert.ok(Number.isFinite(flee?.args.timeoutMs), 'the flee is a timed leg, capped by the search budget');
 });
+
+test('iron-obtain-20261107: a dig down that floods over the body at the ore\'s depth escapes the water there and digs on at that depth, not back up to its start', async () => {
+	// The steep dig from the surface opened an aquifer at y31 over the body at y30. Climbing back to the start threw the
+	// descent away (36 blocks up, then the find timed out, 0/20); a dig there that walled its water off tunnelled on.
+	const wet = { result: { state: 'FAILED', reasonCode: 'WATER_AHEAD', message: 'Stopped: Water at -607,31,57 beside the opened cell -607,31,56; water on 4 sides of it: a body of water (an aquifer or lake), not a trickle; not going further. At -607,30,55, steep_down heading south' },
+		move: () => ({ x: -606.5, y: 30, z: 55.5, inWater: true, underWater: true, onGround: false, skyOpen: false }) };
+	const body = fakeBody({ start: sample({ player: { x: -606.5, y: 70, z: 35.5, yaw: 0, health: 20, air: 300, maxAir: 300, skyOpen: true },
+		inventory: { items: [{ itemId: 'minecraft:stone_pickaxe', count: 1 }, { itemId: 'minecraft:cobblestone', count: 64 }] } }),
+	frontier: { candidates: [], coverage: { headings: {} } },
+	acts: { dig_to: [wet, { result: { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', message: 'minecraft:iron_ore seen at -592,31,56, 3 blocks away' } }],
+		escape: [{ result: { state: 'SUCCEEDED', reasonCode: 'ESCAPED', message: 'Safe: footing, eyes in air' }, ms: 4_000,
+			move: () => ({ x: -605.5, y: 31, z: 55.5, inWater: false, underWater: false, onGround: true, skyOpen: false }) }] } });
+	body.openSky = () => ({ x: -606.5, y: 70, z: 35.5 });
+	const result = await searchFor({ block: 'minecraft:iron_ore' }, body, { timeoutMs: 300_000 });
+	const moves = body.calls.filter((call) => call.actionType);
+	const escape = moves.findIndex((call) => call.actionType === 'escape');
+	assert.ok(escape > 0, `the escape runs at depth (calls: ${moves.map((call) => call.actionType).join(',')})`);
+	assert.ok(!moves.slice(escape).some((call) => call.actionType === 'travel_to' && call.args.retrace === true), 'no retrace back up to the start');
+	assert.equal(moves[escape + 1]?.actionType, 'dig_to', 'then a dig on from there');
+	assert.equal(result.reasonCode, 'FIND_SEEN', result.message);
+});
