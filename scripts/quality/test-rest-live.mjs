@@ -73,14 +73,15 @@ async function session(seed, index) {
 			e = await registered;
 		}
 		if (!e) throw new Error(`agent never registered: ${reply}`);
+		// The body joins at y200 in survival and falls; until prepare() places it, slow falling keeps that drop from killing
+		// it (11 of 40 rest-dawn/rest-timeout runs on 23 Nov "fell from a high place" in the first 4 s and started dead).
+		// Given at once on registration, before the goal round trips. prepare() clears it.
+		await s.command(`effect give ${AGENT} minecraft:slow_falling 120 0 true`);
 		s.record = { ...(e.payload.record ?? e.payload), agentId: e.agentId };
 		await s.bridge.send('agent_ready', s.record.agentId, { goalRevision: s.record.goalRevision, reconciled: false });
 		const started = s.inbox.wait('goal_control', g => g.payload.operation === 'start');
 		await s.command(`mineagen start ${AGENT} Survive for 1200 seconds.`); s.record.goalRevision = (await started).payload.goalRevision;
 		await s.bridge.send('agent_ready', s.record.agentId, { goalRevision: s.record.goalRevision, reconciled: false });
-		// The body joins at y200; until prepare() places it, slow falling keeps that drop from killing it (2 of 10 dawn and
-		// 2 of 10 timeout runs on 23 Nov "fell from a high place" in the first 4 s and started dead). prepare() clears it.
-		await s.command(`effect give ${AGENT} minecraft:slow_falling 120 0 true`);
 		await s.command(`gamemode survival ${AGENT}`);
 		const readDamage = await damageCounter(text => s.command(text), AGENT);
 
