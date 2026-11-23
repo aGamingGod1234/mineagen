@@ -3178,6 +3178,7 @@ final class ReflexActions {
 				String no = refusal(player, center, shooter.position());
 				if (no != null) return Step.failed("not walling in: " + no);
 				SHELTERS.put(player.getUUID(), new Shelter(center, shooter.getId(), false));
+				owner = player.getUUID();
 				heldSlot = player.getInventory().getSelectedSlot();
 				Direction facing = Direction.getApproximateNearest(shooter.getX() - player.getX(), 0.0D, shooter.getZ() - player.getZ());
 				// Feet level first (each head cell stands on its feet cell), the side facing the shooter first.
@@ -3224,6 +3225,7 @@ final class ReflexActions {
 			}
 			if (open.isEmpty()) {
 				input.accept(look(player, null, 0.0F, 0.0F, false, false, heldSlot, InteractionHand.MAIN_HAND));
+				markRoofless(level);
 				return Step.done(report(level, "walled in from " + type(shooter)));
 			}
 			if (open.size() == 1 && insider(player) != null) return stop(level, type(insider(player)) + " got inside before the last wall");
@@ -3336,13 +3338,22 @@ final class ReflexActions {
 			return Step.failed(report(level, "stopped walling in: " + why));
 		}
 
+		/** The body this wall-in registered its shelter for. */
+		private java.util.UUID owner;
+
+		/** A wall-in ending with its roof cell still open (skipped, refused, out of blocks) records the roof as given up. */
+		private void markRoofless(Level level) {
+			if (owner == null || center == null || !level.getBlockState(center.above(2)).canBeReplaced()) return;
+			SHELTERS.computeIfPresent(owner, (body, shelter) -> shelter.center().equals(center) ? new Shelter(center, shelter.shooterId(), true) : shelter);
+		}
+
 		/**
 		 * A stop that only the roof can meet: with every side already closed the wall-in did its job (the walls alone were
 		 * the whole plan before the roof), so it ends done without a roof instead of counting against defend.
 		 */
 		private Step roofStop(Level level, String why) {
 			if (enclosed(level, center)) {
-				SHELTERS.replaceAll((body, shelter) -> shelter.center().equals(center) ? new Shelter(center, shelter.shooterId(), true) : shelter);
+				markRoofless(level);
 				return Step.done(report(level, "walled in from " + type(shooter) + " with no roof: " + why));
 			}
 			return stop(level, why);
