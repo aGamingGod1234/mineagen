@@ -177,19 +177,30 @@ public final class ServerEscapeController implements ServerController {
 		return WaterMove.TRAVEL;
 	}
 
+	/**
+	 * Push onto a bank in reach before anything else, also with the eyes under water, unless the air is low: then the
+	 * swim to air comes first, as for every other move.
+	 */
+	static boolean climbFirst(boolean besideBank, int climbs, boolean underwater, int air) {
+		return besideBank && climbs < MAX_TRIES && (!underwater || air >= SWIM_FIRST_AIR);
+	}
+
 	private TickResult water(ServerPlayer player, long now) {
 		BlockPos bank = bank(player, bankTries);
 		// travel_to counts a stop within a block of the bank as arrived, often still treading water at its edge: a player
-		// holds forward and jump against the bank there.
-		if (bank != null && !player.isUnderWater() && besideBank(player, bank) && climbs < MAX_TRIES) {
+		// holds forward and jump against the bank there. Whether it is in reach is the bank's height against the water
+		// (SwimPlanning.climbsOut), not where the eyes are: a body with its eyes under, beside a bank at or below its feet,
+		// rises and climbs out the same way (a travel there only arrives again, still in the water).
+		boolean beside = bank != null && besideBank(player, bank);
+		if (climbFirst(beside, climbs, player.isUnderWater(), player.getAirSupply())) {
 			climbs++;
 			refund = () -> climbs--;
-			return startMove(player, climbOut(bank), "climb out onto the bank at " + bank.toShortString());
+			return startMove(player, climbOut(bank, adjacentBank(player, bank) ? 60 : 100), "climb out onto the bank at " + bank.toShortString());
 		}
 		// No bank within one push, but a flooded step beside the body whose floor is within the climb from where it floats
 		// (a flooded stair): a player wades up onto it, as each step up brings the next one, and the bank, in reach. A
 		// block placed there instead raises the ledge out of reach of a body afloat (6006/0: 4 of 4 climbs failed).
-		BlockPos ledge = (bank == null || player.isUnderWater() || !besideBank(player, bank)) && wades < WADE_LIMIT && (!player.isUnderWater() || player.getAirSupply() >= SWIM_FIRST_AIR)
+		BlockPos ledge = !climbFirst(beside, climbs, player.isUnderWater(), player.getAirSupply()) && wades < WADE_LIMIT && (!player.isUnderWater() || player.getAirSupply() >= SWIM_FIRST_AIR)
 				? wadeCell(player.level(), player, connectedWater(player.level(), player.blockPosition())) : null;
 		if (ledge != null) {
 			wades++;
@@ -201,7 +212,8 @@ public final class ServerEscapeController implements ServerController {
 		String block = plainBlock(player);
 		Column column = bank == null && block != null && fills < MAX_TRIES ? fillColumn(player.level(), player.blockPosition()) : null;
 		boolean canFill = column != null && ServerBuildController.carried(player, block) >= column.depth();
-		BlockPos step = bank == null && !canFill && block != null && steps < MAX_TRIES ? stepCell(player.level(), player.blockPosition(), connectedWater(player.level(), player.blockPosition())) : null;
+		BlockPos step = bank == null && !canFill && block != null && steps < MAX_TRIES
+				? stepCell(player.level(), player.blockPosition(), connectedWater(player.level(), player.blockPosition()), waterTopAt(player.level(), player.blockPosition())) : null;
 		WaterMove next = waterMove(player.isUnderWater(), player.getAirSupply(), bank != null, tries, player.onGround(), bankAbove,
 				bank != null && stairedBanks.contains(bank), swims, canFill, step != null);
 		return switch (next) {
@@ -243,17 +255,14 @@ public final class ServerEscapeController implements ServerController {
 
 	/** At most this many wades up flooded steps in one escape: a flooded stair is climbed one step per wade. */
 	static final int WADE_LIMIT = 16;
-	/** How high above the feet a ledge can be climbed: afloat, vanilla's hop out of water needs the body 0.6 higher free. */
-	static final double WADE_AFLOAT = 0.6D, WADE_STANDING = 1.1D;
-
 	/**
 	 * A water cell beside the body, in its own water, over a sturdy dry floor higher than the floor under the body and
-	 * within the climb from where it is (afloat {@link #WADE_AFLOAT}, standing {@link #WADE_STANDING}), with room for the
+	 * within the climb from where it is ({@link SwimPlanning#climbsOut}), with room for the
 	 * body over it (water or air, nothing solid): the highest such step, or null.
 	 */
 	static BlockPos wadeCell(Level level, ServerPlayer player, Set<BlockPos> pool) {
 		BlockPos feet = player.blockPosition();
-		double reach = player.onGround() ? WADE_STANDING : WADE_AFLOAT;
+		int waterTop = waterTopAt(level, feet);
 		// The top of the floor under the body: the first solid cell down through its water (at most 4 down).
 		int ownFloorTop = Integer.MIN_VALUE;
 		for (int down = 0; down <= 4; down++) {
@@ -274,7 +283,7 @@ public final class ServerEscapeController implements ServerController {
 				if (!takeoffClear(box.minX, box.maxX, box.minZ, box.maxZ, box.maxY, cell.getY(),
 						at -> !level.getBlockState(at).getCollisionShape(level, at).isEmpty())) continue;
 				double ledge = cell.getY() - player.getY();
-				if (cell.getY() > ownFloorTop && ledge > bestLedge && ledge <= reach) { bestLedge = ledge; best = cell; }
+				if (cell.getY() > ownFloorTop && ledge > bestLedge && SwimPlanning.climbsOut(cell.getY(), waterTop)) { bestLedge = ledge; best = cell; }
 			}
 		}
 		return best;
@@ -330,18 +339,60 @@ public final class ServerEscapeController implements ServerController {
 		};
 	}
 
-	/** Within a block and a half of the bank, not more than a block below its floor: one push of forward and jump. */
-	static boolean besideBank(ServerPlayer player, BlockPos bank) {
+	/** Within a block and a half of the bank: the push climbs from the body's own column. */
+	static boolean adjacentBank(ServerPlayer player, BlockPos bank) {
 		double dx = bank.getX() + 0.5D - player.getX(), dz = bank.getZ() + 0.5D - player.getZ();
-		return dx * dx + dz * dz <= 2.25D && bank.getY() - player.getY() <= 1.3D;
+		return dx * dx + dz * dz <= 2.25D;
+	}
+
+	/** How far over the feet a bank one swim column away may be: the body rises in that column before it climbs. */
+	static final int REACH_RISE = 3;
+
+	/**
+	 * A bank one push of forward and jump gets the body onto, with the water-exit climb (SwimPlanning.climbsOut) from the
+	 * column it climbs from and room to rise there:
+	 * - beside it (within a block and a half), not more than a block below its floor, climbing from its own column; or
+	 * - two cells off in a straight line over one open column of water (nothing solid from the feet up past the head and
+	 *   past the bank's floor), climbing from that column: a body under a low ceiling swims into the open column beside it and climbs
+	 *   from there, as a player does (floodlow: a travel there asked for a tunnel and never got out, 0/10).
+	 */
+	static boolean besideBank(ServerPlayer player, BlockPos bank) {
+		Level level = player.level();
+		java.util.function.Predicate<BlockPos> solidAt = at -> solid(level, at);
+		if (adjacentBank(player, bank)) {
+			net.minecraft.world.phys.AABB box = player.getBoundingBox();
+			return bank.getY() - player.getY() <= 1.3D && SwimPlanning.climbsOut(bank.getY(), waterTopAt(level, player.blockPosition()))
+					&& takeoffClear(box.minX, box.maxX, box.minZ, box.maxZ, box.maxY, bank.getY(), solidAt);
+		}
+		BlockPos feet = player.blockPosition();
+		int ox = bank.getX() - feet.getX(), oz = bank.getZ() - feet.getZ();
+		if (!(Math.abs(ox) == 2 && oz == 0 || Math.abs(oz) == 2 && ox == 0) || bank.getY() - feet.getY() > REACH_RISE) return false;
+		BlockPos mid = feet.offset(ox / 2, 0, oz / 2);
+		if (!level.getFluidState(mid).is(net.minecraft.tags.FluidTags.WATER)) return false;
+		// Room for the body to pass at its own height and to rise to the bank's floor: from the feet up past the head and
+		// past the bank's floor plus a standing height.
+		int top = Math.max(bank.getY() + 1, net.minecraft.util.Mth.floor(player.getBoundingBox().maxY));
+		for (int y = feet.getY(); y <= top; y++) if (solid(level, new BlockPos(mid.getX(), y, mid.getZ()))) return false;
+		return SwimPlanning.climbsOut(bank.getY(), waterTopAt(level, mid));
+	}
+
+	/**
+	 * The top face of the water the body is in: up its own column from the feet cell (or the cell under the feet, afloat
+	 * with the feet just over that face). With no water there, the feet's block.
+	 */
+	static int waterTopAt(Level level, BlockPos feet) {
+		java.util.function.IntPredicate water = y -> level.getFluidState(new BlockPos(feet.getX(), y, feet.getZ())).is(net.minecraft.tags.FluidTags.WATER);
+		int top = SwimPlanning.waterTop(feet.getY(), water);
+		if (top == Integer.MIN_VALUE) top = SwimPlanning.waterTop(feet.getY() - 1, water);
+		return top == Integer.MIN_VALUE ? feet.getY() : top;
 	}
 
 	/** Face the bank and hold forward and jump, as a player climbs out of water; done on dry footing, failed after 3 s. */
-	static EscapeMoves.Move climbOut(BlockPos bank) {
+	static EscapeMoves.Move climbOut(BlockPos bank, int limitTicks) {
 		int[] ticks = {0};
 		return (player, input) -> {
 			if (player.onGround() && !player.isInWater()) return new EscapeMoves.Result(EscapeMoves.Status.DONE, "on the bank at " + player.blockPosition().toShortString());
-			if (++ticks[0] > 60) return new EscapeMoves.Result(EscapeMoves.Status.FAILED, "still in the water after 3 s pushing onto the bank");
+			if (++ticks[0] > limitTicks) return new EscapeMoves.Result(EscapeMoves.Status.FAILED, "still in the water after " + limitTicks / 20 + " s pushing onto the bank");
 			double dx = bank.getX() + 0.5D - player.getX(), dz = bank.getZ() + 0.5D - player.getZ();
 			float heading = net.minecraft.util.Mth.wrapDegrees((float) Math.toDegrees(Math.atan2(-dx, dz)));
 			float yaw = dev.agaminggod.mineagen.server.runtime.input.AgentInputStates.turnYaw(player.getYRot(), heading);
@@ -353,14 +404,18 @@ public final class ServerEscapeController implements ServerController {
 	}
 
 	/**
-	 * A water cell beside the body (at its feet or one above, where the surface is), connected to its water, with a sturdy
-	 * block under it and two open cells over it: a block placed there makes standing room beside the body. Null when none.
+	 * A water cell beside the body (at its feet or one above), connected to its water, with a sturdy block under it, two
+	 * open cells over it (so the step tops out at the water's surface, never deep under it), and a top a swimmer in water
+	 * topping at {@code waterTop} climbs onto
+	 * (SwimPlanning.climbsOut): a block placed there is a step beside the body. The higher one comes first (when both are
+	 * in reach the lower one's top is still under water). A step whose top is out of that climb only raises the way out
+	 * (iron-kit seed 6006: a step whose top was a block over the water, 4 of 4 climbs failed). Null when none.
 	 */
-	static BlockPos stepCell(Level level, BlockPos feet, Set<BlockPos> pool) {
+	static BlockPos stepCell(Level level, BlockPos feet, Set<BlockPos> pool, int waterTop) {
 		for (int dy = 1; dy >= 0; dy--) {
 			for (Direction side : Direction.Plane.HORIZONTAL) {
 				BlockPos cell = feet.above(dy).relative(side);
-				if (!pool.contains(cell)) continue;
+				if (!pool.contains(cell) || !SwimPlanning.climbsOut(cell.getY() + 1, waterTop)) continue;
 				BlockPos under = cell.below();
 				if (!level.getBlockState(under).isFaceSturdy(level, under, Direction.UP)) continue;
 				if (clear(level, cell.above()) && clear(level, cell.above(2))) return cell;
@@ -369,12 +424,27 @@ public final class ServerEscapeController implements ServerController {
 		return null;
 	}
 
-	/** Place one block into {@code cell} against the top of the block under it, afloat; done once the cell holds no water. */
+	/**
+	 * Place one block into {@code cell} against the top of the block under it, afloat, then climb onto it (forward and
+	 * jump toward it): done standing on it, or once it is placed if the body could not get onto it in 3 s, so the next
+	 * pick starts from wherever the body is.
+	 */
 	EscapeMoves.Move placeStep(String item, BlockPos cell) {
 		int[] ticks = {0};
+		int[] climb = {0};
 		return (player, input) -> {
-			if (!player.level().getFluidState(cell).is(net.minecraft.tags.FluidTags.WATER))
-				return new EscapeMoves.Result(EscapeMoves.Status.DONE, "placed a step at " + cell.toShortString());
+			if (!player.level().getFluidState(cell).is(net.minecraft.tags.FluidTags.WATER) && !player.level().getBlockState(cell).isAir()) {
+				if (player.onGround() && player.getY() >= cell.getY() + 0.9D)
+					return new EscapeMoves.Result(EscapeMoves.Status.DONE, "placed a step at " + cell.toShortString() + " and stood on it");
+				if (++climb[0] > 60) return new EscapeMoves.Result(EscapeMoves.Status.DONE, "placed a step at " + cell.toShortString() + "; could not climb onto it in 3 s");
+				double dx = cell.getX() + 0.5D - player.getX(), dz = cell.getZ() + 0.5D - player.getZ();
+				float heading = net.minecraft.util.Mth.wrapDegrees((float) Math.toDegrees(Math.atan2(-dx, dz)));
+				float yaw = dev.agaminggod.mineagen.server.runtime.input.AgentInputStates.turnYaw(player.getYRot(), heading);
+				float pitch = dev.agaminggod.mineagen.server.runtime.input.AgentInputStates.turnPitch(player.getXRot(), 0.0F);
+				input.accept(new dev.agaminggod.mineagen.server.runtime.input.AgentInputState(1.0F, 0.0F, true, false, false, false, false, yaw, pitch,
+						player.getInventory().getSelectedSlot(), net.minecraft.world.InteractionHand.MAIN_HAND));
+				return new EscapeMoves.Result(EscapeMoves.Status.RUNNING, "climbing onto the step at " + cell.toShortString());
+			}
 			if (++ticks[0] > 100) return new EscapeMoves.Result(EscapeMoves.Status.FAILED, "could not place a step into " + cell.toShortString() + " in 5 s");
 			net.minecraft.world.phys.Vec3 aim;
 			try { aim = environment.aim(player, cell, Direction.UP, item); }
