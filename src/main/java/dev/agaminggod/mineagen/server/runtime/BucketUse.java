@@ -85,7 +85,7 @@ final class BucketUse {
 		return null;
 	}
 
-	/** Cells of one flow searched back to its sources: water spreads at most 7 cells from a source, plus any fall. */
+	/** Fluid cells of one flow searched back to its sources: a pour spreads 7 cells from its source, plus any fall. */
 	private static final int FLOW_SEARCH_CELLS = 256;
 
 	/**
@@ -118,14 +118,15 @@ final class BucketUse {
 		java.util.List<BlockPos> sources = new java.util.ArrayList<>();
 		queue.add(start.immutable());
 		seen.add(start.immutable());
-		while (!queue.isEmpty() && seen.size() <= FLOW_SEARCH_CELLS) {
+		// Only cells of the fluid count toward the cap: a full pour on a flat floor is about 113 cells.
+		int visited = 0;
+		while (!queue.isEmpty() && visited++ < FLOW_SEARCH_CELLS) {
 			BlockPos at = queue.poll();
 			FluidState here = level.getFluidState(at);
 			if (here.isSource()) { sources.add(at); continue; }
 			for (Direction side : Direction.values()) {
 				BlockPos next = at.relative(side);
-				if (!seen.add(next)) continue;
-				if (level.getFluidState(next).getType().isSame(fluid.getType())) queue.add(next);
+				if (level.getFluidState(next).getType().isSame(fluid.getType()) && seen.add(next)) queue.add(next);
 			}
 		}
 		return sources;

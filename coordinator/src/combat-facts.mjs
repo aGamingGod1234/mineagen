@@ -36,13 +36,20 @@ function dragonFact(observation) {
 }
 
 // Only a source refills an empty bucket: its ray passes flowing water (vanilla SOURCE_ONLY). Block rows carry the fluid
-// (minecraft:water is a source, minecraft:flowing_water is not) and the block's level (0 for a source); landmark rows
-// carry neither, so they never name a source.
-const waterSource = b => b?.blockId === 'minecraft:water' && (b.fluid?.type !== undefined ? b.fluid.type === 'minecraft:water' : String(b.state?.level) === '0');
+// (minecraft:water is a source, minecraft:flowing_water is not) and the block's level (0 for a source). Landmark rows
+// carry neither, so far water is named only when no source is in the block rows, as water whose source is not known.
+const waterSource = b => b.fluid?.type !== undefined ? b.fluid.type === 'minecraft:water' : b.state?.level !== undefined && String(b.state.level) === '0';
 function seenWater(observation) {
-	const rows = [...(observation.blocks ?? []), ...(observation.landmarks ?? [])].filter(b => waterSource(b) && [b.x, b.y, b.z].every(Number.isFinite));
-	const nearest = rows.sort((a, b) => (a.distance ?? Infinity) - (b.distance ?? Infinity))[0];
-	return nearest ? ` Water source seen at ${nearest.x},${nearest.y},${nearest.z}.` : '';
+	const at = observation.position ?? observation.player?.position ?? observation.player;
+	// Block rows carry no distance: measure from the feet when the row does not say.
+	const distance = b => Number.isFinite(b.distance) ? b.distance
+		: [at?.x, at?.y, at?.z].every(Number.isFinite) ? Math.hypot(b.x + 0.5 - at.x, b.y + 0.5 - at.y, b.z + 0.5 - at.z) : Infinity;
+	const nearest = rows => rows.filter(b => b?.blockId === 'minecraft:water' && [b.x, b.y, b.z].every(Number.isFinite))
+		.sort((a, b) => distance(a) - distance(b));
+	const source = nearest(observation.blocks ?? []).find(waterSource);
+	if (source) return ` Water source seen at ${source.x},${source.y},${source.z}.`;
+	const far = nearest(observation.landmarks ?? [])[0];
+	return far ? ` Water seen at ${far.x},${far.y},${far.z}; from there, aim the empty bucket at its source block, not the flow.` : '';
 }
 
 // Sword attack damage (vanilla tiers); a falling critical deals 1.5x. Blaze health is 20.
