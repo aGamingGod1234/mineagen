@@ -42,6 +42,8 @@ if (NO_ENDERMEN && strict) { console.error('--no-endermen is for bring-up: add -
 // idle passes), kept so a script change is judged against it on the same jar. --caged-first (bring-up): open the caged
 // crystals before the open ones.
 const OLD_CRYSTALS = cli.includes('--old-crystal-phase'), CAGED_FIRST = cli.includes('--caged-first');
+// --old-refill: main's stand-in before the walk back to a remembered pour (kept so the walk is judged on the same jar).
+const OLD_REFILL = cli.includes('--old-refill');
 const [outArg, jarArg] = cli.filter(arg => !arg.startsWith('--'));
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port = Number(process.env.SLOT_PORT_BASE);
 if (!outArg || !template || !port || !process.env.JAVA_HOME) { console.error('Usage: OUT_DIR [JAR] [--no-bow] [--survive] under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME'); process.exit(2); }
@@ -383,6 +385,25 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 					}
 					return f;
 				};
+				// An empty bucket before a cage: back to the water the body's own reflex poured, which the End fact names
+				// ("Water source you poured at X (remembered; aim the empty bucket there)"), and fill it there. --old-refill
+				// skips the walk, as main's stand-in did (a cage was left whenever no water was in reach).
+				const fetchWater = async () => {
+					if (OLD_REFILL) return;
+					const v = await view().catch(() => null);
+					const items = v?.inventory?.items ?? [];
+					if (!v?.player || items.some(i => i.itemId === 'minecraft:water_bucket') || !items.some(i => i.itemId === 'minecraft:bucket')) return;
+					const pour = runtime.reflexPours(record, v).map(p => ({ ...p, d: Math.hypot(p.x + 0.5 - v.player.x, p.z + 0.5 - v.player.z) }))
+						.filter(p => p.d <= 96).sort((a, b) => a.d - b.d)[0];
+					if (!pour) { note('no water bucket and no remembered pour', null); return; }
+					if (pour.d > 3) {
+						const r = await act('travel_to', { x: pour.x + 0.5, y: pour.y, z: pour.z + 0.5, tolerance: 2, build: true, timeoutMs: 60000 });
+						note(`to the remembered pour at ${pour.x},${pour.y},${pour.z}`, r);
+					}
+					await act('select_item', { itemId: 'minecraft:bucket' });
+					const r = await act('use_item', { expectedItemId: 'minecraft:bucket', aimX: pour.x + 0.5, aimY: pour.y + 0.5, aimZ: pour.z + 0.5, durationMs: 100 });
+					note(`refill the bucket at the remembered pour ${pour.x},${pour.y},${pour.z}`, r);
+				};
 				const openCage = async c => {
 					c.cageTries += 1;
 					await refill();
@@ -405,6 +426,7 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 					if (!Number.isFinite(base) || base < 40 || base >= S.y) { note(`no ground beside caged crystal ${where(c)} (y ${base})`, null); c.cageTries = 99; return; }
 					// 2. Onto the cell beside the wall, feet centred, and pillar a whole column to the crystal's feet height.
 					// The facts' descent needs a water bucket in the hotbar: without one, the method is not used at all.
+					if (!hotbarBucket(await view().catch(() => null))) await fetchWater();
 					if (!hotbarBucket(await view().catch(() => null))) { note(`no water bucket in the hotbar: caged crystal ${where(c)} left for now`, null); c.gaveUp = true; return; }
 					if (await over('to the cage')) return;
 					r = await act('travel_to', { x: S.x + 0.5, y: base, z: S.z + 0.5, tolerance: 1, build: true, timeoutMs: 60000 }); note('to the spot beside the cage', r);
