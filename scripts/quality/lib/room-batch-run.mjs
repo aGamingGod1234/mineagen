@@ -48,7 +48,7 @@ export async function roomMeta(out) {
 }
 
 export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeoutMs = 40 * 60_000, pollMs = 0, retryMs = 15_000, lostAfterMs = 5 * 60_000,
-	keepAliveMs = 15 * 60_000, prepareGraceMs = 120_000, replacements = vms, log = console.log, rewrite = (value) => value, signal = null, valid = null, keepWorlds = false }) {
+	keepAliveMs = 15 * 60_000, prepareGraceMs = 120_000, replacements = vms, log = console.log, rewrite = (value) => value, signal = null, valid = null, keepWorlds = false, serverMods = [] }) {
 	await mkdir(path.join(out, 'rooms'), { recursive: true });
 	if ((await readdir(path.join(out, 'rooms'))).length) throw new Error(`${out} already holds rooms: use a fresh output folder`);
 	const began = Date.now(), machines = [], layouts = new Map();
@@ -118,7 +118,7 @@ export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeout
 			const closed = () => closesAt() !== null && Date.now() >= closesAt();
 			if (closed()) { await retire(vm, 'past its cutoff'); return { lost: true, requeue: true, reason: 'its machine is past its cutoff' }; }
 			const layout = layouts.get(vm.id);
-			const job = { room: room.room, code: layout.code, outDir: path.posix.join(layout.out, room.room), javaHome: layout.javaHome, template: layout.template, timeoutMs: roomTimeoutMs, wrapper: layout.wrapper ?? [],
+			const job = { room: room.room, code: layout.code, outDir: path.posix.join(layout.out, room.room), javaHome: layout.javaHome, template: layout.template, serverMods: serverMods.map(file => rewrite(file, layout)), timeoutMs: roomTimeoutMs, wrapper: layout.wrapper ?? [],
 				portBase: layout.portBase ?? 28000, env: layout.env ?? {},
 				lines: room.lines.map(line => ({ arm: line.arm, jar: layout.jars[line.arm], env: Object.fromEntries(Object.entries(line.env).map(([key, value]) => [key, rewrite(value, layout)])), args: line.args.map(arg => rewrite(arg, layout)) })) };
 			log(`room ${room.room} -> ${vm.id} (try ${tries})`);
@@ -156,6 +156,9 @@ export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeout
 			}
 			try {
 				const done = await pool.fetch(vm, room.room, path.join(out, 'rooms'));
+				// The machine could not set up the room's server template (lib/room-batch-remote.mjs): nothing played, and the
+				// next room would fail the same way there, so the machine leaves and the room is tried on another one.
+				if (done?.error) { log(`room ${room.room} could not start on ${vm.id}: ${done.error}`); await retire(vm, 'server template'); return { lost: true, reason: done.error }; }
 				log(`room ${room.room} done on ${vm.id} in ${done.seconds}s`);
 				// A passing arm's world region files go as soon as the room is home (lib/room-worlds.mjs); what each arm
 				// kept or dropped is recorded with its outcome in batch.json.
@@ -193,5 +196,24 @@ export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeout
 	const capped = short.filter(group => group.planned + group.perCopy > 2 * valid), early = short.filter(group => !capped.includes(group));
 	if (topUps) text += `\n--valid ${valid}: ${topUps.added.length} top-up copies; ${short.length ? [capped.length ? `short at the ${2 * valid}-run cap: ${named(capped)}` : null,
 		early.length ? `short with copies left (batch stopped or out of machines): ${named(early)}` : null].filter(Boolean).join('; ') : 'every group reached it'}`;
+	const mods = serverModsLine(outcomes);
+	if (mods) text += `\n${mods}`;
 	return { outcomes, topUps: topUps?.report() ?? null, merged, wallSeconds, text, machines: machines.map(vm => ({ id: vm.id, reused: !!vm.reused, returned: !!vm.returned, destroyed: !!vm.destroyed, destroyError: vm.destroyError ?? null, usage: vm.usage ?? null })) };
+}
+
+/** Per added server mod (Lithium), in how many arms' server logs it was listed; arms short of it are named. */
+export function serverModsLine(outcomes) {
+	const counts = new Map();
+	for (const outcome of outcomes ?? []) for (const [arm, value] of Object.entries(outcome?.arms ?? {})) {
+		if (!value?.serverMods) continue;
+		for (const [id, listed] of Object.entries(value.serverMods.listed ?? {})) {
+			const entry = counts.get(id) ?? { arms: 0, listed: 0, short: [] };
+			entry.arms++;
+			if (listed > 0 && listed >= value.serverMods.logs) entry.listed++;
+			else entry.short.push(`${outcome.room ?? '?'}/${arm}`);
+			counts.set(id, entry);
+		}
+	}
+	if (!counts.size) return null;
+	return `server mods: ${[...counts].map(([id, entry]) => `${id} listed in every server log of ${entry.listed} of ${entry.arms} arms${entry.short.length ? ` (not in ${entry.short.slice(0, 5).join(', ')}${entry.short.length > 5 ? ', ...' : ''})` : ''}`).join('; ')}`;
 }
