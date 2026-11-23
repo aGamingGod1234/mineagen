@@ -26,6 +26,9 @@ export const FAILURE_CODES = Object.freeze({
 	REST_NOT_NIGHT: ['body', null],
 	REST_NOT_HERE: ['body', null],
 	REST_STUCK: ['cell', null],
+	// The rest's dig-down step results; the rest turns either into REST_STUCK, so neither reaches the model.
+	NOT_DROPPED: ['internal', 'a rest dig-down step; reported as REST_STUCK'],
+	FELL_THROUGH: ['internal', 'a rest dig-down step; reported as REST_STUCK'],
 	REST_TIMEOUT: ['body', null],
 	// build (ServerBuildController): its own ends; danger, reach and clearing failures keep their usual codes.
 	PORTAL_LIT: ['ok'],
