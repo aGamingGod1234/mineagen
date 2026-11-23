@@ -2994,7 +2994,7 @@ final class ReflexActions {
 	 * Defend's cover from a ranged attacker it cannot reach, for the gap while the model thinks: walls on every open side
 	 * of the body's cell, feet and head, then a roof while the shooter lives (with nothing bordering the roof cell, the body
 	 * jumps to put a block on a wall top first and roofs against it). A cell already solid counts. Each placement is a player's click on a seen face; the body steps to
-	 * the middle of its cell first and never places into itself. It does not start in or under water, with a creeper
+	 * the middle of its cell first and never places into itself. It does not start under water, or in water unless the cell is already closed on every side, with a creeper
 	 * within {@link #CREEPER_RANGE} blocks, or with a mob inside or beside the cells it would enclose; while building it
 	 * stops for water or a creeper, leaves a side open where a mob stands in a wall cell, and before the last block stops
 	 * if a mob got inside. It ends when the walls are up and says which sides are closed; the walls stay as blocks and
@@ -3123,15 +3123,20 @@ final class ReflexActions {
 			BlockPos target = null;
 			boolean inBody = false;
 			for (BlockPos cell : open) {
-				if (player.getBoundingBox().intersects(new AABB(cell))) { inBody |= cell.getY() >= center.getY() + 2; continue; }
+				if (player.getBoundingBox().intersects(new AABB(cell))) {
+					// Only a body still off the floor (the roof jump) or afloat comes down out of the roof cell; one standing on a
+					// raised block (a bed, a slab) keeps its head there.
+					inBody |= cell.getY() >= center.getY() + 2 && (!player.onGround() || player.isInWater());
+					continue;
+				}
 				List<? extends LivingEntity> occupant = level.getEntitiesOfClass(LivingEntity.class, new AABB(cell), mob -> mob != player && mob.isAlive());
 				if (!occupant.isEmpty()) { skipped.add(cell); continue; }
 				target = cell;
 				break;
 			}
-			if (++ticks > STUCK_TICKS * plan.size()) return stop(level, "could not place the last wall");
+			if (++ticks > STUCK_TICKS * plan.size()) return roofStop(level, "could not place the last wall");
 			if (target == null) {
-				if (!inBody) return stop(level, "could not place the last wall");
+				if (!inBody) return roofStop(level, "could not place the last wall");
 				// Coming down from the jump that put a block on top of a wall: the roof cell is free once the body lands.
 				// Crouched, a body afloat in the cell's water goes down instead of bobbing at the top.
 				input.accept(new AgentInputState(0.0F, 0.0F, false, true, false, false, false, player.getYRot(), player.getXRot(),
@@ -3139,7 +3144,7 @@ final class ReflexActions {
 				return Step.running("landing before the roof over the cell to shut out " + type(shooter));
 			}
 			int slot = PlaceBlock.blockSlot(player, null);
-			if (slot < 0) return stop(level, "ran out of blocks");
+			if (slot < 0) return roofStop(level, "ran out of blocks");
 			BlockHitResult face = PlaceBlock.face(player, target);
 			if (face == null && target.getY() >= center.getY() + 2 && wallTop(level, target)) {
 				// A block on top of a wall: from the floor of a 2-high cell the wall's top face is above the eye, so a player
@@ -3168,6 +3173,8 @@ final class ReflexActions {
 		private boolean planRoof(Level level, Direction facing) {
 			BlockPos roof = center.above(2);
 			if (plan.contains(roof) || skipped.contains(roof) || !level.getBlockState(roof).canBeReplaced() || !roofThreat(level)) return false;
+			// Never roof over water in the head cell: a body bobbing there sinks into a sealed cell with no air.
+			if (!level.getFluidState(center.above()).isEmpty()) return false;
 			boolean bordered = false;
 			for (Direction toward : new Direction[] {Direction.UP, Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST}) {
 				BlockPos support = roof.relative(toward);
@@ -3220,6 +3227,15 @@ final class ReflexActions {
 
 		private Step stop(Level level, String why) {
 			return Step.failed(report(level, "stopped walling in: " + why));
+		}
+
+		/**
+		 * A stop that only the roof can meet: with every side already closed the wall-in did its job (the walls alone were
+		 * the whole plan before the roof), so it ends done without a roof instead of counting against defend.
+		 */
+		private Step roofStop(Level level, String why) {
+			if (enclosed(level, center)) return Step.done(report(level, "walled in from " + type(shooter) + " with no roof: " + why));
+			return stop(level, why);
 		}
 
 		/** Which sides are closed (feet and head), the roof, and that opening them is the model's call. */
