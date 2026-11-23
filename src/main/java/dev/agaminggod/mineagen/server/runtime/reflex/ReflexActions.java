@@ -627,6 +627,11 @@ final class ReflexActions {
 			return backOut != null || walls != null || cover != null || inland != null || braceInPlace || landing;
 		}
 
+		/** Building a wall-in round the body now. */
+		boolean wallingIn() {
+			return walls != null;
+		}
+
 		@Override
 		public void end(ServerPlayer player) {
 			guard.end(player);
@@ -874,7 +879,9 @@ final class ReflexActions {
 			Entity focus = context.focus();
 			// A ranged mob beyond reach (or its shot) is stepped away from across the shot line, not stood still in front of.
 			Entity from = focus instanceof Projectile p && p.getOwner() != null ? p.getOwner() : focus;
-			if (from instanceof Mob archer && archer.isAlive() && ThreatPerception.isRanged(archer) && swingPoint(player, archer, player.getInventory().getItem(slot)) == null) {
+			// Not out of its own walls: in that cell the walls take the shots a step aside would walk into.
+			if (from instanceof Mob archer && archer.isAlive() && ThreatPerception.isRanged(archer) && swingPoint(player, archer, player.getInventory().getItem(slot)) == null
+					&& !WallIn.sheltered(player)) {
 				Step stepped = dodge.tick(new Context(player, focus instanceof Projectile ? focus : archer, context.stance(), context.memory(),
 						context.point(), context.below(), context.fightShields()), input);
 				if (stepped.status() == ReflexScheduler.ActionStatus.RUNNING) {
@@ -1209,10 +1216,11 @@ final class ReflexActions {
 			Vec3 at = shooter.position();
 			Float[] headings = new Float[3];
 			for (int candidate : new int[]{side, -side}) {
-				headings[candidate + 1] = SafeStep.heading(player, sideYaw(body, at, candidate), OFFSETS, candidate == side ? lastHeading : null, List.of(), MAX_DROP);
+				headings[candidate + 1] = SafeStep.heading(player, sideYaw(body, at, candidate), OFFSETS, candidate == side ? lastHeading : null, List.of(), MAX_DROP, true);
 			}
-			// SafeStep tries the knockback margin first: a heading that passes canStep kept it.
-			int chosen = chooseSide(side, candidate -> headings[candidate + 1] != null && SafeStep.canStep(player, headings[candidate + 1]),
+			// SafeStep tries the knockback margin first: a heading that passes canStep kept it. The shot it steps from knocks
+			// the body back from any range, so the margin holds however far the archer stands.
+			int chosen = chooseSide(side, candidate -> headings[candidate + 1] != null && SafeStep.canStep(player, headings[candidate + 1], true),
 					candidate -> headings[candidate + 1] != null);
 			if (chosen == 0) {
 				input.accept(aim);
@@ -2073,14 +2081,39 @@ final class ReflexActions {
 
 	/** A melee mob after the body this close (centre to centre) lands its first hit in one to two seconds. */
 	static final double CLOSING_RANGE = 5.0D;
+	/** Centre to centre, a melee mob this near can land its hit without another step. */
+	static final double STRIKE_RANGE = 2.5D;
+	/** Blocks a tick, along the ground, that a melee mob must have come toward the body to count as coming at it. */
+	static final double COMING_STEP = 0.01D;
+
+	/**
+	 * Whether a melee mob after the body is coming at it: near enough to strike, or it moved toward the body on its last
+	 * tick. One that targets the body but stands still (a spider wedged on a ledge with no way down) never lands a hit, and
+	 * read as about to, it held defend facing it for 29 minutes in a mine while the walk to iron waited (iron-obtain-6006).
+	 */
+	static boolean comingAt(Mob mob, ServerPlayer player) {
+		if (player.distanceTo(mob) <= STRIKE_RANGE) return true;
+		double dx = player.getX() - mob.getX(), dz = player.getZ() - mob.getZ();
+		double length = Math.hypot(dx, dz);
+		if (length < 1.0E-6D) return true;
+		return ((mob.getX() - mob.xo) * dx + (mob.getZ() - mob.zo) * dz) / length >= COMING_STEP;
+	}
 
 	static Mob closingMelee(ServerPlayer player) {
+		return closingMelee(player, false);
+	}
+
+	/**
+	 * As above; {@code coming}: only a mob that will land its hit soon ({@link #comingAt}), not one that targets the body
+	 * but stands off where it is.
+	 */
+	static Mob closingMelee(ServerPlayer player, boolean coming) {
 		Mob nearest = null;
 		double best = Double.POSITIVE_INFINITY;
 		for (Mob mob : player.level().getEntitiesOfClass(Mob.class, player.getBoundingBox().inflate(CLOSING_RANGE),
 				mob -> mob.isAlive() && mob.getTarget() == player && !mob.isInvisibleTo(player) && packMember(mob, player))) {
 			double distance = player.distanceTo(mob);
-			if (distance > CLOSING_RANGE || distance >= best || !player.hasLineOfSight(mob)) continue;
+			if (distance > CLOSING_RANGE || distance >= best || !player.hasLineOfSight(mob) || coming && !comingAt(mob, player)) continue;
 			best = distance;
 			nearest = mob;
 		}
@@ -2348,6 +2381,14 @@ final class ReflexActions {
 				double nearest = Defend.nearestChaser(player, chaseGap);
 				ranFarEnough = nearest >= chaseGap && (ranFarEnough || context.point() != null && separation >= blocks);
 			}
+			// A lit creeper is let blow from just outside its blast, as a player baits one: past 6 blocks its blast does no harm,
+			// and inside 7 its fuse keeps burning, so it is gone. Run past 7, the fuse went out and the creeper stayed by the
+			// way (iron-6006: one that could not reach the body lit 20 times as the trip came back, and the trip timed out).
+			if (holdsForBlast(player)) {
+				input.accept(new AgentInputState(0.0F, 0.0F, false, false, false, false, false, player.getYRot(), player.getXRot(),
+						player.getInventory().getSelectedSlot(), InteractionHand.MAIN_HAND));
+				return Step.running(String.format(Locale.ROOT, "holding %.1f away while its fuse burns", player.position().distanceTo(creeper.position())));
+			}
 			if (creeperClear || ranFarEnough && (!fusing || separation >= CREEPER_CLEAR)) {
 				return end(player, input, Step.done(String.format(Locale.ROOT, "ran %.1f blocks, now %.1f away", moved, separation) + dropNote + walkNote));
 			}
@@ -2504,6 +2545,27 @@ final class ReflexActions {
 
 		/** Vanilla keeps a fuse burning to 7 blocks: a lit creeper that near still blows within reach of the body. */
 		static final double CREEPER_HANDOVER = 7.0D;
+
+		/**
+		 * Feet to feet, past this a creeper's blast does the body no harm: vanilla's blast hurts out to twice its power of 3.
+		 * The run stops here and slides about a third of a block on, still inside {@link #CREEPER_HANDOVER}.
+		 */
+		static final double BLAST_CLEAR = 6.15D;
+
+		/**
+		 * Whether the run stands still to let its lit creeper blow: a plain (not charged) creeper burning now, the body
+		 * between {@link #BLAST_CLEAR} and {@link #CREEPER_HANDOVER} from it, out of water, no other lit creeper and no melee
+		 * mob coming within {@link #CLOSING_RANGE}. A pack run (defend's back-out) keeps running.
+		 */
+		private boolean holdsForBlast(ServerPlayer player) {
+			if (creeper == null || keepClearOfPack || !creeper.isAlive() || creeper.isPowered() || creeper.getSwellDir() <= 0 || player.isInWater()) return false;
+			double distance = player.position().distanceTo(creeper.position());
+			return blastHold(distance) && otherFusing(player, creeper) == null && meleeNear(player, CLOSING_RANGE).isEmpty();
+		}
+
+		static boolean blastHold(double distance) {
+			return distance >= BLAST_CLEAR && distance < CREEPER_HANDOVER;
+		}
 
 		/** A second fuse invalidates the first creeper's route, separation and any move to settle at its end. */
 		private void retarget(Vec3 position) {
@@ -3019,6 +3081,43 @@ final class ReflexActions {
 			this.shooter = shooter;
 		}
 
+		/** Per body, the cell its last wall-in began to close round it and the shooter it walled in from. */
+		private static final Map<java.util.UUID, Shelter> SHELTERS = new java.util.concurrent.ConcurrentHashMap<>();
+		/** {@code roofGaveUp}: the wall-in ended with the sides up and no roof (blocks ran out, the roof would not place). */
+		record Shelter(BlockPos center, int shooterId, boolean roofGaveUp) { }
+
+		/**
+		 * Whether the body stands in the cell its own wall-in closed (or is closing) round it, the shooter it walled in from
+		 * still lives, and no melee mob presses it. That cell is its cover: the low-health retreat and cover rules would run it
+		 * into the open under that shooter, and a dodge or defend's own stand would step it out through a gap or off the roof
+		 * jump (defend-shallow: all 3 deaths left after #209 walled in, then retreat or dodge took the body out, roof unbuilt).
+		 */
+		static boolean sheltered(ServerPlayer player) {
+			Shelter shelter = SHELTERS.get(player.getUUID());
+			if (shelter == null) return false;
+			if (!(player.level().getEntity(shelter.shooterId()) instanceof LivingEntity shooter) || !shooter.isAlive()) return false;
+			BlockPos feet = BlockPos.containing(player.getX(), player.getY() + 0.2D, player.getZ());
+			// The jump that puts a block on a wall top lifts the feet into the cell above.
+			if (!feet.equals(shelter.center()) && !feet.below().equals(shelter.center())) return false;
+			// Walls that never closed (blocks ran out, a creeper stopped the build) or were opened since are no cover, and neither
+			// is a side the build left as it found it when that is a slab, fence or other part block an arrow passes beside.
+			if (!walled(player.level(), shelter.center())) return false;
+			// Once the roof is given up, walls hide nothing from a shooter that sees down into the cell (a skeleton on a ledge,
+			// the first one or another): while any can see the body, the dodge and cover rules come back. While the roof is
+			// still going up the walls hold.
+			if (shelter.roofGaveUp() && player.level().getBlockState(shelter.center().above(2)).canBeReplaced() && shooterSees(player)) return false;
+			return Defend.nearestChaser(player, PACK_RANGE) >= PACK_RANGE;
+		}
+
+		/** Range within which a living ranged mob that sees the body makes a roofless shelter no cover. */
+		static final double ROOFLESS_SHOOTER_RANGE = 24.0D;
+
+		private static boolean shooterSees(ServerPlayer player) {
+			return !player.level().getEntitiesOfClass(net.minecraft.world.entity.Mob.class, player.getBoundingBox().inflate(ROOFLESS_SHOOTER_RANGE),
+					mob -> mob.isAlive() && ThreatPerception.isRanged(mob)
+							&& player.distanceTo(mob) <= ROOFLESS_SHOOTER_RANGE && mob.getSensing().hasLineOfSight(player)).isEmpty();
+		}
+
 		/**
 		 * Water a player cannot build from: the head under, the feet off the bottom of deeper water (afloat), or a current at the feet that
 		 * carries the body off the cell. Standing on the bottom of still water one deep is building ground (defend-shallow:
@@ -3072,9 +3171,13 @@ final class ReflexActions {
 			};
 		}
 
-		/** Releases the level hold this wall-in took on an exposed deck, if any. */
+		/**
+		 * Releases the level hold this wall-in took on an exposed deck, if any. A wall-in cut off before its roof (defend's
+		 * time limit, a new command) records the roof as given up too: nothing is building it any more.
+		 */
 		void end(ServerPlayer player) {
 			dev.agaminggod.mineagen.server.runtime.controller.BrinkGuard.keepLevel(player, this, false);
+			markRoofless(player.level());
 		}
 
 		Step tick(Context context, Consumer<AgentInputState> input) {
@@ -3088,6 +3191,8 @@ final class ReflexActions {
 				if (!enclosed(level, center) && enclosed(level, center.below()) && level.getBlockState(center.below()).canBeReplaced()) center = center.below();
 				String no = refusal(player, center, shooter.position());
 				if (no != null) return Step.failed("not walling in: " + no);
+				SHELTERS.put(player.getUUID(), new Shelter(center, shooter.getId(), false));
+				owner = player.getUUID();
 				heldSlot = player.getInventory().getSelectedSlot();
 				Direction facing = Direction.getApproximateNearest(shooter.getX() - player.getX(), 0.0D, shooter.getZ() - player.getZ());
 				// Feet level first (each head cell stands on its feet cell), the side facing the shooter first.
@@ -3134,6 +3239,7 @@ final class ReflexActions {
 			}
 			if (open.isEmpty()) {
 				input.accept(look(player, null, 0.0F, 0.0F, false, false, heldSlot, InteractionHand.MAIN_HAND));
+				markRoofless(level);
 				return Step.done(report(level, "walled in from " + type(shooter)));
 			}
 			if (open.size() == 1 && insider(player) != null) return stop(level, type(insider(player)) + " got inside before the last wall");
@@ -3229,6 +3335,16 @@ final class ReflexActions {
 			return true;
 		}
 
+		/** {@link #enclosed} with every side cell a full block, so no shot passes through a gap in it. */
+		static boolean walled(Level level, BlockPos center) {
+			for (Direction side : Direction.Plane.HORIZONTAL) {
+				for (BlockPos cell : new BlockPos[] {center.relative(side), center.relative(side).above()}) {
+					if (!level.getBlockState(cell).isCollisionShapeFullBlock(level, cell)) return false;
+				}
+			}
+			return true;
+		}
+
 		/** A cell standing on a wall block whose top a jump can click. */
 		private static boolean wallTop(Level level, BlockPos cell) {
 			BlockPos below = cell.below();
@@ -3246,12 +3362,24 @@ final class ReflexActions {
 			return Step.failed(report(level, "stopped walling in: " + why));
 		}
 
+		/** The body this wall-in registered its shelter for. */
+		private java.util.UUID owner;
+
+		/** A wall-in ending with its roof cell still open (skipped, refused, out of blocks) records the roof as given up. */
+		private void markRoofless(Level level) {
+			if (owner == null || center == null || !level.getBlockState(center.above(2)).canBeReplaced()) return;
+			SHELTERS.computeIfPresent(owner, (body, shelter) -> shelter.center().equals(center) ? new Shelter(center, shelter.shooterId(), true) : shelter);
+		}
+
 		/**
 		 * A stop that only the roof can meet: with every side already closed the wall-in did its job (the walls alone were
 		 * the whole plan before the roof), so it ends done without a roof instead of counting against defend.
 		 */
 		private Step roofStop(Level level, String why) {
-			if (enclosed(level, center)) return Step.done(report(level, "walled in from " + type(shooter) + " with no roof: " + why));
+			if (enclosed(level, center)) {
+				markRoofless(level);
+				return Step.done(report(level, "walled in from " + type(shooter) + " with no roof: " + why));
+			}
 			return stop(level, why);
 		}
 

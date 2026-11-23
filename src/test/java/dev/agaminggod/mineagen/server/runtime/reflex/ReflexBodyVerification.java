@@ -29,7 +29,18 @@ public final class ReflexBodyVerification {
 		defaultsSleepWithoutTheirItem();
 		foodChoice();
 		coordinatorDefaultsParse();
+		creeperBlastHold();
 		return assertions;
+	}
+
+	/** A run from a lit creeper stands still only where its blast cannot reach and its fuse still burns. */
+	private static void creeperBlastHold() {
+		check(!ReflexActions.SprintAway.blastHold(5.9D), "inside 6 blocks the blast still hurts: keep running");
+		check(ReflexActions.SprintAway.blastHold(6.2D), "just past 6 blocks: stand and let it blow");
+		check(ReflexActions.SprintAway.blastHold(6.9D), "inside 7 the fuse still burns: stand");
+		check(!ReflexActions.SprintAway.blastHold(7.0D), "at 7 the fuse goes out: the old run");
+		check(ReflexActions.SprintAway.BLAST_CLEAR + 0.5D < ReflexActions.SprintAway.CREEPER_HANDOVER,
+				"a sprint stopped at the hold line slides on short of where the fuse goes out");
 	}
 
 	/**
