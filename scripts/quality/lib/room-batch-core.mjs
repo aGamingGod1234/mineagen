@@ -157,8 +157,8 @@ export async function runQueue({ rooms, workers, arrivals = [], attempt, maxAtte
  * them at any depth). secret.txt is a throwaway per-run RCON secret. A fixture's server folder holds its copy of the
  * server template (server.jar, libraries, versions, mods: about 140 MB per run) and .fabric, Fabric's cache of the mods
  * remapped at start (about 40 jars, regenerated every boot). Nothing at home reads either; .fabric alone was 106,845
- * files in one 300-room batch. Logs, arena-watch, properties and the results come back. The saved world's region files
- * come back only from an arm that did not pass: room-batch-remote.mjs drops a passing arm's before it writes done.json.
+ * files in one 300-room batch. Logs, arena-watch, properties, worlds and the results come back; runBatch then drops a
+ * passing arm's world region files (lib/room-worlds.mjs).
  */
 export const PACK_EXCLUDES = ['secret.txt', '.fabric', '*/server/server.jar', '*/server/libraries', '*/server/versions', '*/server/mods'];
 

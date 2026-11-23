@@ -23,7 +23,7 @@
 // Output: OUT/rooms/ROOM/{ARM/,ARM.log,done.json}, OUT/ARM/result.json and
 // result-summary.json from finishRun, OUT/batch.json (identity, outcomes, machine usage) and OUT/summary.txt.
 // A room comes home without the server template copies and Fabric's .fabric cache, and an arm that passed without its
-// saved worlds' region files (PACK_EXCLUDES in lib/room-batch-core.mjs, lib/room-batch-remote.mjs); --keep-worlds
+// saved worlds' region files (PACK_EXCLUDES in lib/room-batch-core.mjs, lib/room-worlds.mjs); --keep-worlds
 // brings every arm's region files home.
 // AI rooms (the real model plays the room through the production coordinator), instead of --commands and --arm:
 //   node scripts/quality/room-batch.mjs --player model --jar JAR --codex-auth AUTH.json [--ai-rooms ROOMS.json]

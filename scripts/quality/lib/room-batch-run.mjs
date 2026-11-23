@@ -18,6 +18,7 @@
 import { mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { formatSummary, mergeArms, runQueue, topUp } from './room-batch-core.mjs';
+import { slimRoom } from './room-worlds.mjs';
 
 const sleep = ms => new Promise(done => setTimeout(done, ms));
 
@@ -105,7 +106,7 @@ export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeout
 			if (closed()) { await retire(vm, 'past its cutoff'); return { lost: true, requeue: true, reason: 'its machine is past its cutoff' }; }
 			const layout = layouts.get(vm.id);
 			const job = { room: room.room, code: layout.code, outDir: path.posix.join(layout.out, room.room), javaHome: layout.javaHome, template: layout.template, timeoutMs: roomTimeoutMs, wrapper: layout.wrapper ?? [],
-				portBase: layout.portBase ?? 28000, env: layout.env ?? {}, ...(keepWorlds ? { keepWorlds: true } : {}),
+				portBase: layout.portBase ?? 28000, env: layout.env ?? {},
 				lines: room.lines.map(line => ({ arm: line.arm, jar: layout.jars[line.arm], env: Object.fromEntries(Object.entries(line.env).map(([key, value]) => [key, rewrite(value, layout)])), args: line.args.map(arg => rewrite(arg, layout)) })) };
 			log(`room ${room.room} -> ${vm.id} (try ${tries})`);
 			// A machine that cannot start a room leaves the batch now, not at its end (deleted, or checked and kept by a warm pool); the room is re-queued.
@@ -143,7 +144,11 @@ export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeout
 			try {
 				const done = await pool.fetch(vm, room.room, path.join(out, 'rooms'));
 				log(`room ${room.room} done on ${vm.id} in ${done.seconds}s`);
-				return { lost: false, arms: done.arms, seconds: done.seconds, machine: done.machine };
+				// A passing arm's world region files go as soon as the room is home (lib/room-worlds.mjs); what each arm
+				// kept or dropped is recorded with its outcome in batch.json.
+				const worlds = await slimRoom({ roomDir: path.join(out, 'rooms', room.room), done, lines: room.lines, keepWorlds });
+				const arms = Object.fromEntries(Object.entries(done.arms ?? {}).map(([arm, value]) => [arm, worlds[arm] ? { ...value, worlds: worlds[arm] } : value]));
+				return { lost: false, arms, seconds: done.seconds, machine: done.machine };
 			} catch (error) { await retire(vm, 'copy failed'); return { lost: true, reason: `copy failed: ${error.message}` }; }
 		};
 		const replace = async (lostVm, outcome) => {
