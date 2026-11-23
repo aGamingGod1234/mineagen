@@ -26,14 +26,18 @@ import { warmBoots } from './fixture-servers.mjs';
 import { liveRecord, unshownTickRate } from './watch-replay.mjs';
 import { gameClockFromObservations } from '../../coordinator/src/game-clock.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
-import { damageCounter, damageEvidence, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
+import { damageCounter, damageEvidence, deathCounter, deathEvidence, statCounter } from './lib/damage-counter.mjs';
 import { finishRun, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const cli = process.argv.slice(2);
-if (cli.includes('--help')) { console.log('Usage: test-dragon-fight-live.mjs OUT_DIR [JAR] [--no-bow] [--survive] [--descriptive]\n' + FIXTURE_OUTCOME_HELP); process.exit(0); }
+if (cli.includes('--help')) { console.log('Usage: test-dragon-fight-live.mjs OUT_DIR [JAR] [--no-bow] [--survive] [--no-endermen] [--descriptive]\n' + FIXTURE_OUTCOME_HELP); process.exit(0); }
 const strict = !cli.includes('--descriptive');
 const BOW = !cli.includes('--no-bow'), SURVIVE = cli.includes('--survive');
+// --no-endermen (bring-up only, never judged): endermen are removed every sample, so perch and crystal work can be measured
+// without enderman deaths ending the fight.
+const NO_ENDERMEN = cli.includes('--no-endermen');
+if (NO_ENDERMEN && strict) { console.error('--no-endermen is for bring-up: add --descriptive'); process.exit(2); }
 const [outArg, jarArg] = cli.filter(arg => !arg.startsWith('--'));
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port = Number(process.env.SLOT_PORT_BASE);
 if (!outArg || !template || !port || !process.env.JAVA_HOME) { console.error('Usage: OUT_DIR [JAR] [--no-bow] [--survive] under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME'); process.exit(2); }
@@ -50,7 +54,7 @@ const WAIT_SPOT = { x: 12.5, z: 0.5 };
 const SURVIVE_SPOT = { x: 20.5, z: 20.5 };
 const end = (s, text) => s.command(`execute in minecraft:the_end run ${text}`);
 const number = text => Number((/(-?\d+(?:\.\d+)?)[fdb]?\s*$/.exec(String(text).trim()) ?? [])[1]);
-const results = { arm: `${SURVIVE ? 'survive' : 'fight'}-${BOW ? 'bow' : 'no-bow'}`, mode: SURVIVE ? 'survive' : 'fight', bow: BOW,
+const results = { arm: `${SURVIVE ? 'survive' : 'fight'}-${BOW ? 'bow' : 'no-bow'}${NO_ENDERMEN ? '-no-endermen' : ''}`, noEndermen: NO_ENDERMEN, mode: SURVIVE ? 'survive' : 'fight', bow: BOW,
 	bar: SURVIVE ? 'alive after 10 game min, no void fall' : 'dragon killed and body alive within 20 game min of arrival',
 	jar: path.resolve(jarArg ?? path.join(root, MOD_JAR)), runs: [] };
 const repeats = Math.max(1, Number(process.env.REPEATS ?? 1));
@@ -98,10 +102,11 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 			runtime.onActionResult(record, ev.payload);
 			s.bridge.send('action_result_ack', record.agentId, { goalRevision: record.goalRevision, actionId: ev.payload.actionId }).catch(() => {});
 		});
-		let calls = 0, harnessErrors = 0, staleRefusals = 0, liveStale = 0, runDeathsBefore = null;
+		let calls = 0, harnessErrors = 0, staleRefusals = 0, liveStale = 0, runDeathsBefore = null, lastCommand = null;
 		// Every scripted command takes the path a model's command takes (runtime.execute), reflexes and vetting included.
 		const act = async (actionType, args) => {
 			const n = ++calls;
+			lastCommand = { actionType, at: s.clock.now() };
 			const r = await runtime.execute({ agentId: record.agentId, goalRevision: record.goalRevision, turnId: `fight-${n}`, callId: `fight-${n}`,
 				tool: normalizeMinecraftToolCall('act', { actionType, arguments: args }) }, record).catch(error => ({ state: 'FAILED', reasonCode: 'FIXTURE_ERROR', message: String(error?.message ?? error) }));
 			// A thrown command is the harness's failure, not the bot's; so is a stale-command refusal while the body lives (a
@@ -135,6 +140,8 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 		await s.command('scoreboard objectives add qo_death deathCount');
 		await s.command(`scoreboard players set ${AGENT} qo_death 0`);
 		const readDeaths = () => deathCounter(text => s.command(text), AGENT);
+		// Damage the body dealt (tenths of HP, to anything: the dragon, endermen) is the fight's progress beside the dragon's health.
+		const readDealt = await statCounter(text => s.command(text), AGENT, 'qo_dealt', 'minecraft.custom:minecraft.damage_dealt');
 		for (let run = 1; run <= repeats; run++) {
 			const row = { run, room: results.arm, startedAt: Date.now() };
 			harnessErrors = 0; staleRefusals = 0; liveStale = 0; runDeathsBefore = null;
@@ -169,7 +176,7 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 				// Entering the End arms its defaults through the runtime's ReflexBook.
 				for (let wait = 0; wait < 40 && !(latest?.reflexes?.rules ?? []).some(rule => /^default-/.test(rule.id) && /breath|void|gaze|ender/.test(rule.id)); wait++) { await s.observe(); await sleep(250); }
 				row.armed = (latest?.reflexes?.rules ?? []).map(rule => rule.id);
-				const deathsBefore = await readDeaths(), damageBefore = await readDamage();
+				const deathsBefore = await readDeaths(), damageBefore = await readDamage(), dealtBefore = await readDealt().catch(() => null);
 				runDeathsBefore = deathsBefore;
 				await s.fastRate();
 				// The window is world ticks, not wall time: a server that cannot hold 20 TPS still plays the full game minutes.
@@ -181,9 +188,33 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 				const limit = SURVIVE ? SURVIVE_MS : FIGHT_MS;
 				const log = [], tried = new Set();
 				let dead = false, killed = false, minY = place.y, shots = 0, crystalBreaks = 0, meleeHits = 0, flyingShots = 0, passes = 0;
+				// The dragon's lowest health and the drops between samples: crystals heal damage back, so the end health hides it.
+				let lowestDragon = Number.isFinite(dragon) ? dragon : NaN, lastDragon = lowestDragon, dragonDrops = 0, meleeLanded = 0;
+				// Enderman anger: each enderman that turns on the body, with the last samples before it (what the body was doing).
+				const angerLog = [], recent = [];
+				let angryBefore = new Set();
+				const traceEndermen = o => {
+					const me = o.player, t = Math.round((now() - t0) / 100) / 10;
+					const rows = (o.entities ?? []).filter(e => e?.type === 'minecraft:enderman' && e.alive !== false && e.perceivedBy !== 'sound');
+					const near = rows.map(e => ({ id: String(e.stableId ?? '').slice(0, 8), uuid: e.stableId, d: Math.round(e.distance ?? NaN), eye: e.appearance?.eyeContact === true || undefined,
+						scream: e.appearance?.screaming === true || undefined, tgt: e.targetingAgent === true || undefined, stared: e.appearance?.staredAt === true || undefined }));
+					const reflex = o.reflexes && typeof o.reflexes === 'object' ? JSON.stringify(Object.fromEntries(Object.entries(o.reflexes).filter(([k]) => k !== 'rules'))).slice(0, 240) : null;
+					recent.push({ t, yaw: Math.round(me.yaw), pitch: Math.round(me.pitch), hp: me.health, dealt: lastDealt, act: o.currentAction?.actionType ?? null, cmd: lastCommand?.actionType ?? null, reflex, near: near.filter(n => n.d <= 24).map(({ uuid, ...n }) => n) });
+					if (recent.length > 6) recent.shift();
+					// Only an enderman that targets the body counts: one screaming at the dragon is angry at it, not at you.
+					const angry = new Set(near.filter(n => n.tgt).map(n => n.id));
+					const fresh = [];
+					for (const id of angry) if (!angryBefore.has(id) && angerLog.length < 20) { const entry = { id, t, before: recent.slice() }; angerLog.push(entry); fresh.push([entry, near.find(n => n.id === id)?.uuid]); }
+					angryBefore = angry;
+					return fresh;
+				};
+				// An enderman provoked by a stare is at full health (40); one hurt by the body (a sweep, a blast it caused) is not.
+				const angerHealth = async fresh => { for (const [entry, uuid] of fresh) if (typeof uuid === 'string' && /^[0-9a-f-]{36}$/.test(uuid)) entry.health = number(await end(s, `data get entity ${uuid} Health`).catch(() => '')); };
+				let lastDealt = null;
 				const note = (what, r) => { log.push([Math.round((now() - t0) / 1000), what, r?.state, r?.reasonCode, r?.message?.slice(0, 120)]); };
 				while (await inWindow()) {
 					// The raw sample decides death: a dead body's sample may not adapt, and it respawns in the Overworld.
+					if (NO_ENDERMEN) await end(s, 'kill @e[type=minecraft:enderman]').catch(() => {});
 					const raw = await s.observe().catch(() => null);
 					// A lost sample feeds no reflex and shows no fall: counted, and more than two make the run invalid evidence.
 					if (raw === null) observeMisses += 1;
@@ -193,8 +224,11 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 					let o = null;
 					try { o = raw ? adaptObservation(raw) : null; } catch { o = null; }
 					if (o) minY = Math.min(minY, o.player?.y ?? minY);
+					lastDealt = await readDealt().catch(() => null);
+					if (o?.player) try { await angerHealth(traceEndermen(o)); } catch { /* a trace never fails the run */ }
 					if (!SURVIVE) {
 						const health = await dragonHealth();
+						if (Number.isFinite(health)) { if (health < lastDragon) dragonDrops += lastDragon - health; lastDragon = health; lowestDragon = Math.min(lowestDragon, health); }
 						if (Number.isFinite(health) && health <= 0) { killed = Number.isFinite(dragon); break; }
 						if (!Number.isFinite(health) && Number.isFinite(dragon)) {
 							// The island stays force-loaded, so a missing dragon is a dead one only if it is still missing 2 s later.
@@ -203,7 +237,7 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 							if (gone && !Number.isFinite(await dragonHealth())) { killed = true; break; }
 						}
 					}
-					if (SURVIVE || !o) { await s.clock.sleep(1000); continue; }
+					if (SURVIVE || !o) { await s.clock.sleep(500); continue; }
 					const me = o.player;
 					const entities = o.entities ?? [];
 					const arrows = (o.inventory?.items ?? []).filter(i => /^minecraft:(arrow|spectral_arrow|tipped_arrow)$/.test(i.itemId)).reduce((n, i) => n + i.count, 0);
@@ -221,8 +255,11 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 					// 2. Perched: melee its head, as a player who ran in does.
 					const perch = perchedDragon(o);
 					if (perch?.head?.id) {
+						const before = await dragonHealth();
 						const r = await act('fight_target', { targetId: perch.head.id, timeoutMs: 12000 });
-						meleeHits += 1; note('melee perched head', r); continue;
+						const after = await dragonHealth();
+						if (Number.isFinite(before) && Number.isFinite(after) && after < before) meleeLanded += 1;
+						meleeHits += 1; note(`melee perched head (dragon ${before} -> ${after})`, r); continue;
 					}
 					// 3. In flight within a bow's reach: shoot its body.
 					const part = ranged ? entities.filter(row => row.type === 'minecraft:ender_dragon' && /^(body|head)$/.test(row.partName ?? '') && dist(row) <= 48)
@@ -267,7 +304,11 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 				row.died = dead || row.deathEvidence.deaths > 0;
 				row.voidFall = minY < 0;
 				row.killed = killed;
-				Object.assign(row, { shots, crystalBreaks, meleeTries: meleeHits, flyingShots, crystalsLeft: await crystalsLeft(), dragonHealthEnd: await dragonHealth(), log: log.slice(-60) });
+				const dealtAfter = await readDealt().catch(() => null);
+				Object.assign(row, { shots, crystalBreaks, meleeTries: meleeHits, meleeLanded, flyingShots, crystalsLeft: await crystalsLeft(), dragonHealthEnd: await dragonHealth(),
+					dragonLowest: lowestDragon, dragonDrops: Math.round(dragonDrops * 10) / 10,
+					damageDealt: Number.isFinite(dealtBefore) && Number.isFinite(dealtAfter) ? (dealtAfter - dealtBefore) / 10 : null, angerLog,
+					reflexFired: Object.fromEntries((latest?.reflexes?.rules ?? []).filter(rule => rule.fired > 0).map(rule => [rule.id, rule.fired])), log: log.slice(-60) });
 				row.deaths = row.deathEvidence.deaths;
 				row.harnessErrors = harnessErrors + liveStale;
 				row.staleRefusals = staleRefusals;
@@ -282,7 +323,7 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 				row.pass = SURVIVE ? !row.died && !row.voidFall : row.killed && !row.died;
 				row.failReason = row.pass ? null : row.died ? 'died' : row.voidFall ? 'void fall' : SURVIVE ? null : Number.isFinite(row.killSeenLateMs) ? 'dragon killed after the window' : 'dragon alive at the window end';
 				row.finishedAt = Date.now();
-				console.log(`[dragon-fight] ${results.arm} run ${run}: ${row.error ? 'INVALID' : row.pass ? 'PASS' : 'FAIL'} killed=${killed} died=${row.died} dragon=${row.dragonHealthEnd} crystals=${row.crystalsLeft} shots=${shots} broke=${crystalBreaks} melee=${meleeHits} flying=${flyingShots} damage=${row.damageTaken} game=${row.gameSeconds}s`);
+				console.log(`[dragon-fight] ${results.arm} run ${run}: ${row.error ? 'INVALID' : row.pass ? 'PASS' : 'FAIL'} killed=${killed} died=${row.died} dragon=${row.dragonHealthEnd} crystals=${row.crystalsLeft} shots=${shots} broke=${crystalBreaks} melee=${meleeHits} landed=${meleeLanded} flying=${flyingShots} lowest=${lowestDragon} dealt=${row.damageDealt} angered=${angerLog.length} damage=${row.damageTaken} game=${row.gameSeconds}s`);
 				// After a kill the End has no dragon: a further repeat on this server measures nothing.
 				if (killed && run < repeats) { results.runs.push(...Array.from({ length: repeats - run }, (_, i) => ({ run: run + i + 1, room: results.arm, error: 'not exercised: the dragon was killed in an earlier repeat' }))); break; }
 			} catch (error) {
