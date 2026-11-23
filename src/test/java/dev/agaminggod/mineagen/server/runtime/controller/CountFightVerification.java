@@ -18,7 +18,7 @@ public final class CountFightVerification {
 		verifyExplicitChoicesSurvive();
 		verifyDefaultsUnchanged();
 		verifyEngagementGates();
-		verifyCoverSentinel();
+		verifyIdleWalk();
 		verifyTerminalLeaseRelease();
 		verifyTargetingChoicesSurvive();
 		verifyStationaryStance();
@@ -46,7 +46,7 @@ public final class CountFightVerification {
 		for (String field : new String[] { "pursue", "shield", "sneak", "desiredRange" })
 			check(until.has(field) && until.get(field).equals(call.get(field)), "count mode carries the model's " + field);
 		CountFightChoices kept = CountFightChoices.from(until);
-		check(!kept.mayMove() && !kept.meleePursue(false), "pursue:false fights in place (no closing in, cover, backing off or ledge trips)");
+		check(!kept.mayMove() && !kept.meleePursue(false), "pursue:false fights in place (no closing in, backing off or ledge trips)");
 		check(kept.meleeShield(true, false), "shield:true shields against every mob, not only blazes");
 		check(kept.sneak() && kept.desiredRange() == 4.0D, "sneak and desiredRange reach every melee engagement");
 
@@ -76,16 +76,9 @@ public final class CountFightVerification {
 		check(!ServerFightUntilController.engageable(false, false, true), "a dead target is never engaged");
 	}
 
-	private static void verifyCoverSentinel() {
+	private static void verifyIdleWalk() {
 		long tick = 123_456L;
-		check(tick - ServerFightUntilController.COVER_NEVER < ServerFightUntilController.COVER_EVERY_TICKS,
-				"the old check overflowed: gameTick - Long.MIN_VALUE is negative, so cover never ran");
-		check(ServerFightUntilController.coverDue(tick, ServerFightUntilController.COVER_NEVER), "cover is weighed on the first check");
-		check(!ServerFightUntilController.COVER, "cover steps stay off by default (they raised floor-fixture deaths once they ran)");
-		check(!ServerFightUntilController.coverDue(tick + 10L, tick), "then not again within 40 ticks");
-		check(ServerFightUntilController.coverDue(tick + ServerFightUntilController.COVER_EVERY_TICKS, tick), "and again after 40 ticks");
-		check(ServerFightUntilController.coverDue(0L, ServerFightUntilController.COVER_NEVER), "also at game tick 0");
-		// Cover now runs, so its walk can sit un-ticked while no target is seen: it is put down before the 40-tick lease expiry.
+		// A short walk (recover, roof) can sit un-ticked while no target is seen: it is put down before the 40-tick lease expiry.
 		check(!ServerFightUntilController.stepIdle(tick + 1L, tick), "a walk ticked last tick is kept");
 		check(ServerFightUntilController.stepIdle(tick + 21L, tick), "a walk idle for over a second is put down");
 		check(21L < dev.agaminggod.mineagen.server.runtime.input.LeasedServerInputController.LEASE_TIMEOUT_TICKS, "before its input lease expires");
@@ -135,11 +128,11 @@ public final class CountFightVerification {
 	private static void verifyStationaryStance() {
 		CountFightChoices still = CountFightChoices.from(JsonParser.parseString("{\"pursue\":false,\"sneak\":true}").getAsJsonObject());
 		check(!still.mayMove(), "pursue:false: no fire-exit step, no pillar (the engine hands back ON_FIRE / LOW_HEALTH_BAILOUT instead)");
-		check(!still.mayReposition(), "pursue:false: no cover or backing-off walk");
+		check(!still.mayReposition(), "pursue:false: no backing-off walk");
 		check(!still.collectByDefault(), "pursue:false: drops are not walked to unless the model said collect:true");
 		check(still.sneak(), "sneak:true reaches the guard, recovery and perch inputs");
 		CountFightChoices crouched = CountFightChoices.from(JsonParser.parseString("{\"sneak\":true}").getAsJsonObject());
-		check(crouched.mayMove() && !crouched.mayReposition(), "sneak:true: fire steps stay (crouched), upright navigation walks to cover do not");
+		check(crouched.mayMove() && !crouched.mayReposition(), "sneak:true: fire steps stay (crouched), upright navigation walks do not");
 		CountFightChoices none = CountFightChoices.from(new JsonObject());
 		check(none.mayMove() && none.mayReposition() && none.collectByDefault() && !none.sneak(), "defaults unchanged");
 	}

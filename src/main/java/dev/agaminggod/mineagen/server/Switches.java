@@ -9,7 +9,8 @@ import java.util.Properties;
 /**
  * The server's gameplay switches, mirroring coordinator/src/switches.mjs for every entry whose side is server or both.
  * Each parser copies its reader's current semantics (exact or any case, trimmed or not), so moving a reader here changes
- * nothing. Nothing calls this yet: the readers move over in a later sweep. coordinator/test/switches.test.mjs reads this
+ * nothing. Every server reader goes through {@link #get(String)}, and the server logs {@link #describe()} at start.
+ * coordinator/test/switches.test.mjs reads this
  * source and checks names, sources, defaults, parsers and statuses match the coordinator registry, so keep one entry per
  * line in {@link #ALL} and one {@link Flag} per line. The same test compiles this file with a small harness and checks
  * {@link #describe(Map)} against the coordinator's line for the same values. The two agree on ASCII values only: Java's
@@ -53,7 +54,6 @@ public final class Switches {
 
 	// Reader shapes: Boolean.getBoolean (any case, no trim), "true".equals, !"false".equals, and the trimmed any-case forms.
 	static final Flag JAVA_GET_BOOLEAN = new Flag("true", true, false, true, false);
-	static final Flag JAVA_TRUE_EXACT = new Flag("true", true, false, false, false);
 	static final Flag JAVA_NOT_FALSE_EXACT = new Flag("false", false, false, false, false);
 	static final Flag TRUE_WORD = new Flag("true", true, true, true, false);
 	static final Flag NOT_FALSE_WORD = new Flag("false", false, true, true, false);
@@ -62,34 +62,54 @@ public final class Switches {
 
 	/** Server and both-side switches; the reason, numbers and readers for each are in coordinator/src/switches.mjs. */
 	public static final List<Switch> ALL = List.of(
-		// Instincts.java:19-21 enabled(): per call; property or env.
+		// Instincts.java enabled(): per call; property or env.
 		new Switch("instincts", "MINEAGEN_INSTINCTS", "mineagen.instincts", "both", false, LIST_HAS_INSTINCTS, JAVA_GET_BOOLEAN, "experimental"),
-		// ServerTravelController.java:241-242 walkAroundEnabled(): per call; property or env.
+		// ServerTravelController.java walkAroundEnabled(): per call; property or env.
 		new Switch("travel.walkAround", "MINEAGEN_TRAVEL_WALK_AROUND", "mineagen.travel.walkAround", "server", false, ON_WORD, JAVA_GET_BOOLEAN, "default-off"),
-		// ServerFightUntilController.java:92 COVER: class load.
-		new Switch("fight.cover", null, "mineagen.fight.cover", "server", false, JAVA_TRUE_EXACT, null, "default-off"),
-		// ServerFightUntilController.java:262 CHARGE_GUARD: class load.
+		// ServerFightUntilController.java CHARGE_GUARD: class load.
 		new Switch("fight.chargeGuard", null, "mineagen.fight.chargeGuard", "server", true, JAVA_NOT_FALSE_EXACT, null, "default-on"),
-		// ServerFightUntilController.java:280 RECOVER: class load.
+		// ServerFightUntilController.java RECOVER: class load.
 		new Switch("fight.recover", null, "mineagen.fight.recover", "server", true, JAVA_NOT_FALSE_EXACT, null, "default-on"),
-		// SpawnerHold.java:15 ENABLED: class load.
+		// SpawnerHold.java ENABLED: class load.
 		new Switch("fight.spawnerHold", null, "mineagen.fight.spawnerHold", "server", true, JAVA_NOT_FALSE_EXACT, null, "default-on"),
-		// SpawnerHold.java:21 OPEN_FIGHT: class load.
+		// SpawnerHold.java OPEN_FIGHT: class load.
 		new Switch("fight.spawnerHoldOpen", null, "mineagen.fight.spawnerHoldOpen", "server", true, JAVA_NOT_FALSE_EXACT, null, "default-on"),
-		// WarpedForestHunt.java:148 enabled: class load (tests reassign it).
+		// WarpedForestHunt.java enabled: class load (tests reassign it).
 		new Switch("fight.forestHunt", null, "mineagen.fight.forestHunt", "server", false, JAVA_GET_BOOLEAN, null, "default-off"),
-		// UnreachableTargets.java:41 fromProperty(): per fight call.
+		// UnreachableTargets.java fromProperty(): per fight call.
 		new Switch("fight.skipUnreachable", null, "mineagen.fight.skipUnreachable", "server", true, JAVA_NOT_FALSE_EXACT, null, "default-on"),
-		// KillSighting.java:27 enabled(): per call.
+		// KillSighting.java enabled(): per call.
 		new Switch("killPosition", null, "mineagen.killPosition", "server", true, NOT_FALSE_WORD, null, "default-on"),
-		// Watcher.java:159 enabled(): per call.
+		// Watcher.java enabled(): per call.
 		new Switch("watch", null, "mineagen.watch", "server", false, TRUE_WORD, null, "diagnostic")
 	);
 
+	private static final Map<String, Switch> BY_NAME = byName();
+
+	private static Map<String, Switch> byName() {
+		Map<String, Switch> names = new LinkedHashMap<>();
+		for (Switch item : ALL) {
+			if (names.put(item.name(), item) != null) throw new IllegalStateException("switch names must be unique: " + item.name());
+		}
+		return Collections.unmodifiableMap(names);
+	}
+
+	/**
+	 * One switch's value for this JVM, read now from its environment variable and system property: a reader calls this
+	 * when it read before (per call, or once into a static at class load).
+	 */
+	public static boolean get(String name) {
+		Switch item = BY_NAME.get(name);
+		if (item == null) throw new IllegalArgumentException("unknown switch " + name);
+		return resolve(item, item.env() == null ? null : System.getenv(item.env()), item.property() == null ? null : System.getProperty(item.property())).value();
+	}
+
 	static Resolved resolve(Switch item, Map<String, String> env, Map<String, String> properties) {
-		String raw = item.env() == null ? null : env.get(item.env());
+		return resolve(item, item.env() == null ? null : env.get(item.env()), item.property() == null ? null : properties.get(item.property()));
+	}
+
+	static Resolved resolve(Switch item, String raw, String propertyRaw) {
 		Boolean fromEnv = raw == null ? null : item.parser().parse(raw);
-		String propertyRaw = item.property() == null ? null : properties.get(item.property());
 		Flag propertyParser = item.env() == null ? item.parser() : item.propertyParser();
 		Boolean fromProperty = propertyRaw == null ? null : propertyParser.parse(propertyRaw);
 		if (item.property() == null) return fromEnv == null ? new Resolved(item.defaultValue(), "default") : new Resolved(fromEnv, "env");
