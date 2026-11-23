@@ -2947,6 +2947,7 @@ public final class ServerBuildController implements ServerController {
 					return startChild(player, Child.UNCOVER, environment.uncover(player, cell, Math.min(15_000L, Math.max(1L, deadline - now))));
 				} catch (AgentDomainException refused) {
 					uncoverDead.add(cell);
+					LOGGER.info("[build] {} could not open {}: {} {}", player.getGameProfile().name(), xyz(cell), refused.code(), refused.getMessage());
 					continue steps;
 				}
 			}
