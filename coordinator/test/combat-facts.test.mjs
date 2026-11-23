@@ -130,8 +130,16 @@ test('dragon facts name the fling, the water landing and an End bucket that cann
 	const base = { ready: true, player: {}, world: { dimension: 'minecraft:the_end' }, entities: [{ type: 'minecraft:ender_dragon', distance: 40 }] };
 	const carried = combatFacts({ ...base, inventory: { items: [{ itemId: 'minecraft:water_bucket', count: 1 }] } });
 	assert.match(carried, /Ender dragon: .*fling a player.*landing alone can kill.*falling reflex is not\. Water bucket carried\./);
-	const empty = combatFacts({ ...base, inventory: { items: [{ itemId: 'minecraft:bucket', count: 1 }] }, landmarks: [{ blockId: 'minecraft:water', x: -51, y: 71, z: 1, distance: 62 }] });
-	assert.match(empty, /No water bucket: the End has no natural water, so an empty bucket refills only from water you placed \(a source block\)\. Water seen at -51,71,1\./);
+	const bucket = { items: [{ itemId: 'minecraft:bucket', count: 1 }] };
+	const empty = combatFacts({ ...base, inventory: bucket, landmarks: [{ blockId: 'minecraft:water', x: -51, y: 71, z: 1, distance: 62 }] });
+	assert.match(empty, /No water bucket: the End has no natural water, so an empty bucket refills only from water you placed \(a source block\)\.(?! Water)/);
+	// Right after a feet pour the nearest water is its flow; an empty bucket's ray passes flowing water, so only the source is named.
+	const poured = combatFacts({ ...base, inventory: bucket, blocks: [
+		{ blockId: 'minecraft:water', x: 5, y: 61, z: 11, distance: 1.2, state: { level: '2' }, fluid: { type: 'minecraft:flowing_water', height: 0.67 } },
+		{ blockId: 'minecraft:water', x: 4, y: 61, z: 11, distance: 2.1, state: { level: '1' } },
+		{ blockId: 'minecraft:water', x: 3, y: 61, z: 11, distance: 3.1, state: { level: '0' }, fluid: { type: 'minecraft:water', height: 0.89 } }] });
+	assert.match(poured, /a source block\)\. Water source seen at 3,61,11\./);
+	assert.doesNotMatch(combatFacts({ ...base, inventory: bucket, blocks: [{ blockId: 'minecraft:water', x: 5, y: 61, z: 11, distance: 1, fluid: { type: 'minecraft:flowing_water' } }] }), /Water source seen/);
 	assert.match(combatFacts({ ...base, inventory: { items: [] } }), /No water bucket carried\./);
 	assert.doesNotMatch(combatFacts({ ...base, entities: [] }) ?? '', /Ender dragon/);
 });

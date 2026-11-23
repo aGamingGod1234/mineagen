@@ -35,10 +35,14 @@ function dragonFact(observation) {
 	return `Ender dragon: its wings and body fling a player many blocks, up to about 10 high, even on flat ground; the landing alone can kill. Water placed below before landing cancels fall damage; a turn is too slow to place it mid-fall, a falling reflex is not.${water} ${DRAGON_FINISH_FACTS}`;
 }
 
+// Only a source refills an empty bucket: its ray passes flowing water (vanilla SOURCE_ONLY). Block rows carry the fluid
+// (minecraft:water is a source, minecraft:flowing_water is not) and the block's level (0 for a source); landmark rows
+// carry neither, so they never name a source.
+const waterSource = b => b?.blockId === 'minecraft:water' && (b.fluid?.type !== undefined ? b.fluid.type === 'minecraft:water' : String(b.state?.level) === '0');
 function seenWater(observation) {
-	const rows = [...(observation.blocks ?? []), ...(observation.landmarks ?? [])].filter(b => b?.blockId === 'minecraft:water' && [b.x, b.y, b.z].every(Number.isFinite));
+	const rows = [...(observation.blocks ?? []), ...(observation.landmarks ?? [])].filter(b => waterSource(b) && [b.x, b.y, b.z].every(Number.isFinite));
 	const nearest = rows.sort((a, b) => (a.distance ?? Infinity) - (b.distance ?? Infinity))[0];
-	return nearest ? ` Water seen at ${nearest.x},${nearest.y},${nearest.z}.` : '';
+	return nearest ? ` Water source seen at ${nearest.x},${nearest.y},${nearest.z}.` : '';
 }
 
 // Sword attack damage (vanilla tiers); a falling critical deals 1.5x. Blaze health is 20.

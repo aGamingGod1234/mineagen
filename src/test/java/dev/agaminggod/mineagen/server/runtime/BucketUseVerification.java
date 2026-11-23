@@ -53,8 +53,31 @@ public final class BucketUseVerification {
 				"a filled bucket keeps the requested aim");
 		World flowing = new World();
 		flowing.states.put(source, Blocks.WATER.defaultBlockState().setValue(LiquidBlock.LEVEL, 2));
-		check(BucketUse.aim(VanillaFluidRayFixture.player(flowing, eye, 4.5D), empty, center).equals(center),
-				"an aim into flowing water is kept as given");
+		try {
+			BucketUse.aim(VanillaFluidRayFixture.player(flowing, eye, 4.5D), empty, center);
+			check(false, "flowing water with no source has no bucket aim");
+		} catch (AgentDomainException e) {
+			check(e.code().equals("TARGET_OBSTRUCTED") && e.getMessage().contains("is minecraft:flowing_water (flowing)")
+					&& e.getMessage().contains("no source feeds that flow"), "flowing water with no source is named: " + e.getMessage());
+		}
+		// The End refill after a feet pour: the model aimed at the nearest water, a flowing cell beside the source, and the
+		// empty bucket's ray passed it and met the end stone below (dragon room, 23 Nov). The aim moves to the source.
+		World pour = new World();
+		BlockPos poured = new BlockPos(3, 61, 11), flow = new BlockPos(5, 61, 11);
+		pour.states.put(poured, Blocks.WATER.defaultBlockState());
+		pour.states.put(poured.east(), Blocks.WATER.defaultBlockState().setValue(LiquidBlock.LEVEL, 1));
+		pour.states.put(flow, Blocks.WATER.defaultBlockState().setValue(LiquidBlock.LEVEL, 2));
+		for (int x = 0; x <= 9; x++) for (int z = 8; z <= 14; z++) pour.states.put(new BlockPos(x, 60, z), Blocks.END_STONE.defaultBlockState());
+		Vec3 standing = new Vec3(6.5D, 62.62D, 11.5D), flowCenter = Vec3.atCenterOf(flow);
+		BlockHitResult passes = VanillaFluidRayFixture.hit(pour, standing, flowCenter, 4.5D, ClipContext.Fluid.SOURCE_ONLY);
+		check(passes.getType() == HitResult.Type.BLOCK && !passes.getBlockPos().equals(flow),
+				"the empty bucket ray passes the flowing cell: " + passes.getBlockPos());
+		Vec3 redirected = BucketUse.aim(VanillaFluidRayFixture.player(pour, standing, 4.5D), empty, flowCenter);
+		BlockHitResult scoop = VanillaFluidRayFixture.hit(pour, standing, redirected, 4.5D, ClipContext.Fluid.SOURCE_ONLY);
+		check(scoop.getType() == HitResult.Type.BLOCK && scoop.getBlockPos().equals(poured),
+				"an aim into flowing water moves to the source it flows from: " + redirected + " meets " + scoop.getBlockPos());
+		check(BucketUse.flowSources(pour, flow, pour.getFluidState(flow)).equals(java.util.List.of(poured)),
+				"the flow is followed back to its one source");
 
 		World sealed = new World();
 		sealed.states.put(source, Blocks.WATER.defaultBlockState());
