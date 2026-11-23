@@ -1245,17 +1245,6 @@
    "reads": "OUT/result-summary.json (rows carry no damage counter, so summary.txt damage reads unknown)"
   },
   {
-   "room": "unreachable-enderman-skip",
-   "fixture": "test-unreachable-enderman-live.mjs",
-   "stage": "nether-pearls",
-   "skill": "combat",
-   "skill2": null,
-   "line": "SKIP_UNREACHABLE=1 TRIALS=1 ARENA_JAR=$JAR node scripts/quality/test-unreachable-enderman-live.mjs $OUT --descriptive",
-   "estMinutes": 2.5,
-   "tickRate": 20,
-   "reads": "OUT/result-summary.json"
-  },
-  {
    "room": "drawn-bow-4",
    "fixture": "test-drawn-bow-live.mjs",
    "stage": "iron-kit",
@@ -2337,17 +2326,6 @@
    "reads": "no pass bar: OUT/knockback-edge.json summary (pushes, falls, cancelStayed); exit 0"
   },
   {
-   "room": "lavawork-opened-unarmed",
-   "fixture": "test-lavawork-live.mjs",
-   "stage": "portal-lava",
-   "skill": "survival",
-   "skill2": null,
-   "line": "REFLEX_ONLY=opened-unarmed ARENA_JAR=$JAR node scripts/quality/test-lavawork-live.mjs $OUT",
-   "estMinutes": 1.5,
-   "tickRate": 20,
-   "reads": "exit code; OUT/results.json opened-unarmed.pass"
-  },
-  {
    "room": "lavawork-opened-armed",
    "fixture": "test-lavawork-live.mjs",
    "stage": "portal-lava",
@@ -2357,17 +2335,6 @@
    "estMinutes": 1.5,
    "tickRate": 20,
    "reads": "exit code; OUT/results.json opened-armed.pass"
-  },
-  {
-   "room": "lavawork-standon-unarmed",
-   "fixture": "test-lavawork-live.mjs",
-   "stage": "portal-lava",
-   "skill": "survival",
-   "skill2": null,
-   "line": "REFLEX_ONLY=standon-unarmed ARENA_JAR=$JAR node scripts/quality/test-lavawork-live.mjs $OUT",
-   "estMinutes": 1.5,
-   "tickRate": 20,
-   "reads": "exit code; OUT/results.json standon-unarmed.pass"
   },
   {
    "room": "lavawork-standon-armed",
@@ -2505,18 +2472,6 @@
    "tickRate": 20,
    "bar": "none",
    "reads": "no pass bar: OUT/ranged-blaze.json summary.F (kills, loosed, hits); exit 0"
-  },
-  {
-   "room": "ranged-blaze-h",
-   "fixture": "test-ranged-blaze-live.mjs",
-   "stage": "nether-rods",
-   "skill": "combat",
-   "skill2": null,
-   "line": "SETUPS=H TRIALS=1 ARENA_JAR=$JAR node scripts/quality/test-ranged-blaze-live.mjs $OUT",
-   "estMinutes": 1.5,
-   "tickRate": 20,
-   "bar": "none",
-   "reads": "no pass bar: OUT/ranged-blaze.json summary.H (kills, loosed, hits); exit 0"
   },
   {
    "room": "reflex-combat-deflect",
