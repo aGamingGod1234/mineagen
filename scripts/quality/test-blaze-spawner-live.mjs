@@ -145,7 +145,8 @@ async function armShield() {
 	armedRules = book ? bookRules() : shield;
 	await bridge.send('reflex_update', record.agentId, {revision: ++reflexRevision, rules: armedRules,yield:false});
 }
-// Each sample moves the production stance (fight while a fight runs, fortress by wither skeletons) as the coordinator does.
+// Every sample the bridge delivers, during a running fight too, moves the production stance (fight while a fight runs,
+// fortress by wither skeletons) as the coordinator does.
 async function restance(sample) {
 	if (!book || !sample?.ready || !book.observeContext(record.agentId, sample)) return;
 	armedRules = bookRules();
@@ -162,7 +163,7 @@ async function serverTick() {
 	if (!match) throw new Error('Unknown gametime reply: '+reply);
 	return Number(match[1]);
 }
-async function observe(ms = 30000) { const seq = observation?.eventSequence ?? 0; const next = inbox.wait('observation', e => e.agentId === record.agentId && e.payload.ready && e.payload.eventSequence > seq, ms); await bridge.send('request_observation', record.agentId, { goalRevision: record.goalRevision }).catch(() => {}); const sample = (await next).payload; await restance(sample); return sample; }
+async function observe(ms = 30000) { const seq = observation?.eventSequence ?? 0; const next = inbox.wait('observation', e => e.agentId === record.agentId && e.payload.ready && e.payload.eventSequence > seq, ms); await bridge.send('request_observation', record.agentId, { goalRevision: record.goalRevision }).catch(() => {}); return (await next).payload; }
 // Health from the server; a dead player reads 0 (or the query fails while it is respawning).
 const serverHealth = async () => { const t = await command(`data get entity ${agent} Health`).catch(() => ''); const m = /(-?[\d.]+)f?\s*$/.exec(t.trim()); return m ? Number(m[1]) : 0; };
 async function act(type, args, ms = 65000, retried = false) {
@@ -269,7 +270,7 @@ try {
 	rate = installTickRate({ command: text => command(text) }, FIXTURE_RATE);
 	results.tickRate = rate.tickRate;
 	bridge = new MultiplexedServerBridge({ port, secret }, {}); inbox = new Inbox(bridge);
-	bridge.on('observation', e => { rate.clock.observe(e.payload?.world?.gameTime); if (e.agentId === record?.agentId && e.payload.ready) { observation = e.payload; if (Number.isFinite(runDeadline) && now() <= runDeadline) { windowRods = Math.max(windowRods,rodsHeld(e.payload)); lastWindowObservation = e.payload; lastWindowObservationAt = now();
+	bridge.on('observation', e => { rate.clock.observe(e.payload?.world?.gameTime); if (e.agentId === record?.agentId && e.payload.ready) { observation = e.payload; restance(e.payload).catch(() => {}); if (Number.isFinite(runDeadline) && now() <= runDeadline) { windowRods = Math.max(windowRods,rodsHeld(e.payload)); lastWindowObservation = e.payload; lastWindowObservationAt = now();
 		if (now() - lastSampleAt >= 1000) { lastSampleAt = now(); const p = e.payload; traceRow({ sample: true, at: lastSampleAt, s: Math.round((lastSampleAt - (runDeadline - RUN_S*1000))/100)/10, position: p.position, health: p.player?.health, onFire: p.player?.onFire, fireTicks: p.player?.fireTicks, onGround: p.player?.onGround, action: p.currentAction?.actionType ?? p.action?.actionType, blazes: (p.entities ?? []).filter(x => x.type === 'minecraft:blaze' || x.type === 'minecraft:small_fireball').map(x => [x.type.slice(10,15), Math.round(x.position.x*10)/10, Math.round(x.position.y*10)/10, Math.round(x.position.z*10)/10]) }).catch(() => {}); } } } });
 	bridge.on('message', e => {
 		if (e.type === 'entity_killed') kills.push({ at: now(), type: e.payload?.entityType });
