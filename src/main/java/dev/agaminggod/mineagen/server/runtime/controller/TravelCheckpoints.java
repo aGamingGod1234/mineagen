@@ -50,7 +50,12 @@ final class TravelCheckpoints {
 			// The target itself is within one leg: stand as near it as seen ground allows.
 			int preferred = Double.isFinite(targetY) ? (int) Math.floor(targetY) : feetY;
 			GridPosition at = standing(world, (int) Math.floor(targetX), preferred, (int) Math.floor(targetZ), refused);
-			if (at != null) return new Checkpoint(at, left(at, targetX, targetY, targetZ), true);
+			// Never the cave floor under a stair step overhead: a spot well below the body while the target is above it
+			// (or well above while the target is below) is no approach, and pillaring back up under the step digs out
+			// the stair it was on. A target level with the body keeps its seen ground lower down.
+			boolean awayFromTarget = Double.isFinite(targetY) && at != null
+					&& (targetY >= feetY + 1 && at.y() < feetY - 1 || targetY <= feetY - 1 && at.y() > feetY + 1);
+			if (at != null && !awayFromTarget) return new Checkpoint(at, left(at, targetX, targetY, targetZ), true);
 		}
 		double bearing = Math.atan2(targetZ - bodyZ, targetX - bodyX);
 		int[] counts = LAST_PICK.get();
