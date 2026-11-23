@@ -894,6 +894,36 @@ test('a delete that fails is tried again when the batch ends, and a failed liven
 	} finally { await rm(out, { recursive: true, force: true }); }
 });
 
+test('a machine that cannot set up the server template leaves the batch and its room is played on another one', async () => {
+	const out = await mkdtemp(path.join(os.tmpdir(), 'room-batch-template-'));
+	try {
+		let made = 0;
+		const played = [], lines = [];
+		const pool = {
+			async create() { return { id: `vm${++made}` }; },
+			async prepare() { return { code: '/c', out: '/o', jars: { new: '/j/new.jar', old: '/j/old.jar' }, inputs: {}, javaHome: '/jdk', template: '/t' }; },
+			async start() {},
+			async poll() { return 'done'; },
+			async alive() { return true; },
+			async fetch(vm, roomName) {
+				played.push(`${vm.id}:${roomName}`);
+				const reason = 'server template with lithium-fabric-0.2+mc26.3.jar: ENOSPC: no space left on device';
+				if (vm.id === 'vm1') return { room: roomName, error: reason, seconds: 0, arms: { new: { exit: null, error: reason }, old: { exit: null, error: reason } }, machine: {} };
+				for (const arm of ['new', 'old']) await writeRoom(out, roomName, arm, [row(`spot-${roomName}`)]);
+				return { seconds: 5, arms: { new: { exit: 0 }, old: { exit: 0 } }, machine: {} };
+			},
+			async keepAlive() {},
+			async usage() { return { seconds: 1 }; },
+			async destroy() {},
+		};
+		const rooms = parseCommands(`@a ${LINE}\n@b ${LINE}\n@c ${LINE}`, ['new', 'old']);
+		const result = await runBatch({ batch: { name: 't', code: 'abc12345' }, rooms, arms: [{ name: 'new' }, { name: 'old' }], pool, vms: 2, out, pollMs: 1, log: line => lines.push(line) });
+		assert.equal(played.filter(entry => entry.startsWith('vm1:')).length, 1, 'the broken machine plays no second room');
+		assert.deepEqual(result.outcomes.map(outcome => outcome.lost), [false, false, false], 'every room is played on a working machine');
+		assert.ok(lines.some(line => /could not start on vm1: .*ENOSPC/.test(line)), 'the reason is in the log');
+	} finally { await rm(out, { recursive: true, force: true }); }
+});
+
 test('a fetched room replaces an earlier attempt only once its copy unpacks, and a failed copy leaves nothing', async () => {
 	const dir = await mkdtemp(path.join(os.tmpdir(), 'room-batch-stage-'));
 	try {

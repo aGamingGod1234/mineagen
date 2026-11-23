@@ -25,6 +25,9 @@ await mkdir(job.outDir, { recursive: true });
 const serverMods = job.serverMods ?? [];
 // The mod id a Fabric server lists for an added JAR: lithium-fabric-0.26.4+mc26.3.jar lists as "lithium".
 const modId = name => path.basename(name).split(/[-_.+]/)[0].toLowerCase();
+// The file name before its version (lithium-fabric-0.26.4+mc26.3.jar -> lithium-fabric): another version of the same mod.
+// Narrower than the mod id, so adding fabric-api-*.jar would never remove fabric-carpet-*.jar.
+const jarStem = name => path.basename(name).replace(/\.jar$/i, '').split(/-(?=\d)/)[0].toLowerCase();
 const modIds = serverMods.map(modId);
 const fileHash = async file => createHash('sha256').update(await readFile(file)).digest('hex');
 async function templateFingerprint(dir) {
@@ -65,16 +68,17 @@ async function templateWithMods(template, mods) {
 	const temp = `${target}.tmp-${process.pid}-${Date.now()}`;
 	try {
 		await cp(template, temp, { recursive: true });
-		const ids = new Set(mods.map(modId));
+		const stems = new Set(mods.map(jarStem));
 		// Another version of an added mod (an older pin already in the template) would make Fabric refuse to start.
-		for (const name of await readdir(path.join(temp, 'mods')).catch(() => [])) if (/\.jar$/i.test(name) && ids.has(modId(name))) await rm(path.join(temp, 'mods', name));
+		for (const name of await readdir(path.join(temp, 'mods')).catch(() => [])) if (/\.jar$/i.test(name) && stems.has(jarStem(name))) await rm(path.join(temp, 'mods', name));
 		await mkdir(path.join(temp, 'mods'), { recursive: true });
 		for (const file of mods) await cp(file, path.join(temp, 'mods', path.basename(file)));
 		await writeFile(path.join(temp, '.mineagen-server-mods'), mods.map(file => path.basename(file)).join('\n') + '\n');
 		// Losing the race to another room is fine: its copy is the same.
 		await renameWithRetries(temp, target).catch(error => { if (!existsSync(marker)) throw error; });
 	} finally {
-		await rm(temp, { recursive: true, force: true });
+		// A scanner holding a file in the leftover folder must not fail a room whose copy is in place.
+		await rm(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => {});
 	}
 	if (!existsSync(marker)) throw new Error(`could not make the template copy ${target}`);
 	return target;

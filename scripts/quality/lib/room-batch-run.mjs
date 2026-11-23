@@ -156,6 +156,9 @@ export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeout
 			}
 			try {
 				const done = await pool.fetch(vm, room.room, path.join(out, 'rooms'));
+				// The machine could not set up the room's server template (lib/room-batch-remote.mjs): nothing played, and the
+				// next room would fail the same way there, so the machine leaves and the room is tried on another one.
+				if (done?.error) { log(`room ${room.room} could not start on ${vm.id}: ${done.error}`); await retire(vm, 'server template'); return { lost: true, reason: done.error }; }
 				log(`room ${room.room} done on ${vm.id} in ${done.seconds}s`);
 				// A passing arm's world region files go as soon as the room is home (lib/room-worlds.mjs); what each arm
 				// kept or dropped is recorded with its outcome in batch.json.
