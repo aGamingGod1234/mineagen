@@ -1,6 +1,6 @@
 // This computer's warm pool of boat machines for room-batch.mjs (see lib/boat-warm.mjs).
 //   node scripts/quality/boat-pool.mjs status [--json]
-//   node scripts/quality/boat-pool.mjs warm N --snapshot NAME [--type TYPE] [--idle-ttl MIN]
+//   node scripts/quality/boat-pool.mjs warm N --snapshot NAME [--type TYPE] [--idle-ttl MIN] [--extra-starts]
 //   node scripts/quality/boat-pool.mjs keepalive [--warm N] [--night HH:MM-HH:MM --night-warm N] [--grace MIN] [--keep PREFIX,...]
 //     [--idle-stop PREFIX,... [--idle-stop-min MIN]] [--idle-ttl MIN] [--every MIN]
 //   node scripts/quality/boat-pool.mjs drain [--snapshot NAME] [--type TYPE]
@@ -21,16 +21,17 @@
 // that are not running, idle machines of an image that was rebuilt or deleted, and machines a batch set aside after a
 // failed cleaning check, and clears lease files of batches that are gone. Only drain, prune and keepalive --warm delete.
 // --snapshot defaults to ROOM_BATCH_SNAPSHOT and --type to ROOM_BATCH_TYPE or "default".
-import { LIVE, busyScript, imageHash, listSandboxes, minutesLeft, poolMember, warmBoatPool } from './lib/boat-warm.mjs';
+import { LIVE, busyScript, extraStartsWanted, imageHash, listSandboxes, minutesLeft, poolMember, warmBoatPool } from './lib/boat-warm.mjs';
 import { boat, destroyMachine, execRemote, extendMachine } from './lib/boat-pool.mjs';
 import { leaseStore } from './lib/pool-leases.mjs';
 
-const USAGE = 'Usage: boat-pool.mjs status [--json] | warm N --snapshot NAME [--type TYPE] [--idle-ttl MIN] | keepalive [--idle-ttl MIN] [--every MIN] [--include PREFIX,...] | drain [--snapshot NAME] [--type TYPE] | prune';
+const USAGE = 'Usage: boat-pool.mjs status [--json] | warm N --snapshot NAME [--type TYPE] [--idle-ttl MIN] [--extra-starts] | keepalive [--idle-ttl MIN] [--every MIN] [--include PREFIX,...] | drain [--snapshot NAME] [--type TYPE] | prune';
 const argv = process.argv.slice(2);
 const command = argv.shift();
 const flags = { positional: [] };
 for (let i = 0; i < argv.length; i++) {
 	if (argv[i] === '--json') flags.json = true;
+	else if (argv[i] === '--extra-starts') flags.extraStarts = true;
 	else if (argv[i].startsWith('--')) flags[argv[i].slice(2).replace(/-(\w)/g, (_, ch) => ch.toUpperCase())] = argv[++i];
 	else flags.positional.push(argv[i]);
 }
@@ -104,7 +105,7 @@ if (command === 'status') {
 	const have = (await inventory({ all: false })).filter(item => item.live && !item.aside && item.currentImage !== false && matches(item));
 	const missing = want - have.length;
 	log(`${have.length} ${type} machines of ${snapshot} in the pool${missing > 0 ? `; starting ${missing}` : ''}`);
-	const pool = warmBoatPool({ snapshot, type, ttlSeconds: idleTtlSeconds, idleTtlSeconds, startsPerMinute: Number(process.env.ROOM_BATCH_STARTS_PER_MINUTE ?? 20), batch: 'boat-pool warm', log, store });
+	const pool = warmBoatPool({ snapshot, type, ttlSeconds: idleTtlSeconds, idleTtlSeconds, startsPerMinute: Number(process.env.ROOM_BATCH_STARTS_PER_MINUTE ?? 20), extraStarts: extraStartsWanted(flags.extraStarts), batch: 'boat-pool warm', log, store });
 	const made = await Promise.allSettled(Array.from({ length: Math.max(missing, 0) }, async () => { const vm = await pool.startNew(); await pool.release(vm); return vm; }));
 	for (const item of made.filter(result => result.status === 'rejected')) log(`a machine did not start: ${item.reason.message}`);
 	log(`${made.filter(result => result.status === 'fulfilled').length} started, ${have.length} were already there`);
