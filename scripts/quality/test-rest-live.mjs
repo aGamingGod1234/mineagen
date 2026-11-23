@@ -92,9 +92,17 @@ async function session(seed, index) {
 			const spot = String(process.env.REST_SPOT ?? '').split(',').map(Number);
 			const [cx, cz] = spot.length === 2 && spot.every(Number.isFinite) ? [spot[0] + rows.length * 48, spot[1]]
 				: index === 0 ? [-272 + rows.length * 48, 32] : [index * 400 + rows.length * 48, 0];
-			await s.command(`spreadplayers ${cx} ${cz} 0 24 false ${AGENT}`);
-			await s.gameSleep(1500);
-			await s.command(`execute at ${AGENT} positioned over motion_blocking_no_leaves run tp ${AGENT} ~ ~ ~`);
+			// The no-leaves height counts logs, so a spot on a tree column put the body on the trunk top inside the canopy, its
+			// head in leaves (rest-wool-3, a dark oak forest: 4 of 10 nights). Spread again until it stands clear of a tree.
+			for (let tries = 0; tries < 8; tries++) {
+				await s.command(`spreadplayers ${cx} ${cz} 0 24 false ${AGENT}`);
+				await s.gameSleep(1500);
+				await s.command(`execute at ${AGENT} positioned over motion_blocking_no_leaves run tp ${AGENT} ~ ~ ~`);
+				const onTrunk = await s.command(`execute at ${AGENT} if block ~ ~-1 ~ #minecraft:logs`);
+				const inLeaves = await s.command(`execute at ${AGENT} if block ~ ~1 ~ #minecraft:leaves`);
+				const feetInLeaves = await s.command(`execute at ${AGENT} if block ~ ~ ~ #minecraft:leaves`);
+				if (!/passed/i.test(`${onTrunk} ${inLeaves} ${feetInLeaves}`)) break;
+			}
 		};
 		const prepare = async (kit, at) => {
 			await s.normalRate();
