@@ -365,7 +365,7 @@ try {
 		// pitcreeper judges the climb on survival and damage too: climbing on must not trade a stop for a blast.
 		const t0 = Date.now(), window = WINDOW_MS[room];
 		let calls = 0, executed = 0, last = null, safeAt = null;
-		const results = [];
+		const results = [], callMessages = [];
 		while (Date.now() - t0 < window) {
 			if (await safe()) { safeAt ??= Date.now() - t0; if (room !== 'skeleton') break; await sleep(500); continue; }
 			safeAt = room === 'skeleton' ? null : safeAt;
@@ -392,6 +392,8 @@ try {
 			calls++;
 			last = await s.act(call[0], call[1], left + 10_000).catch(error => ({ state: 'ERROR', reasonCode: error.message }));
 			results.push(`${call[0]}:${last.state}:${last.reasonCode}`);
+			// Every call's own words, not only the last one's: a room passed on its second call says why the first stopped.
+			callMessages.push(String(last?.message ?? '').slice(0, 600));
 			// A call the body ran (not refused at the gate): only these can be credited with a save.
 			if (last.state !== 'ERROR' && last.executionStarted !== false && !/^INVALID|^UNKNOWN_ACTION/.test(String(last.reasonCode ?? ''))) executed++;
 			if (last.state === 'ERROR') break;
@@ -414,7 +416,7 @@ try {
 			healthLost: Math.round(Math.max(0, before - minHealth) * 10) / 10, damageTaken: damage.damageTaken,
 			...(damage.integrity ? { integrity: damage.integrity } : {}), airBefore, minAir,
 			hiddenShare: room === 'skeleton' && samples > 0 ? Math.round(hiddenSamples / samples * 100) / 100 : undefined,
-			endDy: end ? Math.round((end[1] - F) * 10) / 10 : null, results, state: last?.state ?? null, reasonCode: last?.reasonCode ?? null,
+			endDy: end ? Math.round((end[1] - F) * 10) / 10 : null, results, callMessages, state: last?.state ?? null, reasonCode: last?.reasonCode ?? null,
 			message: String(last?.message ?? '').slice(0, 300), startedAt, hitsFrom, finishedAt: Date.now() };
 		row.deathEvidence = recordDeathEvidence(row, deathsBefore, await readDeaths());
 		const sawDeath = minHealth <= 0 || row.deaths > 0 || /Lifecycle changed to DEAD/.test(String(last?.message ?? ''));
