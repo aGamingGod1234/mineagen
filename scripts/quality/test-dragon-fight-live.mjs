@@ -238,7 +238,7 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 				let lastDealt = null;
 				const firedStart = firedAt(latest?.reflexes?.rules);
 				firedMost = { ...firedStart };
-				const note = (what, r) => { const entry = [Math.round((now() - t0) / 1000), what, r?.state, r?.reasonCode, r?.message?.slice(0, 160)]; log.push(entry); console.log(`[dragon-fight] ${JSON.stringify(entry)}`); };
+				const note = (what, r) => { const entry = [Math.round((now() - t0) / 1000), what, r?.state, r?.reasonCode, /^melee/.test(what) ? r?.full?.slice(0, 1500) : r?.message?.slice(0, 160)]; log.push(entry); console.log(`[dragon-fight] ${JSON.stringify(entry)}`); };
 				// Judging: crystals left (all and caged) as they fall, arrows spent, and each big hit the body takes.
 				const crystalTimeline = [], hurtLog = [];
 				let clearedAt = null, lastLeft = null, lastCaged = null, arrowsStart = null, arrowsNow = null, lastHp = null;
