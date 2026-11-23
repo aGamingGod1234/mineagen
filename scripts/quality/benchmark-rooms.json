@@ -3083,7 +3083,7 @@
    "line": "node scripts/quality/lib/with-jar.mjs $JAR scripts/quality/test-end-refill-live.mjs $OUT",
    "estMinutes": 1.5,
    "tickRate": 20,
-   "reads": "exit code (0 a water bucket in hand again, 1 not, 2 no source was poured)"
+   "reads": "OUT/result.json (1 row) and the exit code (0 a water bucket in hand again, 1 not, 2 invalid)"
   },
   {
    "room": "kill-drops",

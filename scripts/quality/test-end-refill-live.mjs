@@ -5,7 +5,7 @@
 // The pour is the default's own act (the water bucket emptied at the feet onto end stone). The player then stands 2 or
 // 3 blocks off in a random direction, as it does after moving on in a fight, reads combatFacts as the model sees them
 // beside a dragon, and aims the empty bucket at the centre of the cell the fact names. Exit 0 PASS (a water bucket in
-// hand), 1 FAIL, 2 INVALID (no source was poured). Always launch under slot.sh live; ports come from SLOT_PORT_BASE.
+// hand), 1 FAIL, 2 INVALID (no source was poured, or the room could not run). Always launch under slot.sh live; ports come from SLOT_PORT_BASE.
 import { readFile, writeFile, mkdir, cp, readdir } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,11 +17,14 @@ import { MOD_JAR } from './mod-jar.mjs';
 import { installTickRate, unshownTickRate } from './watch-replay.mjs';
 import { damageCounter, recordDamageEvidence } from './lib/damage-counter.mjs';
 import { combatFacts } from '../../coordinator/src/combat-facts.mjs';
+import { finishRun, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
+
+if(process.argv.includes('--help')){console.log('Usage: test-end-refill-live.mjs OUT_DIR (jar from lib/with-jar.mjs)\n'+FIXTURE_OUTCOME_HELP);process.exit(0);}
 
 const root=fileURLToPath(new URL('../..',import.meta.url));
 const out=resolve(process.argv[2] ?? 'runtime/end-refill-live');
 const template=process.env.ARENA_HEADLESS_SERVER_TEMPLATE;
-if(!template || !process.env.SLOT_PORT_BASE) throw new Error('Set ARENA_HEADLESS_SERVER_TEMPLATE and launch under slot.sh live');
+if(!template || !process.env.SLOT_PORT_BASE || !process.env.JAVA_HOME){console.error('Set JAVA_HOME and ARENA_HEADLESS_SERVER_TEMPLATE and launch under slot.sh live');process.exit(2);}
 const port=Number(process.env.SLOT_PORT_BASE), server=join(out,'server');
 await mkdir(out,{recursive:true});
 if((await readdir(out)).length)throw new Error('Use a fresh output directory');
@@ -78,6 +81,7 @@ async function endPlay(){
   recordDamageEvidence(tick, p.damage0,await p.damage().catch(()=>null));
   return tick;
 }
+const row={name:'end-refill'};
 try {
   for(let i=0;i<150;i++){try{rcon=new HeadlessRconClient({host:'127.0.0.1',port:port+1,password:secret,connectTimeoutMs:500,commandTimeoutMs:5000});await rcon.connect();break}catch(e){await rcon?.close();if(i===149)throw e;await sleep(1000)}}
   // Water spreads on game ticks and the player is pushed by it, so the room plays at 20 like bucket-aim.
@@ -117,9 +121,7 @@ try {
   let r=await act('use_item',{mode:'once',durationMs:250,expectedItemId:'minecraft:water_bucket',aimX:0.5,aimY:80.0,aimZ:0.5});
   results.pour={state:r.state,reasonCode:r.reasonCode,message:r.message,source:await is(0,80,0,'water[level=0]')};
   if(!results.pour.source||!await holds('bucket')){
-    await writeFile(join(out,'refill.json'),JSON.stringify(results,null,2));
-    console.log(JSON.stringify(results,null,2));console.error('INVALID: the feet pour left no water source at 0,80,0');
-    process.exitCode=2;
+    row.notExercised='the feet pour left no water source at 0,80,0';
   } else {
     await rate.clock.sleep(2500);
     // Moved on: 2 or 3 blocks off along an axis, or 2 diagonally (within a bucket's reach of the pour), facing it.
@@ -141,15 +143,20 @@ try {
       results.refill={state:r.state,reasonCode:r.reasonCode,message:r.message};
     }
     results.full=await holds('water_bucket');
-    results.tick=await endPlay();
-    await writeFile(join(out,'refill.json'),JSON.stringify(results,null,2));
-    console.log(JSON.stringify(results,null,2));
-    if(!results.full)throw new Error(`end refill failed: ${results.fact??'no water hint'}; ${results.refill?.reasonCode??''} ${results.refill?.message??''}`);
-    console.log('End refill live check passed');
+    row.tick=results.tick=await endPlay();
+    row.pass=results.full;
+    if(!results.full)row.failReason=`no water bucket after the refill: ${results.fact??'no water hint'}; ${results.refill?.reasonCode??''} ${results.refill?.message??''}`;
   }
+  row.results=results;
+  await writeFile(join(out,'refill.json'),JSON.stringify(results,null,2));
+  console.log(JSON.stringify(results,null,2));
+} catch(error) {
+  row.error=String(error?.stack??error);
 } finally {
   if(play&&!play.done)await endPlay().then(tick=>writeFile(join(out,'tick.json'),JSON.stringify(tick,null,2))).catch(()=>{});
   if(rcon)await command('stop').catch(()=>{});
   bridge?.stop();await rcon?.close();
   await Promise.race([new Promise(r=>child.once('exit',r)),sleep(10000)]);if(child.exitCode===null)child.kill('SIGTERM');await log.close();
 }
+const summary=await finishRun([row],{file:join(out,'result.json')});
+console.log(summary.line);
