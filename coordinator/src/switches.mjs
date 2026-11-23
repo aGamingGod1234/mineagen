@@ -132,8 +132,9 @@ export const SWITCHES = Object.freeze([
 		readers: ['coordinator/src/experience-store.mjs experienceSettings (startup)'] }),
 	// coordinator/src/reflexes.mjs instinctsEnabled(environment): per call. Instincts.java enabled(): per call.
 	// On by default since #185, so practice rooms play as model games do. MINEAGEN_INSTINCTS=off (any list without
-	// `instincts`) turns both halves off; -Dmineagen.instincts=false with the variable unset turns only the mod's half off,
-	// since the coordinator cannot see the server's -D flags.
+	// `instincts`) turns both halves off, unless -Dmineagen.instincts=true turns the mod's half back on (either source on
+	// is on); -Dmineagen.instincts=false with the variable unset turns only the mod's half off, since the coordinator
+	// cannot see the server's -D flags.
 	entry({ name: 'instincts', env: 'MINEAGEN_INSTINCTS', property: 'mineagen.instincts', side: 'both', default: true, parser: listHas('instincts', { unset: true }),
 		propertyParser: JAVA_GET_BOOLEAN, status: 'default-on',
 		reason: 'Issue 2 Step 2 instincts arm: stance, heal, pace, fight-through, weapon and food (#24). All 300 practice rooms x10, 23 Nov: passes 2,786 of 3,203 off against 2,811 of 3,218 on, deaths 75 against 63; one room changed: travel fights through a zombie instead of stopping (#185).',

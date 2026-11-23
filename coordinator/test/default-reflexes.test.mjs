@@ -162,7 +162,7 @@ test('flag on with no injected defaults: nothing arms and there is no stance lin
 test('heal: the default eat rule fires below hunger 18 in every stance, with the flag on or off', () => {
 	const eat = DEFAULT_REFLEXES.find((rule) => rule.id === 'default-eat');
 	for (const stance of STANCES) assert.equal(materializeDefault(eat, stance).when.find((c) => c.type === 'hunger_below').value, 18, stance);
-	const off = new ReflexBook();
+	const off = new ReflexBook({ instincts: false });
 	off.observeContext('a', live());
 	assert.equal(valueOf(off, 'default-eat', 'hunger_below'), 18, 'health regrows only at hunger 18+, so the flag-off line matches');
 	const on = new ReflexBook({ instincts: true });
