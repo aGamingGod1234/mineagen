@@ -17,6 +17,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { boat, boatPool, buildBundle, createMachine, destroyMachine, machineUsage, quote, remote, upload, waitHydrated } from './lib/boat-pool.mjs';
 import { parseCommands } from './lib/room-batch-core.mjs';
+import { lithiumJarName, targetProperties, templateLacksLithium } from '../prepare-server-template.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 // Temurin 25.0.5+8, the build the Linux fixture machine runs; the hash is the one Adoptium publishes next to the archive.
@@ -38,6 +39,10 @@ const jdkUrl = flags.jdkUrl ?? JDK_URL, jdkSha = flags.jdkSha256 ?? (flags.jdkUr
 if (!jdkSha) { console.error('--jdk-url needs --jdk-sha256'); process.exit(2); }
 const serverSha = createHash('sha256').update(readFileSync(path.join(template, 'server.jar'))).digest('hex');
 const step = message => console.log(`${new Date().toISOString()} ${message}`);
+// Rooms play on the image's template as it is, keeping its prepared server warm, only when it already holds the pinned
+// Lithium JAR; otherwise the first room on every fresh machine copies the template and prepares a new server.
+const properties = targetProperties(root);
+if (templateLacksLithium(template, properties)) console.warn(`warning: the template lacks ${lithiumJarName(properties)}, so every machine will copy it before its first room; run node scripts/doctor.mjs --fix (or prepare-server-template.mjs) on it first`);
 
 const work = await mkdtemp(path.join(os.tmpdir(), 'room-image-'));
 const began = Date.now();

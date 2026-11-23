@@ -20,14 +20,21 @@
 // Listed machines must not be warm-pool members (rbpool-*): the pool and its guard lease, wipe and delete those by name. Finished games are copied home in parallel and checked by sha. The sign-in is copied to each machine, checked against its source
 // hash after every game (a changed hash means Codex refreshed it there, which can sign out the source machine, so no new
 // game starts), kept out of every copy-back, and removed from every machine when the batch ends.
+// Every game's server gets Lithium (a server performance mod that keeps vanilla behaviour; the target's pinned JAR,
+// downloaded and checked here): the machine's template when its mods/ already holds that exact JAR, else a copy of it
+// with that JAR in place of any other Lithium version (named by a fingerprint of the template, so a changed template gets
+// a new copy). "lithium": false in the plan plays on the template as it is (with whatever it holds), and
+// "lithium": "/path/lithium-fabric-VERSION.jar" uses that JAR instead.
 // Output: OUT/games/ID/{run.log,done,report/long-run.json,game.tgz (everything, raw journals under raw/)}, OUT/state.json, OUT/summary.json, OUT/summary.txt, OUT/batch.log.
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { appendFile, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { boat, createMachine, destroyMachine, download, extendMachine, installCodex, machineState, quote, remote, removeCodexSignIn, upload, waitHydrated } from './lib/boat-pool.mjs';
 import { readArtifactReport } from '../../coordinator/src/benchmark/report-artifacts.mjs';
+import { lithiumJar, targetProperties } from '../prepare-server-template.mjs';
 import { canStart, codexHomes, expandPlan, loseGame, nextGame, scoreGame, summarize, summaryText } from './lib/checkpoint-batch-core.mjs';
 
 const USAGE = 'Usage: checkpoint-batch.mjs --plan PLAN.json --out FRESH_DIR [--dry-run] | --score OUT_DIR';
@@ -96,6 +103,9 @@ for (const [name, arm] of Object.entries(plan.arms)) {
 	execFileSync('gzip', ['-f', tarFile]);
 	pkgs[name] = { tar: `${tarFile}.gz`, jarSha256: sha(arm.jar), commit: execFileSync('git', ['-C', arm.root, 'rev-parse', arm.ref], { encoding: 'utf8' }).trim() };
 }
+// The template every game plays on: the machine's own, or a copy of it with Lithium (prepare() writes its path to
+// ~/ck/server-template).
+const lithium = plan.lithium === false ? null : typeof plan.lithium === 'string' ? plan.lithium : await lithiumJar(targetProperties(fileURLToPath(new URL('../..', import.meta.url))));
 const gameScript = path.join(out, 'pkg', 'game.sh');
 await writeFile(gameScript, `#!/bin/bash
 # game.sh ID ARM SAVEPOINT_FILE MINUTES SALT MODEL EFFORT: one game on this machine; writes ~/ck/games/ID/done when it ends.
@@ -103,12 +113,13 @@ id=$1 arm=$2 sp=$3 mins=$4 salt=$5 model=$6 effort=$7
 dir=$HOME/ck/games/$id; mkdir -p "$dir"; echo $$ > "$dir/sid"
 unset OPENAI_API_KEY CODEX_API_KEY ANTHROPIC_API_KEY CODEX_HOME
 while IFS='=' read -r key value; do [ -n "$key" ] && export "$key=$value"; done < "$HOME/ck/arms/$arm/env"
-export PATH=$HOME/.local/bin:$PATH JAVA_HOME=$HOME/rooms/jdk ARENA_HEADLESS_SERVER_TEMPLATE=$HOME/rooms/template-26.3
+template=$(cat "$HOME/ck/server-template" 2>/dev/null || echo "$HOME/rooms/template-26.3")
+export PATH=$HOME/.local/bin:$PATH JAVA_HOME=$HOME/rooms/jdk ARENA_HEADLESS_SERVER_TEMPLATE="$template"
 cd "$HOME/ck/arms/$arm/$arm" || exit 1
 eatmydata node scripts/quality/run-long.mjs --provider codex --model "$model" --effort "$effort" --service-tier default \\
   --codex-observer-cap yes --spend-cap-mode log --checkpoint "$sp" --random-salt "$salt" --budget-minutes "$mins" --max-total-cost-usd 100 \\
   --ledger "$dir/ledger.json" --port-base 26900 --jar "$HOME/ck/arms/$arm/mod.jar" --coordinator-root "$HOME/ck/arms/$arm/$arm" \\
-  --java "$HOME/rooms/jdk/bin/java" --server-template "$HOME/rooms/template-26.3" --out "$dir/report" > "$dir/run.log" 2>&1 < /dev/null
+  --java "$HOME/rooms/jdk/bin/java" --server-template "$template" --out "$dir/report" > "$dir/run.log" 2>&1 < /dev/null
 echo "exit $? $(date -Is)" > "$dir/done"
 `);
 
@@ -192,6 +203,16 @@ async function prepare(vm) {
 		const env = Object.entries(plan.arms[name].env ?? {}).map(([k, v]) => `${k}=${v}`).join('\n');
 		await remote(vm.id, `set -e; cd ~/ck/arms; rm -rf ${name}; mkdir -p ${name}; tar -xzf ${name}.tar.gz -C ${name}; mv ${name}.jar ${name}/mod.jar; rm ${name}.tar.gz; printf '%s\\n' ${quote(env)} > ${name}/env`, live);
 	}
+	if (lithium) {
+		const name = path.basename(lithium);
+		await upload(vm.id, lithium, `ck/${name}`, live);
+		// A copy with no other Lithium version in mods/ (two would stop the server), built beside it and moved into place.
+		await remote(vm.id, `set -e; t=~/rooms/template-26.3; j=~/ck/${quote(name)}
+if cmp -s "$t/mods/"${quote(name)} "$j"; then echo "$t" > ~/ck/server-template; exit 0; fi
+fp=$( (cd "$t" && find . -type f -printf '%p %s %T@\\n' | sort; sha256sum < "$j") | sha256sum | cut -c1-12); c="$t+lithium-$fp"
+if [ ! -f "$c/.mineagen-server-mods" ]; then rm -rf "$c.tmp"; cp -r "$t" "$c.tmp"; rm -f "$c.tmp"/mods/lithium-*.jar; mkdir -p "$c.tmp/mods"; cp "$j" "$c.tmp/mods/"; echo ${quote(name)} > "$c.tmp/.mineagen-server-mods"; rm -rf "$c"; mv "$c.tmp" "$c"; fi
+echo "$c" > ~/ck/server-template`, live);
+	} else await remote(vm.id, 'echo ~/rooms/template-26.3 > ~/ck/server-template', live);
 	for (const [name, point] of Object.entries(plan.savepoints)) await upload(vm.id, point.file, `ck/sp/${name}.json`, live);
 	await upload(vm.id, gameScript, 'ck/game.sh', live);
 	await remote(vm.id, 'chmod +x ~/ck/game.sh', live);
