@@ -453,8 +453,20 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 						if (c.gone) return;
 					}
 				};
+				let huntedSince = null;
 				const crystalStep = async (o, me) => {
 					remember(o.entities ?? [], o);
+					// An enderman that has turned on the body: a player stays in the water it stands in (the End enderman default pours
+					// it) instead of walking out to a shooting spot or scooping that water back up. The judged A/B lost 3 of 10 runs in
+					// 82-204 s to exactly that walk. Held at most 30 s at a time: an angry enderman can keep its target while it
+					// teleports about, and the crystals still have to come down.
+					const hunted = (o.entities ?? []).some(e => e?.type === 'minecraft:enderman' && e.alive !== false && e.targetingAgent === true && (e.distance ?? Infinity) <= 24);
+					if (!hunted) huntedSince = null;
+					else if (huntedSince === null || now() - huntedSince < 30000) {
+						if (huntedSince === null) { huntedSince = now(); note('an enderman is after the body: holding still in the water', null); }
+						await s.clock.sleep(1000);
+						return true;
+					}
 					// Armed with the first crystal step: a fling on open ground can kill too (dragonFact).
 					if (!clutchArmed) { const armed = await act('look_at', { x: me.x + 10, y: me.y + 30, z: me.z }, CLUTCH); clutchArmed = armed.state === 'SUCCEEDED'; note('arm the water clutch', armed); }
 					else if ((o.inventory?.items ?? []).some(i => i.itemId === 'minecraft:bucket')) await refill();
