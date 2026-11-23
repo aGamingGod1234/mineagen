@@ -52,7 +52,28 @@ export async function snapshotId(snapshot) {
 /** A cleaning that failed on its own verdict (exit 3, 4 or 5: marker, stuck process, image) rather than a boat call that failed. */
 export const verdictFailure = error => /^command failed on \S+ \((3|4|5)\)/.test(String(error?.message ?? ''));
 const goneFailure = error => /^machine \S+ is /.test(String(error?.message ?? ''));
-export const readLimits = async () => JSON.parse(await boat(['limits', '--json'], { timeoutMs: 60_000 })).starts ?? null;
+/** --extra-starts or ROOM_BATCH_EXTRA_STARTS (1, true, yes or on; anything else is off). */
+export const extraStartsWanted = (flag, env = process.env.ROOM_BATCH_EXTRA_STARTS) => flag === true || /^(1|true|yes|on)$/i.test(String(env ?? '').trim());
+
+/**
+ * The hour and day start windows a new machine is checked against, from `boat limits --json`: the plan's by default.
+ * With extraStarts (starts past the plan's limits are billed to the wallet), a window's limit is the wallet's
+ * (startLimitsWithWallet) and what is left is counted from the starts used, since the plan's remaining stops at 0; the
+ * plan's limit stays as planLimit and planRemaining (below 0 once past it). A read without the wallet limit or the used
+ * count keeps the plan's window, and fallback(window) says so.
+ */
+export function startWindows(limits, { extraStarts = false, fallback = () => {} } = {}) {
+	const starts = limits?.starts ?? null;
+	if (!extraStarts || !starts || starts.unlimited) return starts;
+	const out = { ...starts };
+	for (const [window, key] of [['hour', 'perHour'], ['day', 'perDay']]) {
+		const plan = starts[window], limit = limits.startLimitsWithWallet?.[key];
+		if (!plan || !Number.isFinite(limit) || !Number.isFinite(plan.used) || !Number.isFinite(plan.limit)) { fallback(window); continue; }
+		out[window] = { ...plan, limit, remaining: Math.max(limit - plan.used, 0), planLimit: plan.limit, planRemaining: plan.limit - plan.used };
+	}
+	return out;
+}
+export const readLimits = async (options) => startWindows(JSON.parse(await boat(['limits', '--json'], { timeoutMs: 60_000 })), options);
 
 /** A failed `boat new` that hit a start limit -> { window, retryAfterSeconds }, else null. The CLI's wording is parsed loosely. */
 export function rateLimited(error) {
@@ -102,12 +123,13 @@ export function cleanScript({ marker, imageDir = 'rooms', mode = 'check', ports 
 /**
  * Pool options: snapshot (name), type, ttlSeconds (deadline while a batch holds a machine), idleTtlSeconds (deadline set
  * when it comes back), startsPerMinute (pace of `boat new` over every batch on this computer), startReserve (a fill
- * stops creating when the hour or day start window has this many or fewer starts left), batch (lease label), and the
+ * stops creating when the hour or day start window has this many or fewer starts left), extraStarts (check those windows
+ * against the wallet's limits instead of the plan's, see startWindows; the reserve and the pacing stay), batch (lease label), and the
  * boatPool bundle for prepare/start/poll/fetch. store and boat calls are injectable for tests.
  * machines: ids of running machines to use instead of the pool. Only those are leased; none is ever created or deleted,
  * and one that fails its cleaning is left running for a look.
  */
-export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, idleTtlSeconds = 3600, startsPerMinute = 20, startReserve = 5,
+export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, idleTtlSeconds = 3600, startsPerMinute = 20, startReserve = 5, extraStarts = false,
 	minRemainingSeconds = 120, roomPorts = [28000, 29999], machines = null, batch = null, bundle = null, imageDir = 'rooms', waitSeconds, log = console.log, store = leaseStore({ log }) } = {}) {
 	// prepare, start, poll, alive and fetch are the ephemeral pool's; only where machines come from and go to differs.
 	const base = bundle ? boatPool({ snapshot, type, ttlSeconds, namePrefix: 'unused', bundle, imageDir, log, ...(waitSeconds ? { waitSeconds } : {}) }) : {};
@@ -154,10 +176,15 @@ export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, id
 	const destroy = vm => setAside(vm, 'the batch gave it up');
 	// One limits read (shared while in flight, refreshed every 20 s) feeds the start ledger, which checks the hour and
 	// day windows for every batch on this computer at once (pool-leases.mjs reserveStart).
+	// Each of these is said once a batch, not on every read or start.
+	const said = new Set();
+	const sayOnce = (key, message) => { if (!said.has(key)) { said.add(key); log(message); } };
+	const fallback = window => sayOnce(`fallback-${window}`, `extra starts: boat limits gave no wallet ${window} limit or used count, so the plan's ${window} limit still applies`);
+	const pastPlan = windows => sayOnce('past-plan', `extra starts: starting a machine past the plan's start limit (${windows.map(item => `${item.window} start ${item.start} of ${item.planLimit}`).join(', ')}); each start past it is billed to the wallet`);
 	async function startBudget() {
 		if (!limits || Date.now() - limits.at > 20_000) {
 			const at = Date.now();
-			limits = { at, read: readLimits().then(starts => ({ starts, readAt: at, reserve: startReserve }), error => { log(`could not read the start limits (${error.message})`); return null; }) };
+			limits = { at, read: readLimits({ extraStarts, fallback }).then(starts => ({ starts, readAt: at, reserve: startReserve }), error => { log(`could not read the start limits (${error.message})`); return null; }) };
 		}
 		return limits.read;
 	}
@@ -170,7 +197,7 @@ export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, id
 		if (!name) throw new Error('could not reserve a free machine name for a new machine');
 		try {
 			for (let attempt = 1; ; attempt++) {
-				const waited = await store.reserveStart({ perMinute: startsPerMinute, signal, budget: await startBudget() });
+				const waited = await store.reserveStart({ perMinute: startsPerMinute, signal, budget: await startBudget(), onPastPlan: pastPlan });
 				if (waited > 1000) log(`waited ${Math.round(waited / 1000)} s to pace machine starts`);
 				let vm;
 				try { vm = await createMachine({ from: snapshot, type, ttlSeconds, name }); }
