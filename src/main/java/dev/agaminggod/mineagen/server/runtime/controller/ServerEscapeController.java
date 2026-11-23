@@ -87,7 +87,11 @@ public final class ServerEscapeController implements ServerController {
 	private String moveLabel;
 	private int safeTicks;
 	private int swims;
-	private int climbs;
+	/** Pushes onto a bank from the body's own column, and across one open water column: each kind has its own tries. */
+	private int climbs, farClimbs;
+	/** Ticks waited for the seen-air search before choosing between the way back and a bank (a full search is about 20). */
+	static final int SEARCH_WAIT_TICKS = 25;
+	private int searchWaits;
 	/** Gives back the running move's attempt when a reflex interrupts it (see {@link #resumed}). */
 	private Runnable refund;
 	private int fills, steps, wades;
@@ -192,20 +196,36 @@ public final class ServerEscapeController implements ServerController {
 		// (SwimPlanning.climbsOut), not where the eyes are: a body with its eyes under, beside a bank at or below its feet,
 		// rises and climbs out the same way (a travel there only arrives again, still in the water).
 		boolean beside = bank != null && besideBank(player, bank);
-		if (climbFirst(beside, climbs, player.isUnderWater(), player.getAirSupply())) {
-			climbs++;
-			refund = () -> climbs--;
-			return startMove(player, climbOut(bank, adjacentBank(player, bank) ? 60 : 100), "climb out onto the bank at " + bank.toShortString());
+		// Failed pushes across a water column never spend the tries of a push from the body's own column, nor the reverse.
+		boolean adjacent = bank != null && adjacentBank(player, bank);
+		int pushes = adjacent ? climbs : farClimbs;
+		if (climbFirst(beside, pushes, player.isUnderWater(), player.getAirSupply())) {
+			if (adjacent) { climbs++; refund = () -> climbs--; }
+			else { farClimbs++; refund = () -> farClimbs--; }
+			return startMove(player, climbOut(bank, adjacent ? 60 : 100), "climb out onto the bank at " + bank.toShortString());
 		}
 		// No bank within one push, but a flooded step beside the body whose floor is within the climb from where it floats
 		// (a flooded stair): a player wades up onto it, as each step up brings the next one, and the bank, in reach. A
 		// block placed there instead raises the ledge out of reach of a body afloat (6006/0: 4 of 4 climbs failed).
-		BlockPos ledge = !climbFirst(beside, climbs, player.isUnderWater(), player.getAirSupply()) && wades < WADE_LIMIT && (!player.isUnderWater() || player.getAirSupply() >= SWIM_FIRST_AIR)
+		BlockPos ledge = !climbFirst(beside, pushes, player.isUnderWater(), player.getAirSupply()) && wades < WADE_LIMIT && (!player.isUnderWater() || player.getAirSupply() >= SWIM_FIRST_AIR)
 				? wadeCell(player.level(), player, connectedWater(player.level(), player.blockPosition())) : null;
 		if (ledge != null) {
 			wades++;
 			refund = () -> wades--;
 			return startMove(player, wadeUp(ledge.immutable()), "wade up onto the flooded step at " + ledge.toShortString());
+		}
+		// Eyes under water with no seen air, and the way it swam from its last breath known and within the breath left (a
+		// sealed pocket past the air search's reach): a player swims back the way they came. A bank seen from there is no
+		// way out (travel stops BREATH_NOT_COVERED with no seen way up: sealed-pocket room, every try until the timeout).
+		if (player.isUnderWater() && swims < MAX_TRIES && searchWaits < SEARCH_WAIT_TICKS && EscapeMoves.awaitsAirSearch(player)) {
+			searchWaits++;
+			input.release();
+			return TickResult.running(0.5D);
+		}
+		if (player.isUnderWater() && swims < MAX_TRIES && EscapeMoves.knowsWayBack(player)) {
+			swims++;
+			refund = () -> swims--;
+			return startMove(player, EscapeMoves.swimUp(), "swim back to where it last breathed");
 		}
 		int tries = bank == null ? 0 : bankTries.merge(bank, 1, Integer::sum);
 		boolean bankAbove = bank != null && bank.getY() > player.getBlockY();

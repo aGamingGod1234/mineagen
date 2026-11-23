@@ -33,5 +33,5 @@ test('flow default can be removed independently, rearms at dimension change, and
  book.apply('a', normalizeReflexEntries(Array.from({length:MAX_REFLEXES}, (_,i) => ({id:`own-${i}`,when:{type:'in_fire'},do:{type:'leave_fire'}}))));
  const payload = book.payload('a');
  assert.equal(payload.rules.length, MAX_REFLEXES + DEFAULT_REFLEXES.length);
- assert.equal(validateProtocolV2Payload('reflex_update',payload).rules.length,27);
+ assert.equal(validateProtocolV2Payload('reflex_update',payload).rules.length,28);
 });
