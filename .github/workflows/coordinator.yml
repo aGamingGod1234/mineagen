@@ -4,6 +4,9 @@ name: Coordinator
 # skipped by a path filter leaves a required check waiting forever. A pull request that changes only the paths
 # reliability.yml ignores passes after the Detect code changes step without running tests. The mod build and Windows
 # jobs stay in reliability.yml behind its path filter, so a docs-only pull request starts neither.
+#
+# The work runs as parallel jobs: the privacy gate first, then the coordinator suite in two shards beside the Java core
+# check. The last job carries the required name and fails if any of them failed, so the required check covers all of it.
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
@@ -14,23 +17,20 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same pull request cancels the older run; main pushes always finish.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   # Runs on drafts too.
-  coordinator-linux:
-    name: Coordinator (Linux)
+  gate:
+    name: Privacy gate (Linux)
     # GitHub's runner is free for a public repository; see reliability.yml's java-targets to move back to Boat.
     runs-on: ubuntu-latest
-    # The gameplay stake writes one sticky PR comment and a gameplay-stake commit status.
-    permissions:
-      contents: read
-      pull-requests: write
-      statuses: write
-    # A hung test must not hold the runner for the 6 hour default.
-    timeout-minutes: 30
-    # A newer push to the same pull request cancels the older run; main pushes always finish.
-    concurrency:
-      group: ${{ github.workflow }}-coordinator-linux-${{ github.event.pull_request.number || github.sha }}
-      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    timeout-minutes: 10
+    outputs:
+      code: ${{ steps.changes.outputs.code }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -67,24 +67,46 @@ jobs:
           fi
           echo "code=$code" >> "$GITHUB_OUTPUT"
           echo "Code changed: $code"
+
+  node-tests:
+    name: Coordinator tests (shard ${{ matrix.shard }}/2)
+    needs: gate
+    if: needs.gate.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    # The gameplay stake writes one sticky PR comment and a gameplay-stake commit status.
+    permissions:
+      contents: read
+      pull-requests: write
+      statuses: write
+    # A hung test must not hold the runner for the 6 hour default.
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # Two shards halve the suite's wall time; node --test splits the test files between them.
+        shard: [1, 2]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The gameplay stake reads the merge commit's base parent.
+          fetch-depth: 2
       - uses: actions/setup-node@v4
-        if: steps.changes.outputs.code == 'true'
         with:
           node-version: '22'
+          cache: npm
+          cache-dependency-path: coordinator/package-lock.json
       # Match the explicit Python runtime used by Windows packaging tests.
       - uses: actions/setup-python@v5
-        if: steps.changes.outputs.code == 'true'
         with:
           python-version: '3.13'
       - name: Install locked coordinator dependencies
-        if: steps.changes.outputs.code == 'true'
         working-directory: coordinator
         run: npm ci --ignore-scripts --omit=dev
       # Evaluates the checked-out merge and publishes to the PR head SHA from the event. continue-on-error keeps a
       # stake failure or crash from skipping the tests below; the gameplay-stake status carries its result. The stake
       # takes under 2 s, so a 5-minute limit stops a hang from using up the job's 30 minutes before the tests run.
       - name: Gameplay stake headlines and sticky PR comment
-        if: steps.changes.outputs.code == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        if: matrix.shard == 1 && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
         continue-on-error: true
         timeout-minutes: 5
         env:
@@ -92,33 +114,75 @@ jobs:
         run: node scripts/quality/stake-ci.mjs --post-status
       # The gate's own tests: its rules, the commit and push hooks, and the pull request text it reads.
       - name: Test the publication gate
-        if: steps.changes.outputs.code == 'true'
+        if: matrix.shard == 1
         run: node --test scripts/tests/public-export.test.mjs
       - name: Check model-facing contracts
-        if: steps.changes.outputs.code == 'true'
+        if: matrix.shard == 1
         working-directory: coordinator
         run: npm run test:contracts
-      # The whole suite. It covers every file the portable, process-group and reviewed-regression
-      # steps listed before; Windows-only tests skip themselves on Linux. The slowest test takes about 40 s here, so a
-      # 2-minute limit per test fails a hung test quickly instead of holding the runner for the job's 30 minutes.
-      - name: Test coordinator (full suite)
-        if: steps.changes.outputs.code == 'true'
+      # The whole suite, split by file between the shards. Windows-only tests skip themselves on Linux. The slowest
+      # test takes about 40 s here, so a 2-minute limit per test fails a hung test quickly instead of holding the runner
+      # for the job's 30 minutes.
+      - name: Test coordinator (shard ${{ matrix.shard }}/2)
         working-directory: coordinator
         # Set this repository variable only on a runner that holds the private archive. Empty runs the suite without the
         # recording-based tests, which are then skipped by name.
         env:
           ARENA_PRIVATE_INPUTS: ${{ vars.ARENA_PRIVATE_INPUTS }}
-        run: npm test -- --test-timeout=120000
+        run: npm test -- --test-timeout=120000 --test-shard=${{ matrix.shard }}/2
 
+  java-core:
+    name: Java core (Linux)
+    needs: gate
+    if: needs.gate.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
-        if: steps.changes.outputs.code == 'true'
         with:
           distribution: temurin
           java-version: '25'
+      # Restores the Gradle and Minecraft downloads saved by main, so a run does not fetch them from Maven Central again
+      # (repeated downloads drew HTTP 429 refusals). Pull requests read the cache and only main writes it.
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          add-job-summary: on-failure
+      # verifyCore stages the coordinator with its node_modules and starts it.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: coordinator/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install locked coordinator dependencies
+        working-directory: coordinator
+        run: npm ci --ignore-scripts --omit=dev
       # Idempotent: a tree that already carries the default-target JARs in libs/ only re-verifies their checksums.
       - name: Fetch third-party mod JARs
-        if: steps.changes.outputs.code == 'true'
         run: ./scripts/fetch-libs.sh
       - name: Test Java POSIX coordinator ownership
-        if: steps.changes.outputs.code == 'true'
         run: ./gradlew verifyCore --no-daemon --console=plain
+
+  # The check main requires. It passes when the gate passed and no test job failed or was cancelled; a docs-only pull
+  # request skips the test jobs and passes here.
+  coordinator-linux:
+    name: Coordinator (Linux)
+    needs: [gate, node-tests, java-core]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every coordinator job to pass
+        env:
+          GATE: ${{ needs.gate.result }}
+          NODE_TESTS: ${{ needs.node-tests.result }}
+          JAVA_CORE: ${{ needs.java-core.result }}
+        run: |
+          echo "Privacy gate: $GATE, coordinator tests: $NODE_TESTS, Java core: $JAVA_CORE"
+          [ "$GATE" = success ] || exit 1
+          for result in "$NODE_TESTS" "$JAVA_CORE"; do
+            case "$result" in success|skipped) ;; *) exit 1 ;; esac
+          done

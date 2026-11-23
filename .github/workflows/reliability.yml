@@ -4,7 +4,7 @@ on:
   pull_request:
     # Drafts skip every job here; marking one ready runs the mod build and Windows jobs. Coordinator (Linux) is in coordinator.yml.
     types: [opened, synchronize, reopened, ready_for_review]
-    # Changes only to docs, eval records or ops notes test nothing. Windows minutes bill at twice the Linux rate.
+    # Changes only to docs, eval records or ops notes test nothing.
     # coordinator.yml's Detect code changes step uses the same paths; keep them in step.
     paths-ignore: ['docs/**', 'evals/**', 'ops/**', 'README.md']
   push:
@@ -20,14 +20,19 @@ permissions:
 jobs:
   # Off unless the repository variable WINDOWS_CI is "on".
   coordinator-windows:
-    name: Coordinator (Windows)
+    name: Coordinator (Windows, shard ${{ matrix.shard }}/2)
     if: vars.WINDOWS_CI == 'on' && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     runs-on: windows-latest
-    # A hung test must not hold the runner for the 6 hour default; the job takes 5-8 minutes.
+    # A hung test must not hold the runner for the 6 hour default; a shard takes about 4 minutes.
     timeout-minutes: 30
     concurrency:
-      group: ${{ github.workflow }}-coordinator-windows-${{ github.event.pull_request.number || github.sha }}-${{ github.event.pull_request.draft }}
+      group: ${{ github.workflow }}-coordinator-windows-${{ matrix.shard }}-${{ github.event.pull_request.number || github.sha }}-${{ github.event.pull_request.draft }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # The suite takes about 7 minutes on one Windows runner; two shards split its test files between them.
+        shard: [1, 2]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -42,11 +47,12 @@ jobs:
         working-directory: coordinator
         run: npm ci --ignore-scripts --omit=dev
       - name: Check model-facing contracts
+        if: matrix.shard == 1
         working-directory: coordinator
         run: npm run test:contracts
-      - name: Test coordinator
+      - name: Test coordinator (shard ${{ matrix.shard }}/2)
         working-directory: coordinator
-        run: npm run test
+        run: npm run test -- --test-shard=${{ matrix.shard }}/2
 
   java-targets:
     name: Mod on Minecraft ${{ matrix.mc }}
@@ -71,7 +77,11 @@ jobs:
         with:
           distribution: temurin
           java-version: '25'
-          cache: gradle
+      # One cache entry per job, so each Minecraft target keeps its own downloads; setup-java's single shared key saved
+      # only whichever target finished first. Pull requests read the cache and only main writes it.
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          add-job-summary: on-failure
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -125,7 +135,11 @@ jobs:
         with:
           distribution: temurin
           java-version: '25'
-          cache: gradle
+      # One cache entry per job, so each Minecraft target keeps its own downloads; setup-java's single shared key saved
+      # only whichever target finished first. Pull requests read the cache and only main writes it.
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          add-job-summary: on-failure
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -140,6 +154,12 @@ jobs:
           $properties = ConvertFrom-StringData (Get-Content -LiteralPath .\gradle.properties -Raw)
           "MOD_VERSION=$($properties.mod_version)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "DISTRIBUTION_NAME=mineagen-modpack-$($properties.mod_version)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      # install-node-runtime.ps1 checks the pinned hash and version of a restored node.exe and downloads it only if
+      # they differ.
+      - uses: actions/cache@v4
+        with:
+          path: runtime/toolchains/node
+          key: node-runtime-${{ runner.os }}-${{ hashFiles('scripts/install-node-runtime.ps1') }}
       - name: Assemble pinned standalone Node runtime
         shell: powershell
         run: |

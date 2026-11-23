@@ -353,7 +353,7 @@ flowchart LR
 
 | Workflow | What it runs |
 |---|---|
-| `.github/workflows/coordinator.yml` | The `Coordinator (Linux)` job: the gate, then (unless only docs changed) the offline stake, the contract tests, `npm test` and `./gradlew verifyCore` |
+| `.github/workflows/coordinator.yml` | The gate, then (unless only docs changed) the offline stake, the contract tests and `npm test` in two shards beside `./gradlew verifyCore`. The required `Coordinator (Linux)` job passes only when all of them pass |
 | `.github/workflows/reliability.yml` | For each of 26.1, 26.2 and 26.3: `./gradlew -Pmc=<target> check build verifyMixinTargets` and a live server boot. Windows jobs run only when the `WINDOWS_CI` repository variable is `on` |
 | `.github/workflows/release.yml` | On a version tag: builds the mod JARs for every target, checksums them, and adds the Windows package |
 

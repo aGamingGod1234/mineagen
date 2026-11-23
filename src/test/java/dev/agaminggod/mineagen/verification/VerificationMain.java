@@ -117,6 +117,16 @@ public final class VerificationMain {
 	}
 
 	public static void main(String[] args) throws Exception {
+		try {
+			verifyAll();
+		} finally {
+			// Minecraft's IO pool keeps an idle non-daemon worker alive for 60 s, which held this JVM open for a minute after
+			// the last check. A real server shuts these executors down when it stops; do the same here.
+			net.minecraft.util.Util.shutdownExecutors();
+		}
+	}
+
+	private static void verifyAll() throws Exception {
 		configureExplicitNodeForVerification();
 		// The mod bundles no model catalog; verifications run against a discovered-looking one.
 		dev.agaminggod.mineagen.control.TestCatalog.install();

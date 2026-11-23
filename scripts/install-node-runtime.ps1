@@ -5,6 +5,9 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+# Windows PowerShell redraws Invoke-WebRequest's progress bar for every chunk, which made the 80 MB download take over a
+# minute on CI.
+$ProgressPreference = 'SilentlyContinue'
 
 if ($env:OS -ne 'Windows_NT') {
 	throw 'The bundled Node.js acquisition step currently supports Windows only.'
