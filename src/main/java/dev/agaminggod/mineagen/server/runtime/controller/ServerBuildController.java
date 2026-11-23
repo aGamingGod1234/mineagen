@@ -194,6 +194,8 @@ public final class ServerBuildController implements ServerController {
 	 */
 	static final int UNCOVER_TARGET = 12;
 	static final int MAX_UNCOVERS = 24;
+	/** Blocks a lava fetch may open to scoop a source hidden behind one block. */
+	static final int MAX_FETCH_WINDOWS = 6;
 
 
 	/** A 4x5 portal frame: origin is its bottom-left corner, set in the ground row; the frame spans along {@code axis}. */
@@ -404,7 +406,7 @@ public final class ServerBuildController implements ServerController {
 	private boolean waterFirst, runOffMeetsLava;
 	/** This cell has no spot whose water line misses the lava's cell: pour it from a spot where it crosses (main's way). */
 	private boolean crossAllowed;
-	private int lavaTakes, fetchRetries;
+	private int lavaTakes, fetchRetries, fetchWindows;
 	private int staleScoops;
 	private final java.util.ArrayDeque<BlockPos> wayBack = new java.util.ArrayDeque<>();
 
@@ -2386,6 +2388,21 @@ public final class ServerBuildController implements ServerController {
 		if (!sources.isEmpty()) {
 			for (BlockPos source : sources.subList(0, Math.min(12, sources.size())))
 				if (scoopClick(player, source) != null) { seekLooks = 0; return pour(player, now, Pour.FILL, source, null); }
+			// One block between the eye and a source in reach: mine it and scoop from here, as a player does (lava-gate-2: the
+			// body stood in a one-wide dig beside the pool with a source a step below it behind one block of tuff, and walked
+			// 16 times toward spots beyond rock it could not see through).
+			BlockPos window = fetchWindows < MAX_FETCH_WINDOWS ? scoopWindow(player, sources) : null;
+			if (window != null) {
+				fetchWindows++;
+				uncoverCell = window;
+				releaseInput();
+				try {
+					LOGGER.info("[build] {} opens {} to scoop the lava behind it", player.getGameProfile().name(), xyz(window));
+					return startChild(player, Child.UNCOVER, environment.uncover(player, window, Math.min(15_000L, Math.max(1L, deadline - now))));
+				} catch (AgentDomainException refused) {
+					uncoverDead.add(window);
+				}
+			}
 			// Back to where a scoop last landed while lava it reaches is left: a dry spot it has stood on, by the way it
 			// walked (sight of the shore fades while the body works at the frame, and the frame hides it).
 			for (int k = scoopSpots.size() - 1; k >= 0 && walks < MAX_WALKS - 1; k--) {
@@ -2835,6 +2852,57 @@ public final class ServerBuildController implements ServerController {
 		return running();
 	}
 
+
+	/**
+	 * The one block hiding a seen (or remembered) lava source in reach from the eye: every other cell on the line to the
+	 * source's surface is known open, the block is seen, breakable in time and seen dry on its sides and top (the break
+	 * itself refuses one with lava seen or heard behind it), and the source
+	 * lies below both the block and the feet, so the opening cannot let it flow toward the body. Null when there is none.
+	 */
+	private BlockPos scoopWindow(ServerPlayer player, List<BlockPos> sources) {
+		ServerLevel level = (ServerLevel) player.level();
+		Vec3 eye = player.getEyePosition();
+		BlockPos feet = player.blockPosition();
+		double reach = player.blockInteractionRange() - 0.3D;
+		BlockPos best = null;
+		double bestDistance = Double.MAX_VALUE;
+		for (BlockPos source : sources) {
+			if (source.getY() >= feet.getY()) continue;
+			Vec3 surface = new Vec3(source.getX() + 0.5D, source.getY() + 0.85D, source.getZ() + 0.5D);
+			double distance = surface.distanceTo(eye);
+			if (distance > reach || distance >= bestDistance) continue;
+			BlockPos block = onlyBlockBetween(player, eye, surface, source);
+			if (block == null || block.getY() <= source.getY() || uncoverDead.contains(block)
+					|| block.equals(feet) || block.equals(feet.above()) || block.equals(feet.below())) continue;
+			BlockState state = known(player, block);
+			if (state == null || state.isAir() || !state.getFluidState().isEmpty() || clearTicks(player, level, block, state) > MAX_CLEAR_TICKS) continue;
+			boolean wet = false;
+			for (Direction side : Direction.values()) {
+				if (side == Direction.DOWN) continue;
+				BlockState next = known(player, block.relative(side));
+				if (next != null && !next.getFluidState().isEmpty()) wet = true;
+			}
+			if (wet) continue;
+			best = block.immutable();
+			bestDistance = distance;
+		}
+		return best;
+	}
+
+	/** The single known solid cell on the line from {@code from} to {@code to} (the source's own cell aside), else null. */
+	private BlockPos onlyBlockBetween(ServerPlayer player, Vec3 from, Vec3 to, BlockPos source) {
+		BlockPos[] found = new BlockPos[1];
+		Boolean clear = net.minecraft.world.level.BlockGetter.traverseBlocks(from, to, player.level(), (getter, cell) -> {
+			if (cell.equals(source)) return null;
+			BlockState state = known(player, cell);
+			if (state == null || !state.getFluidState().isEmpty()) return Boolean.FALSE;
+			if (state.isAir()) return null;
+			if (found[0] != null) return Boolean.FALSE;
+			found[0] = cell.immutable();
+			return null;
+		}, getter -> Boolean.TRUE);
+		return Boolean.TRUE.equals(clear) ? found[0] : null;
+	}
 
 	private TickResult walkTo(ServerPlayer player, BlockPos spot, long now) {
 		if (walks >= MAX_WALKS) return fail(player, "NO_STAND_SPOT", MAX_WALKS + " walks did not bring the work into reach" + lastWalk());
