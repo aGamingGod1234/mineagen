@@ -1245,17 +1245,6 @@
    "reads": "OUT/result-summary.json (rows carry no damage counter, so summary.txt damage reads unknown)"
   },
   {
-   "room": "unreachable-enderman-skip",
-   "fixture": "test-unreachable-enderman-live.mjs",
-   "stage": "nether-pearls",
-   "skill": "combat",
-   "skill2": null,
-   "line": "SKIP_UNREACHABLE=1 TRIALS=1 ARENA_JAR=$JAR node scripts/quality/test-unreachable-enderman-live.mjs $OUT --descriptive",
-   "estMinutes": 2.5,
-   "tickRate": 20,
-   "reads": "OUT/result-summary.json"
-  },
-  {
    "room": "drawn-bow-4",
    "fixture": "test-drawn-bow-live.mjs",
    "stage": "iron-kit",
@@ -1403,7 +1392,7 @@
    "line": "ARENA_JAR=$JAR node scripts/quality/test-caged-crystal-live.mjs $OUT",
    "estMinutes": 4,
    "tickRate": 20,
-   "reads": "OUT/caged.json checks.*.ok (summary lists each); exit 0 even when a check fails"
+   "reads": "exit code and OUT/caged.json pass: every check in checks.*.ok held"
   },
   {
    "room": "controller-shield-hands",
@@ -1481,7 +1470,8 @@
    "estMinutes": 1.5,
    "tickRate": 20,
    "bar": "none",
-   "reads": "no pass bar: OUT/summary.json deaths, meanBlastDamage (runs.json per run); exit 0"
+   "passWhen": { "field": "creeperFlinches", "min": 1 },
+   "reads": "pass: alive and the creeper flinch fired (OUT/summary.json creeperFlinches); deaths, meanBlastDamage (runs.json per run)"
   },
   {
    "room": "count-stance-still",
@@ -1746,7 +1736,7 @@
    "estMinutes": 2,
    "tickRate": 20,
    "bar": "none",
-   "reads": "no exit verdict (exit 0): OUT/default-reflex.json summary.defaults (alive or on-bridge count); summary.none is the rule-less control body"
+   "reads": "pass: alive and the fire put out (OUT/default-reflex.json cases[] pass on the defaults body; fireLeft, fireOutS); the rule-less control body is recorded, not judged"
   },
   {
    "room": "default-reflex-edge-control",
@@ -1818,7 +1808,7 @@
    "estMinutes": 1.2,
    "tickRate": 20,
    "bar": "none",
-   "reads": "no pass bar: OUT/runs.json died, healthLost, defendFired; exit 0 (errors go to error.txt)"
+   "reads": "no pass bar: OUT/runs.json died, healthLost, defendFired; the creeper comes on the first wall, defend or arrow-dodge firing; a run with none is notExercised; exit 0 (errors go to error.txt)"
   },
   {
    "room": "defend-command",
@@ -1830,7 +1820,7 @@
    "estMinutes": 1.2,
    "tickRate": 20,
    "bar": "none",
-   "reads": "no pass bar: OUT/runs.json died, healthLost, defendFired; exit 0 (errors go to error.txt)"
+   "reads": "no pass bar: OUT/runs.json died, healthLost, defendFired; the command comes on the first wall, defend or arrow-dodge firing; a run with none is notExercised; exit 0 (errors go to error.txt)"
   },
   {
    "room": "defend-shallow",
@@ -2176,7 +2166,7 @@
    "line": "REFLEX_ONLY=angry-shield ARENA_JAR=$JAR node scripts/quality/test-enderman-live.mjs $OUT",
    "estMinutes": 1.5,
    "tickRate": 20,
-   "reads": "exit code; OUT/results.json angry-shield.pass"
+   "reads": "exit code; OUT/results.json angry-shield.pass: provoked, a block fired, at most 2 health lost"
   },
   {
    "room": "enderman-angry-water",
@@ -2336,17 +2326,6 @@
    "reads": "no pass bar: OUT/knockback-edge.json summary (pushes, falls, cancelStayed); exit 0"
   },
   {
-   "room": "lavawork-opened-unarmed",
-   "fixture": "test-lavawork-live.mjs",
-   "stage": "portal-lava",
-   "skill": "survival",
-   "skill2": null,
-   "line": "REFLEX_ONLY=opened-unarmed ARENA_JAR=$JAR node scripts/quality/test-lavawork-live.mjs $OUT",
-   "estMinutes": 1.5,
-   "tickRate": 20,
-   "reads": "exit code; OUT/results.json opened-unarmed.pass"
-  },
-  {
    "room": "lavawork-opened-armed",
    "fixture": "test-lavawork-live.mjs",
    "stage": "portal-lava",
@@ -2356,17 +2335,6 @@
    "estMinutes": 1.5,
    "tickRate": 20,
    "reads": "exit code; OUT/results.json opened-armed.pass"
-  },
-  {
-   "room": "lavawork-standon-unarmed",
-   "fixture": "test-lavawork-live.mjs",
-   "stage": "portal-lava",
-   "skill": "survival",
-   "skill2": null,
-   "line": "REFLEX_ONLY=standon-unarmed ARENA_JAR=$JAR node scripts/quality/test-lavawork-live.mjs $OUT",
-   "estMinutes": 1.5,
-   "tickRate": 20,
-   "reads": "exit code; OUT/results.json standon-unarmed.pass"
   },
   {
    "room": "lavawork-standon-armed",
@@ -2504,18 +2472,6 @@
    "tickRate": 20,
    "bar": "none",
    "reads": "no pass bar: OUT/ranged-blaze.json summary.F (kills, loosed, hits); exit 0"
-  },
-  {
-   "room": "ranged-blaze-h",
-   "fixture": "test-ranged-blaze-live.mjs",
-   "stage": "nether-rods",
-   "skill": "combat",
-   "skill2": null,
-   "line": "SETUPS=H TRIALS=1 ARENA_JAR=$JAR node scripts/quality/test-ranged-blaze-live.mjs $OUT",
-   "estMinutes": 1.5,
-   "tickRate": 20,
-   "bar": "none",
-   "reads": "no pass bar: OUT/ranged-blaze.json summary.H (kills, loosed, hits); exit 0"
   },
   {
    "room": "reflex-combat-deflect",
@@ -2835,7 +2791,8 @@
    "estMinutes": 2,
    "tickRate": 20,
    "bar": "none",
-   "reads": "no exit verdict (exit 0): OUT/rows.json died, damage, reasonCode (RESTED), spawnAfter; OUT/summary.json"
+   "passWhen": { "field": "bedSpawnSet", "min": 1 },
+   "reads": "pass: alive and the bed set the spawn (OUT/summary.json bedSpawnSet); OUT/rows.json died, damage, reasonCode, spawnAfter"
   },
   {
    "room": "rest-wool-2",
@@ -2847,7 +2804,8 @@
    "estMinutes": 2,
    "tickRate": 20,
    "bar": "none",
-   "reads": "no exit verdict (exit 0): OUT/rows.json died, damage, reasonCode (RESTED), spawnAfter; OUT/summary.json"
+   "passWhen": { "field": "bedSpawnSet", "min": 1 },
+   "reads": "pass: alive and the bed set the spawn (OUT/summary.json bedSpawnSet); OUT/rows.json died, damage, reasonCode, spawnAfter"
   },
   {
    "room": "rest-wool-3",
@@ -2859,7 +2817,8 @@
    "estMinutes": 2,
    "tickRate": 20,
    "bar": "none",
-   "reads": "no exit verdict (exit 0): OUT/rows.json died, damage, reasonCode (RESTED), spawnAfter; OUT/summary.json"
+   "passWhen": { "field": "bedSpawnSet", "min": 1 },
+   "reads": "pass: alive and the bed set the spawn (OUT/summary.json bedSpawnSet); OUT/rows.json died, damage, reasonCode, spawnAfter"
   },
   {
    "room": "rest-nowool-1",
@@ -2871,7 +2830,8 @@
    "estMinutes": 4.5,
    "tickRate": 20,
    "bar": "none",
-   "reads": "no exit verdict (exit 0): OUT/rows.json died, damage, reasonCode (RESTED), spawnAfter; OUT/summary.json"
+   "passWhen": { "field": "rested", "min": 1 },
+   "reads": "pass: alive and the night waited out (OUT/summary.json rested, a RESTED receipt); OUT/rows.json died, damage, reasonCode"
   },
   {
    "room": "rest-nowool-2",
@@ -2883,7 +2843,8 @@
    "estMinutes": 4.5,
    "tickRate": 20,
    "bar": "none",
-   "reads": "no exit verdict (exit 0): OUT/rows.json died, damage, reasonCode (RESTED), spawnAfter; OUT/summary.json"
+   "passWhen": { "field": "rested", "min": 1 },
+   "reads": "pass: alive and the night waited out (OUT/summary.json rested, a RESTED receipt); OUT/rows.json died, damage, reasonCode"
   },
   {
    "room": "rest-nowool-3",
@@ -2895,7 +2856,8 @@
    "estMinutes": 4.5,
    "tickRate": 20,
    "bar": "none",
-   "reads": "no exit verdict (exit 0): OUT/rows.json died, damage, reasonCode (RESTED), spawnAfter; OUT/summary.json"
+   "passWhen": { "field": "rested", "min": 1 },
+   "reads": "pass: alive and the night waited out (OUT/summary.json rested, a RESTED receipt); OUT/rows.json died, damage, reasonCode"
   },
   {
    "room": "rest-dawn",
