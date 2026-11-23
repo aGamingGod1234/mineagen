@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { armTotals, formatSummary, mergeArms, parseCommands, plannedOf, repeatGroup, runQueue, splitWords, stageRoom, topUp } from '../../scripts/quality/lib/room-batch-core.mjs';
-import { runBatch } from '../../scripts/quality/lib/room-batch-run.mjs';
+import { runBatch, serverModsLine } from '../../scripts/quality/lib/room-batch-run.mjs';
 import { regionFiles, slimRoom } from '../../scripts/quality/lib/room-worlds.mjs';
 import { cutoffTime, nextClockTime, nextSlot, parseWindowsHosts, pastCutoff, portClashes, slotPortBase, windowsBatchDir, windowsPath, windowsPool } from '../../scripts/quality/lib/windows-pool.mjs';
 import { BUNDLE_PATHS, PACK_EXCLUDES, buildBundle, hasZstd, launchScript, prepareScript, readWait, waitAndPackScript } from '../../scripts/quality/lib/boat-pool.mjs';
@@ -368,6 +368,87 @@ process.exit(res.status ?? 1);\n`);
 		assert.equal(done.portBase, 28400);
 		assert.deepEqual(rows, [{ jar: '/j/new.jar', wrapped: 'yes', port: '28400', slot: '4', extra: 'x', javaFirst: true, only: 'r' }, { jar: '/j/old.jar', wrapped: 'yes', port: '28500', slot: '5', extra: 'x', javaFirst: true, only: 'r' }]);
 	} finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('the machine helper adds the batch server mods to a copy of the template, never the template itself, and counts the logs listing them', async () => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'room-batch-mods-'));
+	try {
+		const template = path.join(dir, 'template-26.3');
+		await mkdir(path.join(template, 'mods'), { recursive: true });
+		await writeFile(path.join(template, 'mods', 'fabric-api.jar'), 'api');
+		const lithium = path.join(dir, 'inputs', 'lithium-fabric-0.2+mc26.3.jar');
+		await mkdir(path.dirname(lithium), { recursive: true });
+		await writeFile(lithium, 'lithium 0.2');
+		// The fixture records which template it was given and writes a server log as Fabric does, listing lithium only for arm new.
+		const fixture = path.join(dir, 'fixture.mjs');
+		await writeFile(fixture, `import { mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+const [out, arm] = process.argv.slice(2);
+mkdirSync(out + '/server/logs', { recursive: true });
+const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE;
+writeFileSync(out + '/seen.json', JSON.stringify({ template, mods: readdirSync(template + '/mods').sort() }));
+writeFileSync(out + '/server/logs/latest.log', 'Loading 3 mods:\\n\\t- fabric-api 0.1\\n' + (arm === 'new' ? '\\t- lithium 0.2+mc26.3\\n' : ''));\n`);
+		const helper = fileURLToPath(new URL('../../scripts/quality/lib/room-batch-remote.mjs', import.meta.url));
+		const { spawnSync } = await import('node:child_process');
+		let rooms = 0;
+		const play = async (serverMods = [lithium]) => {
+			const job = { room: `r${++rooms}`, code: dir, outDir: path.join(dir, 'out', `r${rooms}`), javaHome: '/jdk', template, serverMods, timeoutMs: 60_000, portBase: 28000, env: {},
+				lines: ['new', 'old'].map(arm => ({ arm, jar: `/j/${arm}.jar`, env: {}, args: [fixture, '$OUT', arm] })) };
+			await writeFile(path.join(dir, `job${rooms}.json`), JSON.stringify(job));
+			const run = spawnSync(process.execPath, [helper, path.join(dir, `job${rooms}.json`)], { encoding: 'utf8' });
+			const done = JSON.parse(await readFile(path.join(job.outDir, 'done.json'), 'utf8'));
+			const seen = done.error ? null : JSON.parse(await readFile(path.join(job.outDir, 'new', 'seen.json'), 'utf8'));
+			return { run, done, seen };
+		};
+		const copies = async () => (await readdir(dir)).filter(name => name.startsWith('template-26.3+')).sort();
+
+		// An older Lithium already in the template: the copy holds only the batch's version (two would stop Fabric).
+		await writeFile(path.join(template, 'mods', 'lithium-fabric-0.1+mc26.3.jar'), 'lithium 0.1');
+		const first = await play();
+		assert.equal(first.run.status, 0, first.run.stderr);
+		const [copy] = await copies();
+		assert.match(copy, /^template-26\.3\+lithium-[0-9a-f]{12}$/);
+		assert.deepEqual(first.seen, { template: path.join(dir, copy), mods: ['fabric-api.jar', 'lithium-fabric-0.2+mc26.3.jar'] });
+		assert.deepEqual((await readdir(path.join(template, 'mods'))).sort(), ['fabric-api.jar', 'lithium-fabric-0.1+mc26.3.jar'], 'the machine template stays as it was');
+		assert.equal(first.done.template, copy);
+		assert.deepEqual(first.done.arms.new.serverMods, { logs: 1, listed: { lithium: 1 } });
+		assert.deepEqual(first.done.arms.old.serverMods, { logs: 1, listed: { lithium: 0 } });
+
+		// A second room on the same machine reuses the copy.
+		assert.equal((await play()).seen.template, path.join(dir, copy));
+		assert.deepEqual(await copies(), [copy]);
+
+		// A template refreshed in place (a new Fabric API) gets a new copy rather than playing on the stale one.
+		await rm(path.join(template, 'mods', 'fabric-api.jar'));
+		await writeFile(path.join(template, 'mods', 'fabric-api-2.jar'), 'api 2');
+		const refreshed = await play();
+		assert.notEqual(refreshed.seen.template, path.join(dir, copy));
+		assert.deepEqual(refreshed.seen.mods, ['fabric-api-2.jar', 'lithium-fabric-0.2+mc26.3.jar']);
+
+		// A template that already holds the exact JAR is used as it is, so the image's prepared server stays warm.
+		await rm(path.join(template, 'mods', 'lithium-fabric-0.1+mc26.3.jar'));
+		await writeFile(path.join(template, 'mods', 'lithium-fabric-0.2+mc26.3.jar'), 'lithium 0.2');
+		const asIs = await play();
+		assert.equal(asIs.seen.template, template);
+		assert.equal(asIs.done.template, 'template-26.3');
+
+		// A copy that cannot be made ends the room at once with the reason on every arm, instead of running into the timeout.
+		const broken = await play([path.join(dir, 'inputs', 'missing-0.1.jar')]);
+		assert.equal(broken.run.status, 1);
+		assert.match(broken.done.error, /missing-0\.1\.jar/);
+		assert.deepEqual(Object.keys(broken.done.arms).sort(), ['new', 'old']);
+		assert.equal(broken.done.arms.new.exit, null);
+		assert.match(broken.done.arms.old.error, /server template with missing-0\.1\.jar/);
+	} finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('the batch summary says in how many arms every server log listed each added server mod', () => {
+	assert.equal(serverModsLine([{ room: 'a', arms: { x: { exit: 0 } } }]), null, 'no mods added: no line');
+	const line = serverModsLine([
+		{ room: 'a', arms: { new: { serverMods: { logs: 2, listed: { lithium: 2 } } }, old: { serverMods: { logs: 2, listed: { lithium: 1 } } } } },
+		{ room: 'b', lost: true },
+		{ room: 'c', arms: { new: { serverMods: { logs: 0, listed: { lithium: 0 } } } } },
+	]);
+	assert.equal(line, 'server mods: lithium listed in every server log of 1 of 3 arms (not in a/old, c/new)');
 });
 
 const REGION = 'server/world/dimensions/minecraft/overworld/region/r.0.0.mca';
@@ -810,6 +891,36 @@ test('a delete that fails is tried again when the batch ends, and a failed liven
 		assert.equal(result.outcomes[0].lost, false, 'one failed poll and one failed lookup do not lose the room');
 		assert.deepEqual(deletes, ['vm1', 'vm1']);
 		assert.equal(result.machines[0].destroyed, true);
+	} finally { await rm(out, { recursive: true, force: true }); }
+});
+
+test('a machine that cannot set up the server template leaves the batch and its room is played on another one', async () => {
+	const out = await mkdtemp(path.join(os.tmpdir(), 'room-batch-template-'));
+	try {
+		let made = 0;
+		const played = [], lines = [];
+		const pool = {
+			async create() { return { id: `vm${++made}` }; },
+			async prepare() { return { code: '/c', out: '/o', jars: { new: '/j/new.jar', old: '/j/old.jar' }, inputs: {}, javaHome: '/jdk', template: '/t' }; },
+			async start() {},
+			async poll() { return 'done'; },
+			async alive() { return true; },
+			async fetch(vm, roomName) {
+				played.push(`${vm.id}:${roomName}`);
+				const reason = 'server template with lithium-fabric-0.2+mc26.3.jar: ENOSPC: no space left on device';
+				if (vm.id === 'vm1') return { room: roomName, error: reason, seconds: 0, arms: { new: { exit: null, error: reason }, old: { exit: null, error: reason } }, machine: {} };
+				for (const arm of ['new', 'old']) await writeRoom(out, roomName, arm, [row(`spot-${roomName}`)]);
+				return { seconds: 5, arms: { new: { exit: 0 }, old: { exit: 0 } }, machine: {} };
+			},
+			async keepAlive() {},
+			async usage() { return { seconds: 1 }; },
+			async destroy() {},
+		};
+		const rooms = parseCommands(`@a ${LINE}\n@b ${LINE}\n@c ${LINE}`, ['new', 'old']);
+		const result = await runBatch({ batch: { name: 't', code: 'abc12345' }, rooms, arms: [{ name: 'new' }, { name: 'old' }], pool, vms: 2, out, pollMs: 1, log: line => lines.push(line) });
+		assert.equal(played.filter(entry => entry.startsWith('vm1:')).length, 1, 'the broken machine plays no second room');
+		assert.deepEqual(result.outcomes.map(outcome => outcome.lost), [false, false, false], 'every room is played on a working machine');
+		assert.ok(lines.some(line => /could not start on vm1: .*ENOSPC/.test(line)), 'the reason is in the log');
 	} finally { await rm(out, { recursive: true, force: true }); }
 });
 
