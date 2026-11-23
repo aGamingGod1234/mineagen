@@ -1275,6 +1275,34 @@ test('water sought from under cover: after the look, back up the way the body ca
 	assert.ok(body.calls.findIndex((row) => row.look !== undefined) < body.calls.findIndex((row) => row.actionType), 'looked round before leaving');
 });
 
+test('water-6-y-54: out under the sky but still down its own stair cut, the body walks the last steps up to the ground once before it looks', async () => {
+	const under = sample({ player: { x: 0.5, y: 16, z: 0.5, yaw: 0, health: 20, skyOpen: false, heard: [] } });
+	const body = fakeBody({ start: under, acts: {
+		travel_to: [
+			{ result: { state: 'SUCCEEDED', reasonCode: 'ARRIVED' }, move: () => ({ x: -5.5, y: 67, z: 4.5, skyOpen: true }) },
+			{ result: { state: 'SUCCEEDED', reasonCode: 'ARRIVED' }, move: () => ({ x: -5.5, y: 71, z: 0.5, skyOpen: true }) },
+			{ result: { state: 'SUCCEEDED', reasonCode: 'ARRIVED' }, then: { blocks: [{ blockId: 'minecraft:water', x: 30, y: 62, z: 0, state: { level: '0' } }] } },
+		],
+	} });
+	body.openSky = () => ({ x: -5.5, y: 67, z: 4.5 });
+	body.skyTop = () => ({ x: -5.5, y: 71, z: 0.5 });
+	const result = await searchFor({ block: 'minecraft:water' }, body, { timeoutMs: 300_000 });
+	assert.equal(result.reasonCode, 'FIND_SEEN', result.message);
+	const moves = body.calls.filter((row) => row.actionType).map((row) => row.args);
+	assert.deepEqual([moves[0].retrace, moves[0].y], [true, 67], 'first back up to the last open sky');
+	assert.deepEqual([moves[1].retrace, moves[1].x, moves[1].y, moves[1].z, moves[1].tolerance], [true, -5.5, 71, 0.5, 1], 'then up the last steps to the ground the stair was cut from');
+	assert.equal(moves.filter((row) => row.retrace && row.y === 71).length, 1, 'tried once');
+	// A stair top far across (another hill) is not this cut: no extra walk.
+	const far = fakeBody({ start: under, acts: { travel_to: [
+		{ result: { state: 'SUCCEEDED', reasonCode: 'ARRIVED' }, move: () => ({ x: -5.5, y: 67, z: 4.5, skyOpen: true }) },
+		{ result: { state: 'SUCCEEDED', reasonCode: 'ARRIVED' }, then: { blocks: [{ blockId: 'minecraft:water', x: 30, y: 62, z: 0, state: { level: '0' } }] } },
+	] } });
+	far.openSky = () => ({ x: -5.5, y: 67, z: 4.5 });
+	far.skyTop = () => ({ x: 20.5, y: 75, z: 4.5 });
+	await searchFor({ block: 'minecraft:water' }, far, { timeoutMs: 300_000 });
+	assert.equal(far.calls.filter((row) => row.actionType && row.args.retrace).length, 1);
+});
+
 test('water sought from under cover: a retrace that stops short is passed by a short stair up, then taken again', async () => {
 	const under = sample({ player: { x: 0.5, y: 16, z: 0.5, yaw: 0, health: 20, skyOpen: false, heard: [] } });
 	const body = fakeBody({ start: under, acts: {

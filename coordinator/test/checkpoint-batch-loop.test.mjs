@@ -16,7 +16,10 @@ const script = path.join(repo, 'scripts/quality/checkpoint-batch.mjs');
 const FAKE_BOAT = `#!/bin/bash
 F=$FAKE_BOAT_ROOT; [ "$1" = --no-update ] && shift; cmd=$1; shift
 # An OUTAGE file makes boat unreachable from this side; a VANISH file in a machine's home makes boat forget the machine.
-[ -f "$F/OUTAGE" ] && { echo "connection refused" >&2; exit 1; }
+# With an OUTAGE_ENDS_AT_UPLOAD file, the outage ends as it refuses a sign-in upload: boat is back while that launch fails.
+if [ -f "$F/OUTAGE" ]; then
+  [ "$cmd" = scp ] && [ -f "$F/OUTAGE_ENDS_AT_UPLOAD" ] && case $2 in *:.codex/auth.json) rm -f "$F/OUTAGE" "$F/OUTAGE_ENDS_AT_UPLOAD";; esac
+  echo "connection refused" >&2; exit 1; fi
 [ -f "$F/$1/VANISH" ] && { echo "sandbox not found: $1" >&2; exit 1; }
 map() { case $1 in bx_*:*) echo "$F/\${1%%:*}/\${1#*:}";; *) echo "$1";; esac; }
 seed() { mkdir -p "$1/rooms/jdk/bin" "$1/.local/bin"; : > "$1/rooms/jdk/bin/java"; chmod +x "$1/rooms/jdk/bin/java"; printf '#!/bin/bash\\necho codex-cli 0.1.0\\n' > "$1/.local/bin/codex"; chmod +x "$1/.local/bin/codex"; }
@@ -308,6 +311,29 @@ test('checkpoint batch drops no machine while boat itself is unreachable for a w
 		});
 		assert.equal(await exited, 0);
 		assert.ok(outage, 'the outage happened');
+		const state = JSON.parse(readFileSync(path.join(root, 'out/state.json'), 'utf8'));
+		assert.deepEqual(state.games.map(g => g.state), ['done', 'done', 'done', 'done']);
+		assert.ok(state.machines.every(m => !m.lost));
+		assert.equal(leftSignIns(root), '0');
+	} finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('checkpoint batch drops no machine when boat comes back in the middle of a failing launch', posixOnly, async () => {
+	const root = setup();
+	for (const id of ['bx_aaaaaaaa', 'bx_bbbbbbbb']) writeFileSync(path.join(root, id, 'SLOW'), '');
+	try {
+		const child = spawn('node', [script, '--plan', path.join(root, 'plan.json'), '--out', path.join(root, 'out')], {
+			env: { ...process.env, PATH: `${path.join(root, 'bin')}:${process.env.PATH}`, BOAT_BIN: path.join(root, 'bin/boat'), FAKE_BOAT_ROOT: root, CHECKPOINT_POLL_MS: '200', CHECKPOINT_LOST_AFTER_MS: '1000' }, stdio: ['ignore', 'pipe', 'pipe'] });
+		const exited = new Promise(resolve => child.on('exit', resolve));
+		let out = '', outage = false;
+		child.stdout.on('data', chunk => {
+			out += chunk;
+			// Boat goes away for at least 3 s (past LOST_AFTER_MS) and comes back exactly between a refused sign-in upload and
+			// the batch asking boat about that machine: the launch's failure and the pass's failure both end in one answer.
+			if (!outage && /finished nether/.test(out)) { outage = true; writeFileSync(path.join(root, 'OUTAGE'), ''); setTimeout(() => writeFileSync(path.join(root, 'OUTAGE_ENDS_AT_UPLOAD'), ''), 3_000); }
+		});
+		assert.equal(await exited, 0);
+		assert.ok(outage && !existsSync(path.join(root, 'OUTAGE_ENDS_AT_UPLOAD')), 'the outage ended at a sign-in upload');
 		const state = JSON.parse(readFileSync(path.join(root, 'out/state.json'), 'utf8'));
 		assert.deepEqual(state.games.map(g => g.state), ['done', 'done', 'done', 'done']);
 		assert.ok(state.machines.every(m => !m.lost));
