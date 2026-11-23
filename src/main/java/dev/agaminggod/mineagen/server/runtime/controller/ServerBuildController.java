@@ -386,6 +386,10 @@ public final class ServerBuildController implements ServerController {
 	private final List<BlockPos> scoopSpots = new ArrayList<>();
 	/** Flowing lava a walk was refused at, with no source feeding it: it drains away in a few seconds. */
 	private BlockPos drainAt;
+	// A cast walk that stopped where its seen path ended: the spot it was going to, while the eyes sweep the unseen ground.
+	private BlockPos frontierLook;
+	private int frontierTicks;
+	private int frontierRetries;
 	private int flowTicks, flowWaits;
 	/** Bucket clicks that would not land, since the last that did; after one the body pours from another spot. */
 	private int clickStalls;
@@ -480,6 +484,14 @@ public final class ServerBuildController implements ServerController {
 					flowWaits++;
 					walks--;
 					triedSpots.remove(walkTarget);
+				} else if (casting && walkTarget != null && "REACHED_FRONTIER".equals(moved.reasonCode()) && frontierRetries < 2) {
+					// The seen path ended short of the spot and the ground beyond is unseen (20 of 23 casts that stopped "no lava
+					// source in reach" with lava in view): look along that ground, as a player does, then walk on to the same spot.
+					frontierRetries++;
+					frontierLook = walkTarget;
+					frontierTicks = 0;
+					walks--;
+					triedSpots.remove(walkTarget);
 				} else if (casting && walkTarget != null) {
 					// A cast's next spot is usually beside the one it could not reach (the same flow or ledge in the way): rule out its neighbours too.
 					for (BlockPos near : BlockPos.betweenClosed(walkTarget.offset(-1, -1, -1), walkTarget.offset(1, 1, 1))) triedSpots.add(near.immutable());
@@ -491,6 +503,16 @@ public final class ServerBuildController implements ServerController {
 			BlockState flowing = known(player, drainAt);
 			if (flowing != null && !TravelBuilder.lava(flowing) || ++flowTicks > DRAIN_TICKS) drainAt = null;
 			else { releaseInput(); ServerLookController.turnToward(player, Vec3.atCenterOf(drainAt)); return running(); }
+		}
+		if (frontierLook != null) {
+			releaseInput();
+			// Four aims along the floor from the feet to the spot, eight ticks each, then the walk again.
+			Vec3 from = player.position().add(0.0D, -0.5D, 0.0D), to = Vec3.atCenterOf(frontierLook.below());
+			ServerLookController.turnToward(player, from.lerp(to, Math.min(1.0D, (frontierTicks / 8 + 1) / 4.0D)));
+			if (++frontierTicks < 32) return running();
+			BlockPos spot = frontierLook;
+			frontierLook = null;
+			return walkTo(player, spot, now);
 		}
 		if (pause > 0) { pause--; return running(); }
 		return switch (phase) {
@@ -2244,7 +2266,7 @@ public final class ServerBuildController implements ServerController {
 				// Taken back because the lava did not follow from here: pour the pair from another spot.
 				if (staleWater) { staleWater = false; staleScoops++; moveForClick = true; triedSpots.add(player.blockPosition().immutable()); }
 			}
-			case FILL -> { scoopSpots.remove(player.blockPosition()); scoopSpots.add(player.blockPosition().immutable()); fills++; triedSources.clear(); lastFill = target.immutable(); poolMemory.remove(lastFill); seekWalks = 0; }
+			case FILL -> { scoopSpots.remove(player.blockPosition()); scoopSpots.add(player.blockPosition().immutable()); fills++; frontierRetries = 0; triedSources.clear(); lastFill = target.immutable(); poolMemory.remove(lastFill); seekWalks = 0; }
 		}
 		return running();
 	}
