@@ -237,6 +237,10 @@ try {
 			else if (name === 'water') await s.command(skeleton.replace('%X%', '-299.5').replace('%Y%', '103').replace('%Z%', '16.5'));
 			else await s.command(skeleton.replace('%X%', '-299.5').replace('%Y%', '100').replace('%Z%', '20.5'));
 			const steps = [];
+			// Every change of firing, detail (numbers folded) or health, in order, with the game time and body position: the
+			// steps list above keeps each step once, so it cannot say what took the body from its walls or when.
+			const timeline = [];
+			let lastMark = null;
 			let maxThreatDistance = 0;
 			let backOuts = 0, backingSeen = false, minHealth = start, died = false, hits = 0, shieldS = 0, fired = false, wallingSeen = false, refusal = null, stopped = null, endDetail = null;
 			let blockMap = null, commandResult = null, commandSentAt = null, wallsAtCommand = null, creeperAt = null, healthAtCreeper = null, creeperExploded = false, maxWalls = 0;
@@ -304,6 +308,13 @@ try {
 				}
 				if (name === 'command' && commandResult && now() - commandSentAt > 3000) break;
 				const h = await health().catch(() => null);
+				const firingNow = o?.reflexes?.firing ? `${o.reflexes.firing.id}: ${String(o.reflexes.firing.detail ?? '')}` : '-';
+				const mark = `${firingNow.replace(/-?[\d.]+/g, '#').slice(0, 90)}|${h}`;
+				if (mark !== lastMark && timeline.length < 120) {
+					lastMark = mark;
+					const at = o?.position ? [o.position.x, o.position.y, o.position.z].map(v => +Number(v).toFixed(1)) : null;
+					timeline.push({ t: +((now() - t0) / 1000).toFixed(1), h, at, walls: w, firing: firingNow.slice(0, 200) });
+				}
 				if ((await deaths()) > deathsBefore || h === 0) { died = true; break; }
 				if (h !== null) minHealth = Math.min(minHealth, h);
 			}
@@ -332,7 +343,7 @@ try {
 			}
 			const row = { case: name, run, food, defendFired: fired, hitsBack: hits, backOuts, backingSeen, shieldSeconds: shieldS, wallingSeen, refusal, stopped, maxWalls, wallsAtEnd,
 				wallsAtCommand, commandResult, creeperExploded, blastDamage: healthAtCreeper === null ? null : +(healthAtCreeper - (died ? 0 : minHealth)).toFixed(1),
-				endDetail, steps, blockMap, endMap, died, healthLost: died ? start : +(start - minHealth).toFixed(1),
+				endDetail, steps, timeline, blockMap, endMap, died, healthLost: died ? start : +(start - minHealth).toFixed(1),
 				seconds, wallSeconds, gameSeconds, rates, tick: { rate: s.tickRate, held: await s.tickReport() } };
 			Object.assign(row, damageEvidence(damageBefore, await readDamage(), start, healthEnd));
 			recordDeathEvidence(row, deathsBefore, deathsEnd);

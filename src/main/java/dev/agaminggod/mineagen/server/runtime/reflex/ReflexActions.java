@@ -627,6 +627,11 @@ final class ReflexActions {
 			return backOut != null || walls != null || cover != null || inland != null || braceInPlace || landing;
 		}
 
+		/** Building a wall-in round the body now. */
+		boolean wallingIn() {
+			return walls != null;
+		}
+
 		@Override
 		public void end(ServerPlayer player) {
 			guard.end(player);
@@ -874,7 +879,9 @@ final class ReflexActions {
 			Entity focus = context.focus();
 			// A ranged mob beyond reach (or its shot) is stepped away from across the shot line, not stood still in front of.
 			Entity from = focus instanceof Projectile p && p.getOwner() != null ? p.getOwner() : focus;
-			if (from instanceof Mob archer && archer.isAlive() && ThreatPerception.isRanged(archer) && swingPoint(player, archer, player.getInventory().getItem(slot)) == null) {
+			// Not out of its own walls: in that cell the walls take the shots a step aside would walk into.
+			if (from instanceof Mob archer && archer.isAlive() && ThreatPerception.isRanged(archer) && swingPoint(player, archer, player.getInventory().getItem(slot)) == null
+					&& !WallIn.sheltered(player)) {
 				Step stepped = dodge.tick(new Context(player, focus instanceof Projectile ? focus : archer, context.stance(), context.memory(),
 						context.point(), context.below(), context.fightShields()), input);
 				if (stepped.status() == ReflexScheduler.ActionStatus.RUNNING) {
@@ -2073,14 +2080,39 @@ final class ReflexActions {
 
 	/** A melee mob after the body this close (centre to centre) lands its first hit in one to two seconds. */
 	static final double CLOSING_RANGE = 5.0D;
+	/** Centre to centre, a melee mob this near can land its hit without another step. */
+	static final double STRIKE_RANGE = 2.5D;
+	/** Blocks a tick, along the ground, that a melee mob must have come toward the body to count as coming at it. */
+	static final double COMING_STEP = 0.01D;
+
+	/**
+	 * Whether a melee mob after the body is coming at it: near enough to strike, or it moved toward the body on its last
+	 * tick. One that targets the body but stands still (a spider wedged on a ledge with no way down) never lands a hit, and
+	 * read as about to, it held defend facing it for 29 minutes in a mine while the walk to iron waited (iron-obtain-6006).
+	 */
+	static boolean comingAt(Mob mob, ServerPlayer player) {
+		if (player.distanceTo(mob) <= STRIKE_RANGE) return true;
+		double dx = player.getX() - mob.getX(), dz = player.getZ() - mob.getZ();
+		double length = Math.hypot(dx, dz);
+		if (length < 1.0E-6D) return true;
+		return ((mob.getX() - mob.xo) * dx + (mob.getZ() - mob.zo) * dz) / length >= COMING_STEP;
+	}
 
 	static Mob closingMelee(ServerPlayer player) {
+		return closingMelee(player, false);
+	}
+
+	/**
+	 * As above; {@code coming}: only a mob that will land its hit soon ({@link #comingAt}), not one that targets the body
+	 * but stands off where it is.
+	 */
+	static Mob closingMelee(ServerPlayer player, boolean coming) {
 		Mob nearest = null;
 		double best = Double.POSITIVE_INFINITY;
 		for (Mob mob : player.level().getEntitiesOfClass(Mob.class, player.getBoundingBox().inflate(CLOSING_RANGE),
 				mob -> mob.isAlive() && mob.getTarget() == player && !mob.isInvisibleTo(player) && packMember(mob, player))) {
 			double distance = player.distanceTo(mob);
-			if (distance > CLOSING_RANGE || distance >= best || !player.hasLineOfSight(mob)) continue;
+			if (distance > CLOSING_RANGE || distance >= best || !player.hasLineOfSight(mob) || coming && !comingAt(mob, player)) continue;
 			best = distance;
 			nearest = mob;
 		}
@@ -3019,6 +3051,26 @@ final class ReflexActions {
 			this.shooter = shooter;
 		}
 
+		/** Per body, the cell its last wall-in began to close round it and the shooter it walled in from. */
+		private static final Map<java.util.UUID, Shelter> SHELTERS = new java.util.concurrent.ConcurrentHashMap<>();
+		record Shelter(BlockPos center, int shooterId) { }
+
+		/**
+		 * Whether the body stands in the cell its own wall-in closed (or is closing) round it, the shooter it walled in from
+		 * still lives, and no melee mob presses it. That cell is its cover: the low-health retreat and cover rules would run it
+		 * into the open under that shooter, and a dodge or defend's own stand would step it out through a gap or off the roof
+		 * jump (defend-shallow: all 3 deaths left after #209 walled in, then retreat or dodge took the body out, roof unbuilt).
+		 */
+		static boolean sheltered(ServerPlayer player) {
+			Shelter shelter = SHELTERS.get(player.getUUID());
+			if (shelter == null) return false;
+			if (!(player.level().getEntity(shelter.shooterId()) instanceof LivingEntity shooter) || !shooter.isAlive()) return false;
+			BlockPos feet = BlockPos.containing(player.getX(), player.getY() + 0.2D, player.getZ());
+			// The jump that puts a block on a wall top lifts the feet into the cell above.
+			if (!feet.equals(shelter.center()) && !feet.below().equals(shelter.center())) return false;
+			return Defend.nearestChaser(player, PACK_RANGE) >= PACK_RANGE;
+		}
+
 		/**
 		 * Water a player cannot build from: the head under, the feet off the bottom of deeper water (afloat), or a current at the feet that
 		 * carries the body off the cell. Standing on the bottom of still water one deep is building ground (defend-shallow:
@@ -3088,6 +3140,7 @@ final class ReflexActions {
 				if (!enclosed(level, center) && enclosed(level, center.below()) && level.getBlockState(center.below()).canBeReplaced()) center = center.below();
 				String no = refusal(player, center, shooter.position());
 				if (no != null) return Step.failed("not walling in: " + no);
+				SHELTERS.put(player.getUUID(), new Shelter(center, shooter.getId()));
 				heldSlot = player.getInventory().getSelectedSlot();
 				Direction facing = Direction.getApproximateNearest(shooter.getX() - player.getX(), 0.0D, shooter.getZ() - player.getZ());
 				// Feet level first (each head cell stands on its feet cell), the side facing the shooter first.

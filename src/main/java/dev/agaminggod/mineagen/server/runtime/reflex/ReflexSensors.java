@@ -796,11 +796,12 @@ public final class ReflexSensors {
 	 */
 	/**
 	 * defend's plain "attacked" before the first melee hit: a melee mob after the idle body about to reach it
-	 * ({@link ReflexActions#closingMelee}). Any other condition, or a negated one, reads false here.
+	 * ({@link ReflexActions#closingMelee}) and coming at it ({@link ReflexActions#comingAt}). Any other condition, or a
+	 * negated one, reads false here.
 	 */
 	static Reading meleeAboutToLand(ServerPlayer player, ReflexSpec.Condition condition) {
 		if (!"attacked".equals(condition.type()) || condition.negated()) return Reading.FALSE;
-		Mob mob = ReflexActions.closingMelee(player);
+		Mob mob = ReflexActions.closingMelee(player, true);
 		return mob == null ? Reading.FALSE : new Reading(true, mob);
 	}
 

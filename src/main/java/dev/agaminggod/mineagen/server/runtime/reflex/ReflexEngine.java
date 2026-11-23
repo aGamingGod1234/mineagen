@@ -77,6 +77,18 @@ public final class ReflexEngine {
 		return false;
 	}
 
+	/**
+	 * The body walling itself in from a shooter, or standing in the cell its walls closed: the low-health back-off rules
+	 * (retreat, cover) and the arrow dodge do not take it there. They ran or stepped it out into the open under the same
+	 * shooter, and defend was not there to roof the cell (defend-shallow: all 3 deaths left after #209). Hazard flinches
+	 * still interrupt. A queued start goes too, as in the other gates.
+	 */
+	static boolean shelterGate(ReflexScheduler scheduler, ReflexSpec.Rule rule, boolean truth, boolean sheltered) {
+		if (!sheltered || !(backsOffWhenWeaker(rule) || "dodge".equals(rule.action().type()))) return truth;
+		scheduler.discardPendingStart(rule.id());
+		return false;
+	}
+
 	/** How near a chasing melee mob must be for the retreat's pace check to count it: default-retreat's hostile_near. */
 	static final double PACE_RANGE = 6.0D;
 
@@ -558,6 +570,10 @@ public final class ReflexEngine {
 		boolean fleeingWithChaser = fleeing && ReflexActions.Defend.nearestChaser(player, ReflexActions.PACK_RANGE) < ReflexActions.PACK_RANGE;
 		boolean firingBlocksShots = agent.scheduler.current() != null && agent.behaviour != null && agent.behaviour.blocksShots();
 		boolean firingMoves = agent.scheduler.current() != null && firingMovesBody(agent.behaviour);
+		// Walling in from a shooter, or standing in the cell its walls closed round it: that cell is the cover (shelterGate).
+		boolean sheltered = agent.scheduler.current() != null && agent.behaviour instanceof ReflexActions.Defend walling && walling.wallingIn()
+				&& ReflexActions.Defend.nearestChaser(player, ReflexActions.PACK_RANGE) >= ReflexActions.PACK_RANGE
+				|| ReflexActions.WallIn.sheltered(player);
 		// Defend also stands aside while a cast has a cell half done: lava poured and not yet cooled, or its water not yet
 		// scooped back. A pause there leaves the lava to flow onto the body or the water to run into the pool (2-3 s at most).
 		boolean escapingShooter = activeType == ActionType.ESCAPE && !EscapeMoves.shooters(player).isEmpty()
@@ -600,6 +616,7 @@ public final class ReflexEngine {
 			truth = shieldGate(agent.scheduler, rule, truth, firingBlocksShots);
 			truth = dodgeGate(agent.scheduler, rule, truth, activeType, escapingShooter, firingMoves);
 			truth = chaseGate(agent.scheduler, rule, truth, fleeingWithChaser);
+			truth = shelterGate(agent.scheduler, rule, truth, sheltered);
 			owedDropsGate(agent.scheduler, rule, truth);
 			// A default "back off when weaker" rule does not pause a flee that has already found no way out and stands its
 			// ground: running or taking cover there only hands the attackers free hits (cornered fixture: 4.6 s paused
