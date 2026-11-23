@@ -1,0 +1,5 @@
+# #209 Wall in from shallow water while a knocked-up body sinks back to the bottom
+
+- **Problem:** Standing in a pool one block deep under a skeleton's fire, the bot sometimes refused to wall itself in ("the body is in water") and stood in the open. An arrow had knocked it up, and the wall-in started on the very tick it came back down into the water, while it was still sinking to the bottom. That looked the same as floating in deep water.
+- **Solution:** Still water one block deep over solid ground now counts as ground to build from while the body settles back onto the bottom, and the walls are planned round the cell the feet will stand in. Deep water, currents and a head under water are still refused.
+- **Result:** Wall-in refusals in the shallow-water room went from 9 of 84 runs to 0 of 84 (p=0.003). Deaths stayed at 3 of 84 on both sides; the deaths left come from other reflexes walking the bot out of finished walls. Seven guard rooms (deep water, creeper, command, open archer, archers with a zombie, cover from a zombie, and two Nether bridge rooms) were unchanged at 12 runs a side. All measured in practice rooms, A/B on the same machines.
