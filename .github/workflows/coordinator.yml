@@ -29,6 +29,10 @@ jobs:
     # GitHub's runner is free for a public repository; see reliability.yml's java-targets to move back to Boat.
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # pull-request-text.mjs reads the pull request and its commits.
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       code: ${{ steps.changes.outputs.code }}
     steps:
@@ -113,11 +117,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/quality/stake-ci.mjs --post-status
       # The gate's own tests: its rules, the commit and push hooks, and the pull request text it reads.
+      # These two run on shard 2, which has less of the suite than shard 1.
       - name: Test the publication gate
-        if: matrix.shard == 1
+        if: matrix.shard == 2
         run: node --test scripts/tests/public-export.test.mjs
       - name: Check model-facing contracts
-        if: matrix.shard == 1
+        if: matrix.shard == 2
         working-directory: coordinator
         run: npm run test:contracts
       # The whole suite, split by file between the shards. Windows-only tests skip themselves on Linux. The slowest
@@ -129,7 +134,7 @@ jobs:
         # recording-based tests, which are then skipped by name.
         env:
           ARENA_PRIVATE_INPUTS: ${{ vars.ARENA_PRIVATE_INPUTS }}
-        run: npm test -- --test-timeout=120000 --test-shard=${{ matrix.shard }}/2
+        run: node scripts/run-public-suite.mjs --test-timeout=120000 --test-shard=${{ matrix.shard }}/2
 
   java-core:
     name: Java core (Linux)
@@ -143,11 +148,17 @@ jobs:
         with:
           distribution: temurin
           java-version: '25'
-      # Restores the Gradle and Minecraft downloads saved by main, so a run does not fetch them from Maven Central again
-      # (repeated downloads drew HTTP 429 refusals). Pull requests read the cache and only main writes it.
-      - uses: gradle/actions/setup-gradle@v4
+      # The repository allows only GitHub's own actions, so the Gradle cache uses actions/cache directly: every job
+      # restores its own entry, and only a passing push to main saves one, once per change to the build files.
+      - name: Restore the Gradle cache
+        id: gradle-cache
+        uses: actions/cache/restore@v4
         with:
-          add-job-summary: on-failure
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-core-${{ hashFiles('**/*.gradle', 'gradle.properties', 'gradle/mc/*.properties', 'gradle/wrapper/gradle-wrapper.properties', '**/gradle.lockfile', 'gradle/locks/**') }}
+          restore-keys: gradle-${{ runner.os }}-core-
       # verifyCore stages the coordinator with its node_modules and starts it.
       - uses: actions/setup-node@v4
         with:
@@ -165,24 +176,38 @@ jobs:
         run: ./scripts/fetch-libs.sh
       - name: Test Java POSIX coordinator ownership
         run: ./gradlew verifyCore --no-daemon --console=plain
+      - name: Save the Gradle cache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.gradle-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ steps.gradle-cache.outputs.cache-primary-key }}
 
-  # The check main requires. It passes when the gate passed and no test job failed or was cancelled; a docs-only pull
-  # request skips the test jobs and passes here.
+  # The check main requires. It passes when the gate passed and both test jobs passed, or, for a docs-only change, when
+  # both were skipped.
   coordinator-linux:
     name: Coordinator (Linux)
     needs: [gate, node-tests, java-core]
-    if: ${{ !cancelled() }}
+    # always(): a cancelled run must report failure here, because GitHub counts a skipped required check as passing.
+    if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Require every coordinator job to pass
         env:
           GATE: ${{ needs.gate.result }}
+          CODE: ${{ needs.gate.outputs.code }}
           NODE_TESTS: ${{ needs.node-tests.result }}
           JAVA_CORE: ${{ needs.java-core.result }}
         run: |
-          echo "Privacy gate: $GATE, coordinator tests: $NODE_TESTS, Java core: $JAVA_CORE"
+          echo "Privacy gate: $GATE (code changed: $CODE), coordinator tests: $NODE_TESTS, Java core: $JAVA_CORE"
           [ "$GATE" = success ] || exit 1
-          for result in "$NODE_TESTS" "$JAVA_CORE"; do
-            case "$result" in success|skipped) ;; *) exit 1 ;; esac
-          done
+          # Code changes need both test jobs to pass; a docs-only change skips both. Any other combination fails.
+          case "$CODE" in
+            true) expected=success ;;
+            false) expected=skipped ;;
+            *) echo "The gate reported no code-change result"; exit 1 ;;
+          esac
+          [ "$NODE_TESTS" = "$expected" ] && [ "$JAVA_CORE" = "$expected" ]

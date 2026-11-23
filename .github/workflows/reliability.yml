@@ -52,7 +52,8 @@ jobs:
         run: npm run test:contracts
       - name: Test coordinator (shard ${{ matrix.shard }}/2)
         working-directory: coordinator
-        run: npm run test -- --test-shard=${{ matrix.shard }}/2
+        # node directly: PowerShell can drop the -- that npm needs to pass the shard flag through.
+        run: node scripts/run-public-suite.mjs --test-shard=${{ matrix.shard }}/2
 
   java-targets:
     name: Mod on Minecraft ${{ matrix.mc }}
@@ -77,11 +78,17 @@ jobs:
         with:
           distribution: temurin
           java-version: '25'
-      # One cache entry per job, so each Minecraft target keeps its own downloads; setup-java's single shared key saved
-      # only whichever target finished first. Pull requests read the cache and only main writes it.
-      - uses: gradle/actions/setup-gradle@v4
+      # The repository allows only GitHub's own actions, so the Gradle cache uses actions/cache directly: every job
+      # restores its own entry (one per Minecraft target here), and only a passing push to main saves one, once per change to the build files.
+      - name: Restore the Gradle cache
+        id: gradle-cache
+        uses: actions/cache/restore@v4
         with:
-          add-job-summary: on-failure
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-mc${{ matrix.mc }}-${{ hashFiles('**/*.gradle', 'gradle.properties', 'gradle/mc/*.properties', 'gradle/wrapper/gradle-wrapper.properties', '**/gradle.lockfile', 'gradle/locks/**') }}
+          restore-keys: gradle-${{ runner.os }}-mc${{ matrix.mc }}-
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -103,6 +110,14 @@ jobs:
           python3 -B -m unittest discover -s src/test/python -p 'test_*.py'
       - name: Boot a live ${{ matrix.mc }} server with the mod set
         run: python3 scripts/live-server.py --target ${{ matrix.mc }}
+      - name: Save the Gradle cache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.gradle-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ steps.gradle-cache.outputs.cache-primary-key }}
       - name: Upload the ${{ matrix.mc }} mod JAR
         # Only main keeps a JAR. Artifact storage can run out, and that must not fail a tested build.
         if: github.event_name == 'push'
@@ -135,11 +150,17 @@ jobs:
         with:
           distribution: temurin
           java-version: '25'
-      # One cache entry per job, so each Minecraft target keeps its own downloads; setup-java's single shared key saved
-      # only whichever target finished first. Pull requests read the cache and only main writes it.
-      - uses: gradle/actions/setup-gradle@v4
+      # The repository allows only GitHub's own actions, so the Gradle cache uses actions/cache directly: every job
+      # restores its own entry, and only a passing push to main saves one, once per change to the build files.
+      - name: Restore the Gradle cache
+        id: gradle-cache
+        uses: actions/cache/restore@v4
         with:
-          add-job-summary: on-failure
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-windows-package-${{ hashFiles('**/*.gradle', 'gradle.properties', 'gradle/mc/*.properties', 'gradle/wrapper/gradle-wrapper.properties', '**/gradle.lockfile', 'gradle/locks/**') }}
+          restore-keys: gradle-${{ runner.os }}-windows-package-
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -214,6 +235,14 @@ jobs:
             $version = "$env:MOD_VERSION+mc$target"
             .\scripts\verify-windows-distribution.ps1 -ArchivePath ".\build\distributions\mineagen-modpack-$version.zip" -BuiltJarPath ".\build\libs\mineagen-$version.jar"
           }
+      - name: Save the Gradle cache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.gradle-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ steps.gradle-cache.outputs.cache-primary-key }}
       - name: Upload verified standalone distribution
         # Only main keeps a ZIP. Artifact storage can run out, and that must not fail a tested build.
         if: github.event_name == 'push'

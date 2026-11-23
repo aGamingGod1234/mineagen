@@ -72,10 +72,6 @@ jobs:
         with:
           distribution: temurin
           java-version: '25'
-      # Reads the Gradle cache main saved, so a release does not fetch every dependency from Maven Central again.
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          add-job-summary: on-failure
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -175,10 +171,6 @@ jobs:
         with:
           distribution: temurin
           java-version: '25'
-      # Reads the Gradle cache main saved, so a release does not fetch every dependency from Maven Central again.
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          add-job-summary: on-failure
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
