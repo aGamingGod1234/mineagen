@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // FIXTURE_TICK_RATE runs the 25 s watch faster: setup and the summons stay at 20 TPS, then the watch and every wait and
 // time in it are game time on the fixture clock (s.clock). The creeper case stays at 20: its creeper is summoned when a
-// harness read sees the first wall, and its blast damage is read off sampled health while regeneration runs, so both
+// harness read sees the body's first answer to the skeleton (a wall, defend or the arrow dodge), and its blast damage is read off sampled health while regeneration runs, so both
 // depend on how many ticks the reads take. With regeneration on, healthLost reads later hits after more healing at a
 // raised rate; rows also record damageTaken (vanilla's cumulative counter, which healing cannot hide), seconds (game),
 // wallSeconds and rates.
@@ -240,6 +240,8 @@ try {
 			let maxThreatDistance = 0;
 			let backOuts = 0, backingSeen = false, minHealth = start, died = false, hits = 0, shieldS = 0, fired = false, wallingSeen = false, refusal = null, stopped = null, endDetail = null;
 			let blockMap = null, commandResult = null, commandSentAt = null, wallsAtCommand = null, creeperAt = null, healthAtCreeper = null, creeperExploded = false, maxWalls = 0;
+			// What first answered the skeleton: a wall, or a defend or arrow-dodge firing. The creeper and the command come then.
+			let reactedWith = null;
 			if (name !== 'creeper') await s.fastRate();
 			const now = () => s.clock.now();
 			const t0 = now(), wall0 = Date.now(), timer = await s.gameTimer();
@@ -284,15 +286,18 @@ try {
 					}
 				}
 				if (w !== null) maxWalls = Math.max(maxWalls, w);
-				// creeper: once the first wall is up, a creeper comes from 5 blocks and the skeleton is removed, so any later
-				// health lost is the creeper's.
-				if (name === 'creeper' && creeperAt === null && (w ?? 0) >= 1) {
+				// Since #186 a lone skeleton is often answered by stepping across its shot, with no wall, so the trigger is the
+				// first answer of any kind, not only a wall.
+				reactedWith ??= (w ?? 0) >= 1 ? 'wall' : ['default-defend', 'default-arrow-dodge'].includes(o?.reflexes?.firing?.id) ? o.reflexes.firing.id : null;
+				// creeper: once the body answers the skeleton, a creeper comes from 5 blocks and the skeleton is removed, so any
+				// later health lost is the creeper's.
+				if (name === 'creeper' && creeperAt === null && reactedWith) {
 					await s.command('kill @e[type=minecraft:skeleton]');
 					await s.command(`execute at ${AGENT} positioned ~5 ~ ~ run summon minecraft:creeper ~ ~ ~ {PersistenceRequired:1b}`);
 					creeperAt = now(); healthAtCreeper = await health();
 				}
 				if (creeperAt !== null && !creeperExploded && score(await s.command('execute store result score #c chk if entity @e[type=minecraft:creeper]').then(() => s.command('scoreboard players get #c chk'))) === 0) creeperExploded = true;
-				if (name === 'command' && commandSentAt === null && (w ?? 0) >= 1) {
+				if (name === 'command' && commandSentAt === null && reactedWith) {
 					wallsAtCommand = w;
 					commandSentAt = now();
 					s.act('wait', { durationMs: 500 }, 60000).then(r => { commandResult = { state: r.state, reasonCode: r.reasonCode, resultAfterS: +((now() - commandSentAt) / 1000).toFixed(2) }; }).catch(error => { commandResult = { error: error.message }; });
@@ -340,9 +345,10 @@ try {
 			// which is what the cover outcome stands for.
 			row.coverSeen = steps.some(coverReached) || coverReached(endDetail ?? '');
 			if (name === 'cover-zombie') row.pass = !died && row.coverSeen;
-			// The creeper and the command come only once the first wall stands: without a wall the room measured neither.
-			if (name === 'creeper' && creeperAt === null && !died) row.notExercised = 'no wall went up, so the creeper never came';
-			if (name === 'command' && commandSentAt === null && !died) row.notExercised = 'no wall went up, so the command was never sent';
+			// Without an answer to the skeleton the room measured neither the creeper nor the command.
+			if (['creeper', 'command'].includes(name)) row.reactedWith = reactedWith;
+			if (name === 'creeper' && creeperAt === null && !died) row.notExercised = 'the body never answered the skeleton, so the creeper never came';
+			if (name === 'command' && commandSentAt === null && !died) row.notExercised = 'the body never answered the skeleton, so the command was never sent';
 			if (name === 'archers-zombie') row.pass = !died && !(row.deaths > 0);
 			// Corner: the body lives and kills the zombie that hits it round the corner within the watch.
 			if (cornerCase) {
