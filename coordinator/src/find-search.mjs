@@ -161,6 +161,11 @@ export function stairBudget(uses, depthLeft, reserve = DESCENT_RESERVE) {
 const TIMED = new Set(['travel_to', 'dig_to', 'fight_target', 'break_block', 'build_shelter', 'escape', 'flee_from']);
 const SHELTER_BLOCKS = new Set(['minecraft:cobblestone', 'minecraft:cobbled_deepslate', 'minecraft:dirt', 'minecraft:stone', 'minecraft:deepslate', 'minecraft:andesite', 'minecraft:diorite', 'minecraft:granite', 'minecraft:tuff', 'minecraft:netherrack']);
 const MAX_PEEKS = 2;
+// Peeks a lava find may make with lava heard below or beside the refused block (lavaOpen): lava is only heard where it lies
+// open to air, so the sound is a cave's pool within a few blocks, and each peek opens one more cell of the way to it.
+// Room batch 23 Nov: 24 of 72 lava searches that ran out of time had stood within 2.5 blocks of heard lava, opened one
+// or two cells toward it, then turned and tunnelled away blind for minutes.
+const MAX_HEARD_PEEKS = 8;
 // Shafts a lava find short of pickaxe uses may start: one, and one more after a stop (a cave, water) turned it.
 const MAX_SHORT_SHAFTS = 2;
 // Retreats up its own stairs from a mob cave a lava find makes before it fights on where it stands.
@@ -248,6 +253,8 @@ const SHAFT_UP = 12;
  */
 export const lavaStairs = () => getSwitch('find.lavaStairs').value;
 export const lavaShaft = () => !lavaStairs();
+// Lava heard below or beside a block the tunnel refuses: keep opening toward it (MAX_HEARD_PEEKS) rather than turn away.
+export const lavaOpen = () => getSwitch('find.lavaOpen').value;
 // Swimming up a flooded stair: pulses of this many ticks, at most this many (the stair from y16 to the surface is ~50 up).
 const STAIR_PULSE_TICKS = 40;
 const MAX_WATER_STEPS = 6;
@@ -1134,8 +1141,9 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 
 	// Lava heard right behind a block the dig will not break: as a player, step back two cells, break it from there
 	// and look. The opened lava is the sighting; the body then steps back two more cells, out of its flow.
-	let peeks = 0;
+	let peeks = 0, peekOpened = false;
 	const peek = async (cell) => {
+		peekOpened = false;
 		const at = bodyAt(observation);
 		const feet = { x: Math.floor(at.x), y: Math.floor(at.y + 1e-3), z: Math.floor(at.z) };
 		const ax = cell.x - feet.x, az = cell.z - feet.z;
@@ -1148,6 +1156,7 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 		await leg('look at the block', 'look_at', { x: cell.x + 0.5, y: cell.y + 0.5, z: cell.z + 0.5 });
 		const opened = await leg('open the lava', 'break_block', { x: cell.x, y: cell.y, z: cell.z, acceptLavaRisk: true });
 		if (opened.interrupted) return settle(opened);
+		peekOpened = opened.result?.state === 'SUCCEEDED';
 		if (!opened.seen) return null;
 		const away = bodyAt(observation);
 		await leg('step out of its flow', 'move_to', { x: Math.floor(away.x) - 2 * dir.x + 0.5, y: Math.floor(away.y + 1e-3), z: Math.floor(away.z) - 2 * dir.z + 0.5, tolerance: 0.5 });
@@ -1802,10 +1811,17 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 			if (ended !== null) return ended;
 			const code = outcome.result?.reasonCode;
 			const refused = code === 'LAVA_AHEAD' ? String(outcome.result?.message ?? '').match(/not breaking \S+ at (-?\d+),(-?\d+),(-?\d+)/) : null;
-			if (refused !== null && profile.ids.has('minecraft:lava') && peeks < MAX_PEEKS) {
+			// Heard (not seen) below or beside: the pool is in a cave just past the cell; a player keeps opening that way.
+			const heardPast = refused !== null && lavaOpen() && /heard (below|beside) this block/i.test(String(outcome.result?.message ?? ''));
+			let opening = false;
+			if (refused !== null && profile.ids.has('minecraft:lava') && peeks < (heardPast ? MAX_HEARD_PEEKS : MAX_PEEKS)) {
 				const peeked = await peek({ x: Number(refused[1]), y: Number(refused[2]), z: Number(refused[3]) });
 				if (peeked !== null) return peeked;
+				// Opened and still not in sight: the same heading again, so the next leg walks into the opened cell and names
+				// the next one toward the sound.
+				opening = heardPast && peekOpened;
 			}
+			if (opening) continue;
 			const after = bodyAt(observation);
 			if (Math.hypot(after.x - here.x, after.z - here.z) < 1) stuck.add(`${spot}:${heading.name}`);
 			// Ore only forms in ore-bearing rock: a leg through mostly other stone (sulfur, dripstone, dirt...) turns.

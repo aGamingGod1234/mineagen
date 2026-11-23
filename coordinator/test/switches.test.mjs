@@ -138,6 +138,7 @@ test('every coordinator reader answers as its old expression did, through the re
 const READS = [
 	['find.caveFirst', 'coordinator/src/find-search.mjs', "getSwitch('find.caveFirst', environment)"],
 	['find.lavaStairs', 'coordinator/src/find-search.mjs', "getSwitch('find.lavaStairs')"],
+	['find.lavaOpen', 'coordinator/src/find-search.mjs', "getSwitch('find.lavaOpen')"],
 	['obtain.costs', 'coordinator/src/obtain-runner.mjs', "const OBTAIN_COSTS = getSwitch('obtain.costs').value;"],
 	['kit.habit', 'coordinator/src/kit-habit.mjs', "getSwitch('kit.habit', environment)"],
 	['night.cover', 'coordinator/src/night-cover.mjs', "getSwitch('night.cover', environment)"],
