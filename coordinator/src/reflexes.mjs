@@ -401,6 +401,12 @@ function eventLine(event) {
 }
 
 /** The authoritative rule sets, per agent. Rules persist across goal revisions; they end by expiry or the model. */
+const MAX_REMEMBERED_POURS = 4;
+// A bucket reaches 4.5 m from the eye (survival block reach); from the feet allow the eye height and a block's half-diagonal.
+const SCOOP_REACH = 7;
+// A block row's fluid: minecraft:water is a source, minecraft:flowing_water is not; level 0 is a source. Unknown counts as one.
+const waterSourceRow = b => b.fluid?.type !== undefined ? b.fluid.type === 'minecraft:water' : b.state?.level === undefined || String(b.state.level) === '0';
+
 export class ReflexBook {
 	#agents = new Map();
 	// The latest live sample per agent, kept apart from #agents so seeing one never opens a rule book (a book's first
@@ -410,6 +416,9 @@ export class ReflexBook {
 	#defaults;
 	#dimensionDefaults;
 	#instincts;
+	#pours = new Map();
+	// The latest sample that carried the inventory: a scoop is read against it, so a sample without one between hides none.
+	#stocked = new Map();
 
 	/** dimensionDefaults: {dimension: rules} armed only there; by default DIMENSION_REFLEXES with the production defaults. */
 	// instincts defaults to the switch (on unless MINEAGEN_INSTINCTS lists something else), so a practice room's book plays as
@@ -472,6 +481,8 @@ export class ReflexBook {
 	 * removed like a model removal and reported as expired in the next wake. Returns whether the set changed.
 	 */
 	observeContext(agentId, observation) {
+		this.#forgetScoopedPour(agentId, this.#stocked.get(agentId), observation);
+		if (Array.isArray(observation?.inventory?.items)) this.#stocked.set(agentId, observation);
 		this.#samples.set(agentId, observation);
 		const armed = this.#armDefaults(agentId, observation);
 		const agent = this.#agents.get(agentId);
@@ -623,6 +634,7 @@ export class ReflexBook {
 		if (status !== undefined && status.events.length > 0 && status.events.at(-1).seq < agent.lastSeq) agent.lastSeq = 0;
 		const events = (status?.events ?? []).filter((event) => event.seq > agent.lastSeq);
 		for (const event of events) agent.lastSeq = Math.max(agent.lastSeq, event.seq);
+		for (const event of events) this.#notePour(agentId, event);
 		// Only a report acknowledging the current definitions can retire them. An old revision may
 		// contain an expiry for an id the model has since deliberately replaced.
 		if (status?.revision === agent.revision && !status.error) {
@@ -639,6 +651,52 @@ export class ReflexBook {
 		const behind = agent.revision > 0 && (status === undefined || status.revision !== agent.revision);
 		const resend = behind && agent.sentAtMs !== null && this.#now() - agent.sentAtMs >= REFLEX_RESEND_MS;
 		return { events, wake: events.some((event) => event.wake === true), resend };
+	}
+
+	// A place firing of a water bucket reports its cell ("placed minecraft:water_bucket at feet X,Y,Z"); the source stays
+	// there until scooped. The bot's block rows are the cells nearest its feet, so a few blocks off they show only the flow.
+	#notePour(agentId, event) {
+		const cell = event.outcome === 'done' && /placed minecraft:water_bucket at (?:feet )?(-?\d+),(-?\d+),(-?\d+)/.exec(event.detail ?? '');
+		if (!cell) return;
+		const dimension = this.#samples.get(agentId)?.world?.dimension ?? null;
+		const [x, y, z] = cell.slice(1).map(Number);
+		const pours = (this.#pours.get(agentId) ?? []).filter(p => !(p.x === x && p.y === y && p.z === z && p.dimension === dimension));
+		this.#pours.set(agentId, [{ x, y, z, dimension }, ...pours].slice(0, MAX_REMEMBERED_POURS));
+	}
+
+	// A scooped source turns to air, and the observation lists no air rows, so a scoop is read from the inventory: one more
+	// water bucket than the last sample, with a remembered pour within a bucket's reach that is not still listed as a
+	// source, forgets the nearest such pour.
+	#forgetScoopedPour(agentId, before, after) {
+		const pours = this.#pours.get(agentId);
+		// Both samples must carry the inventory: one without it would read as zero buckets and the next as a scoop.
+		if (!pours?.length || !Array.isArray(before?.inventory?.items) || !Array.isArray(after?.inventory?.items)) return;
+		const buckets = sample => sample.inventory.items
+			.reduce((sum, item) => sum + (item?.itemId === 'minecraft:water_bucket' && Number.isFinite(item.count) ? item.count : 0), 0);
+		if (buckets(after) <= buckets(before)) return;
+		const at = after.position ?? after.player?.position;
+		const dimension = after.world?.dimension ?? null;
+		if (![at?.x, at?.y, at?.z].every(Number.isFinite)) return;
+		const reach = p => p.dimension === dimension ? Math.hypot(p.x + 0.5 - at.x, p.y + 0.5 - at.y, p.z + 0.5 - at.z) : Infinity;
+		// A pour the new sample still lists as a water source was not the one scooped.
+		const sources = new Set(after.blocks?.filter?.(b => b?.blockId === 'minecraft:water' && waterSourceRow(b)).map(b => `${b.x},${b.y},${b.z}`) ?? []);
+		const nearest = pours.filter(p => reach(p) <= SCOOP_REACH && !sources.has(`${p.x},${p.y},${p.z}`)).sort((a, b) => reach(a) - reach(b))[0];
+		if (nearest) this.#pours.set(agentId, pours.filter(p => p !== nearest));
+	}
+
+	/**
+	 * The water sources this agent's reflexes poured, newest first, in the observation's dimension. A pour whose cell the
+	 * observation lists as anything but a water source (a block, or only flow) is forgotten; a scoop, which leaves air and no row, is read from the inventory.
+	 */
+	pours(agentId, observation) {
+		const dimension = observation?.world?.dimension ?? null;
+		const rows = new Map((Array.isArray(observation?.blocks) ? observation.blocks : []).map(b => [`${b?.x},${b?.y},${b?.z}`, b]));
+		const kept = (this.#pours.get(agentId) ?? []).filter(p => {
+			const row = p.dimension === dimension ? rows.get(`${p.x},${p.y},${p.z}`) : undefined;
+			return row === undefined || row.blockId === 'minecraft:water' && waterSourceRow(row);
+		});
+		if (kept.length === 0) this.#pours.delete(agentId); else this.#pours.set(agentId, kept);
+		return kept.filter(p => p.dimension === dimension).map(({ x, y, z }) => ({ x, y, z }));
 	}
 
 	/** The rules as programs and the model read them: installed definitions joined with the mod's live state. */
@@ -685,5 +743,5 @@ export class ReflexBook {
 		return definitions.length > 0 ? `${line}; rules: ${JSON.stringify(definitions)}` : line;
 	}
 
-	clear(agentId) { this.#agents.delete(agentId); this.#samples.delete(agentId); }
+	clear(agentId) { this.#agents.delete(agentId); this.#samples.delete(agentId); this.#pours.delete(agentId); this.#stocked.delete(agentId); }
 }
