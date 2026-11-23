@@ -1384,9 +1384,12 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 				// from the cell it floats in); still afloat after that, up the water and out onto a step cut beside it, then
 				// the stairs from there. Swimming first drifts the body toward the shut way's next cell, off the hole the
 				// escape places its step from (B-1's aquifer: ESCAPE_NO_SHORE there, then FIND_BLOCKED).
-				const ended = await escapeWater();
+				// Mid-bob (clear of the water for a sample) the escape cannot start; after the swim it gets its turn.
+				const escapedFirst = inWater();
+				let ended = await escapeWater();
 				if (ended !== null) return ended;
 				if (afloat()) { const swum = await swimUpStair(top, up); if (swum !== null) return swum; }
+				if (!escapedFirst) { ended = await escapeWater(); if (ended !== null) return ended; }
 				if (afloat()) return settle(up);
 			}
 			const at = bodyAt(observation);
