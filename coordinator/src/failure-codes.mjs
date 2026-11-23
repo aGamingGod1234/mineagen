@@ -108,7 +108,7 @@ export const FAILURE_CODES = Object.freeze({
 	AIM_NOT_REACHED: ['sight', null],
 	LOOK_NOT_SETTLED: ['sight', null],
 	TARGET_NOT_VISIBLE: ['sight', null],
-	TARGET_OBSTRUCTED: ['sight', 'a reachable aim ray first hits the target or face', ['scoop == null', 'ObservedEntityTarget.matchesHit(target, entityHit)', 'hit.getDirection() != face', 'outline.isEmpty()', 'entityHit.getEntity() != target', 'point == null', 'TargetSightline.rangedEntity(player, target)', 'named == null', 'arcBlock != null', 'block != null', 'rangedPoint(player, target)']],
+	TARGET_OBSTRUCTED: ['sight', 'a reachable aim ray first hits the target or face', ['scoop == null', 'ObservedEntityTarget.matchesHit(target, entityHit)', 'hit.getDirection() != face', 'outline.isEmpty()', 'entityHit.getEntity() != target', 'point == null', 'TargetSightline.rangedEntity(player, target)', 'named == null', 'arcBlock != null', 'block != null', 'rangedPoint(player, target)', 'visibleSourcePoint(player, cell)', 'visibleSourcePoint(player, source)']],
 	APPROACH_BLOCKED: ['reach', null],
 	ITEM_PICKUP_TIMED_OUT: ['reach', null],
 	SIGN_NOT_REACHABLE: ['reach', null],
