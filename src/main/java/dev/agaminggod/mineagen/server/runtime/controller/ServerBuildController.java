@@ -629,7 +629,11 @@ public final class ServerBuildController implements ServerController {
 		switch (kind) {
 			case SHELTER -> { return end(player, result); }
 			case UNCOVER -> {
-				if (result.state() == State.SUCCEEDED) { uncovers++; uncovered.add(uncoverCell); } else uncoverDead.add(uncoverCell);
+				if (result.state() == State.SUCCEEDED) { uncovers++; uncovered.add(uncoverCell); }
+				else {
+					uncoverDead.add(uncoverCell);
+					LOGGER.info("[build] {} could not open {}: {} {}", player.getGameProfile().name(), xyz(uncoverCell), result.reasonCode(), result.message());
+				}
 				pause = 4;
 				return running();
 			}
