@@ -14,7 +14,7 @@
 // a harness error is invalid evidence, never a pass. Launch under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME.
 // Judge with REPEATS=1 (the room list does): the End is not reset between repeats, so a repeat after a kill, a lost fight
 // or a death is INVALID; REPEATS=n is for bring-up only.
-import { writeFile, mkdir, readdir } from 'node:fs/promises';
+import { writeFile, readFile, mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { NativeToolRuntime } from '../../coordinator/src/native-tool-runtime.mjs';
@@ -38,6 +38,10 @@ const BOW = !cli.includes('--no-bow'), SURVIVE = cli.includes('--survive');
 // without enderman deaths ending the fight.
 const NO_ENDERMEN = cli.includes('--no-endermen');
 if (NO_ENDERMEN && strict) { console.error('--no-endermen is for bring-up: add --descriptive'); process.exit(2); }
+// --old-crystal-phase: the earlier crystal step (each crystal shot once from wherever the body stands, retried after 20
+// idle passes), kept so a script change is judged against it on the same jar. --caged-first (bring-up): open the caged
+// crystals before the open ones.
+const OLD_CRYSTALS = cli.includes('--old-crystal-phase'), CAGED_FIRST = cli.includes('--caged-first');
 const [outArg, jarArg] = cli.filter(arg => !arg.startsWith('--'));
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port = Number(process.env.SLOT_PORT_BASE);
 if (!outArg || !template || !port || !process.env.JAVA_HOME) { console.error('Usage: OUT_DIR [JAR] [--no-bow] [--survive] under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME'); process.exit(2); }
@@ -54,7 +58,8 @@ const WAIT_SPOT = { x: 12.5, z: 0.5 };
 const SURVIVE_SPOT = { x: 20.5, z: 20.5 };
 const end = (s, text) => s.command(`execute in minecraft:the_end run ${text}`);
 const number = text => Number((/(-?\d+(?:\.\d+)?)[fdb]?\s*$/.exec(String(text).trim()) ?? [])[1]);
-const results = { arm: `${SURVIVE ? 'survive' : 'fight'}-${BOW ? 'bow' : 'no-bow'}${NO_ENDERMEN ? '-no-endermen' : ''}`, noEndermen: NO_ENDERMEN, mode: SURVIVE ? 'survive' : 'fight', bow: BOW,
+const results = { arm: `${SURVIVE ? 'survive' : 'fight'}-${BOW ? 'bow' : 'no-bow'}${NO_ENDERMEN ? '-no-endermen' : ''}${OLD_CRYSTALS ? '-old-crystals' : ''}${CAGED_FIRST ? '-caged-first' : ''}`, noEndermen: NO_ENDERMEN,
+	crystalPhase: OLD_CRYSTALS ? 'old' : 'positioned', mode: SURVIVE ? 'survive' : 'fight', bow: BOW,
 	bar: SURVIVE ? 'alive after 10 game min, no void fall' : 'dragon killed and body alive within 20 game min of arrival',
 	jar: path.resolve(jarArg ?? path.join(root, MOD_JAR)), runs: [] };
 const repeats = Math.max(1, Number(process.env.REPEATS ?? 1));
@@ -104,11 +109,13 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 		});
 		let calls = 0, harnessErrors = 0, staleRefusals = 0, liveStale = 0, runDeathsBefore = null, lastCommand = null;
 		// Every scripted command takes the path a model's command takes (runtime.execute), reflexes and vetting included.
-		const act = async (actionType, args) => {
+		const act = async (actionType, args, reflexes) => {
+			// A long crystal sequence runs many commands between loop passes: endermen are cleared before each one too.
+			if (NO_ENDERMEN) await end(s, 'kill @e[type=minecraft:enderman]').catch(() => {});
 			const n = ++calls;
 			lastCommand = { actionType, at: s.clock.now() };
 			const r = await runtime.execute({ agentId: record.agentId, goalRevision: record.goalRevision, turnId: `fight-${n}`, callId: `fight-${n}`,
-				tool: normalizeMinecraftToolCall('act', { actionType, arguments: args }) }, record).catch(error => ({ state: 'FAILED', reasonCode: 'FIXTURE_ERROR', message: String(error?.message ?? error) }));
+				tool: normalizeMinecraftToolCall('act', { actionType, arguments: args, ...(reflexes ? { reflexes } : {}) }) }, record).catch(error => ({ state: 'FAILED', reasonCode: 'FIXTURE_ERROR', message: String(error?.message ?? error) }));
 			// A thrown command is the harness's failure, not the bot's; so is a stale-command refusal while the body lives (a
 			// command sent just as it died is refused stale too, and that death is a FAIL, not invalid evidence). Whether the
 			// body lived is judged when the refusal comes, so a refusal before a later death still counts against the harness.
@@ -123,7 +130,8 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 			}
 			// Anything but a success is not retried in a tight loop.
 			if (r?.state !== 'SUCCEEDED') await s.clock.sleep(500);
-			return { state: r?.state, reasonCode: r?.reasonCode, message: String(r?.message ?? '').slice(0, 300) };
+			// The whole message stays readable (a cage's advice runs past 300 characters); the log keeps a cut.
+			return { state: r?.state, reasonCode: r?.reasonCode, message: String(r?.message ?? '').slice(0, 300), full: String(r?.message ?? '') };
 		};
 		const view = async () => adaptObservation(await s.observe());
 		const groundY = async (x, z) => {
@@ -136,6 +144,15 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 		const crystalsLeft = async () => { const text = String(await end(s, 'execute if entity @e[type=minecraft:end_crystal]')); return /count:?\s*(\d+)/i.test(text) ? Number(/count:?\s*(\d+)/i.exec(text)[1]) : /failed/i.test(text) ? 0 : NaN; };
 		// The End: load the island so the fight starts (the dragon spawns once a player is in the End).
 		await end(s, 'forceload add -64 -64 112 64'); await sleep(2000);
+		// Judging only (the body never reads it): the two caged crystals, so caged and open breaks are counted apart.
+		// EndSpikeFeature: ten pillars 42 blocks out; the guarded ones are 79 and 82 high, crystals at 80 and 83.
+		const cagedSpots = [];
+		for (let i = 0; i < 10; i++) {
+			const x = Math.floor(42 * Math.cos(2 * (-Math.PI + Math.PI / 10 * i))), z = Math.floor(42 * Math.sin(2 * (-Math.PI + Math.PI / 10 * i)));
+			for (const y of [80, 83]) if (/passed/i.test(String(await end(s, `execute if block ${x + 2} ${y} ${z} minecraft:iron_bars`).catch(() => '')))) cagedSpots.push({ x: x + 0.5, y, z: z + 0.5 });
+		}
+		results.cagedSpots = cagedSpots;
+		const cagedLeft = async () => { let n = 0; for (const c of cagedSpots) if (/passed/i.test(String(await end(s, `execute if entity @e[type=minecraft:end_crystal,x=${c.x},y=${c.y},z=${c.z},distance=..2]`)))) n += 1; return n; };
 		const readDamage = await damageCounter(text => s.command(text), AGENT);
 		await s.command('scoreboard objectives add qo_death deathCount');
 		await s.command(`scoreboard players set ${AGENT} qo_death 0`);
@@ -215,7 +232,200 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 				const firedAt = rules => Object.fromEntries((rules ?? []).map(rule => [rule.id, Number(rule.fired) || 0]));
 				const firedStart = firedAt(latest?.reflexes?.rules), firedMost = {};
 				const noteFired = () => { for (const [id, n] of Object.entries(firedAt(latest?.reflexes?.rules))) firedMost[id] = Math.max(firedMost[id] ?? 0, n); };
-				const note = (what, r) => { log.push([Math.round((now() - t0) / 1000), what, r?.state, r?.reasonCode, r?.message?.slice(0, 120)]); };
+				const note = (what, r) => { const entry = [Math.round((now() - t0) / 1000), what, r?.state, r?.reasonCode, r?.message?.slice(0, 160)]; log.push(entry); console.log(`[dragon-fight] ${JSON.stringify(entry)}`); };
+				// Judging: crystals left (all and caged) as they fall, arrows spent, and each big hit the body takes.
+				const crystalTimeline = [], hurtLog = [];
+				let clearedAt = null, lastLeft = null, lastCaged = null, arrowsStart = null, arrowsNow = null, lastHp = null;
+				const trackCrystals = async () => {
+					const left = await crystalsLeft().catch(() => NaN), caged = await cagedLeft().catch(() => NaN);
+					if (left !== lastLeft || caged !== lastCaged) crystalTimeline.push([Math.round((now() - t0) / 1000), left, caged]);
+					lastLeft = left; lastCaged = caged;
+					if (left === 0 && clearedAt === null) clearedAt = Math.round((now() - t0) / 1000);
+				};
+
+				// The crystal phase, as a player who follows the facts plays it (DRAGON_FINISH_FACTS, CAGED_CRYSTAL_FACTS): every
+				// crystal seen is remembered; each standing one is shot from a spot it can be hit from, and a caged one is opened
+				// first (pillar beside the cage, break the lowest side bars, shaft down, shoot from the ground through the gap).
+				const seenCrystals = new Map();
+				// A sample whose entities are carried from memory says nothing new (rememberEndCrystals skips it too), and a
+				// crystal once broken stays broken: the sample right after the shot can still list it.
+				const remember = (rows, o = null) => {
+					if (o?.continuity?.rememberedSections?.includes('entities')) return;
+					for (const row of rows) {
+						if (row?.type !== 'minecraft:end_crystal' || row.alive === false || row.perceivedBy === 'sound' || typeof row.stableId !== 'string' || ![row.x, row.y, row.z].every(Number.isFinite)) continue;
+						// Updated in place: a step holding this crystal keeps seeing what a shot learnt about it.
+						const known = seenCrystals.get(row.stableId) ?? { tries: 0, spot: 0, want: null, cageTries: 0, gaveUp: false, gone: false };
+						Object.assign(known, { id: row.stableId, x: row.x, y: row.y, z: row.z, caged: row.appearance?.caged === true || known.caged === true });
+						seenCrystals.set(row.stableId, known);
+					}
+				};
+				const where = c => `${Math.floor(c.x)},${Math.floor(c.y + 1e-6)},${Math.floor(c.z)}`;
+				const shoot = async (c, what) => {
+					// A crystal remembered but out of view is looked at first (the bot shoots only what the latest sample shows),
+					// and none is shot from within 9 blocks: its blast deals about 14 there before armour (CAGED_CRYSTAL_FACTS).
+					let v = await view().catch(() => null);
+					if (v?.player && Math.hypot(c.x - v.player.x, c.y + 1 - v.player.y, c.z - v.player.z) < 9) { note(`${what} ${where(c)}: too close to its blast`, null); return { state: 'FAILED', reasonCode: 'TOO_CLOSE', full: '' }; }
+					if (!(v?.entities ?? []).some(e => e.stableId === c.id)) {
+						await act('look_at', { x: c.x, y: c.y + 1, z: c.z });
+						await s.clock.sleep(300);
+						v = await view().catch(() => null);
+						remember(v?.entities ?? [], v);
+						if (!(v?.entities ?? []).some(e => e.stableId === c.id)) { note(`${what} ${where(c)}: not in view from here`, null); return { state: 'FAILED', reasonCode: 'NOT_IN_VIEW', full: '' }; }
+					}
+					const r = await act('use_ranged', { targetId: c.id, drawDurationMs: 1100, timeoutMs: 6000 });
+					shots += 1;
+					const broke = r.state === 'SUCCEEDED' && /broke/.test(r.full) && !/something else/.test(r.full);
+					if (broke) crystalBreaks += 1;
+					// A target the bot no longer finds is gone (a shot whose impact it lost sight of may have broken it).
+					if (broke || r.reasonCode === 'TARGET_UNAVAILABLE' || /broke or died/.test(r.full)) c.gone = true;
+					note(`${what} ${c.caged ? 'caged ' : ''}crystal ${where(c)}`, r);
+					return r;
+				};
+				// Open ground at x,z (a spot on another pillar or over the void is not one).
+				const goTo = async (x, z, what, tolerance = 2) => {
+					const y = await groundY(Math.floor(x), Math.floor(z));
+					if (!Number.isFinite(y) || y < 40 || y > 75) { note(`${what}: no open ground at ${Math.floor(x)},${Math.floor(z)} (y ${y})`, null); return { state: 'FAILED', reasonCode: 'NO_GROUND' }; }
+					const r = await act('travel_to', { x, y, z, tolerance, build: true, timeoutMs: 60000 });
+					note(what, r);
+					return { ...r, y };
+				};
+				// A player climbs, works on and digs down an exposed column while the dragon is away: wait (up to 30 s) until no
+				// dragon part seen is within 64 blocks (the End throw reflex arms within 48); one thrown off falls about 20 blocks.
+				const dragonAway = async what => {
+					for (let i = 0; i < 30; i++) {
+						const v = await view().catch(() => null);
+						const near = (v?.entities ?? []).filter(e => e.type === 'minecraft:ender_dragon' && e.alive !== false && Number.isFinite(e.x) && v?.player
+							&& Math.hypot(e.x - v.player.x, e.y - v.player.y, e.z - v.player.z) < 64);
+						if (near.length === 0) return;
+						if (i === 0) note(`${what}: waiting for the dragon to fly off`, null);
+						await s.clock.sleep(1000);
+					}
+				};
+				const feetNow = async () => { const v = await view().catch(() => null); return v?.player ? { x: Math.floor(v.player.x), y: Math.floor(v.player.y + 1e-6), z: Math.floor(v.player.z), o: v } : null; };
+				// An open crystal: shoot from where the body stands; a refusal that names how far out the crystal clears its
+				// pillar's edge (or a miss) moves it, along the line from the pillar toward the island centre, a little further
+				// round on each later spot.
+				const openShot = async (c, me) => {
+					const P = { x: Math.floor(c.x) + 0.5, z: Math.floor(c.z) + 0.5 };
+					const flat = Math.hypot(me.x - P.x, me.z - P.z);
+					if (c.tries < 2 && (c.want === null || Math.abs(flat - c.want) < 5)) {
+						c.tries += 1;
+						const r = await shoot(c, 'shoot');
+						if (c.gone) return;
+						const edge = Number((/clears that edge from about (\d+) blocks out/.exec(r.full) ?? [])[1]);
+						if (Number.isFinite(edge)) { c.want = Math.min(80, Math.max(edge + 4, 12)); c.tries = 2; }
+						else if (r.reasonCode === 'RANGED_TARGET_OUT_OF_REACH') { c.want = Math.max(16, flat - 24); c.tries = 2; }
+						// Not in view close in is mostly the pillar's own top edge (the bot names no distance for a target it cannot
+						// see): further out each time.
+						else if (r.reasonCode === 'NOT_IN_VIEW') { c.want = Math.min(80, Math.max(c.want ?? 0, flat) + 10); c.tries = 2; }
+						else if (r.state !== 'SUCCEEDED') c.tries = 2;
+						return;
+					}
+					c.spot += 1; c.tries = 0;
+					if (c.spot > 6) { c.gaveUp = true; note(`give up on crystal ${where(c)} for now`, null); return; }
+					let d = c.want ?? 24;
+					const toward = Math.atan2(-P.z, -P.x) + [0, 0.35, -0.35, 0.7, -0.7, 0][(c.spot - 1) % 6];
+					// Past the island centre, the exit fountain is no spot to stand on.
+					if (Math.hypot(P.x + Math.cos(toward) * d, P.z + Math.sin(toward) * d) < 7) d += 9;
+					const r = await goTo(P.x + Math.cos(toward) * d, P.z + Math.sin(toward) * d, `to ${Math.round(d)} out from crystal ${where(c)}`);
+					if (r.reasonCode === 'NO_GROUND' && c.want !== null) c.want = Math.max(12, c.want - 8);
+				};
+				// A caged crystal (CAGED_CRYSTAL_FACTS): from the ground on the side facing the island centre a shot is refused with
+				// the cage's advice (the spot beside its wall); pillar up there, break the wall bars at the crystal's feet height
+				// and the row above, leaving the lowest row as the wall between the column and the spike top, dig the column back
+				// down (shaft, water bucket in the hotbar), and shoot from the ground through the gap.
+				// The dragon flings a player, off a column or open ground; "a falling reflex" places water below in time
+				// (dragonFact): armed from the first crystal step, and the bucket refilled from the water it poured.
+				let clutchArmed = false;
+				const CLUTCH = [{ id: 'water-clutch', kind: 'trigger', priority: 9, when: [{ type: 'falling', blocks: 4 }], do: { type: 'place', item: 'minecraft:water_bucket', where: 'below' }, ttlS: 1800 }];
+				const refill = async () => {
+					const v = await view().catch(() => null);
+					const items = v?.inventory?.items ?? [];
+					if (items.some(i => i.itemId === 'minecraft:water_bucket') || !items.some(i => i.itemId === 'minecraft:bucket') || !v?.player) return;
+					const water = (v.blocks ?? []).filter(b => b?.blockId === 'minecraft:water' && [b.x, b.y, b.z].every(Number.isFinite))
+						.sort((a, b) => Math.hypot(a.x + 0.5 - v.player.x, a.y - v.player.y, a.z + 0.5 - v.player.z) - Math.hypot(b.x + 0.5 - v.player.x, b.y - v.player.y, b.z + 0.5 - v.player.z))[0];
+					if (!water || Math.hypot(water.x + 0.5 - v.player.x, water.y + 0.5 - v.player.y - 1.6, water.z + 0.5 - v.player.z) > 4.5) { note('refill: no water in reach', null); return; }
+					await act('select_item', { itemId: 'minecraft:bucket' });
+					const r = await act('use_item', { expectedItemId: 'minecraft:bucket', aimX: water.x + 0.5, aimY: water.y + 0.5, aimZ: water.z + 0.5, durationMs: 100 });
+					note(`refill the bucket at ${water.x},${water.y},${water.z}`, r);
+				};
+				const openCage = async c => {
+					c.cageTries += 1;
+					await refill();
+					if (c.cageTries > 3) { c.gaveUp = true; note(`give up on caged crystal ${where(c)} for now`, null); return; }
+					const cx = Math.floor(c.x), cy = Math.floor(c.y + 1e-6), cz = Math.floor(c.z);
+					let [sx, sz] = Math.abs(cx) >= Math.abs(cz) ? [-Math.sign(cx), 0] : [0, -Math.sign(cz)];
+					const groundSpot = D => ({ x: cx + 0.5 + sx * D, z: cz + 0.5 + sz * D });
+					let g = groundSpot(18);
+					await goTo(g.x, g.z, `to the ground before caged crystal ${where(c)}`);
+					let r = await shoot(c, 'shoot (cage check)');
+					if (c.gone || r.state === 'SUCCEEDED') return;
+					const named = /standing at (-?\d+),(-?\d+),(-?\d+)/.exec(r.full);
+					const S = named ? { x: +named[1], y: +named[2], z: +named[3] } : { x: cx + 3 * sx, y: cy, z: cz + 3 * sz };
+					// The wall cell between the stand and the crystal, on the side the advice faced.
+					if (Math.abs(S.x - cx) === 3 && S.z === cz) [sx, sz] = [Math.sign(S.x - cx), 0];
+					else if (Math.abs(S.z - cz) === 3 && S.x === cx) [sx, sz] = [0, Math.sign(S.z - cz)];
+					const W = { x: cx + 2 * sx, z: cz + 2 * sz };
+					const base = await groundY(S.x, S.z);
+					if (!Number.isFinite(base) || base < 40 || base >= S.y) { note(`no ground beside caged crystal ${where(c)} (y ${base})`, null); c.cageTries = 99; return; }
+					// 2. Onto the cell beside the wall, feet centred, and pillar a whole column to the crystal's feet height.
+					r = await act('travel_to', { x: S.x + 0.5, y: base, z: S.z + 0.5, tolerance: 1, build: true, timeoutMs: 60000 }); note('to the spot beside the cage', r);
+					let f = await feetNow();
+					for (let i = 0; i < 3 && f && (f.x !== S.x || f.z !== S.z || f.y !== base); i++) {
+						r = await act('navigate_to', { x: S.x + 0.5, y: base, z: S.z + 0.5, tolerance: 0.25, sprint: false, timeoutMs: 10000 }); note('centre on the spot', r);
+						f = await feetNow();
+					}
+					if (!f || f.x !== S.x || f.z !== S.z || f.y !== base) { note(`not on the spot beside the cage (feet ${f ? `${f.x},${f.y},${f.z}` : '?'})`, null); return; }
+					await act('select_item', { itemId: 'minecraft:cobblestone' });
+					await dragonAway('before the pillar');
+					for (let i = 0; i < 4 && f && f.x === S.x && f.z === S.z && f.y < S.y; i++) {
+						r = await act('build', { structure: 'pillar', size: S.y - f.y, itemId: 'minecraft:cobblestone', timeoutMs: 60000 }); note(`pillar ${S.y - f.y} up beside the cage`, r);
+						f = await feetNow();
+					}
+					if (!f || f.x !== S.x || f.z !== S.z || f.y < S.y) { note(`pillar short (feet ${f ? `${f.x},${f.y},${f.z}` : '?'} of ${S.y})`, null); return; }
+					// 3. The wall bars at the crystal's feet height and above; the lowest row stays (CAGED_CRYSTAL_FACTS).
+					await act('select_item', { itemId: 'minecraft:iron_pickaxe' });
+					await dragonAway('before the bars');
+					for (const y of [cy + 1, cy]) {
+						r = await act('break_block', { x: W.x, y, z: W.z, expectedBlockId: 'minecraft:iron_bars', timeoutMs: 10000 }); note(`break bar ${W.x},${y},${W.z}`, r);
+					}
+					// 4. Down the column: one shaft call to the recorded ground feet y, a water bucket in the hotbar.
+					f = await feetNow();
+					const bucket = (f?.o?.inventory?.items ?? []).some(i => i.itemId === 'minecraft:water_bucket' && (Number.isInteger(i.slot) ? i.slot < 9 : /hotbar|offhand/.test(String(i.slot))));
+					note(`descend: water bucket in the hotbar ${bucket}`, null);
+					await dragonAway('before the descent');
+					for (let i = 0; i < 2 && f && f.y > base; i++) {
+						r = await act('dig_to', { pattern: 'shaft', y: base, maxShaftY: base, throughCaves: true, timeoutMs: 90000 }); note('shaft down the column', r);
+						f = await feetNow();
+					}
+					await refill();
+					// 5. Only once down on the island floor: from the ground on that side, through the gap.
+					if (!f || f.y > base + 1) { note(`descent short (feet ${f ? `${f.x},${f.y},${f.z}` : '?'}, ground ${base})`, null); return; }
+					for (const D of [18, 24, 13]) {
+						g = groundSpot(D);
+						await goTo(g.x, g.z, `to ${D} out from the opened cage`);
+						for (let k = 0; k < 2 && !c.gone; k++) {
+							r = await shoot(c, 'shoot through the gap');
+							if (r.state !== 'SUCCEEDED') break;
+						}
+						if (c.gone) return;
+					}
+				};
+				const crystalStep = async (o, me) => {
+					remember(o.entities ?? [], o);
+					// Armed with the first crystal step: a fling on open ground can kill too (dragonFact).
+					if (!clutchArmed) { const armed = await act('look_at', { x: me.x + 10, y: me.y + 30, z: me.z }, CLUTCH); clutchArmed = armed.state === 'SUCCEEDED'; note('arm the water clutch', armed); }
+					else if ((o.inventory?.items ?? []).some(i => i.itemId === 'minecraft:bucket')) await refill();
+					let standing = [...seenCrystals.values()].filter(c => !c.gone && !c.gaveUp);
+					// Given up on every one left: try them again after a while (the body and the dragon have moved).
+					if (standing.length === 0 && passes % 30 === 29) for (const c of seenCrystals.values()) if (!c.gone) Object.assign(c, { gaveUp: false, tries: 0, spot: 0, cageTries: 0 });
+					standing = [...seenCrystals.values()].filter(c => !c.gone && !c.gaveUp);
+					if (standing.length === 0) return false;
+					const d = c => Math.hypot(c.x - me.x, c.z - me.z);
+					const c = standing.sort((a, b) => (CAGED_FIRST ? b.caged - a.caged : a.caged - b.caged) || d(a) - d(b))[0];
+					if (c.caged) await openCage(c); else await openShot(c, me);
+					return true;
+				};
 				while (await inWindow()) {
 					// The raw sample decides death: a dead body's sample may not adapt, and it respawns in the Overworld.
 					if (NO_ENDERMEN) await end(s, 'kill @e[type=minecraft:enderman]').catch(() => {});
@@ -247,8 +457,12 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 					const arrows = (o.inventory?.items ?? []).filter(i => /^minecraft:(arrow|spectral_arrow|tipped_arrow)$/.test(i.itemId)).reduce((n, i) => n + i.count, 0);
 					const ranged = (o.inventory?.items ?? []).some(i => i.itemId === 'minecraft:bow') && arrows > 0;
 					const dist = row => Math.hypot(row.x - me.x, row.y - me.y, row.z - me.z);
-					// 1. A crystal it has not tried yet, nearest first, within a bow's reach.
-					const crystal = ranged ? entities.filter(row => row.type === 'minecraft:end_crystal' && !tried.has(row.stableId) && dist(row) <= 64)
+					arrowsNow = arrows; arrowsStart ??= arrows;
+					if (Number.isFinite(me.health)) { if (Number.isFinite(lastHp) && lastHp - me.health >= 4 && hurtLog.length < 30) hurtLog.push({ t: Math.round((now() - t0) / 1000), from: lastHp, to: me.health, y: Math.round(me.y), cmd: lastCommand?.actionType ?? null }); lastHp = me.health; }
+					await trackCrystals();
+					// 1. The crystals: positioned shots and opened cages; the old step shoots each once from where the body stands.
+					if (ranged && !OLD_CRYSTALS && await crystalStep(o, me)) continue;
+					const crystal = ranged && OLD_CRYSTALS ? entities.filter(row => row.type === 'minecraft:end_crystal' && !tried.has(row.stableId) && dist(row) <= 64)
 						.sort((a, b) => dist(a) - dist(b))[0] : undefined;
 					if (crystal) {
 						tried.add(crystal.stableId);
@@ -312,7 +526,14 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 				Object.assign(row, { shots, crystalBreaks, meleeTries: meleeHits, meleeLanded, flyingShots, crystalsLeft: await crystalsLeft(), dragonHealthEnd: await dragonHealth(),
 					dragonLowest: lowestDragon, dragonDrops: Math.round(dragonDrops * 10) / 10,
 					damageDealt: Number.isFinite(dealtBefore) && Number.isFinite(dealtAfter) ? (dealtAfter - dealtBefore) / 10 : null, angerLog,
-					reflexFired: Object.fromEntries(Object.entries(firedMost).map(([id, n]) => [id, n - (firedStart[id] ?? 0)]).filter(([, n]) => n > 0)), log: log.slice(-60) });
+					reflexFired: Object.fromEntries(Object.entries(firedMost).map(([id, n]) => [id, n - (firedStart[id] ?? 0)]).filter(([, n]) => n > 0)), log: log.slice(-200) });
+				// The crystal phase's judged counts: caged and open crystals broken (from the server, not the shot receipts),
+				// arrows spent, game seconds to clear all ten, and how the body died (the server's death message).
+				await trackCrystals();
+				const cagedEnd = await cagedLeft().catch(() => NaN);
+				Object.assign(row, { cagedBroken: cagedSpots.length - cagedEnd, openBroken: Number.isFinite(row.crystalsLeft) ? 10 - cagedSpots.length - (row.crystalsLeft - cagedEnd) : null,
+					crystalsClearedAt: clearedAt, clutchArmed, arrowsUsed: Number.isFinite(arrowsStart) && Number.isFinite(arrowsNow) ? arrowsStart - arrowsNow : null, crystalTimeline, hurtLog,
+					deathMessages: await readFile(path.join(out, 'server-0', 'server.log'), 'utf8').then(text => text.split('\n').filter(line => new RegExp(`System chat: ${AGENT} (was|fell|hit|died|blew|burned|tried|went|walked|drowned|experienced|froze|starved|suffocated|withered|didn)`).test(line)).map(line => line.replace(/^.*System chat: /, ''))).catch(() => null) });
 				row.deaths = row.deathEvidence.deaths;
 				row.harnessErrors = harnessErrors + liveStale;
 				row.staleRefusals = staleRefusals;
@@ -327,7 +548,7 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 				row.pass = SURVIVE ? !row.died && !row.voidFall : row.killed && !row.died;
 				row.failReason = row.pass ? null : row.died ? 'died' : row.voidFall ? 'void fall' : SURVIVE ? null : Number.isFinite(row.killSeenLateMs) ? 'dragon killed after the window' : 'dragon alive at the window end';
 				row.finishedAt = Date.now();
-				console.log(`[dragon-fight] ${results.arm} run ${run}: ${row.error ? 'INVALID' : row.pass ? 'PASS' : 'FAIL'} killed=${killed} died=${row.died} dragon=${row.dragonHealthEnd} crystals=${row.crystalsLeft} shots=${shots} broke=${crystalBreaks} melee=${meleeHits} landed=${meleeLanded} flying=${flyingShots} lowest=${lowestDragon} dealt=${row.damageDealt} angered=${angerLog.length} damage=${row.damageTaken} game=${row.gameSeconds}s`);
+				console.log(`[dragon-fight] ${results.arm} run ${run}: ${row.error ? 'INVALID' : row.pass ? 'PASS' : 'FAIL'} killed=${killed} died=${row.died} dragon=${row.dragonHealthEnd} crystals=${row.crystalsLeft} cagedBroken=${row.cagedBroken} openBroken=${row.openBroken} arrows=${row.arrowsUsed} cleared=${row.crystalsClearedAt} shots=${shots} broke=${crystalBreaks} melee=${meleeHits} landed=${meleeLanded} flying=${flyingShots} lowest=${lowestDragon} dealt=${row.damageDealt} angered=${angerLog.length} damage=${row.damageTaken} game=${row.gameSeconds}s`);
 				// After a kill the End has no dragon: a further repeat on this server measures nothing.
 				if (killed && run < repeats) { results.runs.push(...Array.from({ length: repeats - run }, (_, i) => ({ run: run + i + 1, room: results.arm, error: 'not exercised: the dragon was killed in an earlier repeat' }))); break; }
 			} catch (error) {
