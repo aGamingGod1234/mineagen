@@ -411,6 +411,7 @@ public final class ServerBuildController implements ServerController {
 	private boolean crossAllowed;
 	private int lavaTakes, fetchRetries, fetchWindows, fetchDigs;
 	private BlockPos fetchDigLook;
+	private boolean fetchDigLooked;
 	private int staleScoops;
 	private final java.util.ArrayDeque<BlockPos> wayBack = new java.util.ArrayDeque<>();
 
@@ -2924,20 +2925,14 @@ public final class ServerBuildController implements ServerController {
 			if (step == null) continue;
 			BlockPos next = feet.relative(step);
 			if (inFootprint(next) || inFootprint(next.above()) || mould.contains(next) || mould.contains(next.above())) continue;
-			BlockState floor = known(player, next.below());
-			if (floor == null) {
-				// The floor of a cell just opened is not seen yet: look at it before judging the step.
-				if (next.below().equals(fetchDigLook)) continue;
-				fetchDigLook = next.below().immutable();
-				releaseInput();
-				ServerLookController.turnToward(player, Vec3.atCenterOf(fetchDigLook));
-				pause = 3;
-				return running();
-			}
-			if (floor.isAir() || !floor.getFluidState().isEmpty()) continue;
 			for (BlockPos cell : new BlockPos[] { next, next.above() }) {
 				BlockState state = known(player, cell);
-				if (state == null || !state.getFluidState().isEmpty()) continue steps;
+				if (state == null) {
+					TickResult look = lookOnce(player, cell);
+					if (look != null) return look;
+					continue steps;
+				}
+				if (!state.getFluidState().isEmpty()) continue steps;
 				if (state.isAir()) continue;
 				if (uncoverDead.contains(cell) || clearTicks(player, level, cell, state) > MAX_CLEAR_TICKS) continue steps;
 				fetchDigs++;
@@ -2951,9 +2946,26 @@ public final class ServerBuildController implements ServerController {
 					continue steps;
 				}
 			}
+			// The floor under a mined cell lay inside rock, never seen: look at it before stepping in.
+			BlockState floor = known(player, next.below());
+			if (floor == null) {
+				TickResult look = lookOnce(player, next.below());
+				if (look != null) return look;
+				continue;
+			}
+			if (floor.isAir() || !floor.getFluidState().isEmpty()) continue;
 			if (standable(player, level, next) && walks < MAX_WALKS - 1) return walkTo(player, next, now);
 		}
 		return null;
+	}
+
+	/** Turn to look at a cell not in sight memory, once; null once it was looked at (still unknown: not seen from here). */
+	private TickResult lookOnce(ServerPlayer player, BlockPos cell) {
+		if (fetchDigLooked && cell.equals(fetchDigLook)) return null;
+		if (!cell.equals(fetchDigLook)) { fetchDigLook = cell.immutable(); fetchDigLooked = false; }
+		releaseInput();
+		if (ServerLookController.turnToward(player, Vec3.atCenterOf(fetchDigLook))) { fetchDigLooked = true; pause = 3; }
+		return running();
 	}
 
 	/** The single known solid cell on the line from {@code from} to {@code to} (the source's own cell aside), else null. */
