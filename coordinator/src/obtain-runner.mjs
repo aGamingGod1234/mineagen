@@ -16,6 +16,7 @@ import { heldCounts, heldOf, keepPickaxeMakings, planObtain, readyTimes, resolve
 import { JOB_BLOCK, houseYield, lootSources, structureReach } from './loot-sources.mjs';
 import { lootChest } from './loot-step.mjs';
 import { kitLeft } from './skill-fits.mjs';
+import { getSwitch } from './switches.mjs';
 
 export const OBTAIN_DEFAULT_TIMEOUT_MS = 900_000;
 export const OBTAIN_MAX_TIMEOUT_MS = 1_800_000;
@@ -31,7 +32,7 @@ const EAT_RESUME_HEALTH = 12;
 const FOODS = new Set(['beef', 'porkchop', 'mutton', 'chicken', 'rabbit', 'cod', 'salmon', 'apple', 'carrot', 'potato',
 	'sweet_berries', 'glow_berries', 'melon_slice', 'beetroot']);
 // MINEAGEN_OBTAIN_COSTS=off plans as before chests, the seen-source cost model and the one-trip kit iron (A/B rooms).
-const OBTAIN_COSTS = process.env.MINEAGEN_OBTAIN_COSTS !== 'off';
+const OBTAIN_COSTS = getSwitch('obtain.costs').value;
 // Food a trip below ground is stocked with, in hunger points: one full bar (20), about a quarter hour's eating. Food the
 // trip lacks is counted in bread-sized items (5 points) for a chest's value; 4 bread held is a full bar and none is short.
 const TRIP_HUNGER = 20;

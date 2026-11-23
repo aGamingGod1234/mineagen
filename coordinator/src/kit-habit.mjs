@@ -5,6 +5,7 @@
 // time with no food in the hotbar; and the model followed route advice for these steps in about a third of cases.
 
 import { heldCounts, keepPickaxeMakings, planObtain } from './obtain-plan.mjs';
+import { getSwitch } from './switches.mjs';
 
 /** The habit stays out of the way while hurt: low health is recovery's job, not kit's. */
 export const KIT_MIN_HEALTH = 10;
@@ -130,7 +131,7 @@ export function nextKitStep(o, { reserved = null } = {}) {
 
 /** MINEAGEN_KIT_HABIT=off turns the habit off (an A/B round's off arm); it is on otherwise. */
 export function kitHabitEnabled(environment = {}) {
-	return String(environment?.MINEAGEN_KIT_HABIT ?? '').trim().toLowerCase() !== 'off';
+	return getSwitch('kit.habit', environment).value;
 }
 
 /**

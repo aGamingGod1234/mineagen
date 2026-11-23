@@ -10,6 +10,7 @@ import { eyeTarget, eyesHeld, followEyes } from './find-eyes.mjs';
 import { portalTarget, strongholdNearby, findPortalRoom } from './find-portal-room.mjs';
 import { nightMoveStop } from './night-cover.mjs';
 import { ENGAGE_CLOSE, SEARCH_LOW_HEALTH, creeperNear, pursuedByPack, searchDanger, threatRows } from './search-danger.mjs';
+import { getSwitch } from './switches.mjs';
 
 export const FIND_KINDS = Object.freeze(['block', 'biome', 'mob', 'structure']);
 export const DEFAULT_FIND_WITHIN = 512;
@@ -209,7 +210,7 @@ const WET_WALK_STOPS = new Set(['WATER_AHEAD', 'TUNNEL_FLOODED', 'BREATH_LOW', '
  * 75% of 103 cave walks found no walking way into a seen cave and 15% met a mob; only 10 arrived. On the 3 spawns where
  * walks fired, iron was found in 9 of 30 runs with it on against 18 of 30 off.
  */
-export const caveFirst = (environment = process.env) => String(environment?.MINEAGEN_CAVE_FIRST ?? '').trim().toLowerCase() === 'on';
+export const caveFirst = (environment = process.env) => getSwitch('find.caveFirst', environment).value;
 // Blocks a dig_to may be given (schema.mjs maxBlocks) and the cells one step cuts per pattern.
 const MAX_DIG_BLOCKS = 4_096;
 const STEP_CELLS = Object.freeze({ tunnel: 2, stairs_down: 3, stairs_up: 3, steep_down: 4 });
@@ -244,9 +245,8 @@ const SHAFT_UP = 12;
  * lava-gate-8 (0 to 7 of 10, deaths 7 to 1) but lost lava-gate-3 (8 to 0 of 10: the room's two pickaxes wear out
  * tunnelling at depth) and walked lava-gate-6 into a zombie spawner room (deaths 0 to 7 of 10, the defend reflex fighting
  * in place), so stairs wait behind the switch until tool wear and the spawner fight are answered.
- * MINEAGEN_LAVA_SHAFT=on keeps forcing the shaft.
  */
-export const lavaStairs = () => process.env.MINEAGEN_LAVA_STAIRS === 'on' && process.env.MINEAGEN_LAVA_SHAFT !== 'on';
+export const lavaStairs = () => getSwitch('find.lavaStairs').value;
 export const lavaShaft = () => !lavaStairs();
 // Swimming up a flooded stair: pulses of this many ticks, at most this many (the stair from y16 to the surface is ~50 up).
 const STAIR_PULSE_TICKS = 40;
@@ -1689,10 +1689,10 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 			}
 			if (profile.depth !== null && !level && at.y > profile.depth + 3 && descentStops < MAX_DESCENT_STOPS) {
 				const wetGround = wetSpots().some((spot) => Math.hypot(spot.x + 0.5 - at.x, spot.z + 0.5 - at.z) <= WET_REGION);
-				// A lava find digs stairs, not a 1-wide shaft, as a player does: on the wall-portal rooms the bucket shaft from
-				// spawn broke into a flooded cave and left the body afloat in its own hole (lava-gate-1 and -6, 20 of 20 runs), or
-				// broke a cave roof and dropped the body 28 blocks among mobs (lava-gate-8, 6 of its 11 deaths). Stairs lead back up
-				// out of a flood and stop at a cave's lip. MINEAGEN_LAVA_SHAFT=on keeps the shaft (for an A/B or a rollback).
+				// A lava find takes the bucket shaft by default (see lavaStairs). With MINEAGEN_LAVA_STAIRS=on it digs stairs, as a
+				// player does: on the wall-portal rooms the shaft from spawn broke into a flooded cave and left the body afloat in
+				// its own hole (lava-gate-1 and -6, 20 of 20 runs), or broke a cave roof and dropped the body 28 blocks among mobs
+				// (lava-gate-8, 6 of its 11 deaths). Stairs lead back up out of a flood and stop at a cave's lip.
 				const lava = profile.ids.has('minecraft:lava');
 				// Stairs only as far as the pickaxes last: when they cannot also cover the rest of the depth and the search
 				// there, the rest goes down the cheaper bucket shaft, as a player short of tools does.
