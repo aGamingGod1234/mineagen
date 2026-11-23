@@ -50,19 +50,16 @@ public final class BrinkGuardVerification {
 		BrinkGuard.Fall unseen = BrinkGuard.fall(world, body(-3.5D, 1.5D), -64, voids, 0.0D, 20.0D);
 		check(unseen != null && unseen.unknown(), "a column nobody has seen is a drop of unknown depth, not a known lethal one");
 		assertions++;
-		// NE-LAVA-2: an unseen bottom carries how far down the column was seen open, for the Nether's lava-sea rule.
-		WalkabilityView dark = position -> position.z() <= 0 ? (position.y() <= 63 ? WalkabilityView.Cell.SAFE_SUPPORT : WalkabilityView.Cell.CLEAR)
-				: position.y() >= 58 ? WalkabilityView.Cell.CLEAR : WalkabilityView.Cell.UNLOADED;
-		BrinkGuard.Fall darkDrop = BrinkGuard.fall(dark, body(0.5D, 1.5D), -64, (x, y, z) -> false, 0.0D, 20.0D);
-		check(darkDrop != null && darkDrop.unknown() && darkDrop.drop() == 6, "an unseen bottom seen open 6 blocks down reports 6: " + darkDrop);
+		// NE-LAVA-2: the body's own jump is refused for a landing no one means to make; an unseen bottom only in the Nether.
+		check(BrinkGuard.refusedForEverySource(new BrinkGuard.Fall("lava", 5), false), "a jump into seen lava is refused for any input");
 		assertions++;
-		check(BrinkGuard.intoLavaSea(darkDrop, 64, 31), "in the Nether an unseen drop seen open 6 down is taken as one into the lava sea");
+		check(BrinkGuard.refusedForEverySource(new BrinkGuard.Fall("drop", 30), false), "so is a jump off a known killing fall");
 		assertions++;
-		check(!BrinkGuard.intoLavaSea(new BrinkGuard.Fall(BrinkGuard.UNKNOWN, 3), 64, 31), "an unseen drop seen open 3 down high above the sea is not");
+		check(!BrinkGuard.refusedForEverySource(unseen, false), "outside the Nether an unseen bottom stays the model's call");
 		assertions++;
-		check(BrinkGuard.intoLavaSea(new BrinkGuard.Fall(BrinkGuard.UNKNOWN, 2), 34, 31), "one whose dark part begins at the sea surface is");
+		check(BrinkGuard.refusedForEverySource(unseen, true), "in the Nether a jump off a lip into the dark is refused");
 		assertions++;
-		check(!BrinkGuard.intoLavaSea(new BrinkGuard.Fall("drop", 30), 64, 31), "a known drop is judged by what it is, not by this rule");
+		check(!BrinkGuard.refusedForEverySource(null, true), "a jump that lands on footing or a survivable drop is never refused");
 		assertions++;
 		check(BrinkGuard.fall(world, body(0.5D, -0.5D), -64, voids, 0.0D, 20.0D) == null, "standing on the ledge falls nowhere");
 		assertions++;
