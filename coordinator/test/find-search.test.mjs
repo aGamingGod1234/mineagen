@@ -215,13 +215,13 @@ test('lava heard behind a block the dig will not break is opened from two cells 
 test('lava heard beside a refused block that one peek does not show: the tunnel keeps its heading and opens the next cell toward it', async () => {
 	const refuse = (z) => ({ result: { state: 'FAILED', reasonCode: 'LAVA_AHEAD', message: `Stopped: Lava is heard beside this block, about 2 block(s) away; not breaking minecraft:tuff at 0,-54,${z}; pool coordinates not seen` } });
 	const step = { move: (player, args) => ({ x: args.x, z: args.z }), result: { state: 'SUCCEEDED' } };
-	const play = () => fakeBody({
+	const play = (opened = 'opened, lava still heard') => fakeBody({
 		start: sample({ player: { x: 0.5, y: -54, z: 0.5, yaw: 0, health: 20 } }),
 		frontier: { candidates: [], coverage: { headings: {} } },
 		acts: {
 			dig_to: [refuse(1), { move: () => ({ z: 1.5 }), ...refuse(2) }, { result: { state: 'SUCCEEDED', reasonCode: 'DIG_LIMIT_REACHED' } }],
 			move_to: [step, step, step, step],
-			break_block: [{ result: { state: 'SUCCEEDED', message: 'opened, lava still heard' } },
+			break_block: [{ result: { state: 'SUCCEEDED', message: opened } },
 				{ result: { state: 'SUCCEEDED', message: 'lava now open' }, then: { blocks: [{ blockId: 'minecraft:lava', x: 0, y: -55, z: 2 }] } }],
 		},
 	});
@@ -231,6 +231,10 @@ test('lava heard beside a refused block that one peek does not show: the tunnel 
 	const tunnels = body.calls.filter((call) => call.actionType === 'dig_to').map((call) => call.args.heading);
 	assert.deepEqual(tunnels, ['south', 'south'], 'the second leg goes on toward the sound');
 	assert.equal(body.calls.filter((call) => call.actionType === 'break_block').length, 2);
+	// The peek opened onto lava it does not count (flowing): it flows into the cell, so the tunnel turns rather than walk in.
+	const flowing = play('Broken; lava now open beside the opening at 1,-54,1; it flows in after about 1.5 s');
+	await searchFor({ block: 'minecraft:lava' }, flowing);
+	assert.notEqual(flowing.calls.filter((call) => call.actionType === 'dig_to').map((call) => call.args.heading)[1], 'south', 'lava now open: no walk back in');
 	const saved = process.env.MINEAGEN_LAVA_OPEN;
 	process.env.MINEAGEN_LAVA_OPEN = 'off';
 	try {

@@ -1141,7 +1141,7 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 
 	// Lava heard right behind a block the dig will not break: as a player, step back two cells, break it from there
 	// and look. The opened lava is the sighting; the body then steps back two more cells, out of its flow.
-	let peeks = 0, peekOpened = false;
+	let peeks = 0, peekOpened = false, lastPeeked = null;
 	const peek = async (cell) => {
 		peekOpened = false;
 		const at = bodyAt(observation);
@@ -1156,7 +1156,8 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 		await leg('look at the block', 'look_at', { x: cell.x + 0.5, y: cell.y + 0.5, z: cell.z + 0.5 });
 		const opened = await leg('open the lava', 'break_block', { x: cell.x, y: cell.y, z: cell.z, acceptLavaRisk: true });
 		if (opened.interrupted) return settle(opened);
-		peekOpened = opened.result?.state === 'SUCCEEDED';
+		// Opened onto lava the search does not count (flowing, a small pool): it flows into the cell, so no walking back in.
+		peekOpened = opened.result?.state === 'SUCCEEDED' && !/lava now open/i.test(String(opened.result?.message ?? ''));
 		if (!opened.seen) return null;
 		const away = bodyAt(observation);
 		await leg('step out of its flow', 'move_to', { x: Math.floor(away.x) - 2 * dir.x + 0.5, y: Math.floor(away.y + 1e-3), z: Math.floor(away.z) - 2 * dir.z + 0.5, tolerance: 0.5 });
@@ -1815,11 +1816,13 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 			const heardPast = refused !== null && lavaOpen() && /heard (below|beside) this block/i.test(String(outcome.result?.message ?? ''));
 			let opening = false;
 			if (refused !== null && profile.ids.has('minecraft:lava') && peeks < (heardPast ? MAX_HEARD_PEEKS : MAX_PEEKS)) {
+				const cell = `${refused[1]},${refused[2]},${refused[3]}`;
 				const peeked = await peek({ x: Number(refused[1]), y: Number(refused[2]), z: Number(refused[3]) });
 				if (peeked !== null) return peeked;
 				// Opened and still not in sight: the same heading again, so the next leg walks into the opened cell and names
-				// the next one toward the sound.
-				opening = heardPast && peekOpened;
+				// the next one toward the sound. The same cell refused again (sand or gravel fell back in) is no way on.
+				opening = heardPast && peekOpened && cell !== lastPeeked;
+				lastPeeked = cell;
 			}
 			if (opening) continue;
 			const after = bodyAt(observation);
