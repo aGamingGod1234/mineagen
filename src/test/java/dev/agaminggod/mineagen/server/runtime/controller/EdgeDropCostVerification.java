@@ -72,7 +72,7 @@ public final class EdgeDropCostVerification {
 		check(view(ditch).edgeDropCost(at) == 0, "seen open only 2 down, it is a ditch the view has not reached, no edge");
 		check(view(new World().pit(1, 0, 20, stone)).edgeDropCost(at) == MinecraftNavigationWorld.EDGE_DROP_COST,
 				"a column open past the scan's depth (a fall far down to the lava sea or the void) is an edge");
-		check(view(new World().pit(1, 0, 54, Blocks.WATER.defaultBlockState())).edgeDropCost(at) == 0, "water at the bottom breaks the fall");
+		check(view(new World().pit(1, 0, 53, Blocks.WATER.defaultBlockState())).edgeDropCost(at) == 0, "water at the bottom breaks the fall, even 10 blocks down where a floor would be an edge");
 		World walled = new World().pit(1, 0, 59, lava);
 		walled.states.put(new BlockPos(1, 64, 0), stone);
 		walled.states.put(new BlockPos(1, 65, 0), stone);
