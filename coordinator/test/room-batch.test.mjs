@@ -1915,6 +1915,9 @@ test('an exit-code room (no rows file) is judged by its exit code and own JSON, 
 		const lostRows = await mergeArms({ out, rooms: orphan, arms: ['new'], outcomes: [{ room: 'orphan', lost: false, worker: 'vm1', attempts: 1, arms: { new: { exit: 0, seconds: 2 } } }] });
 		assert.deepEqual([armTotals(lostRows.new).pass, lostRows.new.summary.status], [0, 'INVALID']);
 		assert.deepEqual(await armValidRuns(path.join(out, 'rooms', 'orphan', 'new'), { exit: 0 }, { script }), { valid: 0, rows: null });
+		// A line through with-jar.mjs is read by the fixture after the wrapper.
+		const { lineScript } = await import('../../scripts/quality/lib/room-batch-core.mjs');
+		assert.equal(lineScript(parseCommands('@w node scripts/quality/lib/with-jar.mjs $JAR scripts/quality/test-end-refill-live.mjs $OUT', ['new'])[0], 'new'), 'scripts/quality/test-end-refill-live.mjs');
 		// An arm that never launched did not start its row.
 		const unlaunched = await mergeArms({ out, rooms: rooms.slice(1, 2), arms: ['new'], outcomes: [{ room: 'lava-b', lost: false, worker: 'vm1', attempts: 1, arms: { new: { error: 'spawn failed' } } }] });
 		assert.deepEqual([armTotals(unlaunched.new).invalid, armTotals(unlaunched.new).notStarted], [1, 1]);

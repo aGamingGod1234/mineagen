@@ -138,7 +138,8 @@ async function failureLine(log) {
  * One arm of a fixture that writes no finishRun rows, judged by its exit code (0 pass, 1 fail, anything else invalid)
  * and its own JSON files: deaths and damage where they name them, and a room with no pass bar (meta bar "none") or a
  * passWhen bar passes only when the body survived. killed names why the arm was cut short, if it was. The batch merge
- * (mergeArms in room-batch-core.mjs) judges such a room the same way, so its summary and the scoreboard agree.
+ * (mergeArms in room-batch-core.mjs) judges such a room the same way, but only for a fixture script that never calls
+ * finishRun: there a crashed finishRun fixture with no rows reads INVALID, where this scorer still reads its exit code.
  */
 export async function judgeExitRun(dir, { run = {}, killed = null, log = null, meta = null } = {}) {
 	const evidence = await otherEvidence(dir);
