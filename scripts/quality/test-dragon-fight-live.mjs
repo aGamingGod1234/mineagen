@@ -475,7 +475,7 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 						if (c.gone) return;
 					}
 				};
-				let huntedSince = null;
+				let huntedSince = null, lastFetch = -Infinity;
 				const crystalStep = async (o, me) => {
 					remember(o.entities ?? [], o);
 					// An enderman that has turned on the body: a player stays in the water it stands in (the End enderman default pours
@@ -491,7 +491,12 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 					}
 					// Armed with the first crystal step: a fling on open ground can kill too (dragonFact).
 					if (!clutchArmed) { const armed = await act('look_at', { x: me.x + 10, y: me.y + 30, z: me.z }, CLUTCH); clutchArmed = armed.state === 'SUCCEEDED'; note('arm the water clutch', armed); }
-					else if ((o.inventory?.items ?? []).some(i => i.itemId === 'minecraft:bucket')) await refill();
+					else if ((o.inventory?.items ?? []).some(i => i.itemId === 'minecraft:bucket')) {
+						await refill();
+						// Still empty and no enderman after the body: back to the water it poured (the End fact names it), as a player
+						// fills the bucket again before the next enderman (main: the bucket was empty in 8 of 9 enderman deaths).
+						if (now() - lastFetch > 45000) { lastFetch = now(); await fetchWater(); }
+					}
 					let standing = [...seenCrystals.values()].filter(c => !c.gone && !c.gaveUp);
 					// Given up on every one left: try them again after a while (the body and the dragon have moved).
 					if (standing.length === 0 && passes % 30 === 29) for (const c of seenCrystals.values()) if (!c.gone) Object.assign(c, { gaveUp: false, tries: 0, spot: 0, cageTries: 0 });

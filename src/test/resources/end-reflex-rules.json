@@ -74,7 +74,7 @@
 			"item": "minecraft:water_bucket",
 			"where": "feet"
 		},
-		"maxMs": 3000,
+		"maxMs": 12000,
 		"cooldownMs": 10000,
 		"ttlMs": 3600000,
 		"coordinatorDefault": true

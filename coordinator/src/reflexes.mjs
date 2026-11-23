@@ -68,8 +68,10 @@ export const DIMENSION_REFLEXES = Object.freeze({
 		// counts, not only one already after the body (targeting: true): measured in the judged End rooms, deaths were 34
 		// of 40 on main, 25 of 40 with any angry enderman and 23 of 28 with only one after the body. The water stays, so the
 		// bucket is spent and the rule sleeps (item-dependent rules never fire empty-handed), and so does a falling -> place
-		// water_bucket clutch: fall and void deaths were 8 of 40 on main and 7 of 40 with this rule.
-		{ id: 'default-ender-water', kind: 'trigger', priority: 8, when: [{ type: 'enderman_provoked', within: 8 }], do: { type: 'place', item: 'minecraft:water_bucket', where: 'feet' }, maxMs: 3_000, cooldownMs: 10_000, ttlMs: 3_600_000 },
+		// water_bucket clutch: fall and void deaths were 8 of 40 on main and 7 of 40 with this rule. The pour then holds the
+		// body in its water while an angry enderman is within 16 and scoops it back once none is (at most 10 s, less with the
+		// dragon near): left behind, the bucket stayed empty for the next one (dragon room on main: 9 of 14 deaths endermen).
+		{ id: 'default-ender-water', kind: 'trigger', priority: 8, when: [{ type: 'enderman_provoked', within: 8 }], do: { type: 'place', item: 'minecraft:water_bucket', where: 'feet' }, maxMs: 12_000, cooldownMs: 10_000, ttlMs: 3_600_000 },
 	].map((rule) => Object.freeze(rule))),
 });
 const MOST_DIMENSION_REFLEXES = Math.max(0, ...Object.values(DIMENSION_REFLEXES).map((rules) => rules.length));

@@ -1750,6 +1750,17 @@ final class ReflexActions {
 		private InteractionHand placedHand;
 		private int placedSlot;
 		private int landedTicks;
+		/**
+		 * Water poured at the feet against an angry enderman, which the body stands in until none is near and then scoops
+		 * back: the bucket is what the next enderman needs. Main's dragon room: 9 of 14 deaths were endermen, nearly all
+		 * after the one pour had been left behind and the bucket stayed empty.
+		 */
+		private BlockPos heldWater;
+		private int holdTicks, calmTicks, scoopTicks;
+		static final double HOLD_ENDERMAN_RANGE = 16.0D;
+		static final double HOLD_DRAGON_RANGE = 24.0D;
+		static final int HOLD_TICKS = 200;
+		static final int CALM_TICKS = 10;
 
 		Place(String item, String where) {
 			this.item = item;
@@ -1761,6 +1772,7 @@ final class ReflexActions {
 			ServerPlayer player = context.player();
 			ticks++;
 			if (placedWater != null) return scoop(player, input);
+			if (heldWater != null) return holdInWater(player, input);
 			InteractionHand hand;
 			int slot = player.getInventory().getSelectedSlot();
 			if (item.equals(id(player.getOffhandItem()))) hand = InteractionHand.OFF_HAND;
@@ -1816,9 +1828,59 @@ final class ReflexActions {
 			}
 			if (used && bucket && "feet".equals(where)) {
 				BlockPos source = crosshair.getBlockPos().above();
+				if ("minecraft:water_bucket".equals(item) && angryEndermanNear(player) && level.getFluidState(source).isSourceOfType(net.minecraft.world.level.material.Fluids.WATER)) {
+					heldWater = source;
+					placedHand = hand;
+					placedSlot = hand == InteractionHand.MAIN_HAND ? slot : player.getInventory().getSelectedSlot();
+					return Step.running("poured water at the feet; standing in it while an angry enderman is near");
+				}
 				return Step.done("placed " + item + " at feet " + source.getX() + "," + source.getY() + "," + source.getZ() + "; the source stays until scooped");
 			}
 			return used ? Step.done("placed " + item + " " + where) : Step.failed("click accepted but nothing was placed");
+		}
+
+		private static boolean angryEndermanNear(ServerPlayer player) {
+			return !player.level().getEntitiesOfClass(McCompat.ENDERMAN, player.getBoundingBox().inflate(HOLD_ENDERMAN_RANGE),
+					enderman -> enderman.isAlive() && McCompat.endermanCreepy(enderman) && player.distanceTo(enderman) <= HOLD_ENDERMAN_RANGE).isEmpty();
+		}
+
+		/**
+		 * Standing in water poured against an angry enderman: still, looking down at the water (never at an enderman's eyes),
+		 * until no angry one has been within 16 blocks for half a second, then the emptied bucket takes the source back. The
+		 * hold ends with the water left (as before) after 10 s, when the dragon comes within 24 blocks (its swoop and breath
+		 * want the body free), or when the body has left the source.
+		 */
+		private Step holdInWater(ServerPlayer player, Consumer<AgentInputState> input) {
+			Level level = player.level();
+			String at = heldWater.getX() + "," + heldWater.getY() + "," + heldWater.getZ();
+			String left = "placed " + item + " at feet " + at + "; the source stays until scooped";
+			if (!level.getFluidState(heldWater).isSourceOfType(net.minecraft.world.level.material.Fluids.WATER)) return Step.done("poured water at feet " + at + "; the source is gone");
+			holdTicks++;
+			calmTicks = angryEndermanNear(player) ? 0 : calmTicks + 1;
+			Vec3 centre = Vec3.atCenterOf(heldWater);
+			if (player.getEyePosition().distanceTo(centre) > player.blockInteractionRange()) return Step.done(left + " (the body moved off it)");
+			if (calmTicks < CALM_TICKS) {
+				if (!level.getEntitiesOfClass(net.minecraft.world.entity.boss.enderdragon.EnderDragon.class, player.getBoundingBox().inflate(HOLD_DRAGON_RANGE), Entity::isAlive).isEmpty()) {
+					return Step.done(left + " (the dragon came near)");
+				}
+				if (holdTicks > HOLD_TICKS) return Step.done(left + " (an angry enderman stayed near for 10 s)");
+				input.accept(look(player, centre, 0.0F, 0.0F, false, false, placedSlot, placedHand));
+				return Step.running("standing in the poured water while an angry enderman is near");
+			}
+			ItemStack held = player.getItemInHand(placedHand);
+			if (!held.is(net.minecraft.world.item.Items.BUCKET)) return Step.done(left + " (no empty bucket in hand to scoop it back)");
+			if (++scoopTicks > 30) return Step.done(left + " (could not scoop it back)");
+			input.accept(look(player, centre, 0.0F, 0.0F, false, false, placedSlot, placedHand));
+			if (placedHand == InteractionHand.MAIN_HAND && player.getInventory().getSelectedSlot() != placedSlot) return Step.running("no angry enderman near; selecting the bucket");
+			BlockHitResult sight = level.clip(new ClipContext(player.getEyePosition(), player.getEyePosition().add(player.getLookAngle().scale(player.blockInteractionRange())),
+					ClipContext.Block.OUTLINE, ClipContext.Fluid.SOURCE_ONLY, player));
+			if (sight.getType() != HitResult.Type.BLOCK || !sight.getBlockPos().equals(heldWater)) return Step.running("no angry enderman near; aiming at the poured water");
+			InteractionResult result = player.gameMode.useItem(player, level, held, placedHand);
+			if (result.consumesAction() && player.getItemInHand(placedHand).is(net.minecraft.world.item.Items.WATER_BUCKET)) {
+				ArmSwing.use(player, placedHand);
+				return Step.done("poured water at feet " + at + ", stood in it until no angry enderman was near, and scooped it back");
+			}
+			return Step.running("no angry enderman near; scooping the poured water");
 		}
 
 		/** After a water clutch: once the body has landed, use the emptied bucket on the source to take it back. */
