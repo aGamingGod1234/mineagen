@@ -77,7 +77,7 @@ test('End crystals seen stay remembered, and a crystal broken by your own shot i
 	const fact = endCrystalFact(tally, { y: 62 });
 	assert.match(fact, /-42,80,-1 caged \(beside it feet y=80, 18 above you\)/);
 	assert.match(fact, /Side walls stop arrows/);
-	assert.match(fact, /including the LOWEST side-bar row at crystal y-1/);
+	assert.match(fact, /side bars of crystal y and y\+1, and LEAVE THE LOWEST ROW \(crystal y-1\) STANDING/);
 	assert.match(fact, /blast deals about 56 at 3 blocks/);
 	assert.doesNotMatch(endCrystalFact({ standing: [{ x: 1, y: 90, z: 1 }], broken: 0 }), /Caged/);
 	const facts = combatFacts({ ...end([]), endCrystals: tally });
@@ -100,7 +100,7 @@ test('cage descent offers the existing continuous shaft with its one-column prec
  assert.ok(CAGED_CRYSTAL_FACTS.split(/\s+/).length <= 500);
  assert.match(CAGED_CRYSTAL_FACTS, /whole end_stone column.*dragon block clearing spares it/);
  assert.doesNotMatch(CAGED_CRYSTAL_FACTS, /\bobsidian\b/);
- assert.match(CAGED_CRYSTAL_FACTS, /LOWEST side-bar row at crystal y-1/);
+ assert.match(CAGED_CRYSTAL_FACTS, /LEAVE THE LOWEST ROW \(crystal y-1\) STANDING: once the descent drops you one block it is the only wall between your feet and the pillar top/);
  assert.match(CAGED_CRYSTAL_FACTS, /avoid separate break-and-wait turns.*confirm a water_bucket in hotbar or offhand.*feet centred/);
  assert.match(CAGED_CRYSTAL_FACTS, /act dig_to.*pattern:"shaft", y:BASE_Y, maxShaftY:BASE_Y, throughCaves:true/);
  assert.match(CAGED_CRYSTAL_FACTS, /inventory slots 9-35 do not count.*select_tool.*sourceSlot.*hotbarSlot.*expectedItemId:"minecraft:water_bucket", minRemainingDurability:0.*fresh inventory.*Until confirmed, do not start/);
