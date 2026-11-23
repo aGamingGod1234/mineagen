@@ -70,6 +70,7 @@ export function mergeSwitchRecords(records) {
 	let unrecorded = 0;
 	for (const record of records) {
 		if (!record || typeof record !== 'object') { unrecorded++; continue; }
+		if (Number.isInteger(record.unrecorded)) unrecorded += record.unrecorded;
 		const lines = Array.isArray(record.coordinator) ? record.coordinator
 			: [record.coordinator?.line ?? (record.coordinator?.error ? `unreadable: ${record.coordinator.error}` : null)];
 		for (const line of lines) if (typeof line === 'string' && !coordinator.includes(line)) coordinator.push(line);
