@@ -411,8 +411,18 @@ test('the book remembers the cells its water reflex poured, per dimension, and f
 	book.observe('a', pour(3, '-4,62,0'));
 	assert.deepEqual(book.pours('a', end), [{ x: -4, y: 62, z: 0 }, { x: 2, y: 62, z: 13 }]);
 	assert.deepEqual(book.pours('a', { ...end, world: { dimension: 'minecraft:overworld' } }), [], 'another dimension names none');
-	// A row at the cell that is no water source (scooped: air, or only flow) forgets that pour; an unlisted cell keeps it.
-	assert.deepEqual(book.pours('a', { ...end, blocks: [{ blockId: 'minecraft:air', x: -4, y: 62, z: 0 }] }), [{ x: 2, y: 62, z: 13 }]);
+	// A row at the cell that is no water source (a block, or only flow) forgets that pour; an unlisted cell keeps it.
+	assert.deepEqual(book.pours('a', { ...end, blocks: [{ blockId: 'minecraft:obsidian', x: -4, y: 62, z: 0 }] }), [{ x: 2, y: 62, z: 13 }]);
 	assert.deepEqual(book.pours('a', { ...end, blocks: [{ blockId: 'minecraft:water', x: 2, y: 62, z: 13, fluid: { type: 'minecraft:flowing_water' } }] }), []);
+	// A scoop leaves air, which has no row: one more water bucket near a remembered pour forgets the nearest one.
+	book.observe('a', pour(4, '2,62,13'));
+	book.observe('a', pour(5, '40,62,13'));
+	const at = (x, buckets) => ({ ...end, position: { x, y: 62, z: 13.5 }, inventory: { items: buckets ? [{ itemId: 'minecraft:water_bucket', count: buckets }] : [{ itemId: 'minecraft:bucket', count: 1 }] } });
+	book.observeContext('a', at(4.5, 0));
+	book.observeContext('a', at(4.5, 1));
+	assert.deepEqual(book.pours('a', at(4.5, 1)), [{ x: 40, y: 62, z: 13 }], 'the scooped pour beside the bot is forgotten; the far one stays');
+	book.observeContext('a', at(4.5, 0));
+	book.observeContext('a', at(4.5, 1));
+	assert.deepEqual(book.pours('a', at(4.5, 1)), [{ x: 40, y: 62, z: 13 }], 'a refill with no pour in reach forgets none');
 	book.clear('a');
 });

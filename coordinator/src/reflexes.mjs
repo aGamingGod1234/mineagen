@@ -402,6 +402,8 @@ function eventLine(event) {
 
 /** The authoritative rule sets, per agent. Rules persist across goal revisions; they end by expiry or the model. */
 const MAX_REMEMBERED_POURS = 4;
+// A bucket reaches 4.5 m from the eye (survival block reach); from the feet allow the eye height and a block's half-diagonal.
+const SCOOP_REACH = 7;
 // A block row's fluid: minecraft:water is a source, minecraft:flowing_water is not; level 0 is a source. Unknown counts as one.
 const waterSourceRow = b => b.fluid?.type !== undefined ? b.fluid.type === 'minecraft:water' : b.state?.level === undefined || String(b.state.level) === '0';
 
@@ -477,6 +479,7 @@ export class ReflexBook {
 	 * removed like a model removal and reported as expired in the next wake. Returns whether the set changed.
 	 */
 	observeContext(agentId, observation) {
+		this.#forgetScoopedPour(agentId, this.#samples.get(agentId), observation);
 		this.#samples.set(agentId, observation);
 		const armed = this.#armDefaults(agentId, observation);
 		const agent = this.#agents.get(agentId);
@@ -658,9 +661,25 @@ export class ReflexBook {
 		this.#pours.set(agentId, [{ x, y, z, dimension }, ...pours].slice(0, MAX_REMEMBERED_POURS));
 	}
 
+	// A scooped source turns to air, and the observation lists no air rows, so a scoop is read from the inventory: one more
+	// water bucket than the last sample, with a remembered pour within a bucket's reach, forgets the nearest such pour.
+	#forgetScoopedPour(agentId, before, after) {
+		const pours = this.#pours.get(agentId);
+		if (!pours?.length || !before || !after) return;
+		const buckets = sample => (Array.isArray(sample?.inventory?.items) ? sample.inventory.items : [])
+			.reduce((sum, item) => sum + (item?.itemId === 'minecraft:water_bucket' && Number.isFinite(item.count) ? item.count : 0), 0);
+		if (buckets(after) <= buckets(before)) return;
+		const at = after.position ?? after.player?.position;
+		const dimension = after.world?.dimension ?? null;
+		if (![at?.x, at?.y, at?.z].every(Number.isFinite)) return;
+		const reach = p => p.dimension === dimension ? Math.hypot(p.x + 0.5 - at.x, p.y + 0.5 - at.y, p.z + 0.5 - at.z) : Infinity;
+		const nearest = pours.filter(p => reach(p) <= SCOOP_REACH).sort((a, b) => reach(a) - reach(b))[0];
+		if (nearest) this.#pours.set(agentId, pours.filter(p => p !== nearest));
+	}
+
 	/**
 	 * The water sources this agent's reflexes poured, newest first, in the observation's dimension. A pour whose cell the
-	 * observation lists as anything but a water source (scooped, or never a source) is forgotten.
+	 * observation lists as anything but a water source (a block, or only flow) is forgotten; a scoop, which leaves air and no row, is read from the inventory.
 	 */
 	pours(agentId, observation) {
 		const dimension = observation?.world?.dimension ?? null;
