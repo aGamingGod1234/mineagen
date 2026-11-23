@@ -182,7 +182,8 @@ const signInWatch = flags.player === 'model' ? setInterval(async () => {
 try {
 	// The boat poll waits for the room's end itself; a Windows poll answers at once, so it gets a pause between asks.
 	const result = await runBatch({ batch, rooms, arms: flags.arms, pool, vms, out, roomTimeoutMs, log, rewrite, signal: controller.signal, valid, ...(windowsHosts ? { pollMs: 10_000 } : {}) });
-	await writeFile(path.join(out, 'batch.json'), JSON.stringify({ ...batch, began, ended: new Date().toISOString(), wallSeconds: result.wallSeconds, outcomes: result.outcomes, topUps: result.topUps, machines: result.machines }, null, 2) + '\n');
+	await writeFile(path.join(out, 'batch.json'), JSON.stringify({ ...batch, began, ended: new Date().toISOString(), wallSeconds: result.wallSeconds,
+		switches: Object.fromEntries(Object.entries(result.merged ?? {}).map(([arm, entry]) => [arm, entry.summary?.switches ?? null])), outcomes: result.outcomes, topUps: result.topUps, machines: result.machines }, null, 2) + '\n');
 	await writeFile(path.join(out, 'summary.txt'), result.text + '\n');
 	console.log(result.text);
 	const leftover = result.machines.filter(vm => !vm.destroyed && !vm.returned);

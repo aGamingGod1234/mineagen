@@ -1,4 +1,5 @@
 import { RULE_LIFETIMES, lifetimeEnded, lifetimeStart } from './danger-contexts.mjs';
+import { getSwitch } from './switches.mjs';
 
 /** Reflex rules run in the mod between model turns, so hazards can be handled before the model responds.
  * Model-authored rules and the default survival rules share one authoritative set across goal revisions. */
@@ -67,7 +68,7 @@ if (MAX_REFLEXES + DEFAULT_REFLEXES.length + MOST_DIMENSION_REFLEXES > MAX_REFLE
  * the wake line and the route line are what they were before.
  */
 export function instinctsEnabled(environment = {}) {
-	return String(environment?.MINEAGEN_INSTINCTS ?? '').split(',').map((word) => word.trim()).includes('instincts');
+	return getSwitch('instincts', environment).value;
 }
 
 /**

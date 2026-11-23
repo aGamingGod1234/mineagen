@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, readdir, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { finishRun, roomVerdict } from './fixture-run.mjs';
+import { mergeSwitchRecords } from './switch-record.mjs';
 
 const ROOM_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
@@ -210,7 +211,7 @@ export async function mergeArms({ out, rooms, arms, outcomes }) {
 	const byRoom = new Map(outcomes.map(outcome => [outcome.room, outcome]));
 	const merged = {};
 	for (const arm of arms) {
-		const rows = [], perRoom = [];
+		const rows = [], perRoom = [], switchRecords = [];
 		let planned = 0;
 		for (const room of rooms) {
 			const outcome = byRoom.get(room.room) ?? { lost: true, reason: 'not run' };
@@ -220,6 +221,7 @@ export async function mergeArms({ out, rooms, arms, outcomes }) {
 			const found = outcome.lost ? { rows: [], summary: null, problem: null } : await armRows(dir);
 			const own = found.summary;
 			const ownValid = Boolean(own && typeof own === 'object' && Number.isInteger(own.planned));
+			if (!outcome.lost) switchRecords.push(ownValid ? own.switches ?? null : null);
 			// A room whose summary is INVALID but that wrote rows needs no room-wide verdict: its invalid rows read INVALID
 			// themselves and its missing ones count as notStarted, so one errored course never voids the courses beside it
 			// (as collectRuns in benchmark-score.mjs reads it). With no rows at all the summary's INVALID is the only evidence.
@@ -252,7 +254,8 @@ export async function mergeArms({ out, rooms, arms, outcomes }) {
 			perRoom.push({ room: room.room, lost: !!outcome.lost, reason: outcome.reason ?? null, rows: roomRows.length, planned: roomPlanned, exit: run.exit ?? null, seconds: run.seconds ?? null, timedOut: !!run.timedOut, cantKeepUp: run.cantKeepUp ?? null });
 		}
 		await mkdir(path.join(out, arm), { recursive: true });
-		const summary = await finishRun(rows, { file: path.join(out, arm, 'result.json'), planned, strict: false, setExitCode: false });
+		// The arm's switch set is its rooms' (each room's fixture recorded its own), never this machine's environment.
+		const summary = await finishRun(rows, { file: path.join(out, arm, 'result.json'), planned, strict: false, setExitCode: false, switches: mergeSwitchRecords(switchRecords) });
 		merged[arm] = { summary, rows, perRoom };
 	}
 	return merged;
@@ -283,6 +286,14 @@ export function formatSummary({ batch, merged, arms, wallSeconds, vms, rooms }) 
 		const t = armTotals(merged[arm]);
 		const damage = t.damage === null ? `unknown(${t.unknownDamageRows})` : String(t.damage);
 		lines.push(`${arm.padEnd(10)} ${t.status.padEnd(8)} ${String(t.pass).padStart(4)} ${String(t.fail).padStart(4)} ${String(t.invalid).padStart(7)} ${String(t.notStarted).padStart(10)} ${String(t.lostRooms.length).padStart(4)} ${String(t.deaths ?? 'unknown').padStart(6)} ${damage.padStart(6)}  ${clock(t.roomSeconds).padStart(9)}  ${String(t.cantKeepUp).padStart(12)}`);
+	}
+	// Each arm's switch set as its rooms recorded it: one line per distinct coordinator set and per distinct server set.
+	for (const arm of arms) {
+		const played = merged[arm].summary?.switches;
+		if (!played || typeof played !== 'object') continue;
+		for (const line of played.coordinator ?? []) lines.push(`${arm} coordinator ${line}`);
+		for (const line of played.server ?? []) lines.push(`${arm} server ${line}`);
+		if (played.unrecorded) lines.push(`${arm}: ${played.unrecorded} room${played.unrecorded === 1 ? '' : 's'} recorded no switch set`);
 	}
 	lines.push('room: ' + arms.join(' | '));
 	for (const room of rooms) {

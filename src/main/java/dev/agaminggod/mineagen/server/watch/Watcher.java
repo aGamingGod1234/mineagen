@@ -160,7 +160,7 @@ public final class Watcher {
 	public static final String ENABLE_PROPERTY = "mineagen.watch";
 
 	public static boolean enabled() {
-		return "true".equalsIgnoreCase(System.getProperty(ENABLE_PROPERTY, "false").trim());
+		return dev.agaminggod.mineagen.server.Switches.get("watch");
 	}
 
 	public static synchronized void register() {
