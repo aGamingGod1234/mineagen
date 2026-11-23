@@ -1,5 +1,6 @@
 package dev.agaminggod.mineagen.server.runtime.controller;
 
+import dev.agaminggod.mineagen.agent.AgentDomainException;
 import dev.agaminggod.mineagen.client.navigation.GridPosition;
 import dev.agaminggod.mineagen.server.runtime.reflex.EscapeMoves;
 import java.util.ArrayList;
@@ -209,11 +210,16 @@ public final class ServerEscapeController implements ServerController {
 			return startMove(player, climbOut(bank, adjacent ? 60 : 100), "climb out onto the bank at " + bank.toShortString());
 		}
 		// The bank is beside the body and within the climb, but a ceiling over its head stops the rise: open it first.
-		BlockPos ceiling = !beside && ceilingCuts < MAX_TRIES && (!player.isUnderWater() || player.getAirSupply() >= SWIM_FIRST_AIR)
-				? ceilingToOpen(player, bank) : null;
-		ServerController cut = ceiling == null ? null : environment.clear(player, ceiling, childMs(now));
-		if (cut != null) {
+		// Only with the eyes in air: mining while afloat is five times slower, and five again with the head under.
+		BlockPos ceiling = !beside && ceilingCuts < MAX_TRIES && !player.isUnderWater() ? ceilingToOpen(player, bank) : null;
+		ServerController cut = null;
+		if (ceiling != null) {
 			ceilingCuts++;
+			// A break the gate refuses (lava behind the block, protection) leaves the other ways out to try.
+			try { cut = environment.clear(player, ceiling, childMs(now)); }
+			catch (AgentDomainException refused) { cut = null; }
+		}
+		if (cut != null) {
 			return startChild(player, cut, "open the ceiling at " + ceiling.toShortString() + " over the body to climb onto the bank at " + bank.toShortString());
 		}
 		// No bank within one push, but a flooded step beside the body whose floor is within the climb from where it floats

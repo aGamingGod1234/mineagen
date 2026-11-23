@@ -200,7 +200,12 @@ public final class ServerRestController implements ServerController {
 		// A bed needs a flat 2-cell spot within reach: with none, the planks are better kept as wall blocks than spent on a
 		// table and a bed that cannot go down.
 		if (bedSpot(player) == null) {
-			TickResult walk = walkToBedGround(player, now, () -> bedPlan(player, dev.agaminggod.mineagen.server.runtime.GameClock.nowMs()));
+			TickResult walk = walkToBedGround(player, now, () -> {
+				// Still no spot (or no table and too few planks) after the walk: walls, as before it.
+				long after = dev.agaminggod.mineagen.server.runtime.GameClock.nowMs();
+				TickResult bed = bedPlan(player, after);
+				return bed != null ? bed : shelterPlan(player, after, null);
+			});
 			if (walk != null) return walk;
 			log.add("no flat 2-cell spot within " + SPOT_RADIUS + " blocks for a bed");
 			return null;

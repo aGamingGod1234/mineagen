@@ -2380,6 +2380,14 @@ final class ReflexActions {
 				double nearest = Defend.nearestChaser(player, chaseGap);
 				ranFarEnough = nearest >= chaseGap && (ranFarEnough || context.point() != null && separation >= blocks);
 			}
+			// A lit creeper is let blow from just outside its blast, as a player baits one: past 6 blocks its blast does no harm,
+			// and inside 7 its fuse keeps burning, so it is gone. Run past 7, the fuse went out and the creeper stayed by the
+			// way (iron-6006: one that could not reach the body lit 20 times as the trip came back, and the trip timed out).
+			if (holdsForBlast(player)) {
+				input.accept(new AgentInputState(0.0F, 0.0F, false, false, false, false, false, player.getYRot(), player.getXRot(),
+						player.getInventory().getSelectedSlot(), InteractionHand.MAIN_HAND));
+				return Step.running(String.format(Locale.ROOT, "holding %.1f away while its fuse burns", player.position().distanceTo(creeper.position())));
+			}
 			if (creeperClear || ranFarEnough && (!fusing || separation >= CREEPER_CLEAR)) {
 				return end(player, input, Step.done(String.format(Locale.ROOT, "ran %.1f blocks, now %.1f away", moved, separation) + dropNote + walkNote));
 			}
@@ -2536,6 +2544,27 @@ final class ReflexActions {
 
 		/** Vanilla keeps a fuse burning to 7 blocks: a lit creeper that near still blows within reach of the body. */
 		static final double CREEPER_HANDOVER = 7.0D;
+
+		/**
+		 * Feet to feet, past this a creeper's blast does the body no harm: vanilla's blast hurts out to twice its power of 3.
+		 * The run stops here and slides about a third of a block on, still inside {@link #CREEPER_HANDOVER}.
+		 */
+		static final double BLAST_CLEAR = 6.15D;
+
+		/**
+		 * Whether the run stands still to let its lit creeper blow: a plain (not charged) creeper burning now, the body
+		 * between {@link #BLAST_CLEAR} and {@link #CREEPER_HANDOVER} from it, out of water, no other lit creeper and no melee
+		 * mob coming within {@link #CLOSING_RANGE}. A pack run (defend's back-out) keeps running.
+		 */
+		private boolean holdsForBlast(ServerPlayer player) {
+			if (creeper == null || keepClearOfPack || !creeper.isAlive() || creeper.isPowered() || creeper.getSwellDir() <= 0 || player.isInWater()) return false;
+			double distance = player.position().distanceTo(creeper.position());
+			return blastHold(distance) && otherFusing(player, creeper) == null && meleeNear(player, CLOSING_RANGE).isEmpty();
+		}
+
+		static boolean blastHold(double distance) {
+			return distance >= BLAST_CLEAR && distance < CREEPER_HANDOVER;
+		}
 
 		/** A second fuse invalidates the first creeper's route, separation and any move to settle at its end. */
 		private void retarget(Vec3 position) {
@@ -3068,6 +3097,8 @@ final class ReflexActions {
 			BlockPos feet = BlockPos.containing(player.getX(), player.getY() + 0.2D, player.getZ());
 			// The jump that puts a block on a wall top lifts the feet into the cell above.
 			if (!feet.equals(shelter.center()) && !feet.below().equals(shelter.center())) return false;
+			// Walls that never closed (blocks ran out, a creeper stopped the build) or were opened since are no cover.
+			if (!enclosed(player.level(), shelter.center())) return false;
 			return Defend.nearestChaser(player, PACK_RANGE) >= PACK_RANGE;
 		}
 

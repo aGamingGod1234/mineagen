@@ -2079,7 +2079,7 @@ public final class ServerActionExecutor {
 		return new dev.agaminggod.mineagen.server.runtime.controller.ServerRestController.Environment() {
 			public String blockItem(ServerPlayer body) { return roofing.blockItem(body); }
 			public dev.agaminggod.mineagen.server.runtime.controller.ServerController travel(ServerPlayer body, BlockPos to, long timeoutMs) {
-				return new dev.agaminggod.mineagen.server.runtime.controller.ServerTravelController(to.getX() + 0.5D, to.getY(), to.getZ() + 0.5D, 0.5D, timeoutMs,
+				return new dev.agaminggod.mineagen.server.runtime.controller.ServerTravelController(to.getX() + 0.5D, to.getY(), to.getZ() + 0.5D, 1.0D, timeoutMs,
 						true, null, null, (player, cell) -> protection.mayModifyBlock(player, player.level(), cell), GameClock.nowMs());
 			}
 			public dev.agaminggod.mineagen.server.runtime.controller.ServerController seal(BlockPos center, Direction opening, String itemId, long timeoutMs, long now) {
