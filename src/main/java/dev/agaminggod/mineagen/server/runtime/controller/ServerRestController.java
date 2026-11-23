@@ -396,9 +396,9 @@ public final class ServerRestController implements ServerController {
 	private TickResult digDownStep(ServerPlayer player, BlockPos start, int depth, Direction away) {
 		BlockPos target = start.below(depth);
 		if (!diggable(player, target)) return stuck(player, "could not dig down: under the body is " + describeBelow(player, target));
-		// The last block dug is the hole's floor-to-be: never dig it over an open or fluid floor the body knows of.
+		// Never dig a block over an open or fluid cell the body knows of (a cave roof one block thick).
 		BlockPos floor = target.below();
-		if (depth == 2 && SeenTerrain.of(player).known(floor.getX(), floor.getY(), floor.getZ()) != null && !solid(player, floor)) {
+		if (SeenTerrain.of(player).known(floor.getX(), floor.getY(), floor.getZ()) != null && !solid(player, floor)) {
 			return stuck(player, "could not dig down: under " + target.toShortString() + " is " + describeBelow(player, floor));
 		}
 		return runChild(() -> environment.clear(player, target, STEP_MS), dug -> {
