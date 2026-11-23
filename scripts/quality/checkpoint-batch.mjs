@@ -334,7 +334,12 @@ async function retire(vm) {
 // is left for it. Errors count against the machine only when it stops answering: a machine is dropped after it failed
 // for LOST_AFTER_MS in a row (or boat no longer lists it), never because of a local copy failure.
 async function tend(vm, step) {
-	try { await step(); vm.failingSince = null; vm.unansweredSince = null; vm.inOutage = false; }
+	try {
+		await step();
+		// Boat answered again, so a launch failure clock that ran through the outage starts over too (as in dropDue).
+		if ((vm.inOutage || vm.unansweredSince) && vm.launchFailingSince != null) vm.launchFailingSince = Date.now();
+		vm.failingSince = null; vm.unansweredSince = null; vm.inOutage = false;
+	}
 	catch (error) {
 		// A call the abort killed says nothing about the machine; the cleanup comes next.
 		if (aborted) return;
