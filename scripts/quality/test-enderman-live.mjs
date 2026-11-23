@@ -262,7 +262,8 @@ try {
 	if (want('angry-shield')) {
 		const row = await defend('angry-shield', [{ id: 'block', kind: 'stance', priority: 6, when: { type: 'enderman_provoked', within: 4 }, do: { type: 'shield' }, maxS: 3 }],
 			[`item replace entity ${agent} weapon.offhand with minecraft:shield`]);
-		if (row) { row.pass = row.provoked; await settle('angry-shield'); }
+		// The shield must take the hits: a block fired and at most 2 health lost (unshielded, the enderman takes 6 or more).
+		if (row) { row.pass = row.provoked && row.events.some((event) => event.id === 'block' && /blocked [1-9]/.test(event.detail ?? '')) && row.lowest >= row.healthBefore - 2; await settle('angry-shield'); }
 	}
 	if (want('angry-water')) {
 		const row = await defend('angry-water', [{ id: 'puddle', priority: 9, when: { type: 'enderman_provoked', within: 16 }, do: { type: 'place', item: 'minecraft:water_bucket', where: 'feet' }, maxS: 3 }],

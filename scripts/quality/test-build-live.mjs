@@ -688,6 +688,8 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 			: spot.expect === 'pillar' ? row.built && row.rose === (spot.calls.at(-1).arguments.target.size ?? 4)
 			: spot.expect === 'bridge' ? row.built && row.leftToGoal <= 1
 			: spot.expect === 'noharm' ? true
+			// The build dug into the hidden fluid and sealed it: a refusal before digging never meets it.
+			: spot.expect === 'plugged' ? row.calls.some(call => /plugged [1-9]/.test(call.message ?? ''))
 			: spot.expect === 'water' ? row.waterSeconds !== undefined && row.waterSeconds <= (spot.waterSeconds ?? 180)
 			: row.built;
 		// A chain from fresh spawn meets mobs on the way: its bar is the Nether with no death.
