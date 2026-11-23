@@ -1527,7 +1527,8 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 			// The water often reaches the body a moment after the dig stops: then the next dig or tunnel is the one refused
 			// with the body under water (20261107: the tunnel west on, "The body is under water ... not digging on").
 			const drowned = /^(dig|tunnel)/.test(lastHow) && lastLeg?.underWater === true;
-			if ((wetDig || drowned) && wet && atOreDepth(at) && depthEscapes < MAX_ESCAPES) {
+			// Not for lava (its own band rule stops above the lava level) nor under open sky (a pond at a shallow ore's depth).
+			if ((wetDig || drowned) && wet && atOreDepth(at) && !profile.ids.has('minecraft:lava') && observation?.player?.skyOpen === false && depthEscapes < MAX_ESCAPES) {
 				depthEscapes += 1;
 				const out = await settle(await leg('escape the water at depth', 'escape', { timeoutMs: 60_000 }));
 				if (out !== null) return out;
