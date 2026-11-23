@@ -242,9 +242,10 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 				let clearedAt = null, lastLeft = null, lastCaged = null, arrowsStart = null, arrowsNow = null, lastHp = null;
 				const trackCrystals = async () => {
 					const left = await crystalsLeft().catch(() => NaN), caged = await cagedLeft().catch(() => NaN);
-					if (left !== lastLeft || caged !== lastCaged) crystalTimeline.push([Math.round((now() - t0) / 1000), left, caged]);
+					const at = Math.round((await timer.elapsed().catch(() => NaN)) / 1000);
+					if (left !== lastLeft || caged !== lastCaged) crystalTimeline.push([at, left, caged]);
 					lastLeft = left; lastCaged = caged;
-					if (left === 0 && clearedAt === null) clearedAt = Math.round((now() - t0) / 1000);
+					if (left === 0 && clearedAt === null) clearedAt = at;
 				};
 
 				// The crystal phase, as a player who follows the facts plays it (DRAGON_FINISH_FACTS, CAGED_CRYSTAL_FACTS): every
@@ -389,20 +390,26 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 						f = await feetNow();
 					}
 					if (!f || f.x !== S.x || f.z !== S.z || f.y !== base) { note(`not on the spot beside the cage (feet ${f ? `${f.x},${f.y},${f.z}` : '?'})`, null); return; }
-					await act('select_item', { itemId: 'minecraft:cobblestone' });
+					// The facts want end stone (the dragon's block clearing spares it); the kit carries cobblestone, so end stone is
+					// used when the body has some.
+					const column = ((await view().catch(() => null))?.inventory?.items ?? []).some(i => i.itemId === 'minecraft:end_stone' && i.count >= S.y - base) ? 'minecraft:end_stone' : 'minecraft:cobblestone';
+					await act('select_item', { itemId: column });
 					if (await over('the pillar')) return;
 					await dragonAway('before the pillar');
 					for (let i = 0; i < 4 && f && f.x === S.x && f.z === S.z && f.y < S.y; i++) {
-						r = await act('build', { structure: 'pillar', size: S.y - f.y, itemId: 'minecraft:cobblestone', timeoutMs: 60000 }); note(`pillar ${S.y - f.y} up beside the cage`, r);
+						r = await act('build', { structure: 'pillar', size: S.y - f.y, itemId: column, timeoutMs: 60000 }); note(`pillar ${S.y - f.y} up beside the cage`, r);
 						f = await feetNow();
 					}
 					if (!f || f.x !== S.x || f.z !== S.z || f.y < S.y) { note(`pillar short (feet ${f ? `${f.x},${f.y},${f.z}` : '?'} of ${S.y})`, null); return; }
 					// 3. The wall bars at the crystal's feet height and above; the lowest row stays (CAGED_CRYSTAL_FACTS).
 					await act('select_item', { itemId: 'minecraft:iron_pickaxe' });
-					if (await over('the bars')) return;
-					await dragonAway('before the bars');
-					for (const y of [cy + 1, cy]) {
-						r = await act('break_block', { x: W.x, y, z: W.z, expectedBlockId: 'minecraft:iron_bars', timeoutMs: 10000 }); note(`break bar ${W.x},${y},${W.z}`, r);
+					// Past the window the bars wait, but the body still comes down off the column.
+					const late = await over('the bars');
+					if (!late) {
+						await dragonAway('before the bars');
+						for (const y of [cy + 1, cy]) {
+							r = await act('break_block', { x: W.x, y, z: W.z, expectedBlockId: 'minecraft:iron_bars', timeoutMs: 10000 }); note(`break bar ${W.x},${y},${W.z}`, r);
+						}
 					}
 					// 4. Down the column: one shaft call to the recorded ground feet y, a water bucket in the hotbar.
 					f = await feetNow();
@@ -410,11 +417,21 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 					note(`descend: water bucket in the hotbar ${bucket}`, null);
 					// Down even past the window: the body does not stay on the column.
 					await dragonAway('before the descent');
-					for (let i = 0; i < 2 && f && f.y > base; i++) {
+					// With the bucket, one shaft call (the facts' descent); without it the shaft turns into two-column stairs, so the
+					// column is broken one block under the feet at a time, each a one-block drop.
+					if (bucket) for (let i = 0; i < 2 && f && f.y > base; i++) {
 						r = await act('dig_to', { pattern: 'shaft', y: base, maxShaftY: base, throughCaves: true, timeoutMs: 90000 }); note('shaft down the column', r);
 						f = await feetNow();
 					}
+					else for (let i = 0; i < 40 && f && f.y > base; i++) {
+						r = await act('break_block', { x: f.x, y: f.y - 1, z: f.z, timeoutMs: 10000 }); note(`break the column under the feet at y ${f.y - 1}`, r);
+						await s.clock.sleep(600);
+						const next = await feetNow();
+						if (r.state !== 'SUCCEEDED' && next?.y === f.y) break;
+						f = next;
+					}
 					await refill();
+					if (late) return;
 					// 5. Only once down on the island floor: from the ground on that side, through the gap.
 					if (!f || f.y > base + 1) { note(`descent short (feet ${f ? `${f.x},${f.y},${f.z}` : '?'}, ground ${base})`, null); return; }
 					for (const D of [18, 24, 13]) {
@@ -547,6 +564,8 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 				// The crystal phase's judged counts: caged and open crystals broken (from the server, not the shot receipts),
 				// arrows spent, game seconds to clear all ten, and how the body died (the server's death message).
 				await trackCrystals();
+				// Arrows spent through the last command too (a dead body has dropped its bag: its count stays the last one seen).
+				if (!row.died) { const last = await view().catch(() => null); const n = (last?.inventory?.items ?? []).filter(i => /^minecraft:(arrow|spectral_arrow|tipped_arrow)$/.test(i.itemId)).reduce((sum, i) => sum + i.count, 0); if (last?.inventory && Number.isFinite(n)) arrowsNow = n; }
 				const cagedEnd = await cagedLeft().catch(() => NaN);
 				Object.assign(row, { cagedBroken: cagedSpots.length - cagedEnd, openBroken: Number.isFinite(row.crystalsLeft) ? 10 - cagedSpots.length - (row.crystalsLeft - cagedEnd) : null,
 					crystalsClearedAt: clearedAt, clutchArmed, arrowsUsed: Number.isFinite(arrowsStart) && Number.isFinite(arrowsNow) ? arrowsStart - arrowsNow : null, crystalTimeline, hurtLog,
