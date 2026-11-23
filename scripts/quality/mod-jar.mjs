@@ -1,7 +1,7 @@
 // The mod JAR live scripts load, relative to the repository root: the default-target JAR a build writes, named from
 // mod_version in gradle.properties so live scripts follow a version bump instead of reading a stale or missing JAR.
-// ARENA_MOD_JAR overrides it for one run (lib/with-jar.mjs sets it to an arm's jar); an absolute path is made relative
-// to the root, since scripts join MOD_JAR onto it.
+// ARENA_MOD_JAR overrides it for one run (lib/with-jar.mjs sets it to its per-jar copy under build/libs/by-sha). Scripts
+// join MOD_JAR onto the root, so an absolute override is made relative (it must be on the root's drive).
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
