@@ -236,6 +236,8 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 					await act('look_at', { x: me.x + Math.cos(turn) * 20, y: me.y + 40, z: me.z + Math.sin(turn) * 20 });
 					await s.clock.sleep(1000);
 				}
+				// One last sample after the window: a fall during the final wait is judged too.
+				if (!dead) { const last = await s.observe().catch(() => null); if (Number.isFinite(last?.player?.y ?? last?.position?.y)) minY = Math.min(minY, last.player?.y ?? last.position.y); }
 				// The last action can start inside the window and return after it (a melee runs up to 12 s): read the dragon once
 				// more and keep how late its death was seen; a kill seen more than 15 s past the window does not count.
 				if (!SURVIVE && !killed && !dead && Number.isFinite(dragon)) {
