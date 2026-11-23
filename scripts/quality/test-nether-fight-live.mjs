@@ -123,19 +123,24 @@ try {
 	const swept = await act('fight_target', { targetId: target, pursue: false, timeoutMs: 3000 });
 	const pigAfter = await health('@e[type=minecraft:zombified_piglin,limit=1]');
 	const sweepTick = await sweeping();
-	results.sweep = { state: swept.state, piglinHurt: pigAfter < pigBefore, pigBefore, pigAfter, reported: /sweep also hit calm minecraft:zombified_piglin/.test(swept.message ?? ''), message: String(swept.message ?? '').slice(0, 400), tick: sweepTick };
+	results.sweep = { state: swept.state, piglinHurt: pigAfter < pigBefore, pigBefore, pigAfter, reported: /sweep also hit calm minecraft:zombified_piglin/.test(swept.message ?? ''),
+		held: /held the sword on \d+ ready swings while a calm neutral stood in its sweep/.test(swept.message ?? ''), message: String(swept.message ?? '').slice(0, 400), messageEnd: String(swept.message ?? '').slice(-300), tick: sweepTick };
 	console.log(JSON.stringify(results.sweep));
 
 	results.summary = {
 		moveFooting: results.footing.moveResult,
 		shieldBreak: `${results.shieldBreak.state} ${results.shieldBreak.reasonCode}; hits after break ${results.shieldBreak.hitsAfterBreak}; noted ${results.shieldBreak.notesBreak}`,
-		sweep: `piglin hurt ${results.sweep.piglinHurt}; reported ${results.sweep.reported}`,
+		sweep: `piglin hurt ${results.sweep.piglinHurt}; reported ${results.sweep.reported}; held ${results.sweep.held}`,
 		jar: jarPath,
 	};
 	// Resistance keeps the body alive, so the room is judged on the fight: it keeps hitting after its shield breaks and
-	// says so, and it reports a sweep that hits a calm zombified piglin.
-	results.bar = 'hits on after the shield breaks and notes it; reports the sweep on a calm piglin';
-	results.pass = results.shieldBreak.hitsAfterBreak === true && results.shieldBreak.notesBreak === true && results.sweep.reported === true;
+	// says so, and it never angers a calm zombified piglin unsaid. Since #90 the sword holds a ready swing while a calm
+	// neutral stands in its sweep, for up to 3 s (ServerFightController.MAX_SWEEP_HOLD_TICKS), as a player waits for it
+	// to step clear; the piglin here has no AI and never steps clear, so in this 3 s fight the body holds and says so.
+	// A swing that does sweep it must be reported.
+	results.bar = 'hits on after the shield breaks and notes it; holds the sword while a calm piglin is in its sweep and says so, or reports the sweep that hit it';
+	const sweepOk = results.sweep.piglinHurt ? results.sweep.reported === true : results.sweep.held === true;
+	results.pass = results.shieldBreak.hitsAfterBreak === true && results.shieldBreak.notesBreak === true && sweepOk;
 	results.tick = await rate.report();
 	console.log(JSON.stringify(results.summary, null, 2));
 } finally {
