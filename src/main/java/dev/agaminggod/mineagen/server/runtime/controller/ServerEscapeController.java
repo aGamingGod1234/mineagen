@@ -1,6 +1,5 @@
 package dev.agaminggod.mineagen.server.runtime.controller;
 
-import dev.agaminggod.mineagen.agent.AgentDomainException;
 import dev.agaminggod.mineagen.client.navigation.GridPosition;
 import dev.agaminggod.mineagen.server.runtime.reflex.EscapeMoves;
 import java.util.ArrayList;
@@ -49,8 +48,6 @@ public final class ServerEscapeController implements ServerController {
 		net.minecraft.world.phys.Vec3 aim(ServerPlayer body, BlockPos at, Direction face, String itemId);
 		/** Places it with the ordinary placement gates; null when placed, else why not. */
 		String place(ServerPlayer body, BlockPos at, Direction face, String itemId);
-		/** Breaks one block with the build_shelter clearing gates (tools, protection, fluids behind); null when it cannot. */
-		default ServerController clear(ServerPlayer body, BlockPos at, long timeoutMs) { return null; }
 	}
 
 	public static final long DEFAULT_TIMEOUT_MS = 60_000L;
@@ -98,8 +95,6 @@ public final class ServerEscapeController implements ServerController {
 	/** Gives back the running move's attempt when a reflex interrupts it (see {@link #resumed}). */
 	private Runnable refund;
 	private int fills, steps, wades;
-	/** Ceiling blocks opened over the body to climb onto a bank beside it. */
-	private int ceilingCuts;
 	private int covers;
 	/** Runs out of a shooter's range when no cover is in reach. */
 	private int runs;
@@ -208,19 +203,6 @@ public final class ServerEscapeController implements ServerController {
 			if (adjacent) { climbs++; refund = () -> climbs--; }
 			else { farClimbs++; refund = () -> farClimbs--; }
 			return startMove(player, climbOut(bank, adjacent ? 60 : 100), "climb out onto the bank at " + bank.toShortString());
-		}
-		// The bank is beside the body and within the climb, but a ceiling over its head stops the rise: open it first.
-		// Only with the eyes in air: mining while afloat is five times slower, and five again with the head under.
-		BlockPos ceiling = !beside && ceilingCuts < MAX_TRIES && !player.isUnderWater() ? ceilingToOpen(player, bank) : null;
-		ServerController cut = null;
-		if (ceiling != null) {
-			ceilingCuts++;
-			// A break the gate refuses (lava behind the block, protection) leaves the other ways out to try.
-			try { cut = environment.clear(player, ceiling, childMs(now)); }
-			catch (AgentDomainException refused) { cut = null; }
-		}
-		if (cut != null) {
-			return startChild(player, cut, "open the ceiling at " + ceiling.toShortString() + " over the body to climb onto the bank at " + bank.toShortString());
 		}
 		// No bank within one push, but a flooded step beside the body whose floor is within the climb from where it floats
 		// (a flooded stair): a player wades up onto it, as each step up brings the next one, and the bank, in reach. A
@@ -338,55 +320,16 @@ public final class ServerEscapeController implements ServerController {
 	 */
 	static boolean takeoffClear(double minX, double maxX, double minZ, double maxZ, double boxTop, int stepTop,
 			java.util.function.Predicate<BlockPos> solid) {
-		return takeoffBlocks(minX, maxX, minZ, maxZ, boxTop, stepTop, solid).isEmpty();
-	}
-
-	/** The solid cells over the body's columns that keep it from rising onto a step at {@code stepTop} (lowest first). */
-	static List<BlockPos> takeoffBlocks(double minX, double maxX, double minZ, double maxZ, double boxTop, int stepTop,
-			java.util.function.Predicate<BlockPos> solid) {
 		double top = stepTop + STANDING_HEIGHT;
-		if (top <= boxTop) return List.of();
+		if (top <= boxTop) return true;
 		int x0 = net.minecraft.util.Mth.floor(minX), x1 = net.minecraft.util.Mth.floor(maxX - 1.0E-7D);
 		int z0 = net.minecraft.util.Mth.floor(minZ), z1 = net.minecraft.util.Mth.floor(maxZ - 1.0E-7D);
 		int y0 = net.minecraft.util.Mth.floor(boxTop), y1 = net.minecraft.util.Mth.floor(top - 1.0E-7D);
-		List<BlockPos> blocks = new ArrayList<>();
-		for (int y = y0; y <= y1; y++)
-			for (int x = x0; x <= x1; x++)
-				for (int z = z0; z <= z1; z++)
-					if (solid.test(new BlockPos(x, y, z))) blocks.add(new BlockPos(x, y, z));
-		return blocks;
-	}
-
-	/** At most this many ceiling blocks are opened over the body to climb onto a bank beside it. */
-	static final int CEILING_BLOCKS = 2;
-
-	/**
-	 * A bank beside the body that it could climb onto but for a ceiling over its own column (a steep cut that broke into
-	 * an aquifer: the stair step beside it, the cut's roof right over its head): the lowest ceiling block to break, as a
-	 * player mines the block over their head and climbs out. Null when the bank is out of the climb anyway, or a ceiling
-	 * block holds or touches a fluid, cannot be broken, or carries a falling block (it would only drop into the gap).
-	 * iron-obtain seed 6006: 4 of 20 runs floated under one stone for 6 minutes, every push "arrived" and nothing moved.
-	 */
-	static BlockPos ceilingToOpen(ServerPlayer player, BlockPos bank) {
-		if (bank == null || !adjacentBank(player, bank)) return null;
-		Level level = player.level();
-		if (bank.getY() - player.getY() > 1.3D || !SwimPlanning.climbsOut(bank.getY(), waterTopAt(level, player.blockPosition()))) return null;
-		net.minecraft.world.phys.AABB box = player.getBoundingBox();
-		List<BlockPos> blocks = takeoffBlocks(box.minX, box.maxX, box.minZ, box.maxZ, box.maxY, bank.getY(), at -> solid(level, at));
-		if (blocks.isEmpty() || blocks.size() > CEILING_BLOCKS) return null;
-		for (BlockPos block : blocks) if (!opensSafely(level, block)) return null;
-		return blocks.getFirst();
-	}
-
-	/** A block that breaks with a tool and lets nothing in: no fluid in it, over it or beside it, no falling block on it. */
-	static boolean opensSafely(Level level, BlockPos cell) {
-		BlockState state = level.getBlockState(cell);
-		if (state.getDestroySpeed(level, cell) < 0.0F || !state.getFluidState().isEmpty()) return false;
-		for (Direction side : Direction.values()) {
-			if (side == Direction.DOWN) continue;
-			if (!level.getFluidState(cell.relative(side)).isEmpty()) return false;
-		}
-		return !(level.getBlockState(cell.above()).getBlock() instanceof net.minecraft.world.level.block.FallingBlock);
+		for (int x = x0; x <= x1; x++)
+			for (int z = z0; z <= z1; z++)
+				for (int y = y0; y <= y1; y++)
+					if (solid.test(new BlockPos(x, y, z))) return false;
+		return true;
 	}
 
 	/**

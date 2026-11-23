@@ -101,15 +101,6 @@ public final class EscapeVerification {
 		Solid halfCeiling = (x, y, z) -> y <= 63 || (x == 1 && y >= 66);
 		check(!ServerEscapeController.takeoffClear(0.7, 1.3, 0.2, 0.8, 65.8, 65, at -> halfCeiling.at(at.getX(), at.getY(), at.getZ())),
 				"a ceiling over part of the body's box still blocks the takeoff");
-		// The blocks to open for that takeoff: the one ceiling cell over the body, only the covered column's cell when it
-		// straddles two, none under a taller passage (seed 6006: a steep cut's roof over a body floating beside its step).
-		check(ServerEscapeController.takeoffBlocks(0.2, 0.8, 0.2, 0.8, 65.8, 65, at -> lowCeiling.at(at.getX(), at.getY(), at.getZ()))
-				.equals(java.util.List.of(new BlockPos(0, 66, 0))), "the ceiling cell over the head is the one to open");
-		check(ServerEscapeController.takeoffBlocks(0.7, 1.3, 0.2, 0.8, 65.8, 65, at -> halfCeiling.at(at.getX(), at.getY(), at.getZ()))
-				.equals(java.util.List.of(new BlockPos(1, 66, 0))), "only the ceiling over the covered column is opened");
-		check(ServerEscapeController.takeoffBlocks(0.2, 0.8, 0.2, 0.8, 65.8, 65, at -> tallerPassage.at(at.getX(), at.getY(), at.getZ())).isEmpty(),
-				"a taller passage needs nothing opened");
-		assertions += 3;
 		// Already as high as the step needs: nothing to check.
 		check(ServerEscapeController.takeoffClear(0.2, 0.8, 0.2, 0.8, 66.9, 65, at -> true), "a body already high enough needs no headroom check");
 		// The water-exit climb (test-water-exit-live, 23 Nov): a ledge top up to 0.875 over the water's top face climbed from
