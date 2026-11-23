@@ -63,6 +63,8 @@ test('an arm merged from its rooms carries the rooms\' switch lines, never the m
 	const merged = await mergeArms({ out, rooms, arms: ['on'], outcomes });
 	assert.deepEqual(merged.on.summary.switches, { coordinator: ['switches instincts=on@env'], server: [SERVER, SERVER.replace('instincts=off', 'instincts=on@env')], unrecorded: 0 });
 	assert.deepEqual(mergeSwitchRecords([null, merged.on.summary.switches]).unrecorded, 1);
+	// A merged record's own unrecorded rooms carry into a merge of merges (a benchmark's arms).
+	assert.equal(mergeSwitchRecords([{ coordinator: [], server: [], unrecorded: 2 }, null]).unrecorded, 3);
 });
 
 test('the coordinator logs its switch line at start, and an unreadable set without stopping', () => {
