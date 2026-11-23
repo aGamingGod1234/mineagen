@@ -342,13 +342,18 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 				// (dragonFact): armed from the first crystal step, and the bucket refilled from the water it poured.
 				let clutchArmed = false;
 				const CLUTCH = [{ id: 'water-clutch', kind: 'trigger', priority: 9, when: [{ type: 'falling', blocks: 4 }], do: { type: 'place', item: 'minecraft:water_bucket', where: 'below' }, ttlS: 1800 }];
+				let refillMissNoted = false;
+				// A cage takes minutes of back-to-back steps: none starts once the judged window is over.
+				const over = async what => { if (await inWindow()) return false; note(`${what}: the window is over`, null); return true; };
+				const hotbarBucket = o => (o?.inventory?.items ?? []).some(i => i.itemId === 'minecraft:water_bucket' && (Number.isInteger(i.slot) ? i.slot < 9 : /hotbar|offhand/.test(String(i.slot))));
 				const refill = async () => {
 					const v = await view().catch(() => null);
 					const items = v?.inventory?.items ?? [];
 					if (items.some(i => i.itemId === 'minecraft:water_bucket') || !items.some(i => i.itemId === 'minecraft:bucket') || !v?.player) return;
 					const water = (v.blocks ?? []).filter(b => b?.blockId === 'minecraft:water' && [b.x, b.y, b.z].every(Number.isFinite))
 						.sort((a, b) => Math.hypot(a.x + 0.5 - v.player.x, a.y - v.player.y, a.z + 0.5 - v.player.z) - Math.hypot(b.x + 0.5 - v.player.x, b.y - v.player.y, b.z + 0.5 - v.player.z))[0];
-					if (!water || Math.hypot(water.x + 0.5 - v.player.x, water.y + 0.5 - v.player.y - 1.6, water.z + 0.5 - v.player.z) > 4.5) { note('refill: no water in reach', null); return; }
+					if (!water || Math.hypot(water.x + 0.5 - v.player.x, water.y + 0.5 - v.player.y - 1.6, water.z + 0.5 - v.player.z) > 4.5) { if (!refillMissNoted) note('refill: no water in reach', null); refillMissNoted = true; return; }
+					refillMissNoted = false;
 					await act('select_item', { itemId: 'minecraft:bucket' });
 					const r = await act('use_item', { expectedItemId: 'minecraft:bucket', aimX: water.x + 0.5, aimY: water.y + 0.5, aimZ: water.z + 0.5, durationMs: 100 });
 					note(`refill the bucket at ${water.x},${water.y},${water.z}`, r);
@@ -361,6 +366,7 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 					let [sx, sz] = Math.abs(cx) >= Math.abs(cz) ? [-Math.sign(cx), 0] : [0, -Math.sign(cz)];
 					const groundSpot = D => ({ x: cx + 0.5 + sx * D, z: cz + 0.5 + sz * D });
 					let g = groundSpot(18);
+					if (await over('cage')) return;
 					await goTo(g.x, g.z, `to the ground before caged crystal ${where(c)}`);
 					let r = await shoot(c, 'shoot (cage check)');
 					if (c.gone || r.state === 'SUCCEEDED') return;
@@ -373,6 +379,9 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 					const base = await groundY(S.x, S.z);
 					if (!Number.isFinite(base) || base < 40 || base >= S.y) { note(`no ground beside caged crystal ${where(c)} (y ${base})`, null); c.cageTries = 99; return; }
 					// 2. Onto the cell beside the wall, feet centred, and pillar a whole column to the crystal's feet height.
+					// The facts' descent needs a water bucket in the hotbar: without one, the method is not used at all.
+					if (!hotbarBucket(await view().catch(() => null))) { note(`no water bucket in the hotbar: caged crystal ${where(c)} left for now`, null); c.gaveUp = true; return; }
+					if (await over('to the cage')) return;
 					r = await act('travel_to', { x: S.x + 0.5, y: base, z: S.z + 0.5, tolerance: 1, build: true, timeoutMs: 60000 }); note('to the spot beside the cage', r);
 					let f = await feetNow();
 					for (let i = 0; i < 3 && f && (f.x !== S.x || f.z !== S.z || f.y !== base); i++) {
@@ -381,6 +390,7 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 					}
 					if (!f || f.x !== S.x || f.z !== S.z || f.y !== base) { note(`not on the spot beside the cage (feet ${f ? `${f.x},${f.y},${f.z}` : '?'})`, null); return; }
 					await act('select_item', { itemId: 'minecraft:cobblestone' });
+					if (await over('the pillar')) return;
 					await dragonAway('before the pillar');
 					for (let i = 0; i < 4 && f && f.x === S.x && f.z === S.z && f.y < S.y; i++) {
 						r = await act('build', { structure: 'pillar', size: S.y - f.y, itemId: 'minecraft:cobblestone', timeoutMs: 60000 }); note(`pillar ${S.y - f.y} up beside the cage`, r);
@@ -389,6 +399,7 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 					if (!f || f.x !== S.x || f.z !== S.z || f.y < S.y) { note(`pillar short (feet ${f ? `${f.x},${f.y},${f.z}` : '?'} of ${S.y})`, null); return; }
 					// 3. The wall bars at the crystal's feet height and above; the lowest row stays (CAGED_CRYSTAL_FACTS).
 					await act('select_item', { itemId: 'minecraft:iron_pickaxe' });
+					if (await over('the bars')) return;
 					await dragonAway('before the bars');
 					for (const y of [cy + 1, cy]) {
 						r = await act('break_block', { x: W.x, y, z: W.z, expectedBlockId: 'minecraft:iron_bars', timeoutMs: 10000 }); note(`break bar ${W.x},${y},${W.z}`, r);
@@ -397,6 +408,7 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 					f = await feetNow();
 					const bucket = (f?.o?.inventory?.items ?? []).some(i => i.itemId === 'minecraft:water_bucket' && (Number.isInteger(i.slot) ? i.slot < 9 : /hotbar|offhand/.test(String(i.slot))));
 					note(`descend: water bucket in the hotbar ${bucket}`, null);
+					// Down even past the window: the body does not stay on the column.
 					await dragonAway('before the descent');
 					for (let i = 0; i < 2 && f && f.y > base; i++) {
 						r = await act('dig_to', { pattern: 'shaft', y: base, maxShaftY: base, throughCaves: true, timeoutMs: 90000 }); note('shaft down the column', r);
@@ -406,6 +418,7 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 					// 5. Only once down on the island floor: from the ground on that side, through the gap.
 					if (!f || f.y > base + 1) { note(`descent short (feet ${f ? `${f.x},${f.y},${f.z}` : '?'}, ground ${base})`, null); return; }
 					for (const D of [18, 24, 13]) {
+						if (await over('the shot through the gap')) return;
 						g = groundSpot(D);
 						await goTo(g.x, g.z, `to ${D} out from the opened cage`);
 						for (let k = 0; k < 2 && !c.gone; k++) {
