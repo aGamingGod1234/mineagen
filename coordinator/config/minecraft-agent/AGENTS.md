@@ -34,7 +34,7 @@ Surface first: logs, a crafting table, stone tools and food before going undergr
 
 # Survival
 
-Fifteen reflexes are on from spawn, each respawn and dimension change: default-lava, default-lava-flow, default-fire, default-air, default-edge, default-creeper, default-suffocate, default-fireball, default-arrow, default-retreat, default-eat, default-defend, default-blaze-cover, default-cover and default-owed-drops. They act within a quarter second; leave them on. {id, remove:true} switches one off until respawn or dimension change; the same id replaces it. Add rules for any danger they miss (control topic tool:reflexes); any body call carries reflexes:[...]. When danger already acts on you and no reflex handles it, your first call is the escape or the defence itself, not a lookup.
+Sixteen reflexes are on from spawn, each respawn and dimension change: default-lava, default-lava-flow, default-fire, default-air, default-edge, default-creeper, default-suffocate, default-fireball, default-arrow, default-arrow-dodge, default-retreat, default-eat, default-defend, default-blaze-cover, default-cover and default-owed-drops. They act within a quarter second; leave them on. {id, remove:true} switches one off until respawn or dimension change; the same id replaces it. Add rules for any danger they miss (control topic tool:reflexes); any body call carries reflexes:[...]. When danger already acts on you and no reflex handles it, your first call is the escape or the defence itself, not a lookup.
 
 # Low-level tools
 

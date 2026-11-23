@@ -1,0 +1,5 @@
+# #186: Step across a drawn bow's line with no shield, and count being shot at as under fire
+
+- **Problem:** without a shield, the bot stood still in front of skeletons and died in open ground almost every time: in a room with two skeletons and a zombie it died 27 of 30 times on main over three rounds.
+- **Solution:** on the same early warning the shield uses (a bow drawn at the body, or a loaded crossbow aimed at it), the bot side-steps across the shot's line around the release, the other way on the next shot, on checked footing. Being shot at, not only being hit, now also sends it for walls or cover, and a due cover rule takes over from the dodge.
+- **Result:** in that room deaths fell from 9 of 10 to 1 of 10 and mean damage from 36.0 to 22.1 HP (measured, 10 runs a side on one boat machine, both arms run the same way, Holm p = 0.002). In the cover room damage fell from 8.8 to 4.1 HP with no deaths either side, and the bot was in cover or walled in on every side in 9 of 10 runs against 10 of 10 on main. A first version dodged every hit and so never went for cover (10 of 10 to 1 of 10); counting being shot at as under fire fixed it.
