@@ -295,7 +295,7 @@ public final class ServerEscapeController implements ServerController {
 				if (!takeoffClear(box.minX, box.maxX, box.minZ, box.maxZ, box.maxY, cell.getY(),
 						at -> !level.getBlockState(at).getCollisionShape(level, at).isEmpty())) continue;
 				double ledge = cell.getY() - player.getY();
-				if (cell.getY() > ownFloorTop && ledge > bestLedge && SwimPlanning.climbsOut(cell.getY(), waterTop)) { bestLedge = ledge; best = cell; }
+				if (cell.getY() > ownFloorTop && ledge > bestLedge && SwimPlanning.climbsOut(cell.getY(), waterTop) && leadsOn(level, cell)) { bestLedge = ledge; best = cell; }
 			}
 		}
 		return best;
@@ -322,6 +322,24 @@ public final class ServerEscapeController implements ServerController {
 				for (int y = y0; y <= y1; y++)
 					if (solid.test(new BlockPos(x, y, z))) return false;
 		return true;
+	}
+
+	/**
+	 * Standing on the flooded step at {@code cell}, the way goes on: beside it, level with it or one up, dry footing (the
+	 * bank) or the next flooded step one up, as on a flooded stair. A lone step in open water (B-1's aquifer, beside the
+	 * flooded hole) leads nowhere: the body stands there in the water with nothing left to climb (ESCAPE_NO_SHORE, 0 of
+	 * 10), where a block placed into it (STEP) is a bank of its own.
+	 */
+	static boolean leadsOn(Level level, BlockPos cell) {
+		for (Direction side : Direction.Plane.HORIZONTAL) {
+			for (int dy = 0; dy <= 1; dy++) {
+				BlockPos next = cell.relative(side).above(dy);
+				BlockPos under = next.below();
+				if (!level.getFluidState(under).isEmpty() || !level.getBlockState(under).isFaceSturdy(level, under, Direction.UP) || !roomOver(level, next.above())) continue;
+				if (clear(level, next) || dy == 1 && roomOver(level, next) && level.getFluidState(next).is(net.minecraft.tags.FluidTags.WATER)) return true;
+			}
+		}
+		return false;
 	}
 
 	/** A cell the body fits in over a step: air or water, nothing solid, no hazard. */
