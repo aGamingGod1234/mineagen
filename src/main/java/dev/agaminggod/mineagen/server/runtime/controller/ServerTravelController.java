@@ -1878,7 +1878,8 @@ public final class ServerTravelController implements ServerController {
 	private TickResult clearUpTick(ServerPlayer player, long nowEpochMs) {
 		BlockPos over = new BlockPos(moveFeet.x(), moveFeet.y() + 2, moveFeet.z());
 		BlockState state = player.level().getBlockState(over);
-		if (shaftSettle >= 0 && !player.level().getEntitiesOfClass(net.minecraft.world.entity.item.FallingBlockEntity.class,
+		// Only once the headroom is open: before that the solid block shields the body and hides the column above it.
+		if (shaftSettle >= 0 && state.getCollisionShape(player.level(), over).isEmpty() && !player.level().getEntitiesOfClass(net.minecraft.world.entity.item.FallingBlockEntity.class,
 				new AABB(over.below(2)).expandTowards(0.0D, 6.0D, 0.0D).inflate(0.2D, 0.0D, 0.2D)).isEmpty()) {
 			// Sand or gravel the mined headroom held up is coming down the column: step out from under it, as a digger does,
 			// before the climb ends, or the stack fills the feet and head cells.
