@@ -147,6 +147,12 @@ test('dragon facts name the fling, the water landing and an End bucket that cann
 		{ blockId: 'minecraft:water', x: 5, y: 61, z: 11, fluid: { type: 'minecraft:flowing_water' } }],
 		landmarks: [{ blockId: 'minecraft:water', x: 6, y: 61, z: 12, distance: 1 }] });
 	assert.match(flowOnly, /Water seen at 5,61,11 \(flowing or not known\); an empty bucket aimed at flowing water fills from the source it flows from\./);
+	// The source the bot's own reflex poured is named from memory when the block rows show only its flow.
+	const flowRows = { ...base, inventory: bucket, position: { x: 6.5, y: 61, z: 11.5 }, blocks: [
+		{ blockId: 'minecraft:water', x: 5, y: 61, z: 11, fluid: { type: 'minecraft:flowing_water' } }] };
+	assert.match(combatFacts(flowRows, { ownPours: [{ x: 30, y: 61, z: 11 }, { x: 3, y: 61, z: 11 }] }), /a source block\)\. Water source you poured at 3,61,11 \(remembered; aim the empty bucket there\)\./);
+	// A source in sight still wins over memory.
+	assert.match(combatFacts({ ...flowRows, blocks: [...flowRows.blocks, { blockId: 'minecraft:water', x: 7, y: 61, z: 11, fluid: { type: 'minecraft:water' } }] }, { ownPours: [{ x: 3, y: 61, z: 11 }] }), /Water source seen at 7,61,11\./);
 	assert.match(combatFacts({ ...base, inventory: { items: [] } }), /No water bucket carried\./);
 	assert.doesNotMatch(combatFacts({ ...base, entities: [] }) ?? '', /Ender dragon/);
 });

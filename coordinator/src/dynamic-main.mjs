@@ -4445,8 +4445,9 @@ export class DynamicCoordinator extends EventEmitter {
 			// Facts the wake filter held while the model's action ran (hits absorbed, items gained, routine updates).
 			const whileActing = this.#wakeFilter.take(record.agentId, observation);
 			const pace = continuity === null ? null : this.#bodyPace.line(record.agentId);
+			const ownPours = this.#nativeRuntime.reflexPours?.(record, observation) ?? [];
 			const input = buildNativeEventInput(record, {
-				...nativeEvent, movementLoop, taskMemory, progress: this.#taskViews.progress(record), goalNow: this.#taskViews.goalLine(record), doing: this.#taskViews.doingLine(record), skillFits: this.#taskViews.skillLine?.(record) ?? null,
+				...nativeEvent, movementLoop, taskMemory, ownPours, progress: this.#taskViews.progress(record), goalNow: this.#taskViews.goalLine(record), doing: this.#taskViews.doingLine(record), skillFits: this.#taskViews.skillLine?.(record) ?? null,
 				continuity: guardOutcome || reflexes || pace || whileActing ? { ...continuity, ...(guardOutcome ? { guardOutcome } : {}), ...(reflexes ? { reflexes } : {}), ...(whileActing ? { whileActing } : {}), ...(pace ? { pace } : {}) } : continuity, dangerSummary: request.dangerSummary,
 				awaitingConfirmation: this.#awaitingNativeConfirmation(record, request.lifecycleGeneration),
 				confirmationFacts: this.#nativeConfirmationWaits.get(record.agentId)?.facts ?? null,
