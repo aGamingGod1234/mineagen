@@ -196,6 +196,9 @@ public final class ServerBuildController implements ServerController {
 	static final int MAX_UNCOVERS = 24;
 	/** Blocks a lava fetch may open to scoop a source hidden behind one block. */
 	static final int MAX_FETCH_WINDOWS = 6;
+	/** Blocks a lava fetch may mine digging a way through rock to a known source, and how far across that source may lie. */
+	static final int MAX_FETCH_DIGS = 24;
+	static final int FETCH_DIG_REACH = 10;
 
 
 	/** A 4x5 portal frame: origin is its bottom-left corner, set in the ground row; the frame spans along {@code axis}. */
@@ -406,7 +409,8 @@ public final class ServerBuildController implements ServerController {
 	private boolean waterFirst, runOffMeetsLava;
 	/** This cell has no spot whose water line misses the lava's cell: pour it from a spot where it crosses (main's way). */
 	private boolean crossAllowed;
-	private int lavaTakes, fetchRetries, fetchWindows;
+	private int lavaTakes, fetchRetries, fetchWindows, fetchDigs;
+	private BlockPos fetchDigLook;
 	private int staleScoops;
 	private final java.util.ArrayDeque<BlockPos> wayBack = new java.util.ArrayDeque<>();
 
@@ -2454,6 +2458,10 @@ public final class ServerBuildController implements ServerController {
 			seekWalks = 0;
 			return running();
 		}
+		// Lava known close across with no dry spot by it in sight (kit-gate-5: the cast site was carved where the body stood,
+		// 7 blocks of rock from a lava lake walled in on every side; 6 of 6 fetches gave up here): a player tunnels to it.
+		TickResult dug = digTowardLava(player, sources.isEmpty() ? remembered : sources, now);
+		if (dug != null) return dug;
 		return fail(player, "BUILD_SHORT", "Short of material: no lava source in reach after " + castIndex + " of 10 cells (" + sources.size() + " seen within "
 				+ CAST_FETCH_RANGE + " blocks of the frame, none with a dry spot beside it) after looking round and walking the shore near " + xyz(around)
 				+ "; find more lava and build again" + lastWalk());
@@ -2887,6 +2895,65 @@ public final class ServerBuildController implements ServerController {
 			bestDistance = distance;
 		}
 		return best;
+	}
+
+	/**
+	 * One step of a 1x2 way dug at the feet's level toward the nearest known source a little below them: mine the next cell
+	 * (feet, then head) through the break's own fluid rules, then step in. The scoop, or the one-block window, takes over
+	 * once the source is in reach. Never through the frame, its footprint or the mould, never onto an open drop or lava
+	 * floor. Null when no step is left.
+	 */
+	private TickResult digTowardLava(ServerPlayer player, List<BlockPos> sources, long now) {
+		if (fetchDigs >= MAX_FETCH_DIGS || sources.isEmpty()) return null;
+		ServerLevel level = (ServerLevel) player.level();
+		BlockPos feet = player.blockPosition();
+		BlockPos target = null;
+		double best = Double.MAX_VALUE;
+		for (BlockPos source : sources) {
+			if (source.getY() >= feet.getY() || feet.getY() - source.getY() > 3) continue;
+			double across = Math.hypot(source.getX() - feet.getX(), source.getZ() - feet.getZ());
+			if (across <= FETCH_DIG_REACH && across < best) { best = across; target = source; }
+		}
+		if (target == null) return null;
+		int dx = target.getX() - feet.getX(), dz = target.getZ() - feet.getZ();
+		Direction alongX = dx > 0 ? Direction.EAST : dx < 0 ? Direction.WEST : null;
+		Direction alongZ = dz > 0 ? Direction.SOUTH : dz < 0 ? Direction.NORTH : null;
+		Direction[] order = Math.abs(dx) >= Math.abs(dz) ? new Direction[] { alongX, alongZ } : new Direction[] { alongZ, alongX };
+		steps:
+		for (Direction step : order) {
+			if (step == null) continue;
+			BlockPos next = feet.relative(step);
+			if (inFootprint(next) || inFootprint(next.above()) || mould.contains(next) || mould.contains(next.above())) continue;
+			BlockState floor = known(player, next.below());
+			if (floor == null) {
+				// The floor of a cell just opened is not seen yet: look at it before judging the step.
+				if (next.below().equals(fetchDigLook)) continue;
+				fetchDigLook = next.below().immutable();
+				releaseInput();
+				ServerLookController.turnToward(player, Vec3.atCenterOf(fetchDigLook));
+				pause = 3;
+				return running();
+			}
+			if (floor.isAir() || !floor.getFluidState().isEmpty()) continue;
+			for (BlockPos cell : new BlockPos[] { next, next.above() }) {
+				BlockState state = known(player, cell);
+				if (state == null || !state.getFluidState().isEmpty()) continue steps;
+				if (state.isAir()) continue;
+				if (uncoverDead.contains(cell) || clearTicks(player, level, cell, state) > MAX_CLEAR_TICKS) continue steps;
+				fetchDigs++;
+				uncoverCell = cell.immutable();
+				releaseInput();
+				try {
+					LOGGER.info("[build] {} digs {} toward the lava at {}", player.getGameProfile().name(), xyz(cell), xyz(target));
+					return startChild(player, Child.UNCOVER, environment.uncover(player, cell, Math.min(15_000L, Math.max(1L, deadline - now))));
+				} catch (AgentDomainException refused) {
+					uncoverDead.add(cell);
+					continue steps;
+				}
+			}
+			if (standable(player, level, next) && walks < MAX_WALKS - 1) return walkTo(player, next, now);
+		}
+		return null;
 	}
 
 	/** The single known solid cell on the line from {@code from} to {@code to} (the source's own cell aside), else null. */
