@@ -58,7 +58,9 @@ id=$1; dir=$HOME/ck/games/$id; raw=$HOME/ck/arms/runs/$id; mkdir -p "$raw/.codex
 [ -f "$HOME/BROKEN" ] && exit 0
 # A SLOW file keeps each game on that machine running across a few passes; a HANG file keeps it running for minutes.
 [ -f "$HOME/SLOW" ] && sleep 1
-[ -f "$HOME/VANISH_ON_START" ] && { touch "$HOME/VANISH"; sleep 30; }
+# The batch sees the machine gone within a pass; the game on it lives on a few seconds longer. On the fake's one host,
+# pgrep in the batch's check sees that game.sh too, so a longer sleep only holds back the replay's check.
+[ -f "$HOME/VANISH_ON_START" ] && { touch "$HOME/VANISH"; sleep 3; }
 [ -f "$HOME/HANG" ] && sleep 300
 cp "$HOME/.codex/auth.json" "$raw/.codex-home/auth.json"; [ -f "$FAKE_BOAT_ROOT/REFRESH" ] && echo refreshed >> "$raw/.codex-home/auth.json"
 echo '{"event":"native_token_usage"}' > "$raw/coordinator.jsonl"
@@ -454,7 +456,9 @@ test('checkpoint batch cuts a stalled drop of a lost machine on SIGTERM and stil
 		const signalledAt = Date.now();
 		child.kill('SIGTERM');
 		// Without the signal on the drop's calls, the runner waits out the stalled ssh (up to two minutes) before cleaning up.
-		await Promise.race([exited, new Promise(r => setTimeout(r, 40_000))]);
+		let timer;
+		await Promise.race([exited, new Promise(r => { timer = setTimeout(r, 40_000); })]);
+		clearTimeout(timer);
 		const took = Date.now() - signalledAt;
 		assert.notEqual(code, null, 'the runner exited after SIGTERM');
 		assert.ok(took < 25_000, `the stalled drop did not hold back the cleanup (${took} ms)`);
