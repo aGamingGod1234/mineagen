@@ -1,0 +1,348 @@
+[
+	{
+		"name": "lava-lip-jump",
+		"seed": "20261123",
+		"inventory": [
+			{
+				"item": "minecraft:bread",
+				"count": 8
+			}
+		],
+		"monsters": false,
+		"note": "A deck 5 above a lava sea on the Nether roof; the body stands 2.5 blocks from the east lip and holds a 20-tick sprint jump east (raw control keys). A player does not jump off a lip into lava: pass is no lava and no death.",
+		"setup": [
+			"execute in minecraft:the_nether run forceload add 80 80 120 120",
+			"execute in minecraft:the_nether run fill 82 128 82 118 140 118 minecraft:air",
+			"execute in minecraft:the_nether run fill 84 128 84 116 128 116 minecraft:lava",
+			"execute in minecraft:the_nether run fill 96 133 97 103 133 103 minecraft:netherrack"
+		],
+		"after": {
+			"ms": 3000,
+			"commands": [
+				"execute in minecraft:the_nether run forceload add 80 80 120 120",
+				"execute in minecraft:the_nether run fill 82 128 82 118 140 118 minecraft:air",
+				"execute in minecraft:the_nether run fill 84 128 84 116 128 116 minecraft:lava",
+				"execute in minecraft:the_nether run fill 96 133 97 103 133 103 minecraft:netherrack",
+				"execute in minecraft:the_nether run tp Probe 101.5 134 100.5 -90 0"
+			]
+		},
+		"budgetMs": 120000,
+		"calls": [
+			{
+				"name": "act",
+				"arguments": {
+					"actionType": "control",
+					"arguments": {
+						"forward": 0,
+						"strafe": 0,
+						"jump": false,
+						"sneak": false,
+						"sprint": false,
+						"attack": false,
+						"use": false,
+						"yaw": -90,
+						"pitch": 40,
+						"selectedSlot": 0,
+						"hand": "main",
+						"ticks": 2
+					}
+				}
+			},
+			{
+				"name": "act",
+				"arguments": {
+					"actionType": "control",
+					"arguments": {
+						"forward": 1,
+						"strafe": 0,
+						"jump": true,
+						"sneak": false,
+						"sprint": true,
+						"attack": false,
+						"use": false,
+						"yaw": -90,
+						"pitch": 0,
+						"selectedSlot": 0,
+						"hand": "main",
+						"ticks": 20
+					}
+				}
+			}
+		]
+	},
+	{
+		"name": "lava-lip-walk",
+		"seed": "20261123",
+		"inventory": [
+			{
+				"item": "minecraft:bread",
+				"count": 8
+			}
+		],
+		"monsters": false,
+		"note": "The same deck; the body holds a 40-tick sprint east toward the lip with no jump (raw control keys). Pass is no lava and no death.",
+		"setup": [
+			"execute in minecraft:the_nether run forceload add 80 80 120 120",
+			"execute in minecraft:the_nether run fill 82 128 82 118 140 118 minecraft:air",
+			"execute in minecraft:the_nether run fill 84 128 84 116 128 116 minecraft:lava",
+			"execute in minecraft:the_nether run fill 96 133 97 103 133 103 minecraft:netherrack"
+		],
+		"after": {
+			"ms": 3000,
+			"commands": [
+				"execute in minecraft:the_nether run forceload add 80 80 120 120",
+				"execute in minecraft:the_nether run fill 82 128 82 118 140 118 minecraft:air",
+				"execute in minecraft:the_nether run fill 84 128 84 116 128 116 minecraft:lava",
+				"execute in minecraft:the_nether run fill 96 133 97 103 133 103 minecraft:netherrack",
+				"execute in minecraft:the_nether run tp Probe 101.5 134 100.5 -90 0"
+			]
+		},
+		"budgetMs": 120000,
+		"calls": [
+			{
+				"name": "act",
+				"arguments": {
+					"actionType": "control",
+					"arguments": {
+						"forward": 0,
+						"strafe": 0,
+						"jump": false,
+						"sneak": false,
+						"sprint": false,
+						"attack": false,
+						"use": false,
+						"yaw": -90,
+						"pitch": 40,
+						"selectedSlot": 0,
+						"hand": "main",
+						"ticks": 2
+					}
+				}
+			},
+			{
+				"name": "act",
+				"arguments": {
+					"actionType": "control",
+					"arguments": {
+						"forward": 1,
+						"strafe": 0,
+						"jump": false,
+						"sneak": false,
+						"sprint": true,
+						"attack": false,
+						"use": false,
+						"yaw": -90,
+						"pitch": 0,
+						"selectedSlot": 0,
+						"hand": "main",
+						"ticks": 40
+					}
+				}
+			}
+		]
+	},
+	{
+		"name": "lava-step-narrow",
+		"seed": "20261123",
+		"inventory": [
+			{
+				"item": "minecraft:bread",
+				"count": 8
+			}
+		],
+		"monsters": false,
+		"note": "A low deck, then one block up a 1-wide walkway turning north over the lava sea (6 down): move_to the walkway end makes the walk jump up onto a narrow block whose far side drops into lava, the fortress-search death at gate-5. Pass is arriving with no lava and no death.",
+		"setup": [
+			"execute in minecraft:the_nether run forceload add 80 80 120 120",
+			"execute in minecraft:the_nether run fill 82 128 82 118 140 118 minecraft:air",
+			"execute in minecraft:the_nether run fill 84 128 84 116 128 116 minecraft:lava",
+			"execute in minecraft:the_nether run fill 94 133 98 100 133 102 minecraft:netherrack",
+			"execute in minecraft:the_nether run fill 101 134 94 101 134 100 minecraft:netherrack"
+		],
+		"after": {
+			"ms": 3000,
+			"commands": [
+				"execute in minecraft:the_nether run forceload add 80 80 120 120",
+				"execute in minecraft:the_nether run fill 82 128 82 118 140 118 minecraft:air",
+				"execute in minecraft:the_nether run fill 84 128 84 116 128 116 minecraft:lava",
+				"execute in minecraft:the_nether run fill 94 133 98 100 133 102 minecraft:netherrack",
+				"execute in minecraft:the_nether run fill 101 134 94 101 134 100 minecraft:netherrack",
+				"execute in minecraft:the_nether run tp Probe 95.5 134 100.5 -90 0"
+			]
+		},
+		"budgetMs": 120000,
+		"calls": [
+			{
+				"name": "act",
+				"arguments": {
+					"actionType": "control",
+					"arguments": {
+						"forward": 0,
+						"strafe": 0,
+						"jump": false,
+						"sneak": false,
+						"sprint": false,
+						"attack": false,
+						"use": false,
+						"yaw": -90,
+						"pitch": 40,
+						"selectedSlot": 0,
+						"hand": "main",
+						"ticks": 2
+					}
+				}
+			},
+			{
+				"name": "act",
+				"arguments": {
+					"actionType": "move_to",
+					"arguments": {
+						"x": 101.5,
+						"y": 135,
+						"z": 94.5,
+						"tolerance": 1,
+						"timeoutMs": 60000
+					}
+				}
+			}
+		],
+		"expectCode": "DESTINATION_REACHED"
+	},
+	{
+		"name": "lava-deck-walk",
+		"seed": "20261123",
+		"inventory": [
+			{
+				"item": "minecraft:bread",
+				"count": 8
+			}
+		],
+		"monsters": false,
+		"note": "A 3-wide, 17-long deck 5 above the lava sea; move_to from one end of its south lip lane to the other. Pass is arriving with no lava and no death; the trail shows which lane the walk kept to.",
+		"setup": [
+			"execute in minecraft:the_nether run forceload add 80 80 120 120",
+			"execute in minecraft:the_nether run fill 82 128 82 118 140 118 minecraft:air",
+			"execute in minecraft:the_nether run fill 84 128 84 116 128 116 minecraft:lava",
+			"execute in minecraft:the_nether run fill 92 133 99 108 133 101 minecraft:netherrack"
+		],
+		"after": {
+			"ms": 3000,
+			"commands": [
+				"execute in minecraft:the_nether run forceload add 80 80 120 120",
+				"execute in minecraft:the_nether run fill 82 128 82 118 140 118 minecraft:air",
+				"execute in minecraft:the_nether run fill 84 128 84 116 128 116 minecraft:lava",
+				"execute in minecraft:the_nether run fill 92 133 99 108 133 101 minecraft:netherrack",
+				"execute in minecraft:the_nether run tp Probe 92.5 134 101.5 -90 0"
+			]
+		},
+		"budgetMs": 120000,
+		"calls": [
+			{
+				"name": "act",
+				"arguments": {
+					"actionType": "control",
+					"arguments": {
+						"forward": 0,
+						"strafe": 0,
+						"jump": false,
+						"sneak": false,
+						"sprint": false,
+						"attack": false,
+						"use": false,
+						"yaw": -90,
+						"pitch": 40,
+						"selectedSlot": 0,
+						"hand": "main",
+						"ticks": 2
+					}
+				}
+			},
+			{
+				"name": "act",
+				"arguments": {
+					"actionType": "move_to",
+					"arguments": {
+						"x": 108.5,
+						"y": 134,
+						"z": 101.5,
+						"tolerance": 1,
+						"timeoutMs": 60000
+					}
+				}
+			}
+		],
+		"expectCode": "DESTINATION_REACHED"
+	},
+	{
+		"name": "lava-deck-skeleton",
+		"seed": "20261123",
+		"inventory": [
+			{
+				"item": "minecraft:bread",
+				"count": 8
+			}
+		],
+		"monsters": true,
+		"note": "The 3-wide deck with a caged skeleton 5 blocks off its south lip shooting through a window; move_to along the south lip lane, no shield. Pass is arriving with no death.",
+		"setup": [
+			"execute in minecraft:the_nether run forceload add 80 80 120 120",
+			"execute in minecraft:the_nether run fill 82 128 82 118 140 118 minecraft:air",
+			"execute in minecraft:the_nether run fill 84 128 84 116 128 116 minecraft:lava",
+			"execute in minecraft:the_nether run fill 92 133 99 108 133 101 minecraft:netherrack",
+			"execute in minecraft:the_nether run fill 99 133 105 101 137 107 minecraft:nether_bricks",
+			"execute in minecraft:the_nether run fill 100 134 106 100 135 106 minecraft:air",
+			"execute in minecraft:the_nether run fill 100 135 105 100 135 105 minecraft:air"
+		],
+		"after": {
+			"ms": 3000,
+			"commands": [
+				"execute in minecraft:the_nether run forceload add 80 80 120 120",
+				"execute in minecraft:the_nether run fill 82 128 82 118 140 118 minecraft:air",
+				"execute in minecraft:the_nether run fill 84 128 84 116 128 116 minecraft:lava",
+				"execute in minecraft:the_nether run fill 92 133 99 108 133 101 minecraft:netherrack",
+				"execute in minecraft:the_nether run fill 99 133 105 101 137 107 minecraft:nether_bricks",
+				"execute in minecraft:the_nether run fill 100 134 106 100 135 106 minecraft:air",
+				"execute in minecraft:the_nether run fill 100 135 105 100 135 105 minecraft:air",
+				"execute in minecraft:the_nether run tp Probe 92.5 134 101.5 -90 0",
+				"execute in minecraft:the_nether run summon minecraft:skeleton 100.5 134 106.5 {PersistenceRequired:1b}"
+			]
+		},
+		"budgetMs": 120000,
+		"calls": [
+			{
+				"name": "act",
+				"arguments": {
+					"actionType": "control",
+					"arguments": {
+						"forward": 0,
+						"strafe": 0,
+						"jump": false,
+						"sneak": false,
+						"sprint": false,
+						"attack": false,
+						"use": false,
+						"yaw": -90,
+						"pitch": 40,
+						"selectedSlot": 0,
+						"hand": "main",
+						"ticks": 2
+					}
+				}
+			},
+			{
+				"name": "act",
+				"arguments": {
+					"actionType": "move_to",
+					"arguments": {
+						"x": 108.5,
+						"y": 134,
+						"z": 101.5,
+						"tolerance": 1,
+						"timeoutMs": 60000
+					}
+				}
+			}
+		],
+		"expectCode": "DESTINATION_REACHED"
+	}
+]
