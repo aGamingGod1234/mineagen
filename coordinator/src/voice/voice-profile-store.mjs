@@ -179,9 +179,13 @@ export async function loadPersistentVoiceProfileStore(filePath, dependencies = {
 		const combinedSignal = combineSignals(ownerController.signal, signal, externalSignal);
 		const operation = (async () => {
 			while (persistedRevision < desiredRevision) {
-				const targetRevision = desiredRevision;
-				await persistCoordinator(coordinator, ownerGeneration, io, combinedSignal);
-				persistedRevision = targetRevision;
+				// The publish writes the coordinator's latest state, so it covers every revision made before it, not only
+				// the one that started it. Replacing a file written moments earlier can fail on Windows while another process holds it.
+				let publishedRevision = desiredRevision;
+				await persistCoordinator(coordinator, ownerGeneration, io, combinedSignal, () => {
+					publishedRevision = desiredRevision;
+				});
+				persistedRevision = publishedRevision;
 			}
 			lastError = null;
 			lastErrorReported = false;
@@ -427,7 +431,7 @@ function snapshotPersistentAssignments(coordinator) {
 	return Object.fromEntries(coordinator.assignments);
 }
 
-async function persistCoordinator(coordinator, ownerGeneration, io, signal) {
+async function persistCoordinator(coordinator, ownerGeneration, io, signal, onPublished = null) {
 	for (;;) {
 		if (signal?.aborted) throw abortReason(signal);
 		const version = coordinator.version;
@@ -461,7 +465,9 @@ async function persistCoordinator(coordinator, ownerGeneration, io, signal) {
 					maybeReleasePersistentCoordinator(coordinator);
 				});
 				await awaitAbortable(physicalMove, signal);
-				return version === coordinator.version;
+				if (version !== coordinator.version) return false;
+				onPublished?.();
+				return true;
 			});
 			if (published) return;
 		} finally {
