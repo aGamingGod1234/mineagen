@@ -3099,8 +3099,9 @@ final class ReflexActions {
 			BlockPos feet = BlockPos.containing(player.getX(), player.getY() + 0.2D, player.getZ());
 			// The jump that puts a block on a wall top lifts the feet into the cell above.
 			if (!feet.equals(shelter.center()) && !feet.below().equals(shelter.center())) return false;
-			// Walls that never closed (blocks ran out, a creeper stopped the build) or were opened since are no cover.
-			if (!enclosed(player.level(), shelter.center())) return false;
+			// Walls that never closed (blocks ran out, a creeper stopped the build) or were opened since are no cover, and neither
+			// is a side the build left as it found it when that is a slab, fence or other part block an arrow passes beside.
+			if (!walled(player.level(), shelter.center())) return false;
 			// Once the roof is given up, walls hide nothing from a shooter that sees down into the cell (a skeleton on a ledge,
 			// the first one or another): while any can see the body, the dodge and cover rules come back. While the roof is
 			// still going up the walls hold.
@@ -3330,6 +3331,16 @@ final class ReflexActions {
 			for (Direction side : Direction.Plane.HORIZONTAL) {
 				BlockPos feet = center.relative(side);
 				if (level.getBlockState(feet).canBeReplaced() || level.getBlockState(feet.above()).canBeReplaced()) return false;
+			}
+			return true;
+		}
+
+		/** {@link #enclosed} with every side cell a full block, so no shot passes through a gap in it. */
+		static boolean walled(Level level, BlockPos center) {
+			for (Direction side : Direction.Plane.HORIZONTAL) {
+				for (BlockPos cell : new BlockPos[] {center.relative(side), center.relative(side).above()}) {
+					if (!level.getBlockState(cell).isCollisionShapeFullBlock(level, cell)) return false;
+				}
 			}
 			return true;
 		}
