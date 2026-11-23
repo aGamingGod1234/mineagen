@@ -197,7 +197,7 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 					const me = o.player, t = Math.round((now() - t0) / 100) / 10;
 					const rows = (o.entities ?? []).filter(e => e?.type === 'minecraft:enderman' && e.alive !== false && e.perceivedBy !== 'sound');
 					const near = rows.map(e => ({ id: String(e.stableId ?? '').slice(0, 8), uuid: e.stableId, d: Math.round(e.distance ?? NaN), eye: e.appearance?.eyeContact === true || undefined,
-						scream: e.appearance?.screaming === true || undefined, tgt: e.targetingAgent === true || undefined, stared: e.appearance?.staredAt === true || undefined }));
+						scream: e.appearance?.screaming === true || undefined, tgt: e.targetingAgent === true || undefined }));
 					const reflex = o.reflexes && typeof o.reflexes === 'object' ? JSON.stringify(Object.fromEntries(Object.entries(o.reflexes).filter(([k]) => k !== 'rules'))).slice(0, 240) : null;
 					recent.push({ t, yaw: Math.round(me.yaw), pitch: Math.round(me.pitch), hp: me.health, dealt: lastDealt, act: o.currentAction?.actionType ?? null, cmd: lastCommand?.actionType ?? null, reflex, near: near.filter(n => n.d <= 24).map(({ uuid, ...n }) => n) });
 					if (recent.length > 6) recent.shift();
