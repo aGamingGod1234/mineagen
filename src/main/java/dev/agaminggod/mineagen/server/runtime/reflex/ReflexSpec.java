@@ -23,7 +23,8 @@ import java.util.regex.Pattern;
 public final class ReflexSpec {
 	/**
 	 * The model's own 12 rules plus the coordinator's 15 default rules (14 survival rules and the owed-drops habit) and the
-	 * 2 it arms only in the End (breath and the dragon's throw, reflexes.mjs DIMENSION_REFLEXES).
+	 * 4 it arms only in the End (breath, the dragon's throw, the gaze guard and water against an angry enderman,
+	 * reflexes.mjs DIMENSION_REFLEXES).
 	 */
 	public static final int MAX_RULES = 31;
 	/** Ids the coordinator's default survival rules carry (reflexes.mjs DEFAULT_REFLEXES). */
@@ -123,7 +124,7 @@ public final class ReflexSpec {
 		condition("fireball_incoming", true, new Param("withinS", ParamKind.NUMBER, 0.05D, 3.0D, false), Param.flag("deflectable"));
 		condition("creeper_fusing", true, new Param("within", ParamKind.NUMBER, 1.0D, 16.0D, false));
 		condition("enderman_gaze", true, new Param("within", ParamKind.NUMBER, 1.0D, 64.0D, false));
-		condition("enderman_provoked", true, new Param("within", ParamKind.NUMBER, 1.0D, 64.0D, false));
+		condition("enderman_provoked", true, new Param("within", ParamKind.NUMBER, 1.0D, 64.0D, false), Param.flag("targeting"));
 		condition("edge_near", true, new Param("within", ParamKind.NUMBER, 1.0D, 4.0D, false),
 				Param.choice("direction", DIRECTIONS.toArray(String[]::new)), new Param("drop", ParamKind.NUMBER, 2.0D, 64.0D, false));
 		condition("lava_near", true, new Param("within", ParamKind.NUMBER, 1.0D, 4.0D, false));

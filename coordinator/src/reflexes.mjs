@@ -57,10 +57,12 @@ export const DIMENSION_REFLEXES = Object.freeze({
 		// off a calm one's eyes. Priority 8 outranks retreat and defend but never preempts breath (9) or end-throw (8),
 		// whose runs already keep the view off enderman eyes (EndermanGaze.clearPitch); 2 s covers the turn.
 		{ id: 'default-gaze', kind: 'trigger', priority: 8, when: [{ type: 'enderman_gaze', within: 64 }], do: { type: 'look_away' }, maxMs: 2_000, ttlMs: 3_600_000 },
-		// An angry enderman teleports beside the body faster than it can run or build: a player empties the water bucket at
-		// the feet, and the spreading water hurts and teleports any enderman that steps in. Once placed the bucket is empty,
-		// so the rule sleeps (item-dependent defaults never fire empty-handed).
-		{ id: 'default-ender-water', kind: 'trigger', priority: 8, when: [{ type: 'enderman_provoked', within: 8 }], do: { type: 'place', item: 'minecraft:water_bucket', where: 'feet' }, maxMs: 3_000, cooldownMs: 10_000, ttlMs: 3_600_000 },
+		// An enderman angry at the body teleports beside it faster than it can run or build: a player empties the water
+		// bucket at the feet, and the spreading water hurts and teleports any enderman that steps in. targeting: one angry
+		// at the dragon is not coming for you. The water stays, so the bucket is spent and the rule sleeps (item-dependent
+		// rules never fire empty-handed), and so does a falling -> place water_bucket clutch: in 40 judged rooms fall and
+		// void deaths were 8 on main and 7 with this rule, while enderman deaths fell from 20 to 12.
+		{ id: 'default-ender-water', kind: 'trigger', priority: 8, when: [{ type: 'enderman_provoked', within: 8, targeting: true }], do: { type: 'place', item: 'minecraft:water_bucket', where: 'feet' }, maxMs: 3_000, cooldownMs: 10_000, ttlMs: 3_600_000 },
 	].map((rule) => Object.freeze(rule))),
 });
 const MOST_DIMENSION_REFLEXES = Math.max(0, ...Object.values(DIMENSION_REFLEXES).map((rules) => rules.length));
@@ -187,7 +189,7 @@ export const REFLEX_CONDITIONS = Object.freeze({
 	fireball_incoming: { withinS: number(0.05, 3), deflectable: bool() },
 	creeper_fusing: { within: number(1, 16) },
 	enderman_gaze: { within: number(1, 64) },
-	enderman_provoked: { within: number(1, 64) },
+	enderman_provoked: { within: number(1, 64), targeting: bool() },
 	edge_near: { within: number(1, 4), direction: choice('ahead', 'behind', 'left', 'right', 'moving', 'any'), drop: number(2, 64) },
 	lava_near: { within: number(1, 4) },
 	lava_flowing: { withinS: number(0.5, 6) },

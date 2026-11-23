@@ -236,8 +236,8 @@ public final class ReflexSensors {
 			case "stack_used_up" -> flag(memory.usedUpAt(tick) && (condition.text("item") == null || condition.text("item").equals(memory.usedUpItem())));
 			case "fireball_incoming" -> fireball(player, condition, frame);
 			case "creeper_fusing" -> creeperFusing(player, condition.number("within", 6.0D), frame);
-			case "enderman_gaze" -> enderman(player, condition.number("within", 64.0D), frame, true);
-			case "enderman_provoked" -> enderman(player, condition.number("within", 16.0D), frame, false);
+			case "enderman_gaze" -> enderman(player, condition.number("within", 64.0D), frame, true, false);
+			case "enderman_provoked" -> enderman(player, condition.number("within", 16.0D), frame, false, condition.flag("targeting"));
 			case "edge_near" -> edge(player, condition.number("within", 1.0D), condition.text("direction"), condition.number("drop", 4.0D));
 			case "lava_near" -> lava(player, condition.number("within", 2.0D), frame);
 			case "lava_flowing" -> lavaFlowing(player, condition.number("withinS", 3.0D));
@@ -677,7 +677,7 @@ public final class ReflexSensors {
 	 * as a gaze; looking away from it would only spoil the defence. Otherwise: an enderman is provoked (jaw open,
 	 * shaking, screaming) within range.
 	 */
-	private static Reading enderman(ServerPlayer player, double within, ObservationVisibility.Frame frame, boolean gaze) {
+	private static Reading enderman(ServerPlayer player, double within, ObservationVisibility.Frame frame, boolean gaze, boolean targeting) {
 		if (gaze && !LivingEntity.PLAYER_NOT_WEARING_DISGUISE_ITEM.test(player)) return Reading.FALSE;
 		Monster nearest = null;
 		double best = Double.POSITIVE_INFINITY;
@@ -685,7 +685,8 @@ public final class ReflexSensors {
 			double distance = player.distanceTo(enderman);
 			if (distance > within || distance >= best) continue;
 			if (gaze ? enderman.getTarget() == player || !enderman.isLookingAtMe(player, GAZE_TOLERANCE, true, false, enderman.getEyeY())
-					: !McCompat.endermanCreepy(enderman) || !frame.hasLineOfSight(enderman) && distance > 16.0D) continue;
+					// targeting: only one after this player; a screaming enderman may be angry at the dragon or an endermite.
+					: !McCompat.endermanCreepy(enderman) || targeting && enderman.getTarget() != player || !frame.hasLineOfSight(enderman) && distance > 16.0D) continue;
 			best = distance;
 			nearest = enderman;
 		}
