@@ -352,8 +352,8 @@ public final class ServerEscapeController implements ServerController {
 	 * A bank one push of forward and jump gets the body onto, with the water-exit climb (SwimPlanning.climbsOut) from the
 	 * column it climbs from and room to rise there:
 	 * - beside it (within a block and a half), not more than a block below its floor, climbing from its own column; or
-	 * - two cells off in a straight line over one open column of water (nothing solid from the feet up past the bank's
-	 *   floor), climbing from that column: a body under a low ceiling swims into the open column beside it and climbs
+	 * - two cells off in a straight line over one open column of water (nothing solid from the feet up past the head and
+	 *   past the bank's floor), climbing from that column: a body under a low ceiling swims into the open column beside it and climbs
 	 *   from there, as a player does (floodlow: a travel there asked for a tunnel and never got out, 0/10).
 	 */
 	static boolean besideBank(ServerPlayer player, BlockPos bank) {
@@ -369,7 +369,10 @@ public final class ServerEscapeController implements ServerController {
 		if (!(Math.abs(ox) == 2 && oz == 0 || Math.abs(oz) == 2 && ox == 0) || bank.getY() - feet.getY() > REACH_RISE) return false;
 		BlockPos mid = feet.offset(ox / 2, 0, oz / 2);
 		if (!level.getFluidState(mid).is(net.minecraft.tags.FluidTags.WATER)) return false;
-		for (int y = feet.getY(); y <= bank.getY() + 1; y++) if (solid(level, new BlockPos(mid.getX(), y, mid.getZ()))) return false;
+		// Room for the body to pass at its own height and to rise to the bank's floor: from the feet up past the head and
+		// past the bank's floor plus a standing height.
+		int top = Math.max(bank.getY() + 1, net.minecraft.util.Mth.floor(player.getBoundingBox().maxY));
+		for (int y = feet.getY(); y <= top; y++) if (solid(level, new BlockPos(mid.getX(), y, mid.getZ()))) return false;
 		return SwimPlanning.climbsOut(bank.getY(), waterTopAt(level, mid));
 	}
 

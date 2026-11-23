@@ -14,7 +14,7 @@
 // ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME. Reflexes are cleared so nothing but the push moves the body.
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
-import { boot } from './watch-replay.mjs';
+import { boot, unshownTickRate } from './watch-replay.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 
 const USAGE = 'Usage: test-water-exit-live.mjs OUT_DIR JAR [runs] [afloat;standing;wading] under slot.sh live';
@@ -54,7 +54,8 @@ let planned = 0;
 for (const state of states) planned += ledges(DEPTH[state]).length * runs;
 let s;
 try {
-	s = await boot(path.join(out, 'server'), { jar: path.resolve(jarArg), template, port, world: null, seed: '1', spawnMonsters: false, goalTicks: 2_000_000 });
+	s = await boot(path.join(out, 'server'), { jar: path.resolve(jarArg), template, port, world: null, seed: '1', spawnMonsters: false, goalTicks: 2_000_000,
+		tickRate: unshownTickRate('measured only at 20 TPS, and its waits are wall clock') });
 	await s.command('difficulty peaceful');
 	await s.command('gamerule minecraft:advance_time false').catch(() => {});
 	await s.command('time set 1000');
