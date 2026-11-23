@@ -17,6 +17,7 @@ import { MOD_JAR } from './mod-jar.mjs';
 import { installTickRate, unshownTickRate } from './watch-replay.mjs';
 import { damageCounter, recordDamageEvidence } from './lib/damage-counter.mjs';
 import { combatFacts } from '../../coordinator/src/combat-facts.mjs';
+import { ReflexBook } from '../../coordinator/src/reflexes.mjs';
 import { finishRun, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 
 if(process.argv.includes('--help')){console.log('Usage: test-end-refill-live.mjs OUT_DIR (jar from lib/with-jar.mjs)\n'+FIXTURE_OUTCOME_HELP);process.exit(0);}
@@ -132,8 +133,14 @@ try {
     await command(`tp ${agent} ${x} 80 ${z} ${yaw.toFixed(1)} 35`);await rate.clock.sleep(800);
     const seen=await observe();
     // The dragon fact as the model reads it beside the dragon: the room has no dragon, so one is added to the entity list.
-    const facts=combatFacts({...seen,entities:[...(seen.entities??[]),{type:'minecraft:ender_dragon',distance:60,alive:true}]})??'';
-    const hint=facts.match(/Water (?:source )?seen at (-?\d+),(-?\d+),(-?\d+)/);
+    // The coordinator's reflex book sees the #191 default's firing report for this pour (the mod's detail wording) and
+    // hands the remembered cells to the fact, as dynamic-main does for a wake; a book without pours names none.
+    const book=new ReflexBook();book.observeContext(agent,seen);
+    book.observe(agent,{revision:0,rules:[],events:[{seq:1,id:'default-ender-water',outcome:'done',ms:50,detail:'placed minecraft:water_bucket at feet 0,80,0; the source stays until scooped'}]});
+    const ownPours=book.pours?.(agent,seen)??[];
+    results.ownPours=ownPours;
+    const facts=combatFacts({...seen,entities:[...(seen.entities??[]),{type:'minecraft:ender_dragon',distance:60,alive:true}]},{ownPours})??'';
+    const hint=facts.match(/Water (?:source )?(?:seen|you poured) at (-?\d+),(-?\d+),(-?\d+)/);
     results.fact=hint?hint[0]:null;
     results.waterRows=(seen.blocks??[]).filter(b=>b.blockId==='minecraft:water').length;
     if(hint){

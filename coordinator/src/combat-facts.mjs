@@ -27,11 +27,11 @@ function endermanFact(observation, threats) {
 		+ (angry.size ? ` Angry: ${angry.size}${Number.isFinite(nearest) ? ` (nearest ${Math.round(nearest)}m)` : ''}.` : '');
 }
 
-function dragonFact(observation) {
+function dragonFact(observation, ownPours) {
 	const items = observation.continuity?.rememberedSections?.includes('inventory') ? null : observation.inventory?.items;
 	const has = id => Array.isArray(items) && items.some(e => e.itemId === `minecraft:${id}` && e.count > 0);
 	const water = !Array.isArray(items) ? '' : has('water_bucket') ? ' Water bucket carried.'
-		: has('bucket') ? ` No water bucket: the End has no natural water, so an empty bucket refills only from water you placed (a source block).${seenWater(observation)}` : ' No water bucket carried.';
+		: has('bucket') ? ` No water bucket: the End has no natural water, so an empty bucket refills only from water you placed (a source block).${seenWater(observation, ownPours)}` : ' No water bucket carried.';
 	return `Ender dragon: its wings and body fling a player many blocks, up to about 10 high, even on flat ground; the landing alone can kill. Water placed below before landing cancels fall damage; a turn is too slow to place it mid-fall, a falling reflex is not.${water} ${DRAGON_FINISH_FACTS}`;
 }
 
@@ -40,7 +40,8 @@ function dragonFact(observation) {
 // carry neither. The block rows are the cells nearest the feet, so a pour a few blocks off often shows only its flow:
 // then the nearest water is named, and use_item with an empty bucket aimed at flowing water fills from its source.
 const waterSource = b => b.fluid?.type !== undefined ? b.fluid.type === 'minecraft:water' : b.state?.level !== undefined && String(b.state.level) === '0';
-function seenWater(observation) {
+// A source the bot's own reflex poured is remembered by its cell (ReflexBook.pours), so it is named even outside those rows.
+function seenWater(observation, ownPours = []) {
 	const at = observation.position ?? observation.player?.position ?? observation.player;
 	// Block rows carry no distance: measure from the feet when the row does not say.
 	const distance = b => Number.isFinite(b.distance) ? b.distance
@@ -50,6 +51,8 @@ function seenWater(observation) {
 	const near = nearest(observation.blocks ?? []);
 	const source = near.find(waterSource);
 	if (source) return ` Water source seen at ${source.x},${source.y},${source.z}.`;
+	const poured = (Array.isArray(ownPours) ? ownPours : []).filter(p => [p?.x, p?.y, p?.z].every(Number.isFinite)).sort((a, b) => distance(a) - distance(b))[0];
+	if (poured) return ` Water source you poured at ${poured.x},${poured.y},${poured.z} (remembered; aim the empty bucket there).`;
 	const water = near[0] ?? nearest(observation.landmarks ?? [])[0];
 	return water ? ` Water seen at ${water.x},${water.y},${water.z} (flowing or not known); an empty bucket aimed at flowing water fills from the source it flows from.` : '';
 }
@@ -86,7 +89,7 @@ function fireResistanceFact(observation) {
 }
 
 // Installed vanilla mechanics attached to observed mobs, structures and worn gear, never hidden mob intentions.
-export function combatFacts(observation, { lean = false } = {}) {
+export function combatFacts(observation, { lean = false, ownPours = [] } = {}) {
 	if (observation?.ready !== true || observation.player?.dead === true
 		|| observation.continuity?.rememberedSections?.includes('player')) return null;
 	const threats = Array.isArray(observation.player?.threats) ? observation.player.threats : [];
@@ -124,7 +127,7 @@ export function combatFacts(observation, { lean = false } = {}) {
 	else if (types.has('minecraft:wither_skeleton')) facts.push('Wither skeletons are 2.4 blocks tall: a 2-block-high gap or tunnel keeps them out; each hit restarts 10 s of Wither (1 HP per 2 s, can kill, unlike poison); drinking milk clears it.');
 	if (types.has('minecraft:magma_cube')) facts.push('Magma cubes damage on contact even when tiny; larger cubes split on death. A kill can leave several attackers.');
 	if (types.has('minecraft:enderman')) facts.push(endermanFact(observation, threats));
-	if (types.has('minecraft:ender_dragon')) facts.push(dragonFact(observation));
+	if (types.has('minecraft:ender_dragon')) facts.push(dragonFact(observation, ownPours));
 	if (facts.length || types.has('minecraft:blaze')) facts.push('fight_target pursues by default (including drops up to 3); pursue:false aims/swings without movement or backoff. Knockback can still move you. Choose footing/cover before combat.');
 	if (observation.world?.dimension === 'minecraft:overworld' && portalRoomSeen(observation)) facts.push(PORTAL_ROOM_LAVA);
 	const crystals = observation.world?.dimension === 'minecraft:the_end' ? endCrystalFact(observation.endCrystals, observation.player) : null;
