@@ -3020,16 +3020,31 @@ final class ReflexActions {
 		}
 
 		/**
-		 * Water a player cannot build from: the head under, the feet off the bottom (afloat), or a current at the feet that
+		 * Water a player cannot build from: the head under, the feet off the bottom of deeper water (afloat), or a current at the feet that
 		 * carries the body off the cell. Standing on the bottom of still water one deep is building ground (defend-shallow:
 		 * the refusal left the bot facing a skeleton in the open at 12 health, 2 of 3 runs dead).
 		 */
 		static boolean unsteadyWater(ServerPlayer player) {
 			if (player.isUnderWater()) return true;
 			if (!player.isInWater()) return false;
-			if (!player.onGround()) return true;
+			if (!player.onGround()) return !settling(player);
 			var fluid = player.level().getFluidState(player.blockPosition());
 			return !fluid.isEmpty() && !fluid.isSource();
+		}
+
+		/**
+		 * Off the bottom of still water one deep over solid ground: a hit's hop that came down in the pool, sinking back.
+		 * Nothing carries the body off there and it is on the bottom in a moment, so it is building ground as standing there
+		 * is (defend-shallow: the walls were refused on the tick a hop touched the water, 3 of 10 runs, 2 of them dead).
+		 */
+		static boolean settling(ServerPlayer player) {
+			if (player.onGround() || !player.isInWater() || player.isUnderWater()) return false;
+			Level level = player.level();
+			BlockPos feet = player.blockPosition();
+			BlockPos floor = feet.below();
+			var fluid = level.getFluidState(feet);
+			return !fluid.isEmpty() && fluid.isSource() && level.getFluidState(feet.above()).isEmpty() && level.getFluidState(floor).isEmpty()
+					&& level.getBlockState(floor).isFaceSturdy(level, floor, Direction.UP);
 		}
 
 		/** Why the body must not wall in here now, or null. */
@@ -3066,7 +3081,9 @@ final class ReflexActions {
 			ServerPlayer player = context.player();
 			Level level = player.level();
 			if (center == null) {
-				center = BlockPos.containing(player.getX(), player.getY() + 0.2D, player.getZ());
+				// Sinking back to the bottom of shallow water the cell is the water one the feet will stand in: from a hop's
+				// height the walls would go up a block too high.
+				center = settling(player) ? player.blockPosition() : BlockPos.containing(player.getX(), player.getY() + 0.2D, player.getZ());
 				// Afloat in the jump that roofs a closed cell: the cell is the one below the body.
 				if (!enclosed(level, center) && enclosed(level, center.below()) && level.getBlockState(center.below()).canBeReplaced()) center = center.below();
 				String no = refusal(player, center, shooter.position());
