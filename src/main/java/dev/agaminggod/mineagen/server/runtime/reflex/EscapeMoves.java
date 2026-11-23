@@ -65,7 +65,9 @@ public final class EscapeMoves {
 
 	/**
 	 * One tick along the way back toward eye cell {@code next}: forward toward it, jump to rise to it, sneak to sink to it
-	 * (the way back can lead down, out of a pocket the body rose into, which the swim to seen air never does).
+	 * (the way back can lead down, out of a pocket the body rose into, which the swim to seen air never does), and neither
+	 * when it is level: jump held there floats the body up off a tunnel's floor and into the rock over its mouth
+	 * (sealed-pocket room: stuck at the mouth for all 3 swims of the first escape).
 	 */
 	static AgentInputState swimBack(ServerPlayer player, BlockPos next) {
 		var eye = player.getEyePosition();
@@ -76,7 +78,7 @@ public final class EscapeMoves {
 		float pitch = dev.agaminggod.mineagen.server.runtime.input.AgentInputStates.turnPitch(player.getXRot(), dy > 0.3D ? SwimPlanning.SURFACING_PITCH : dy < -0.3D ? 30.0F : 0.0F);
 		float forward = across ? dev.agaminggod.mineagen.server.runtime.controller.CombatPlanning.alignedForward(1.0F,
 				dev.agaminggod.mineagen.server.runtime.input.AgentInputStates.shortestAngleDelta(yaw, heading)) : 0.0F;
-		return new AgentInputState(forward, 0.0F, dy > -0.3D, dy < -0.3D, false, false, false, yaw, pitch,
+		return new AgentInputState(forward, 0.0F, dy > 0.3D, dy < -0.3D, false, false, false, yaw, pitch,
 				player.getInventory().getSelectedSlot(), net.minecraft.world.InteractionHand.MAIN_HAND);
 	}
 
