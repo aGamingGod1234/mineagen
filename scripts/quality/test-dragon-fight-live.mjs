@@ -166,7 +166,9 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 				// The window is world ticks, not wall time: a server that cannot hold 20 TPS still plays the full game minutes.
 				const now = () => s.clock.now(), wall0 = Date.now(), timer = await s.gameTimer({ worldTicks: true }), t0 = now();
 				let played = 0, observeMisses = 0;
-				const inWindow = async () => (played = await timer.elapsed().catch(() => Infinity)) < limit;
+				// A world clock that stops while RCON still answers would hold the loop forever: three windows of wall time end it,
+				// and the run is invalid ('world clock unreadable').
+				const inWindow = async () => (played = Date.now() - wall0 > 3 * limit ? Infinity : await timer.elapsed().catch(() => Infinity)) < limit;
 				const limit = SURVIVE ? SURVIVE_MS : FIGHT_MS;
 				const log = [], tried = new Set();
 				let dead = false, killed = false, minY = place.y, shots = 0, crystalBreaks = 0, meleeHits = 0, flyingShots = 0, passes = 0;
@@ -238,14 +240,16 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 				// more and keep how late its death was seen; a kill seen more than 15 s past the window does not count.
 				if (!SURVIVE && !killed && !dead && Number.isFinite(dragon)) {
 					const health = await dragonHealth();
-					const gone = Number.isFinite(health) ? health <= 0 : /Test failed/i.test(String(await end(s, 'execute if entity @e[type=minecraft:ender_dragon]')));
+					const missing = async () => /Test failed/i.test(String(await end(s, 'execute if entity @e[type=minecraft:ender_dragon]')));
+					// Gone the same way the loop judges it: missing, and still missing with no health 2 s later.
+					const gone = Number.isFinite(health) ? health <= 0 : await missing() && (await s.clock.sleep(2000), await missing()) && !Number.isFinite(await dragonHealth());
 					const late = Number.isFinite(played) ? played - limit : Infinity;
 					if (gone) { row.killSeenLateMs = late; killed = late <= 15_000; }
 				}
 				Object.assign(row, damageEvidence(damageBefore, await readDamage(), row.start.health, latest?.player?.health));
 				row.deathEvidence = deathEvidence(deathsBefore, await readDeaths());
 				row.wallSeconds = Math.round((Date.now() - wall0) / 100) / 10;
-				row.gameSeconds = Math.round((await timer.elapsed()) / 100) / 10;
+				row.gameSeconds = Math.round((await timer.elapsed().catch(() => NaN)) / 100) / 10;
 				row.rates = await timer.rates().catch(() => null);
 				await s.normalRate();
 				row.died = dead || row.deathEvidence.deaths > 0;
@@ -264,7 +268,7 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 					!Number.isFinite(played) && 'world clock unreadable'].filter(Boolean);
 				if (missing.length) row.error = `not exercised: ${missing.join('; ')}`;
 				row.pass = SURVIVE ? !row.died && !row.voidFall : row.killed && !row.died;
-				row.failReason = row.pass ? null : row.died ? 'died' : row.voidFall ? 'void fall' : SURVIVE ? null : 'dragon alive at the window end';
+				row.failReason = row.pass ? null : row.died ? 'died' : row.voidFall ? 'void fall' : SURVIVE ? null : Number.isFinite(row.killSeenLateMs) ? 'dragon killed after the window' : 'dragon alive at the window end';
 				row.finishedAt = Date.now();
 				console.log(`[dragon-fight] ${results.arm} run ${run}: ${row.error ? 'INVALID' : row.pass ? 'PASS' : 'FAIL'} killed=${killed} died=${row.died} dragon=${row.dragonHealthEnd} crystals=${row.crystalsLeft} shots=${shots} broke=${crystalBreaks} melee=${meleeHits} flying=${flyingShots} damage=${row.damageTaken} game=${row.gameSeconds}s`);
 				// After a kill the End has no dragon: a further repeat on this server measures nothing.
