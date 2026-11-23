@@ -665,8 +665,9 @@ export class ReflexBook {
 	// water bucket than the last sample, with a remembered pour within a bucket's reach, forgets the nearest such pour.
 	#forgetScoopedPour(agentId, before, after) {
 		const pours = this.#pours.get(agentId);
-		if (!pours?.length || !before || !after) return;
-		const buckets = sample => (Array.isArray(sample?.inventory?.items) ? sample.inventory.items : [])
+		// Both samples must carry the inventory: one without it would read as zero buckets and the next as a scoop.
+		if (!pours?.length || !Array.isArray(before?.inventory?.items) || !Array.isArray(after?.inventory?.items)) return;
+		const buckets = sample => sample.inventory.items
 			.reduce((sum, item) => sum + (item?.itemId === 'minecraft:water_bucket' && Number.isFinite(item.count) ? item.count : 0), 0);
 		if (buckets(after) <= buckets(before)) return;
 		const at = after.position ?? after.player?.position;
