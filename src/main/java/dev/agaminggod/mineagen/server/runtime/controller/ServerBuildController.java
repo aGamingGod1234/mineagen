@@ -194,9 +194,9 @@ public final class ServerBuildController implements ServerController {
 	 */
 	static final int UNCOVER_TARGET = 12;
 	static final int MAX_UNCOVERS = 24;
-	/** Blocks a lava fetch may open to scoop a source hidden behind one block. */
+	/** Blocks the build's lava fetches may open, in all, to scoop a source hidden behind one block. */
 	static final int MAX_FETCH_WINDOWS = 6;
-	/** Blocks a lava fetch may mine digging a way through rock to a known source, and how far across that source may lie. */
+	/** Blocks the build's lava fetches may mine, in all, digging a way through rock to a known source, and how far across that source may lie. */
 	static final int MAX_FETCH_DIGS = 24;
 	static final int FETCH_DIG_REACH = 10;
 
@@ -2228,6 +2228,7 @@ public final class ServerBuildController implements ServerController {
 		LOGGER.info("[build] {} {} at {} from {} (cell {} of 10)", player.getGameProfile().name(), kind, xyz(target), xyz(player.blockPosition()), castIndex + 1);
 		walks = 0;
 		triedSpots.clear();
+		fetchDigLooked.clear();
 		switch (kind) {
 			case WATER -> {
 				pouredWater = target.immutable();
@@ -2939,6 +2940,12 @@ public final class ServerBuildController implements ServerController {
 				// Up a block: the cell over the head opens too, for the jump onto the step.
 				BlockPos[] cells = rise == 0 ? new BlockPos[] { stand, stand.above() } : new BlockPos[] { feet.above(2), stand, stand.above() };
 				for (BlockPos cell : cells) if (inFootprint(cell) || mould.contains(cell)) continue rises;
+				// Up a block stands on the cell ahead at the feet: only while it is still known solid rock, never after it was
+				// mined out or lava flowed in.
+				if (rise == 1) {
+					BlockState ahead = known(player, next);
+					if (ahead == null || ahead.isAir() || !ahead.getFluidState().isEmpty()) continue;
+				}
 				// Up a block opens the cell over the head: sand or gravel resting on it would drop onto the body.
 				if (rise == 1 && (fallingBlock(known(player, feet.above(3))) || fallingBlock(known(player, stand.above(2))))) continue;
 				for (BlockPos cell : cells) {
@@ -2951,11 +2958,7 @@ public final class ServerBuildController implements ServerController {
 					if (!state.getFluidState().isEmpty()) continue rises;
 					if (state.isAir()) continue;
 					// Water or lava known beside or over the cell would flow into the way once it is open, as for the window.
-					for (Direction side : Direction.values()) {
-						if (side == Direction.DOWN) continue;
-						BlockState beside = known(player, cell.relative(side));
-						if (beside != null && !beside.getFluidState().isEmpty()) continue rises;
-					}
+					if (fluidBeside(player, cell)) continue rises;
 					if (uncoverDead.contains(cell) || clearTicks(player, level, cell, state) > MAX_CLEAR_TICKS) continue rises;
 					fetchDigs++;
 					uncoverCell = cell.immutable();
@@ -2978,6 +2981,11 @@ public final class ServerBuildController implements ServerController {
 					continue;
 				}
 				if (floor.isAir() || !floor.getFluidState().isEmpty()) continue;
+				// The opened way showed water or lava beside it (unseen in the rock until now): never step in beside it.
+				if (fluidBeside(player, stand) || fluidBeside(player, stand.above())) {
+					LOGGER.info("[build] {} leaves the way at {}: water or lava beside it", player.getGameProfile().name(), xyz(stand));
+					continue;
+				}
 				if (standable(player, level, stand) && walks < MAX_WALKS - 1) return walkTo(player, stand, now);
 			}
 		}
@@ -3380,6 +3388,16 @@ public final class ServerBuildController implements ServerController {
 		return text.toString();
 	}
 
+
+	/** Water or lava known on a side of the cell or over it. */
+	private boolean fluidBeside(ServerPlayer player, BlockPos cell) {
+		for (Direction side : Direction.values()) {
+			if (side == Direction.DOWN) continue;
+			BlockState beside = known(player, cell.relative(side));
+			if (beside != null && !beside.getFluidState().isEmpty()) return true;
+		}
+		return false;
+	}
 
 	private static boolean fallingBlock(BlockState state) {
 		return state != null && state.getBlock() instanceof net.minecraft.world.level.block.FallingBlock;

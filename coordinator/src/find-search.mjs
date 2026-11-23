@@ -1560,7 +1560,7 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 			// at the lake shore after the water fetch; 3 of those 55 lit a portal.
 			// Seen water is checked again after each walk off it, until the first dig (a walk can end by another lake, or
 			// stop short on the shore: round 1, 2 of the first 4 runs with this on).
-			const surfaceStart = profile.depth !== null && at.y > profile.depth + CAVE_BAND;
+			const surfaceStart = at !== null && profile.depth !== null && at.y > profile.depth + CAVE_BAND;
 			const dug = legs.some((entry) => DESCENTS.test(entry.how) || /^tunnel/.test(entry.how));
 			if (dug && dryWalks > 0) {
 				for (const name of dryHeadings) wetHeadings.delete(name);
