@@ -100,7 +100,8 @@ async function session(seed, index) {
 				await s.command(`execute at ${AGENT} positioned over motion_blocking_no_leaves run tp ${AGENT} ~ ~ ~`);
 				const onTrunk = await s.command(`execute at ${AGENT} if block ~ ~-1 ~ #minecraft:logs`);
 				const inLeaves = await s.command(`execute at ${AGENT} if block ~ ~1 ~ #minecraft:leaves`);
-				if (!/passed/i.test(`${onTrunk} ${inLeaves}`)) break;
+				const feetInLeaves = await s.command(`execute at ${AGENT} if block ~ ~ ~ #minecraft:leaves`);
+				if (!/passed/i.test(`${onTrunk} ${inLeaves} ${feetInLeaves}`)) break;
 			}
 		};
 		const prepare = async (kit, at) => {
