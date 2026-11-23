@@ -74,7 +74,7 @@ const meetsBar = (passWhen, fields) => Number.isFinite(fields?.[passWhen.field])
  */
 export async function otherEvidence(dir) {
 	let failed = null, failedPass = false, deathsUnread = false;
-	const fields = {}, corrupt = [], integrity = [];
+	const fields = {}, corrupt = [], integrity = [], notExercised = [];
 	// The deepest object that names a death or a hurt counts it; a parent (a variant, a summary, a deathCounter) that
 	// repeats its children's total adds nothing. A bare "damage" counts only beside died/deaths, since elsewhere it is
 	// often an item's wear, not health.
@@ -97,6 +97,8 @@ export async function otherEvidence(dir) {
 		// The default-reflex edge room's bar is staying on the bridge (its own tally); resistance keeps both bodies alive.
 		if (value.offBridge === true) failed ??= 'offBridge';
 		if (Array.isArray(value.integrity)) integrity.push(...value.integrity);
+		// A row the fixture marked as never exercising its mechanic is no evidence either way, as roomVerdict reads it.
+		if (value.notExercised) notExercised.push(String(value.notExercised));
 		// A death counter that says it could not be read (the blaze room's deathCounter.valid false) leaves deaths unknown.
 		if (value.valid === false && 'deaths' in value) deathsUnread = true;
 		// The crowd room writes survived: false per run and a died count in its summary.
@@ -120,7 +122,7 @@ export async function otherEvidence(dir) {
 	}
 	// A crowd, defend or rest room that caught an error writes error.txt and still exits 0.
 	const error = names.includes('error.txt') ? (await readFile(path.join(dir, 'error.txt'), 'utf8').catch(() => '')).split('\n')[0] || 'error.txt' : null;
-	return { deaths, damage: damage === null ? null : +damage.toFixed(1), failed, failedPass, deathsUnread, fields, corrupt, integrity, error };
+	return { deaths, damage: damage === null ? null : +damage.toFixed(1), failed, failedPass, deathsUnread, fields, corrupt, integrity, error, notExercised };
 }
 /** The thrown error of a fixture that failed by exception, from its log, folded to count. */
 async function failureLine(log) {
@@ -192,6 +194,7 @@ export async function collectRuns(batchDir, planned = null, meta = null) {
 			if (!killed && evidence.integrity.length) ({ verdict, reason } = roomVerdict({ integrity: evidence.integrity }));
 			if (verdict === 'PASS' && evidence.deathsUnread) { verdict = 'INVALID'; reason = 'death counter unreadable'; }
 			if (verdict === 'PASS' && evidence.error) { verdict = 'INVALID'; reason = `fixture error: ${foldReason(evidence.error)}`; }
+			if (verdict === 'PASS' && evidence.notExercised.length) { verdict = 'INVALID'; reason = `not exercised: ${foldReason(evidence.notExercised[0])}`; }
 			// A file cut short is unknown evidence whatever the exit code said.
 			if (verdict !== 'INVALID' && evidence.corrupt.length) { verdict = 'INVALID'; reason = `corrupt ${evidence.corrupt.join(', ')}`; }
 			if (verdict === 'PASS' && evidence.failedPass && !survivalBar) { verdict = 'FAIL'; reason = 'pass false'; }

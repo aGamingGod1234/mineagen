@@ -250,6 +250,8 @@ try {
 			if (died) { await command('kill @e[type=minecraft:enderman]'); await (await startAction('respawn', {})).result.catch(() => null); died = false; await sleep(2000); }
 			results[name] = { tick, provoked, healthBefore: before, health: dead ? 0 : health(o), lowest: dead ? 0 : Math.min(...rows.map((row) => row.health)), dead, diedAfterMs,
 				waterAtFeet: water, events: (o.reflexes?.events ?? []).slice(-4), samples: rows.filter((_, index) => index % 4 === 0) };
+			// No anger after three stares: the setup never ran, so the trial measured nothing (INVALID, rerun), not a miss.
+			if (!provoked) results[name].notExercised = 'the stare never provoked the enderman (3 tries)';
 			return results[name];
 		} catch (error) { await settle(name, error); return null; }
 	};
@@ -260,7 +262,8 @@ try {
 	if (want('angry-shield')) {
 		const row = await defend('angry-shield', [{ id: 'block', kind: 'stance', priority: 6, when: { type: 'enderman_provoked', within: 4 }, do: { type: 'shield' }, maxS: 3 }],
 			[`item replace entity ${agent} weapon.offhand with minecraft:shield`]);
-		if (row) { row.pass = row.provoked; await settle('angry-shield'); }
+		// The shield must take the hits: a block fired and at most 2 health lost (unshielded, the enderman takes 6 or more).
+		if (row) { row.pass = row.provoked && row.events.some((event) => event.id === 'block' && /blocked [1-9]/.test(event.detail ?? '')) && row.lowest >= row.healthBefore - 2; await settle('angry-shield'); }
 	}
 	if (want('angry-water')) {
 		const row = await defend('angry-water', [{ id: 'puddle', priority: 9, when: { type: 'enderman_provoked', within: 16 }, do: { type: 'place', item: 'minecraft:water_bucket', where: 'feet' }, maxS: 3 }],
