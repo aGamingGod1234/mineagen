@@ -194,6 +194,11 @@ public final class ServerBuildController implements ServerController {
 	 */
 	static final int UNCOVER_TARGET = 12;
 	static final int MAX_UNCOVERS = 24;
+	/** Blocks the build's lava fetches may open, in all, to scoop a source hidden behind one block. */
+	static final int MAX_FETCH_WINDOWS = 6;
+	/** Blocks the build's lava fetches may mine, in all, digging a way through rock to a known source, and how far across that source may lie. */
+	static final int MAX_FETCH_DIGS = 24;
+	static final int FETCH_DIG_REACH = 10;
 
 
 	/** A 4x5 portal frame: origin is its bottom-left corner, set in the ground row; the frame spans along {@code axis}. */
@@ -404,7 +409,11 @@ public final class ServerBuildController implements ServerController {
 	private boolean waterFirst, runOffMeetsLava;
 	/** This cell has no spot whose water line misses the lava's cell: pour it from a spot where it crosses (main's way). */
 	private boolean crossAllowed;
-	private int lavaTakes, fetchRetries;
+	private int lavaTakes, fetchRetries, fetchWindows, fetchDigs;
+	/** Unknown cells the dig toward lava has turned to look at; one look each, so two unknown cells never take turns. */
+	private final Set<BlockPos> fetchDigLooked = new HashSet<>();
+	/** The running UNCOVER child opens a way for a lava fetch, not the pool's surface: kept out of the pool's counts. */
+	private boolean uncoverForFetch;
 	private int staleScoops;
 	private final java.util.ArrayDeque<BlockPos> wayBack = new java.util.ArrayDeque<>();
 
@@ -622,7 +631,11 @@ public final class ServerBuildController implements ServerController {
 		switch (kind) {
 			case SHELTER -> { return end(player, result); }
 			case UNCOVER -> {
-				if (result.state() == State.SUCCEEDED) { uncovers++; uncovered.add(uncoverCell); } else uncoverDead.add(uncoverCell);
+				if (result.state() == State.SUCCEEDED) { if (!uncoverForFetch) { uncovers++; uncovered.add(uncoverCell); } }
+				else {
+					uncoverDead.add(uncoverCell);
+					LOGGER.info("[build] {} could not open {}: {} {}", player.getGameProfile().name(), xyz(uncoverCell), result.reasonCode(), result.message());
+				}
 				pause = 4;
 				return running();
 			}
@@ -1333,6 +1346,7 @@ public final class ServerBuildController implements ServerController {
 			return walkTo(player, spot, now);
 		}
 		uncoverCell = cell;
+		uncoverForFetch = false;
 		releaseInput();
 		try {
 			return startChild(player, Child.UNCOVER, environment.uncover(player, cell, Math.min(15_000L, Math.max(1L, deadline - now))));
@@ -2214,6 +2228,7 @@ public final class ServerBuildController implements ServerController {
 		LOGGER.info("[build] {} {} at {} from {} (cell {} of 10)", player.getGameProfile().name(), kind, xyz(target), xyz(player.blockPosition()), castIndex + 1);
 		walks = 0;
 		triedSpots.clear();
+		fetchDigLooked.clear();
 		switch (kind) {
 			case WATER -> {
 				pouredWater = target.immutable();
@@ -2386,6 +2401,22 @@ public final class ServerBuildController implements ServerController {
 		if (!sources.isEmpty()) {
 			for (BlockPos source : sources.subList(0, Math.min(12, sources.size())))
 				if (scoopClick(player, source) != null) { seekLooks = 0; return pour(player, now, Pour.FILL, source, null); }
+			// One block between the eye and a source in reach: mine it and scoop from here, as a player does (lava-gate-2: the
+			// body stood in a one-wide dig beside the pool with a source a step below it behind one block of tuff, and walked
+			// 16 times toward spots beyond rock it could not see through).
+			BlockPos window = fetchWindows < MAX_FETCH_WINDOWS ? scoopWindow(player, sources) : null;
+			if (window != null) {
+				fetchWindows++;
+				uncoverCell = window;
+				uncoverForFetch = true;
+				releaseInput();
+				try {
+					LOGGER.info("[build] {} opens {} to scoop the lava behind it", player.getGameProfile().name(), xyz(window));
+					return startChild(player, Child.UNCOVER, environment.uncover(player, window, Math.min(15_000L, Math.max(1L, deadline - now))));
+				} catch (AgentDomainException refused) {
+					uncoverDead.add(window);
+				}
+			}
 			// Back to where a scoop last landed while lava it reaches is left: a dry spot it has stood on, by the way it
 			// walked (sight of the shore fades while the body works at the frame, and the frame hides it).
 			for (int k = scoopSpots.size() - 1; k >= 0 && walks < MAX_WALKS - 1; k--) {
@@ -2437,6 +2468,10 @@ public final class ServerBuildController implements ServerController {
 			seekWalks = 0;
 			return running();
 		}
+		// Lava known close across with no dry spot by it in sight (kit-gate-5: the cast site was carved where the body stood,
+		// 7 blocks of rock from a lava lake walled in on every side; 6 of 6 fetches gave up here): a player tunnels to it.
+		TickResult dug = digTowardLava(player, sources.isEmpty() ? remembered : sources, now);
+		if (dug != null) return dug;
 		return fail(player, "BUILD_SHORT", "Short of material: no lava source in reach after " + castIndex + " of 10 cells (" + sources.size() + " seen within "
 				+ CAST_FETCH_RANGE + " blocks of the frame, none with a dry spot beside it) after looking round and walking the shore near " + xyz(around)
 				+ "; find more lava and build again" + lastWalk());
@@ -2836,6 +2871,150 @@ public final class ServerBuildController implements ServerController {
 	}
 
 
+	/**
+	 * The one block hiding a seen (or remembered) lava source in reach from the eye: every other cell on the line to the
+	 * source's surface is known open, the block is seen, breakable in time and seen dry on its sides and top (the break
+	 * itself refuses one with lava seen or heard behind it), and the source
+	 * lies below both the block and the feet, so the opening cannot let it flow toward the body. Null when there is none.
+	 */
+	private BlockPos scoopWindow(ServerPlayer player, List<BlockPos> sources) {
+		ServerLevel level = (ServerLevel) player.level();
+		Vec3 eye = player.getEyePosition();
+		BlockPos feet = player.blockPosition();
+		double reach = player.blockInteractionRange() - 0.3D;
+		BlockPos best = null;
+		double bestDistance = Double.MAX_VALUE;
+		for (BlockPos source : sources) {
+			if (source.getY() >= feet.getY()) continue;
+			Vec3 surface = new Vec3(source.getX() + 0.5D, source.getY() + 0.85D, source.getZ() + 0.5D);
+			double distance = surface.distanceTo(eye);
+			if (distance > reach || distance >= bestDistance) continue;
+			BlockPos block = onlyBlockBetween(player, eye, surface, source);
+			if (block == null || block.getY() <= source.getY() || uncoverDead.contains(block) || inFootprint(block) || mould.contains(block)
+					|| block.equals(feet) || block.equals(feet.above()) || block.equals(feet.below())) continue;
+			BlockState state = known(player, block);
+			if (state == null || state.isAir() || !state.getFluidState().isEmpty() || clearTicks(player, level, block, state) > MAX_CLEAR_TICKS) continue;
+			boolean wet = false;
+			for (Direction side : Direction.values()) {
+				if (side == Direction.DOWN) continue;
+				BlockState next = known(player, block.relative(side));
+				if (next != null && !next.getFluidState().isEmpty()) wet = true;
+			}
+			if (wet) continue;
+			best = block.immutable();
+			bestDistance = distance;
+		}
+		return best;
+	}
+
+	/**
+	 * One step of a 1x2 way dug toward the nearest known source a little below the feet: mine the next cell (feet, then
+	 * head) through the break's own fluid rules, then step in. With lava heard at that level the step goes one block up
+	 * instead (kit-gate-5: lava heard 2 blocks beside the first cell), where lava cannot flow in, as a player digs over a
+	 * pool to scoop it from above. The scoop, or the one-block window, takes over once the source is in reach. Never
+	 * through the frame, its footprint or the mould, never onto an open drop or lava floor. Null when no step is left.
+	 */
+	private TickResult digTowardLava(ServerPlayer player, List<BlockPos> sources, long now) {
+		// A cell is only mined to be stepped into: with no walk left to step, nothing is dug.
+		if (fetchDigs >= MAX_FETCH_DIGS || sources.isEmpty() || walks >= MAX_WALKS - 1) return null;
+		ServerLevel level = (ServerLevel) player.level();
+		BlockPos feet = player.blockPosition();
+		BlockPos target = null;
+		double best = Double.MAX_VALUE;
+		for (BlockPos source : sources) {
+			if (source.getY() >= feet.getY() || feet.getY() - source.getY() > 4) continue;
+			double across = Math.hypot(source.getX() - feet.getX(), source.getZ() - feet.getZ());
+			if (across <= FETCH_DIG_REACH && across < best) { best = across; target = source; }
+		}
+		if (target == null) return null;
+		int dx = target.getX() - feet.getX(), dz = target.getZ() - feet.getZ();
+		Direction alongX = dx > 0 ? Direction.EAST : dx < 0 ? Direction.WEST : null;
+		Direction alongZ = dz > 0 ? Direction.SOUTH : dz < 0 ? Direction.NORTH : null;
+		Direction[] order = Math.abs(dx) >= Math.abs(dz) ? new Direction[] { alongX, alongZ } : new Direction[] { alongZ, alongX };
+		for (Direction step : order) {
+			if (step == null) continue;
+			BlockPos next = feet.relative(step);
+			rises:
+			for (int rise = 0; rise <= 1; rise++) {
+				BlockPos stand = next.above(rise);
+				// Up a block: the cell over the head opens too, for the jump onto the step.
+				BlockPos[] cells = rise == 0 ? new BlockPos[] { stand, stand.above() } : new BlockPos[] { feet.above(2), stand, stand.above() };
+				for (BlockPos cell : cells) if (inFootprint(cell) || mould.contains(cell)) continue rises;
+				// Up a block stands on the cell ahead at the feet: only while it is still known solid rock, never after it was
+				// mined out or lava flowed in.
+				if (rise == 1) {
+					BlockState ahead = known(player, next);
+					if (ahead == null || ahead.isAir() || !ahead.getFluidState().isEmpty()) continue;
+				}
+				// Up a block opens the cell over the head: sand or gravel resting on it would drop onto the body.
+				if (rise == 1 && (fallingBlock(known(player, feet.above(3))) || fallingBlock(known(player, stand.above(2))))) continue;
+				for (BlockPos cell : cells) {
+					BlockState state = known(player, cell);
+					if (state == null) {
+						TickResult look = lookOnce(player, cell);
+						if (look != null) return look;
+						continue rises;
+					}
+					if (!state.getFluidState().isEmpty()) continue rises;
+					if (state.isAir()) continue;
+					// Water or lava known beside or over the cell would flow into the way once it is open, as for the window.
+					if (fluidBeside(player, cell)) continue rises;
+					if (uncoverDead.contains(cell) || clearTicks(player, level, cell, state) > MAX_CLEAR_TICKS) continue rises;
+					fetchDigs++;
+					uncoverCell = cell.immutable();
+					uncoverForFetch = true;
+					releaseInput();
+					try {
+						LOGGER.info("[build] {} digs {} toward the lava at {}", player.getGameProfile().name(), xyz(cell), xyz(target));
+						return startChild(player, Child.UNCOVER, environment.uncover(player, cell, Math.min(15_000L, Math.max(1L, deadline - now))));
+					} catch (AgentDomainException refused) {
+						uncoverDead.add(cell);
+						LOGGER.info("[build] {} could not open {}: {} {}", player.getGameProfile().name(), xyz(cell), refused.code(), refused.getMessage());
+						continue rises;
+					}
+				}
+				// The floor under a mined cell lay inside rock, never seen: look at it before stepping in.
+				BlockState floor = known(player, stand.below());
+				if (floor == null) {
+					TickResult look = lookOnce(player, stand.below());
+					if (look != null) return look;
+					continue;
+				}
+				if (floor.isAir() || !floor.getFluidState().isEmpty()) continue;
+				// The opened way showed water or lava beside it (unseen in the rock until now): never step in beside it.
+				if (fluidBeside(player, stand) || fluidBeside(player, stand.above())) {
+					LOGGER.info("[build] {} leaves the way at {}: water or lava beside it", player.getGameProfile().name(), xyz(stand));
+					continue;
+				}
+				if (standable(player, level, stand) && walks < MAX_WALKS - 1) return walkTo(player, stand, now);
+			}
+		}
+		return null;
+	}
+
+	/** Turn to look at a cell not in sight memory, once; null once it was looked at (still unknown: not seen from here). */
+	private TickResult lookOnce(ServerPlayer player, BlockPos cell) {
+		if (fetchDigLooked.contains(cell)) return null;
+		releaseInput();
+		if (ServerLookController.turnToward(player, Vec3.atCenterOf(cell))) { fetchDigLooked.add(cell.immutable()); pause = 3; }
+		return running();
+	}
+
+	/** The single known solid cell on the line from {@code from} to {@code to} (the source's own cell aside), else null. */
+	private BlockPos onlyBlockBetween(ServerPlayer player, Vec3 from, Vec3 to, BlockPos source) {
+		BlockPos[] found = new BlockPos[1];
+		Boolean clear = net.minecraft.world.level.BlockGetter.traverseBlocks(from, to, player.level(), (getter, cell) -> {
+			if (cell.equals(source)) return null;
+			BlockState state = known(player, cell);
+			if (state == null || !state.getFluidState().isEmpty()) return Boolean.FALSE;
+			if (state.isAir()) return null;
+			if (found[0] != null) return Boolean.FALSE;
+			found[0] = cell.immutable();
+			return null;
+		}, getter -> Boolean.TRUE);
+		return Boolean.TRUE.equals(clear) ? found[0] : null;
+	}
+
 	private TickResult walkTo(ServerPlayer player, BlockPos spot, long now) {
 		if (walks >= MAX_WALKS) return fail(player, "NO_STAND_SPOT", MAX_WALKS + " walks did not bring the work into reach" + lastWalk());
 		releaseInput();
@@ -3209,6 +3388,20 @@ public final class ServerBuildController implements ServerController {
 		return text.toString();
 	}
 
+
+	/** Water or lava known on a side of the cell or over it. */
+	private boolean fluidBeside(ServerPlayer player, BlockPos cell) {
+		for (Direction side : Direction.values()) {
+			if (side == Direction.DOWN) continue;
+			BlockState beside = known(player, cell.relative(side));
+			if (beside != null && !beside.getFluidState().isEmpty()) return true;
+		}
+		return false;
+	}
+
+	private static boolean fallingBlock(BlockState state) {
+		return state != null && state.getBlock() instanceof net.minecraft.world.level.block.FallingBlock;
+	}
 
 	private BlockState known(ServerPlayer player, BlockPos at) {
 		SeenTerrain.Reader<BlockState> seen = SeenTerrain.of(player);

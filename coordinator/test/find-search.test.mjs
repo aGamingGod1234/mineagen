@@ -2149,3 +2149,52 @@ test('iron-obtain-20261107: water that reaches the body only after the wet dig s
 	assert.ok(!moves.some((call) => call.actionType === 'travel_to' && call.args.retrace === true), 'no retrace back up to the start');
 	assert.equal(result.reasonCode, 'FIND_SEEN', result.message);
 });
+
+test('kit gates: a lava find starting on the lake shore it filled its bucket at walks off the water before the first dig down', async () => {
+	const seen = { result: { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', message: 'minecraft:lava seen at -40,-54,0, 9 blocks away' } };
+	const run = async (blocks, player = { x: 334.5, y: 63, z: -7.5, yaw: 0, health: 20, skyOpen: true }) => {
+		const body = fakeBody({ start: sample({ player, blocks, inventory: { items: [{ itemId: 'minecraft:iron_pickaxe', count: 1, slot: 'mainhand' }, { itemId: 'minecraft:water_bucket', count: 1, slot: 1 }] } }),
+			frontier: { candidates: [], coverage: { headings: {} } }, acts: { dig_to: [seen], travel_to: [1, 2, 3].map(() => ({ result: { state: 'SUCCEEDED', reasonCode: 'ARRIVED' },
+				move: (at, args) => ({ x: at.x - Math.sin(args.yaw * Math.PI / 180) * args.distance, z: at.z + Math.cos(args.yaw * Math.PI / 180) * args.distance }) })) } });
+		await searchFor({ block }, body);
+		return body.calls.filter((call) => ['dig_to', 'travel_to'].includes(call.actionType))
+			.map((call) => (call.actionType === 'dig_to' ? `${call.args.pattern}` : `walk ${call.args.yaw} ${call.args.distance}`));
+	};
+	let block = 'minecraft:lava';
+	// kit-gate-5: the water it scooped lies a block north of the feet; the dig down there met the lake's water.
+	assert.deepEqual(await run([{ blockId: 'minecraft:water', x: 334, y: 62, z: -9 }]), ['walk 0 32', 'shaft'], 'south, away from the water, then down');
+	// Water across the shore to the east: off to the west.
+	assert.deepEqual(await run([{ blockId: 'minecraft:water', x: 339, y: 62, z: -8 }]), ['walk 90 32', 'shaft']);
+	// Water out of reach of the dig (12 across) or high above the feet (a spring up the hill): down at once.
+	assert.deepEqual(await run([{ blockId: 'minecraft:water', x: 346, y: 62, z: -8 }]), ['shaft']);
+	assert.deepEqual(await run([{ blockId: 'minecraft:water', x: 336, y: 70, z: -8 }]), ['shaft']);
+	// Under a roof above the band (a cave or overhang by the water): no walk off; the start keeps the depth it has.
+	assert.deepEqual(await run([{ blockId: 'minecraft:water', x: 334, y: 62, z: -9 }], { x: 334.5, y: 63, z: -7.5, yaw: 0, health: 20, skyOpen: false }), ['shaft']);
+	// Already down in the band: no walk off, whatever water is in sight.
+	assert.deepEqual(await run([{ blockId: 'minecraft:water', x: 335, y: -40, z: -8 }], { x: 334.5, y: -40, z: -7.5, yaw: 0, health: 20, skyOpen: false }).then((moves) => moves.includes('walk 0 32')), false);
+	// The walk off lands by more water (kit-gate-1, round 1: a second lake 32 blocks south): off that too, not back toward
+	// the first, then down.
+	assert.deepEqual(await run([{ blockId: 'minecraft:water', x: 334, y: 62, z: -9 }, { blockId: 'minecraft:water', x: 334, y: 62, z: 26 }]), ['walk 0 32', 'walk -90 48', 'shaft']);
+	// The two walks off spent all four headings; a dig down that then meets water still gets its own walk off.
+	const shaftWet = { result: { state: 'FAILED', reasonCode: 'WATER_AHEAD', message: 'Stopped: Water at 383,50,25 beside the opened cell 382,51,24; water on 3 sides of it: a body of water (an aquifer or lake), not a trickle' },
+		move: () => ({ y: 51, skyOpen: false }) };
+	{
+		const body = fakeBody({ start: sample({ player: { x: 334.5, y: 63, z: -7.5, yaw: 0, health: 20, skyOpen: true },
+			blocks: [{ blockId: 'minecraft:water', x: 334, y: 62, z: -9 }, { blockId: 'minecraft:water', x: 334, y: 62, z: 26 }],
+			inventory: { items: [{ itemId: 'minecraft:iron_pickaxe', count: 1, slot: 'mainhand' }, { itemId: 'minecraft:water_bucket', count: 1, slot: 1 }] } }),
+			frontier: { candidates: [], coverage: { headings: {} } }, acts: { dig_to: [shaftWet, seen, seen, seen], travel_to: [1, 2, 3, 4, 5].map(() => ({ result: { state: 'SUCCEEDED', reasonCode: 'ARRIVED' },
+				move: (at, args) => args.yaw === undefined ? {} : ({ x: at.x - Math.sin(args.yaw * Math.PI / 180) * args.distance, z: at.z + Math.cos(args.yaw * Math.PI / 180) * args.distance }) })) } });
+		await searchFor({ block: 'minecraft:lava' }, body);
+		const moves = body.calls.filter((call) => ['dig_to', 'travel_to'].includes(call.actionType))
+			.map((call) => `${call.actionType} ${call.args.retrace ? 'up' : call.args.pattern ?? call.args.yaw}`);
+		// Back up out of the wet hole and off the water, as from any wet dig; with the headings still spent it turned at depth.
+		assert.deepEqual(moves.slice(0, 5), ['travel_to 0', 'travel_to -90', 'dig_to shaft', 'travel_to up', 'travel_to 90']);
+	}
+	// Lava only: an iron find from the same shore keeps its old start (no gate-room evidence for other targets yet).
+	block = 'minecraft:iron_ore';
+	assert.equal((await run([{ blockId: 'minecraft:water', x: 334, y: 62, z: -9 }]))[0]?.startsWith('walk 0 32'), false);
+	// The A/B off arm: the old start.
+	block = 'minecraft:lava';
+	process.env.MINEAGEN_FIND_DRY_START = 'off';
+	try { assert.deepEqual(await run([{ blockId: 'minecraft:water', x: 334, y: 62, z: -9 }]), ['shaft']); } finally { delete process.env.MINEAGEN_FIND_DRY_START; }
+});
