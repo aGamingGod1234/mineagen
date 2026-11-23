@@ -234,12 +234,14 @@ const boatSays = id => machineState(id, live).then(s => LIVE.has(s), e => NOT_FO
 // live, and after OUTAGE_GRACE_MS while boat answers about others but not this one. During an outage nothing is dropped
 // (a drop then would also leave the sign-in on the machine) until the deadline has passed, when no game can start and
 // every game should have ended. Time in an outage or without an answer does not count toward LOST_AFTER_MS: once boat
-// answers again, the failure clock (vm[since]) starts over.
+// answers again, every running failure clock starts over, not only vm[since]: a failed launch and the pass around it
+// both call this, and the first answer clears the outage for both.
 function dropDue(vm, live, since) {
+	const restartClocks = () => { for (const clock of ['failingSince', 'launchFailingSince']) if (clock === since || vm[clock] != null) vm[clock] = Date.now(); };
 	if (live === undefined) { vm.inOutage = true; return Date.now() > Date.parse(plan.deadline); }
-	if (vm.inOutage) { vm.inOutage = false; vm.unansweredSince = null; vm[since] = Date.now(); }
+	if (vm.inOutage) { vm.inOutage = false; vm.unansweredSince = null; restartClocks(); }
 	if (live === null) { vm.unansweredSince ??= Date.now(); return Date.now() - vm.unansweredSince > OUTAGE_GRACE_MS; }
-	if (vm.unansweredSince) { vm.unansweredSince = null; vm[since] = Date.now(); }
+	if (vm.unansweredSince) { vm.unansweredSince = null; restartClocks(); }
 	return live === false || Date.now() - vm[since] > LOST_AFTER_MS;
 }
 async function launch(vm, game) {
@@ -332,7 +334,12 @@ async function retire(vm) {
 // is left for it. Errors count against the machine only when it stops answering: a machine is dropped after it failed
 // for LOST_AFTER_MS in a row (or boat no longer lists it), never because of a local copy failure.
 async function tend(vm, step) {
-	try { await step(); vm.failingSince = null; vm.unansweredSince = null; vm.inOutage = false; }
+	try {
+		await step();
+		// Boat answered again, so a launch failure clock that ran through the outage starts over too (as in dropDue).
+		if ((vm.inOutage || vm.unansweredSince) && vm.launchFailingSince != null) vm.launchFailingSince = Date.now();
+		vm.failingSince = null; vm.unansweredSince = null; vm.inOutage = false;
+	}
 	catch (error) {
 		// A call the abort killed says nothing about the machine; the cleanup comes next.
 		if (aborted) return;
