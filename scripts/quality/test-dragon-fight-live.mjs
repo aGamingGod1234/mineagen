@@ -359,6 +359,30 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 					const r = await act('use_item', { expectedItemId: 'minecraft:bucket', aimX: water.x + 0.5, aimY: water.y + 0.5, aimZ: water.z + 0.5, durationMs: 100 });
 					note(`refill the bucket at ${water.x},${water.y},${water.z}`, r);
 				};
+				// Down an access column to the ground feet y BASE: one shaft call with a hotbar water bucket (the facts' descent);
+				// without one the shaft turns into two-column stairs, so the column is broken one block under the feet at a time.
+				const comeDown = async base => {
+					let f = await feetNow(), r;
+					f = await feetNow();
+					const bucket = (f?.o?.inventory?.items ?? []).some(i => i.itemId === 'minecraft:water_bucket' && (Number.isInteger(i.slot) ? i.slot < 9 : /hotbar|offhand/.test(String(i.slot))));
+					note(`descend: water bucket in the hotbar ${bucket}`, null);
+					// Down even past the window: the body does not stay on the column.
+					await dragonAway('before the descent');
+					// With the bucket, one shaft call (the facts' descent); without it the shaft turns into two-column stairs, so the
+					// column is broken one block under the feet at a time, each a one-block drop.
+					if (bucket) for (let i = 0; i < 2 && f && f.y > base; i++) {
+						r = await act('dig_to', { pattern: 'shaft', y: base, maxShaftY: base, throughCaves: true, timeoutMs: 90000 }); note('shaft down the column', r);
+						f = await feetNow();
+					}
+					else for (let i = 0; i < 40 && f && f.y > base; i++) {
+						r = await act('break_block', { x: f.x, y: f.y - 1, z: f.z, timeoutMs: 10000 }); note(`break the column under the feet at y ${f.y - 1}`, r);
+						await s.clock.sleep(600);
+						const next = await feetNow();
+						if (r.state !== 'SUCCEEDED' && next?.y === f.y) break;
+						f = next;
+					}
+					return f;
+				};
 				const openCage = async c => {
 					c.cageTries += 1;
 					await refill();
@@ -400,7 +424,8 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 						r = await act('build', { structure: 'pillar', size: S.y - f.y, itemId: column, timeoutMs: 60000 }); note(`pillar ${S.y - f.y} up beside the cage`, r);
 						f = await feetNow();
 					}
-					if (!f || f.x !== S.x || f.z !== S.z || f.y < S.y) { note(`pillar short (feet ${f ? `${f.x},${f.y},${f.z}` : '?'} of ${S.y})`, null); return; }
+					// A build that stopped partway up leaves the body on the column: it comes down before giving up this try.
+					if (!f || f.x !== S.x || f.z !== S.z || f.y < S.y) { note(`pillar short (feet ${f ? `${f.x},${f.y},${f.z}` : '?'} of ${S.y})`, null); if (f && f.y > base) await comeDown(base); return; }
 					// 3. The wall bars at the crystal's feet height and above; the lowest row stays (CAGED_CRYSTAL_FACTS).
 					await act('select_item', { itemId: 'minecraft:iron_pickaxe' });
 					// Past the window the bars wait, but the body still comes down off the column.
@@ -411,25 +436,8 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 							r = await act('break_block', { x: W.x, y, z: W.z, expectedBlockId: 'minecraft:iron_bars', timeoutMs: 10000 }); note(`break bar ${W.x},${y},${W.z}`, r);
 						}
 					}
-					// 4. Down the column: one shaft call to the recorded ground feet y, a water bucket in the hotbar.
-					f = await feetNow();
-					const bucket = (f?.o?.inventory?.items ?? []).some(i => i.itemId === 'minecraft:water_bucket' && (Number.isInteger(i.slot) ? i.slot < 9 : /hotbar|offhand/.test(String(i.slot))));
-					note(`descend: water bucket in the hotbar ${bucket}`, null);
-					// Down even past the window: the body does not stay on the column.
-					await dragonAway('before the descent');
-					// With the bucket, one shaft call (the facts' descent); without it the shaft turns into two-column stairs, so the
-					// column is broken one block under the feet at a time, each a one-block drop.
-					if (bucket) for (let i = 0; i < 2 && f && f.y > base; i++) {
-						r = await act('dig_to', { pattern: 'shaft', y: base, maxShaftY: base, throughCaves: true, timeoutMs: 90000 }); note('shaft down the column', r);
-						f = await feetNow();
-					}
-					else for (let i = 0; i < 40 && f && f.y > base; i++) {
-						r = await act('break_block', { x: f.x, y: f.y - 1, z: f.z, timeoutMs: 10000 }); note(`break the column under the feet at y ${f.y - 1}`, r);
-						await s.clock.sleep(600);
-						const next = await feetNow();
-						if (r.state !== 'SUCCEEDED' && next?.y === f.y) break;
-						f = next;
-					}
+					// 4. Down the column to the recorded ground feet y.
+					f = await comeDown(base);
 					await refill();
 					if (late) return;
 					// 5. Only once down on the island floor: from the ground on that side, through the gap.
