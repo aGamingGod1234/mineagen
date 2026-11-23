@@ -16,7 +16,7 @@ import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { defaultTemplatePath, prepareTemplate, targetProperties, templateProblems } from './prepare-server-template.mjs';
+import { addLithium, defaultTemplatePath, lithiumJarName, prepareTemplate, targetProperties, templateLacksLithium, templateProblems } from './prepare-server-template.mjs';
 import { liveSlotPool } from './quality/fixture-servers.mjs';
 import { recordingsRoot } from '../coordinator/scripts/private-inputs.mjs';
 
@@ -134,6 +134,7 @@ export const checks = [
 		const use = fallbackReady ? `export ARENA_HEADLESS_SERVER_TEMPLATE=${fallback}` : prepare;
 		if (set) {
 			const problems = templateProblems(set, properties);
+			if (!problems.length && templateLacksLithium(set, properties)) return warn(`ARENA_HEADLESS_SERVER_TEMPLATE=${set} lacks mods/${lithiumJarName(properties)} (servers run slower than in room batches)`, 'node scripts/doctor.mjs --fix (adds Lithium to the template)');
 			if (!problems.length) return ok(`ARENA_HEADLESS_SERVER_TEMPLATE is a ${properties.minecraft_version} template`);
 			return fail(`ARENA_HEADLESS_SERVER_TEMPLATE=${set}: ${problems.join('; ')}`, use, fallbackReady ? { env: { ARENA_HEADLESS_SERVER_TEMPLATE: fallback } } : {});
 		}
@@ -226,6 +227,9 @@ export async function applyFixes(ctx, { from = mainCheckout(ctx), acceptEula = f
 	}
 	const properties = targetProperties(ctx.root), fallback = ctx.defaultTemplate ?? defaultTemplatePath(properties.minecraft_version);
 	const set = ctx.env.ARENA_HEADLESS_SERVER_TEMPLATE;
+	// The template live fixtures use: the one set, else the prepared default (the check points at it).
+	const inUse = set && !templateProblems(set, properties).length ? set : !set && !templateProblems(fallback, properties).length ? fallback : null;
+	if (inUse && templateLacksLithium(inUse, properties)) await addLithium(inUse, properties, { log: line => steps.push(line) });
 	if (!(set && !templateProblems(set, properties).length) && templateProblems(fallback, properties).length) {
 		if (acceptEula) { await prepareTemplate({ root: ctx.root, out: fallback, log: line => steps.push(line.split('\n')[0]) }); }
 		else steps.push('server template not prepared: pass --accept-minecraft-eula to accept the Minecraft EULA and prepare it');
