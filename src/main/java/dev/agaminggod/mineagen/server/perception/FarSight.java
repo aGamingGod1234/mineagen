@@ -286,27 +286,28 @@ public final class FarSight {
 		final long[] faces = new long[6];
 		boolean fingerprinted;
 
-		static Neighbours of(LevelChunk chunk, LevelChunk[] beside, int sectionIndex) {
-			Neighbours neighbours = new Neighbours();
-			for (int face = 0; face < 6; face++) {
-				LevelChunk other = neighbourChunk(chunk, beside, face);
-				int otherIndex = sectionIndex + FACE_SECTION_STEP[face];
-				if (other == null || otherIndex < 0 || otherIndex >= other.getSections().length) continue;
-				neighbours.chunks[face] = new java.lang.ref.WeakReference<>(other);
-				neighbours.revisions[face] = sectionRevision(other, otherIndex);
-			}
-			return neighbours;
-		}
-
-		/** Fingerprints every neighbour layer; done once, before the section's first block is read. */
+		/**
+		 * Fingerprints every neighbour layer and records each neighbour's chunk and write count; done once, before the
+		 * section's first block is read. Nothing reads those records before this (changedFaces answers 0 until then), so
+		 * they are taken here instead of being refreshed on every look at a section that holds nothing to re-read.
+		 */
 		void fingerprint(LevelChunk chunk, LevelChunk[] beside, int sectionIndex) {
 			if (fingerprinted) return;
 			fingerprinted = true;
-			for (int face = 0; face < 6; face++) faces[face] = faceFingerprint(chunk, beside, sectionIndex, face);
+			for (int face = 0; face < 6; face++) {
+				int otherIndex = sectionIndex + FACE_SECTION_STEP[face];
+				if (otherIndex >= 0 && otherIndex < chunk.getSections().length) {
+					LevelChunk other = neighbourChunk(chunk, beside, face);
+					chunks[face] = other == null ? null : new java.lang.ref.WeakReference<>(other);
+					revisions[face] = other == null ? 0L : sectionRevision(other, otherIndex);
+				}
+				faces[face] = faceFingerprint(chunk, beside, sectionIndex, face);
+			}
 		}
 
 		/** Brings each face up to date; returns the faces whose neighbour layer changed since this section was read. */
 		int changedFaces(LevelChunk chunk, LevelChunk[] beside, int sectionIndex) {
+			if (!fingerprinted) return 0;
 			int changed = 0;
 			for (int face = 0; face < 6; face++) {
 				LevelChunk other = neighbourChunk(chunk, beside, face);
@@ -316,7 +317,6 @@ public final class FarSight {
 				if (same && (other == null || revisions[face] == sectionRevision(other, otherIndex))) continue;
 				chunks[face] = other == null ? null : new java.lang.ref.WeakReference<>(other);
 				revisions[face] = other == null ? 0L : sectionRevision(other, otherIndex);
-				if (!fingerprinted) continue;
 				long fingerprint = faceFingerprint(chunk, beside, sectionIndex, face);
 				if (fingerprint == faces[face]) continue;
 				faces[face] = fingerprint;
@@ -499,7 +499,7 @@ public final class FarSight {
 			SectionScan section = scan.sections[sectionIndex];
 			if (section == null || section.revision != revision) {
 				if (section != null) sectionResets++;
-				return scan.sections[sectionIndex] = new SectionScan(revision, Neighbours.of(chunk, beside, sectionIndex));
+				return scan.sections[sectionIndex] = new SectionScan(revision, new Neighbours());
 			}
 			int changed = section.neighbours.changedFaces(chunk, beside, sectionIndex);
 			if (changed != 0) {

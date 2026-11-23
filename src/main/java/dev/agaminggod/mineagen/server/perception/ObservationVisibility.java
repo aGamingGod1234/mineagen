@@ -156,8 +156,21 @@ public final class ObservationVisibility {
 		/** {@link ObservationVisibility#seesCell} from this eye; open air counts, lava hides what is behind it. */
 		public boolean seesCell(BlockPos position) {
 			Objects.requireNonNull(position, "position must not be null");
-			return memoizedBlockVisibility(seenCells, position, cell -> hasLoadedSightPath(eye, Vec3.atCenterOf(cell), level::hasChunkAt)
-					&& ObservationVisibility.seesCell(level, CollisionContext.of(observer), eye, normalizedView, cell));
+			return memoizedBlockVisibility(seenCells, position, this::traceCell);
+		}
+
+		/**
+		 * {@link #seesCell} without this frame's memo: for a caller that asks each cell of the frame at most once, so
+		 * the memo would only be written, never read.
+		 */
+		public boolean seesCellOnce(BlockPos position) {
+			Objects.requireNonNull(position, "position must not be null");
+			return traceCell(position);
+		}
+
+		private boolean traceCell(BlockPos cell) {
+			return hasLoadedSightPath(eye, Vec3.atCenterOf(cell), level::hasChunkAt)
+					&& ObservationVisibility.seesCell(level, CollisionContext.of(observer), eye, normalizedView, cell);
 		}
 	}
 
