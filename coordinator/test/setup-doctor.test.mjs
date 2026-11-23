@@ -118,6 +118,11 @@ test('a template without the pinned Lithium JAR warns, and --fix adds the checke
 		write(path.join(base, 'downloads/lithium-fabric-0.1+mc26.3.jar'), 'tampered');
 		rmSync(path.join(older, 'mods/lithium-fabric-0.1+mc26.3.jar'));
 		await assert.rejects(applyFixes(ctx, { from: null }), /SHA-256 mismatch/);
+		// Unset, the prepared default template is the one live fixtures are pointed at: --fix adds Lithium there too.
+		write(path.join(base, 'downloads/lithium-fabric-0.1+mc26.3.jar'), 'lithium');
+		const fallback = template(path.join(base, 'fallback'), { lithium: false });
+		await applyFixes(context(checkout, { env: {}, defaultTemplate: fallback }), { from: null });
+		assert.equal(readFileSync(path.join(fallback, 'mods/lithium-fabric-0.1+mc26.3.jar'), 'utf8'), 'lithium');
 	} finally { cleanup(); }
 });
 

@@ -193,5 +193,24 @@ export async function runBatch({ batch, rooms, arms, pool, vms, out, roomTimeout
 	const capped = short.filter(group => group.planned + group.perCopy > 2 * valid), early = short.filter(group => !capped.includes(group));
 	if (topUps) text += `\n--valid ${valid}: ${topUps.added.length} top-up copies; ${short.length ? [capped.length ? `short at the ${2 * valid}-run cap: ${named(capped)}` : null,
 		early.length ? `short with copies left (batch stopped or out of machines): ${named(early)}` : null].filter(Boolean).join('; ') : 'every group reached it'}`;
+	const mods = serverModsLine(outcomes);
+	if (mods) text += `\n${mods}`;
 	return { outcomes, topUps: topUps?.report() ?? null, merged, wallSeconds, text, machines: machines.map(vm => ({ id: vm.id, reused: !!vm.reused, returned: !!vm.returned, destroyed: !!vm.destroyed, destroyError: vm.destroyError ?? null, usage: vm.usage ?? null })) };
+}
+
+/** Per added server mod (Lithium), in how many arms' server logs it was listed; arms short of it are named. */
+export function serverModsLine(outcomes) {
+	const counts = new Map();
+	for (const outcome of outcomes ?? []) for (const [arm, value] of Object.entries(outcome?.arms ?? {})) {
+		if (!value?.serverMods) continue;
+		for (const [id, listed] of Object.entries(value.serverMods.listed ?? {})) {
+			const entry = counts.get(id) ?? { arms: 0, listed: 0, short: [] };
+			entry.arms++;
+			if (listed > 0 && listed >= value.serverMods.logs) entry.listed++;
+			else entry.short.push(`${outcome.room ?? '?'}/${arm}`);
+			counts.set(id, entry);
+		}
+	}
+	if (!counts.size) return null;
+	return `server mods: ${[...counts].map(([id, entry]) => `${id} listed in every server log of ${entry.listed} of ${entry.arms} arms${entry.short.length ? ` (not in ${entry.short.slice(0, 5).join(', ')}${entry.short.length > 5 ? ', ...' : ''})` : ''}`).join('; ')}`;
 }

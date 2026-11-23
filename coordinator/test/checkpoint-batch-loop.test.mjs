@@ -122,7 +122,9 @@ test('checkpoint batch copies every game home, writes each env switch on its own
 		assert.equal(readFileSync(path.join(root, 'bx_aaaaaaaa/ck/arms/other/env'), 'utf8'), 'A_SWITCH=on\nB_SWITCH=2\n');
 		// Games play on a copy of the machine's template with Lithium added; the machine's own template is left as it was.
 		for (const id of ['bx_aaaaaaaa', 'bx_bbbbbbbb']) {
-			assert.equal(readFileSync(path.join(root, id, 'rooms/template-26.3+lithium-fabric-0.1+mc26.3/mods/lithium-fabric-0.1+mc26.3.jar'), 'utf8'), 'lithium');
+			const copy = readFileSync(path.join(root, id, 'ck/server-template'), 'utf8').trim();
+			assert.match(copy, /\/rooms\/template-26\.3\+lithium-[0-9a-f]{12}$/);
+			assert.equal(readFileSync(path.join(copy, 'mods/lithium-fabric-0.1+mc26.3.jar'), 'utf8'), 'lithium');
 			assert.deepEqual(readdirSync(path.join(root, id, 'rooms/template-26.3/mods')), []);
 		}
 		assert.deepEqual(readFileSync(path.join(root, 'deleted.log'), 'utf8').trim().split('\n').sort(), ['bx_aaaaaaaa', 'bx_bbbbbbbb']);

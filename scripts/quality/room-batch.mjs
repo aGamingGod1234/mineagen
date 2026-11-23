@@ -26,8 +26,9 @@
 // saved worlds' region files (PACK_EXCLUDES in lib/room-batch-core.mjs, lib/room-worlds.mjs); --keep-worlds
 // brings every arm's region files home.
 // Every arm's server gets Lithium (a server performance mod that keeps vanilla behaviour; the target's pinned JAR,
-// downloaded and checked here, travels as a batch input and lib/room-batch-remote.mjs adds it to a copy of the machine's
-// template); --no-lithium plays on the template as it is.
+// downloaded and checked here, travels as a batch input; lib/room-batch-remote.mjs uses the machine's template when it
+// already holds that JAR, else a copy with it); --no-lithium adds nothing and plays on the template as it is, which is
+// a run without Lithium only when that template has none.
 // AI rooms (the real model plays the room through the production coordinator), instead of --commands and --arm:
 //   node scripts/quality/room-batch.mjs --player model --jar JAR --codex-auth AUTH.json [--ai-rooms ROOMS.json]
 //     [--rooms NAME,...] [--repeats N] [--no-script] [--model M] --pool boat --vms N --out FRESH_DIR

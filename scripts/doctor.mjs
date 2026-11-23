@@ -227,7 +227,9 @@ export async function applyFixes(ctx, { from = mainCheckout(ctx), acceptEula = f
 	}
 	const properties = targetProperties(ctx.root), fallback = ctx.defaultTemplate ?? defaultTemplatePath(properties.minecraft_version);
 	const set = ctx.env.ARENA_HEADLESS_SERVER_TEMPLATE;
-	if (set && !templateProblems(set, properties).length && templateLacksLithium(set, properties)) await addLithium(set, properties, { log: line => steps.push(line) });
+	// The template live fixtures use: the one set, else the prepared default (the check points at it).
+	const inUse = set && !templateProblems(set, properties).length ? set : !set && !templateProblems(fallback, properties).length ? fallback : null;
+	if (inUse && templateLacksLithium(inUse, properties)) await addLithium(inUse, properties, { log: line => steps.push(line) });
 	if (!(set && !templateProblems(set, properties).length) && templateProblems(fallback, properties).length) {
 		if (acceptEula) { await prepareTemplate({ root: ctx.root, out: fallback, log: line => steps.push(line.split('\n')[0]) }); }
 		else steps.push('server template not prepared: pass --accept-minecraft-eula to accept the Minecraft EULA and prepare it');
