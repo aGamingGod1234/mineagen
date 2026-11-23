@@ -212,6 +212,8 @@ const WET_WALK_STOPS = new Set(['WATER_AHEAD', 'TUNNEL_FLOODED', 'BREATH_LOW', '
  * walks fired, iron was found in 9 of 30 runs with it on against 18 of 30 off.
  */
 export const caveFirst = (environment = process.env) => getSwitch('find.caveFirst', environment).value;
+/** Off only for the A/B off arm (MINEAGEN_FIND_DRY_START=off): no walk off seen water before the first dig down. */
+export const dryStart = (environment = process.env) => getSwitch('find.dryStart', environment).value;
 // Blocks a dig_to may be given (schema.mjs maxBlocks) and the cells one step cuts per pattern.
 const MAX_DIG_BLOCKS = 4_096;
 const STEP_CELLS = Object.freeze({ tunnel: 2, stairs_down: 3, stairs_up: 3, steep_down: 4 });
@@ -1553,7 +1555,7 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 			// its aquifer. Gate rooms on main (8f309b76): the first dig down met water in 55 of 79 kit-gate runs, which start
 			// at the lake shore after the water fetch; 3 of those 55 lit a portal.
 			const nearWet = legs.length === 0 && profile.depth !== null && at.y > profile.depth + CAVE_BAND
-				? wetSpots().find((place) => Math.hypot(place.x + 0.5 - at.x, place.z + 0.5 - at.z) <= 12) ?? waterBeside(at) : undefined;
+				? wetSpots().find((place) => Math.hypot(place.x + 0.5 - at.x, place.z + 0.5 - at.z) <= 12) ?? (dryStart() ? waterBeside(at) : undefined) : undefined;
 			const wetDig = counted < legs.length && DESCENTS.test(lastHow) && lastLeg?.reasonCode === 'WATER_AHEAD';
 			const wet = lastLeg?.underWater === true || observation?.player?.underWater === true;
 			if (wetDig) miss({ x: Math.floor(at.x), y: Math.floor(at.y + 1e-3), z: Math.floor(at.z) }, WET_SPOT);
