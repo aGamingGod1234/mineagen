@@ -134,7 +134,10 @@ jobs:
         # recording-based tests, which are then skipped by name.
         env:
           ARENA_PRIVATE_INPUTS: ${{ vars.ARENA_PRIVATE_INPUTS }}
-        run: node scripts/run-public-suite.mjs --test-timeout=120000 --test-shard=${{ matrix.shard }}/2
+        # npm test's pretest step first, then the suite with the shard flag.
+        run: |
+          node scripts/prepare-owned-job.mjs
+          node scripts/run-public-suite.mjs --test-timeout=120000 --test-shard=${{ matrix.shard }}/2
 
   java-core:
     name: Java core (Linux)

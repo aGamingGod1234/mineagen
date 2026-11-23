@@ -52,8 +52,11 @@ jobs:
         run: npm run test:contracts
       - name: Test coordinator (shard ${{ matrix.shard }}/2)
         working-directory: coordinator
-        # node directly: PowerShell can drop the -- that npm needs to pass the shard flag through.
-        run: node scripts/run-public-suite.mjs --test-shard=${{ matrix.shard }}/2
+        # node directly: PowerShell can drop the -- that npm needs to pass the shard flag through. The first line is npm
+        # test's pretest step, which compiles the Windows job helper before any test waits on it.
+        run: |
+          node scripts/prepare-owned-job.mjs
+          node scripts/run-public-suite.mjs --test-shard=${{ matrix.shard }}/2
 
   java-targets:
     name: Mod on Minecraft ${{ matrix.mc }}
@@ -176,8 +179,10 @@ jobs:
           "MOD_VERSION=$($properties.mod_version)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "DISTRIBUTION_NAME=mineagen-modpack-$($properties.mod_version)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       # install-node-runtime.ps1 checks the pinned hash and version of a restored node.exe and downloads it only if
-      # they differ.
-      - uses: actions/cache@v4
+      # they differ. Like the Gradle cache, only a passing push to main saves it.
+      - name: Restore the pinned Node runtime
+        id: node-runtime-cache
+        uses: actions/cache/restore@v4
         with:
           path: runtime/toolchains/node
           key: node-runtime-${{ runner.os }}-${{ hashFiles('scripts/install-node-runtime.ps1') }}
@@ -186,6 +191,12 @@ jobs:
         run: |
           .\scripts\install-node-runtime.ps1 -ProjectRoot .
           .\scripts\verify-startup-packaging.ps1 -PackageRoot .
+      - name: Save the pinned Node runtime
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.node-runtime-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: runtime/toolchains/node
+          key: ${{ steps.node-runtime-cache.outputs.cache-primary-key }}
       - name: Fetch third-party mod JARs
         shell: bash
         run: ./scripts/fetch-libs.sh
