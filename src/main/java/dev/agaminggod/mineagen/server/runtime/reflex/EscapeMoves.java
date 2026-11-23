@@ -52,7 +52,7 @@ public final class EscapeMoves {
 				}
 				mark[0] = eye; mark[1] = player.getX(); mark[2] = player.getZ();
 			}
-			var back = wayBack(player);
+			var back = wayBack(player, false);
 			backing[0] = back != null;
 			if (back != null) {
 				input.accept(swimBack(player, back.path().get(1)));
@@ -82,14 +82,19 @@ public final class EscapeMoves {
 
 	/** Eyes under water, the seen-air search done with no route, and the way back to the last breath within the breath left. */
 	public static boolean knowsWayBack(ServerPlayer player) {
-		return wayBack(player) != null;
+		return wayBack(player, true) != null;
 	}
 
-	private static SwimPlanning.Surface wayBack(ServerPlayer player) {
+	/**
+	 * {@code settled}: only once the seen-air search is done with no route (choosing the move: a near surface may come next
+	 * tick). Inside the swim the way back is taken while the search still runs, since it leads to known air and a seen
+	 * route takes over the tick it is found; rising blind first lengthens the way past the breath (sealed-pocket room: 22
+	 * cells back, 2 to 3 more after the rise, over the 24 a full breath covers, so the first escape ended ESCAPE_NO_WAY).
+	 */
+	private static SwimPlanning.Surface wayBack(ServerPlayer player, boolean settled) {
 		if (!player.isUnderWater()) return null;
-		// Still searching is not "no air seen": the search spreads over ticks, and a near surface may come next tick.
 		var lookup = dev.agaminggod.mineagen.server.perception.WaterAirFacts.surface(player);
-		if (lookup.searching() || lookup.surface() != null && lookup.surface().path().size() >= 2) return null;
+		if (settled && lookup.searching() || lookup.surface() != null && lookup.surface().path().size() >= 2) return null;
 		return wayBack(LastBreath.wayBack(player), player.getAirSupply());
 	}
 
