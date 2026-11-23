@@ -51,15 +51,20 @@ public final class BrinkGuardVerification {
 		check(unseen != null && unseen.unknown(), "a column nobody has seen is a drop of unknown depth, not a known lethal one");
 		assertions++;
 		// NE-LAVA-2: the body's own jump is refused for a landing no one means to make; an unseen bottom only in the Nether.
-		check(BrinkGuard.refusedForEverySource(new BrinkGuard.Fall("lava", 5), false), "a jump into seen lava is refused for any input");
+		check(BrinkGuard.refusedForEverySource(new BrinkGuard.Fall("lava", 5), false, false), "a jump into seen lava is refused for any input");
 		assertions++;
-		check(BrinkGuard.refusedForEverySource(new BrinkGuard.Fall("drop", 30), false), "so is a jump off a known killing fall");
+		check(BrinkGuard.refusedForEverySource(new BrinkGuard.Fall("drop", 30), false, false), "so is a jump off a known killing fall");
 		assertions++;
-		check(!BrinkGuard.refusedForEverySource(unseen, false), "outside the Nether an unseen bottom stays the model's call");
+		check(!BrinkGuard.refusedForEverySource(unseen, false, false), "outside the Nether an unseen bottom stays the model's call");
 		assertions++;
-		check(BrinkGuard.refusedForEverySource(unseen, true), "in the Nether a jump off a lip into the dark is refused");
+		check(BrinkGuard.refusedForEverySource(unseen, true, false), "in the Nether a jump off a lip into the dark is refused");
 		assertions++;
-		check(!BrinkGuard.refusedForEverySource(null, true), "a jump that lands on footing or a survivable drop is never refused");
+		check(!BrinkGuard.refusedForEverySource(null, true, false), "a jump that lands on footing or a survivable drop is never refused");
+		assertions++;
+		check(!BrinkGuard.refusedForEverySource(new BrinkGuard.Fall("lava", 5), true, true), "a fire-resistant body may jump into lava");
+		assertions++;
+		check(BrinkGuard.refusedForEverySource(new BrinkGuard.Fall("drop", 30), true, true)
+				&& BrinkGuard.refusedForEverySource(new BrinkGuard.Fall("void", 64), false, true), "but not off a killing fall or into the void");
 		assertions++;
 		BrinkGuard.Fall seenLava = new BrinkGuard.Fall("lava", 4);
 		check(BrinkGuard.worse(BrinkGuard.worse(seenLava, unseen), unseen) == seenLava,

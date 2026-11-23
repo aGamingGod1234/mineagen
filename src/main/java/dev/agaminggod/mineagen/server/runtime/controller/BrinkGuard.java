@@ -318,7 +318,8 @@ public final class BrinkGuard {
 		if (jump && !brace && player.onGround()) {
 			Fall landing = jumpLandsLethal(player, worldHeading(player.getYRot(), forward, strafe), jumpSprints(player, memory, forward));
 			if (commandedMove(player, memory)) refusedFall = landing != null && landing.unknown() && destinationBelow(player, memory) ? null : landing;
-			else if (refusedForEverySource(landing, player.level().dimension() == net.minecraft.world.level.Level.NETHER)) refusedFall = landing;
+			else if (refusedForEverySource(landing, player.level().dimension() == net.minecraft.world.level.Level.NETHER,
+					HazardExits.fireResistant(player))) refusedFall = landing;
 		}
 		boolean refuseJump = refusedFall != null;
 		// Nether lava safety: a jump that would come down in lava at take-off height (the model's own keys too: a
@@ -490,10 +491,13 @@ public final class BrinkGuard {
 	 * Whether a jump the body's own keys take (not a commanded move's) is refused for its landing: lava, fire, the void or
 	 * a killing fall as the player knows it, and in the Nether also an edge whose bottom it has not seen. Over the lava
 	 * sea a lip's drop is mostly out of sight from the take-off (the lava-lip room: 2 blocks seen open, then nothing,
-	 * above lava 5 down), and no player there sprint-jumps off a lip into the dark.
+	 * above lava 5 down), and no player there sprint-jumps off a lip into the dark. A fire-resistant body may jump into
+	 * lava or fire, as the lava jump check already lets it; a killing fall or the void still counts.
 	 */
-	static boolean refusedForEverySource(Fall landing, boolean nether) {
-		return landing != null && (!landing.unknown() || nether);
+	static boolean refusedForEverySource(Fall landing, boolean nether, boolean fireResistant) {
+		if (landing == null) return false;
+		if (fireResistant && ("lava".equals(landing.below()) || "fire".equals(landing.below()))) return false;
+		return !landing.unknown() || nether;
 	}
 
 	/** Ticks the guard's last save stays in the model's view (player.brink.saved). */
