@@ -41,5 +41,42 @@
 		"cooldownMs": 3000,
 		"ttlMs": 3600000,
 		"coordinatorDefault": true
+	},
+	{
+		"id": "default-gaze",
+		"kind": "trigger",
+		"priority": 8,
+		"when": [
+			{
+				"type": "enderman_gaze",
+				"within": 64
+			}
+		],
+		"do": {
+			"type": "look_away"
+		},
+		"maxMs": 2000,
+		"ttlMs": 3600000,
+		"coordinatorDefault": true
+	},
+	{
+		"id": "default-ender-water",
+		"kind": "trigger",
+		"priority": 8,
+		"when": [
+			{
+				"type": "enderman_provoked",
+				"within": 8
+			}
+		],
+		"do": {
+			"type": "place",
+			"item": "minecraft:water_bucket",
+			"where": "feet"
+		},
+		"maxMs": 3000,
+		"cooldownMs": 10000,
+		"ttlMs": 3600000,
+		"coordinatorDefault": true
 	}
 ]

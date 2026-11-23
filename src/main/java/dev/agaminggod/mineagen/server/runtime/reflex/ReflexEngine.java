@@ -247,7 +247,7 @@ public final class ReflexEngine {
 	}
 
 	/** Coordinator defaults that exist only in the End (the coordinator arms them there; see reflexes.mjs DIMENSION_REFLEXES). */
-	static final Set<String> END_DEFAULTS = Set.of("default-breath", "default-end-throw");
+	static final Set<String> END_DEFAULTS = Set.of("default-breath", "default-end-throw", "default-gaze", "default-ender-water");
 
 	/** The scheduler's End-only rules, blocked while the body is outside the End. */
 	static Set<String> endOnlyIds(ReflexScheduler scheduler) {

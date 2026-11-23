@@ -275,7 +275,9 @@ public final class EndBreathFloorVerification {
 
 	/** Council R1: the End's defaults are End-only in the mod too (the engine stops them the tick the body leaves). */
 	private static void endDefaultsAreEndOnly(List<ReflexSpec.Rule> end) {
-		check(ReflexEngine.endOnly(named(end, BREATH)) && ReflexEngine.endOnly(named(end, "default-end-throw")), "both End defaults are End-only");
+		check(end.stream().allMatch(ReflexEngine::endOnly), "every End default is End-only");
+		check(ReflexEngine.END_DEFAULTS.equals(end.stream().map(ReflexSpec.Rule::id).collect(java.util.stream.Collectors.toSet())),
+				"the mod's End-only ids are exactly the coordinator's End defaults (end-reflex-rules.json)");
 		ReflexSpec.Rule model = rule("{\"id\":\"default-breath\",\"priority\":9,\"when\":{\"type\":\"cloud_near\",\"within\":1},\"do\":{\"type\":\"sprint_away\",\"blocks\":10}}");
 		check(!ReflexEngine.endOnly(model), "a model rule with the same id is the model's: not gated by dimension");
 		check(!ReflexEngine.endOnly(null), "no rule is not End-only");
@@ -330,7 +332,7 @@ public final class EndBreathFloorVerification {
 		// The body leaves the End mid-firing: the engine interrupts the firing and blocks the End's rules.
 		check(scheduler.interrupt(2L, "left the End").endOutcome() == ReflexScheduler.Outcome.YIELDED, "the running End default stops");
 		scheduler.blockWhere(ReflexEngine::endOnly);
-		check(ReflexEngine.endOnlyIds(scheduler).equals(java.util.Set.of(BREATH, "default-end-throw")), "both End defaults are blocked");
+		check(ReflexEngine.endOnlyIds(scheduler).equals(ReflexEngine.END_DEFAULTS), "every End default is blocked");
 		// The sense still reads true for a while (a cloud carried over, the coordinator's removal not here yet).
 		for (long tick = 3L; tick < 60L; tick++) check(step(scheduler, tick, true, RUNNING).started() == null, "blocked: no firing at tick " + tick);
 		check(!scheduler.holdsWaitingCommand(), "blocked: no command is held");
