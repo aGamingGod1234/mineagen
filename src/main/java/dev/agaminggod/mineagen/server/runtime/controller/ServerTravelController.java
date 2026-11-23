@@ -1878,6 +1878,12 @@ public final class ServerTravelController implements ServerController {
 	private TickResult clearUpTick(ServerPlayer player, long nowEpochMs) {
 		BlockPos over = new BlockPos(moveFeet.x(), moveFeet.y() + 2, moveFeet.z());
 		BlockState state = player.level().getBlockState(over);
+		if (shaftSettle >= 0 && !player.level().getEntitiesOfClass(net.minecraft.world.entity.item.FallingBlockEntity.class,
+				new AABB(over.below(2)).expandTowards(0.0D, 6.0D, 0.0D).inflate(0.2D, 0.0D, 0.2D)).isEmpty()) {
+			// Sand or gravel the mined headroom held up is coming down the column: step out from under it, as a digger does,
+			// before the climb ends, or the stack fills the feet and head cells.
+			return retreat(player, nowEpochMs, "NO_ROUTE", "Falling blocks came down the shaft above the mined headroom at " + cell(over) + "; backed out from under them");
+		}
 		if (shaftSettle >= 0 && (LavaStep.lava(state) || state.getCollisionShape(player.level(), over).isEmpty() && LavaStep.lava(player.level().getBlockState(over.above())))) {
 			// Lava the mined shaft headroom let in, or showed right above the opening once mined: as the tunnel does, plug it with a
 			// block (the opening first, once lava is in it) before ending; when it cannot be plugged, back out from under it.
@@ -1901,7 +1907,7 @@ public final class ServerTravelController implements ServerController {
 				// Lava there is plugged above; water only wets the climb, which ends here.
 				if (!above.getFluidState().isEmpty()) return fail(player, "TUNNEL_FLOODED", "Fluid above the mined headroom at " + cell(next));
 				if (above.getBlock() instanceof net.minecraft.world.level.block.Fallable)
-					return fail(player, "NO_ROUTE", "Remembered shaft has " + BuiltInRegistries.BLOCK.getKey(above.getBlock()).getPath() + " above the mined headroom at " + cell(next));
+					return retreat(player, nowEpochMs, "NO_ROUTE", "Remembered shaft has " + BuiltInRegistries.BLOCK.getKey(above.getBlock()).getPath() + " above the mined headroom at " + cell(next) + "; backed out from under it");
 				if (++shaftSettle < SHAFT_SETTLE_TICKS) {
 					apply(player, new AgentInputStates.MotorTarget(player.getYRot(), -90.0F, false, false, false), true, false, false, nowEpochMs);
 					return null;
