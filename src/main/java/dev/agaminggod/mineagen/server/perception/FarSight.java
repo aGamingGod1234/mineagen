@@ -7,6 +7,7 @@ import dev.agaminggod.mineagen.server.perception.SightedFeatures.Cell;
 import dev.agaminggod.mineagen.world.ChunkMutationRevisionAccess;
 import it.unimi.dsi.fastutil.doubles.DoubleArrayList;
 import it.unimi.dsi.fastutil.longs.Long2ObjectLinkedOpenHashMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayFIFOQueue;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import java.util.ArrayList;
@@ -89,6 +90,8 @@ public final class FarSight {
 	/** Full section reads (4,096 blocks each) per level per tick, shared by every agent and search; palette checks are cheaper. */
 	static final int SECTION_SCANS_PER_TICK = 8;
 	static final int PALETTE_CHECKS_PER_TICK = 2_048;
+	/** Game ticks between sweeps of the shared chunk index for chunks that unloaded. */
+	private static final int FORGET_TICKS = 20;
 	/** Exposed blocks one section read keeps before it stops; the next read resumes at the following block. */
 	static final int MAX_ENTRIES_PER_SECTION = 96;
 	private static final int SECTION_CELLS = 4_096;
@@ -430,8 +433,11 @@ public final class FarSight {
 	 * work is capped per game tick across all agents.
 	 */
 	public static final class LevelIndex {
-		private final Map<Long, ChunkScan> chunks = new HashMap<>();
+		// ChunkPos keys boxed as Long hash to chunkX ^ chunkZ and pile into a few HashMap bins; fastutil mixes the bits.
+		// Never iterated for output (only the unloaded-chunk cleanup walks it), so its order does not matter.
+		private final Long2ObjectOpenHashMap<ChunkScan> chunks = new Long2ObjectOpenHashMap<>();
 		private long budgetTick = Long.MIN_VALUE;
+		private long forgotAt = Long.MIN_VALUE;
 		private int scansThisTick;
 		private int checksThisTick;
 		private int passesThisTick;
@@ -510,6 +516,11 @@ public final class FarSight {
 
 		private void forgetUnloaded(ServerLevel level) {
 			if (chunks.size() < 2_048) return;
+			// Dropping scans of unloaded chunks only frees memory (scanOf already replaces a scan whose chunk object
+			// changed), so one sweep a second is enough; sweeping on every look cost each agent's look a full pass.
+			long now = level.getGameTime();
+			if (forgotAt != Long.MIN_VALUE && now >= forgotAt && now - forgotAt < FORGET_TICKS) return;
+			forgotAt = now;
 			chunks.entrySet().removeIf(entry -> entry.getValue().chunk.get() == null || level.getChunkSource().getChunkNow(
 					ChunkPos.getX(entry.getKey()), ChunkPos.getZ(entry.getKey())) != entry.getValue().chunk.get());
 		}
@@ -1044,7 +1055,7 @@ public final class FarSight {
 				if (chunk != null && horizontalDistanceToChunk(eye, chunk.getPos()) <= RANGE) loaded.add(chunk);
 			}
 			List<StartView> starts = new ArrayList<>();
-			Map<Long, List<BoundingBox>> structureBoxes = new HashMap<>();
+			Map<Long, List<BoundingBox>> structureBoxes = new Long2ObjectOpenHashMap<>();
 			collectStructures(level, eye, loaded, starts, structureBoxes);
 			List<Found> built = new ArrayList<>(), lava = new ArrayList<>(), notable = new ArrayList<>(), ore = new ArrayList<>(), poi = new ArrayList<>(), placed = new ArrayList<>();
 			synchronized (index) {
