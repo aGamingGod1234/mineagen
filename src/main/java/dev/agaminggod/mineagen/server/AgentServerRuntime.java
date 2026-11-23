@@ -175,6 +175,8 @@ public final class AgentServerRuntime {
 	}
 
 	private static void start(MinecraftServer server) {
+		// Every server start names its gameplay switch set, so a log or a room result says which arm it played.
+		LOGGER.info("[mineagen] {}", Switches.describe());
 		ServerObservationCollector.clearTagCache();
 		AgentManager manager = AgentManager.get(server);
 		CoordinatorProcessSupervisor supervisor = COORDINATORS.get(server);

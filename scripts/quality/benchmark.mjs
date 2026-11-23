@@ -20,6 +20,7 @@ import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { collectRuns, compareScores, formatComparison, formatScoreboard, groupScores, planBenchmark, scoreRooms } from './lib/benchmark-score.mjs';
+import { mergeSwitchRecords } from './lib/switch-record.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const USAGE = 'Usage: benchmark.mjs --jar JAR --out FRESH_DIR [--rooms FILE ...] [--repeats 10] [--slots 5] [--only ROOM,...] [--baseline FILE] [--save-baseline FILE] [--targets ROOM,...] [--code REF] [--machines ID,...] [--vms N] [--snapshot NAME] [--type TYPE] [--room-timeout MIN] [--name PREFIX] [--dry-run]\n       benchmark.mjs --score OUT [--rooms FILE ...] [--baseline FILE] [--save-baseline FILE] [--targets ROOM,...]';
@@ -60,14 +61,19 @@ async function score(out, plan, identity, roomMeta = meta) {
 	const baseline = flags.baseline ? JSON.parse(await readFile(flags.baseline, 'utf8')) : null;
 	const runs = await collectRuns(path.join(out, 'batch'), plan, roomMeta);
 	const scored = scoreRooms(runs, roomMeta);
-	const result = { ...identity, repeats: plan.repeats, slots: plan.slots, rooms: scored, groups: groupScores(scored) };
+	// The switch set the rooms played with, as each side-by-side arm's rooms recorded it (lib/switch-record.mjs).
+	const armSwitches = await Promise.all((plan.arms ?? []).map(arm => readFile(path.join(out, 'batch', arm, 'result-summary.json'), 'utf8')
+		.then(text => JSON.parse(text).switches ?? null).catch(() => null)));
+	const result = { ...identity, repeats: plan.repeats, slots: plan.slots, switches: mergeSwitchRecords(armSwitches), rooms: scored, groups: groupScores(scored) };
 	await writeFile(path.join(out, 'score.json'), JSON.stringify(result, null, 2) + '\n');
 	const board = formatScoreboard(result);
 	await writeFile(path.join(out, 'scoreboard.md'), board + '\n');
 	console.log(board);
 	if (flags.saveBaseline) { await writeFile(flags.saveBaseline, JSON.stringify(result, null, 2) + '\n'); console.log(`baseline saved to ${flags.saveBaseline}`); }
 	if (baseline) {
-		const text = `Against the baseline of ${String(baseline.code ?? '?').slice(0, 8)} (${baseline.repeats} repeats):\n${formatComparison(compareScores(baseline, result), { targets: (flags.targets ?? '').split(',').filter(Boolean) })}`;
+		const shown = (side) => side?.switches ? [...(side.switches.coordinator ?? []).map(line => `coordinator ${line}`), ...(side.switches.server ?? []).map(line => `server ${line}`)].join('\n  ') || 'none recorded' : 'not recorded';
+		const text = `Against the baseline of ${String(baseline.code ?? '?').slice(0, 8)} (${baseline.repeats} repeats):\n${formatComparison(compareScores(baseline, result), { targets: (flags.targets ?? '').split(',').filter(Boolean) })}`
+			+ `\nSwitches, baseline:\n  ${shown(baseline)}\nSwitches, this run:\n  ${shown(result)}`;
 		await writeFile(path.join(out, 'comparison.txt'), text + '\n');
 		console.log(`\n${text}`);
 	}

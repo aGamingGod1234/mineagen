@@ -10,6 +10,7 @@ import {
 	resolveSwitches, switchEntry,
 } from '../src/switches.mjs';
 import { caveFirst, lavaStairs } from '../src/find-search.mjs';
+import { nightMoveStop } from '../src/night-cover.mjs';
 import { kitHabitEnabled } from '../src/kit-habit.mjs';
 import { instinctsEnabled } from '../src/reflexes.mjs';
 import { programToolsOffered } from '../src/native-minecraft-tools.mjs';
@@ -70,78 +71,114 @@ test('enum, integer, number and list parsers validate', () => {
 	assert.deepEqual(list().unset, []);
 });
 
-test('coordinator switches resolve exactly as their readers do today', () => {
+// The coordinator readers as they read before they moved onto the registry, copied here so the move is checked against
+// them: each reader now calls getSwitch and must answer exactly as its old expression did.
+const OLD_READERS = {
+	'find.caveFirst': (env) => String(env?.MINEAGEN_CAVE_FIRST ?? '').trim().toLowerCase() === 'on',
+	// The old reader also had MINEAGEN_LAVA_SHAFT=on force the shaft; that rollback arm is gone (stairs are off by default).
+	'find.lavaStairs': (env) => env.MINEAGEN_LAVA_STAIRS === 'on',
+	'obtain.costs': (env) => env.MINEAGEN_OBTAIN_COSTS !== 'off',
+	'kit.habit': (env) => String(env?.MINEAGEN_KIT_HABIT ?? '').trim().toLowerCase() !== 'off',
+	'night.cover': (env) => String(env?.MINEAGEN_NIGHT_COVER ?? '').trim().toLowerCase() !== 'off',
+	'tools.program': (env) => String(env?.MINEAGEN_PROGRAM_TOOLS ?? '').trim().toLowerCase() === 'on',
+	'instincts': (env) => String(env?.MINEAGEN_INSTINCTS ?? '').split(',').map((word) => word.trim()).includes('instincts'),
+	'experience.frozen': (env) => env.MINEAGEN_EXPERIENCE_FROZEN === '1',
+};
+const ENV_OF = Object.fromEntries(SWITCHES.filter((item) => item.env).map((item) => [item.name, item.env]));
+
+function withProcessEnv(values, run) {
+	const saved = Object.fromEntries(Object.keys(values).map((key) => [key, process.env[key]]));
+	const put = (entries) => { for (const [key, value] of Object.entries(entries)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; } };
+	put(values);
+	try { return run(); } finally { put(saved); }
+}
+
+// Night cover off returns null before anything else; the probe is an unarmoured climb out from under cover at dusk, which
+// cover refuses (night-cover.test.mjs) and off lets through.
+const NIGHT = { world: { dimension: 'minecraft:overworld', dayTime: 11_500 }, player: { x: 0.5, y: 30, z: 0.5, yaw: 0, health: 20, armor: 0, skyOpen: false } };
+
+test('every coordinator reader answers as its old expression did, through the registry', () => {
 	for (const value of VALUES) {
+		for (const [name, old] of Object.entries(OLD_READERS)) {
+			const env = value === undefined ? {} : { [ENV_OF[name]]: value };
+			assert.equal(getSwitch(name, env).value, old(env), `${name} ${JSON.stringify(value)}`);
+		}
 		const env = value === undefined ? {} : { MINEAGEN_CAVE_FIRST: value, MINEAGEN_PROGRAM_TOOLS: value, MINEAGEN_KIT_HABIT: value, MINEAGEN_INSTINCTS: value };
-		assert.equal(getSwitch('find.caveFirst', env).value, caveFirst(env), `cave first ${JSON.stringify(value)}`);
-		assert.equal(getSwitch('tools.program', env).value, programToolsOffered(env), `program tools ${JSON.stringify(value)}`);
-		assert.equal(getSwitch('kit.habit', env).value, kitHabitEnabled(env), `kit habit ${JSON.stringify(value)}`);
-		assert.equal(getSwitch('instincts', env).value, instinctsEnabled(env), `instincts ${JSON.stringify(value)}`);
+		assert.equal(caveFirst(env), OLD_READERS['find.caveFirst'](env), `cave first ${JSON.stringify(value)}`);
+		assert.equal(programToolsOffered(env), OLD_READERS['tools.program'](env), `program tools ${JSON.stringify(value)}`);
+		assert.equal(kitHabitEnabled(env), OLD_READERS['kit.habit'](env), `kit habit ${JSON.stringify(value)}`);
+		assert.equal(instinctsEnabled(env), OLD_READERS.instincts(env), `instincts ${JSON.stringify(value)}`);
+		withProcessEnv({ MINEAGEN_LAVA_STAIRS: value }, () => assert.equal(lavaStairs(), OLD_READERS['find.lavaStairs'](process.env), `lava stairs ${JSON.stringify(value)}`));
+		const cover = value === undefined ? {} : { MINEAGEN_NIGHT_COVER: value };
+		const offStops = OLD_READERS['night.cover'](cover) ? 'not null' : null;
+		assert.equal(nightMoveStop(NIGHT, 'dig_to', { pattern: 'stairs_up', y: 54 }, { environment: cover }) === null ? null : 'not null', offStops, `night cover ${JSON.stringify(value)}`);
+		const frozen = { MINEAGEN_EXPERIENCE: 'lessons', MINEAGEN_EXPERIENCE_DIR: tmpdir(), ...(value === undefined ? {} : { MINEAGEN_EXPERIENCE_FROZEN: value }) };
+		assert.equal(experienceSettings(frozen).frozen, OLD_READERS['experience.frozen'](frozen), `frozen ${JSON.stringify(value)}`);
 	}
-	// lavaStairs reads process.env itself: stairs on and the shaft not forced.
-	const saved = { stairs: process.env.MINEAGEN_LAVA_STAIRS, shaft: process.env.MINEAGEN_LAVA_SHAFT };
-	try {
-		for (const stairs of VALUES) for (const shaft of [undefined, 'on', 'ON', 'off']) {
-			for (const [key, value] of [['MINEAGEN_LAVA_STAIRS', stairs], ['MINEAGEN_LAVA_SHAFT', shaft]]) {
-				if (value === undefined) delete process.env[key]; else process.env[key] = value;
-			}
-			const expected = getSwitch('find.lavaStairs').value && !getSwitch('find.lavaShaft').value;
-			assert.equal(expected, lavaStairs(), `lava stairs ${JSON.stringify(stairs)} shaft ${JSON.stringify(shaft)}`);
-		}
-	} finally {
-		for (const [key, value] of [['MINEAGEN_LAVA_STAIRS', saved.stairs], ['MINEAGEN_LAVA_SHAFT', saved.shaft]]) {
-			if (value === undefined) delete process.env[key]; else process.env[key] = value;
-		}
+	// A null value is unset, as the old `?? ''` read it.
+	for (const name of ['find.caveFirst', 'kit.habit', 'night.cover', 'tools.program', 'instincts']) {
+		assert.equal(getSwitch(name, { [ENV_OF[name]]: null }).value, OLD_READERS[name]({ [ENV_OF[name]]: null }), `${name} null`);
 	}
-	// experienceSettings: off is null, lessons needs a folder outside the checkout, an unknown mode refuses to start.
+	// experienceSettings: off is null, lessons needs a folder outside the checkout, an unknown mode refuses to start with
+	// the same message as before.
 	for (const value of [undefined, '', ' off ', 'OFF', 'lessons', ' Lessons ']) {
 		const env = { MINEAGEN_EXPERIENCE_DIR: tmpdir(), ...(value === undefined ? {} : { MINEAGEN_EXPERIENCE: value }) };
 		const settings = experienceSettings(env);
-		assert.equal(getSwitch('experience', env).value, settings === null ? 'off' : settings.mode, JSON.stringify(value));
+		const old = (env.MINEAGEN_EXPERIENCE ?? 'off').trim().toLowerCase() || 'off';
+		assert.equal(settings === null ? 'off' : settings.mode, old, JSON.stringify(value));
 	}
 	for (const value of ['on', 'true', 'lesson']) {
-		assert.throws(() => experienceSettings({ MINEAGEN_EXPERIENCE: value, MINEAGEN_EXPERIENCE_DIR: tmpdir() }), TypeError);
+		assert.throws(() => experienceSettings({ MINEAGEN_EXPERIENCE: value, MINEAGEN_EXPERIENCE_DIR: tmpdir() }), (error) => error instanceof TypeError && error.message === 'MINEAGEN_EXPERIENCE must be one of off, lessons');
 		assert.throws(() => getSwitch('experience', { MINEAGEN_EXPERIENCE: value }), SwitchValueError);
-	}
-	for (const value of VALUES) {
-		const env = { MINEAGEN_EXPERIENCE: 'lessons', MINEAGEN_EXPERIENCE_DIR: tmpdir(), ...(value === undefined ? {} : { MINEAGEN_EXPERIENCE_FROZEN: value }) };
-		assert.equal(getSwitch('experience.frozen', env).value, experienceSettings(env).frozen, `frozen ${JSON.stringify(value)}`);
 	}
 });
 
-// Readers that keep their value private (a module constant, a Java static) are pinned by their source expression, so a
-// reader that changes its parsing without the registry fails here. The sweep that moves them onto the registry drops these.
-const PINNED = [
-	['obtain.costs', 'coordinator/src/obtain-runner.mjs', "process.env.MINEAGEN_OBTAIN_COSTS !== 'off'"],
-	['night.cover', 'coordinator/src/night-cover.mjs', "String(environment?.MINEAGEN_NIGHT_COVER ?? '').trim().toLowerCase() === 'off'"],
-	['instincts', 'src/main/java/dev/agaminggod/mineagen/server/runtime/reflex/Instincts.java', 'Boolean.getBoolean("mineagen.instincts")'],
-	['instincts', 'src/main/java/dev/agaminggod/mineagen/server/runtime/reflex/Instincts.java', 'Arrays.stream(value.split(",")).map(String::trim).anyMatch("instincts"::equals)'],
-	['travel.walkAround', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerTravelController.java', 'Boolean.getBoolean("mineagen.travel.walkAround") || "on".equalsIgnoreCase(String.valueOf(environment).trim())'],
-	['fight.cover', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerFightUntilController.java', '"true".equals(System.getProperty("mineagen.fight.cover"))'],
-	['fight.chargeGuard', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerFightUntilController.java', '!"false".equals(System.getProperty("mineagen.fight.chargeGuard"))'],
-	['fight.recover', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerFightUntilController.java', '!"false".equals(System.getProperty("mineagen.fight.recover"))'],
-	['fight.spawnerHold', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/SpawnerHold.java', '!"false".equals(System.getProperty("mineagen.fight.spawnerHold"))'],
-	['fight.spawnerHoldOpen', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/SpawnerHold.java', '!"false".equals(System.getProperty("mineagen.fight.spawnerHoldOpen"))'],
-	['fight.forestHunt', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/WarpedForestHunt.java', 'static boolean enabled = Boolean.getBoolean(PROPERTY)'],
-	['fight.skipUnreachable', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/UnreachableTargets.java', '!"false".equals(System.getProperty(PROPERTY))'],
-	['killPosition', 'src/main/java/dev/agaminggod/mineagen/server/perception/KillSighting.java', '!"false".equalsIgnoreCase(System.getProperty(ENABLE_PROPERTY, "true").trim())'],
-	['watch', 'src/main/java/dev/agaminggod/mineagen/server/watch/Watcher.java', '"true".equalsIgnoreCase(System.getProperty(ENABLE_PROPERTY, "false").trim())'],
+// Each reader reads through the registry (no file parses its switch itself any more), at the time it read before.
+const READS = [
+	['find.caveFirst', 'coordinator/src/find-search.mjs', "getSwitch('find.caveFirst', environment)"],
+	['find.lavaStairs', 'coordinator/src/find-search.mjs', "getSwitch('find.lavaStairs')"],
+	['obtain.costs', 'coordinator/src/obtain-runner.mjs', "const OBTAIN_COSTS = getSwitch('obtain.costs').value;"],
+	['kit.habit', 'coordinator/src/kit-habit.mjs', "getSwitch('kit.habit', environment)"],
+	['night.cover', 'coordinator/src/night-cover.mjs', "getSwitch('night.cover', environment)"],
+	['tools.program', 'coordinator/src/native-minecraft-tools.mjs', "getSwitch('tools.program', environment)"],
+	['experience', 'coordinator/src/experience-store.mjs', "getSwitch('experience', environment)"],
+	['experience.frozen', 'coordinator/src/experience-store.mjs', "getSwitch('experience.frozen', environment)"],
+	['instincts', 'coordinator/src/reflexes.mjs', "getSwitch('instincts', environment)"],
+	['instincts', 'src/main/java/dev/agaminggod/mineagen/server/runtime/reflex/Instincts.java', 'Switches.get("instincts")'],
+	['travel.walkAround', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerTravelController.java', 'Switches.get("travel.walkAround")'],
+	['fight.chargeGuard', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerFightUntilController.java', 'static final boolean CHARGE_GUARD = dev.agaminggod.mineagen.server.Switches.get("fight.chargeGuard");'],
+	['fight.recover', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerFightUntilController.java', 'static final boolean RECOVER = dev.agaminggod.mineagen.server.Switches.get("fight.recover");'],
+	['fight.spawnerHold', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/SpawnerHold.java', 'public static final boolean ENABLED = dev.agaminggod.mineagen.server.Switches.get("fight.spawnerHold");'],
+	['fight.spawnerHoldOpen', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/SpawnerHold.java', 'public static final boolean OPEN_FIGHT = dev.agaminggod.mineagen.server.Switches.get("fight.spawnerHoldOpen");'],
+	['fight.forestHunt', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/WarpedForestHunt.java', 'static boolean enabled = dev.agaminggod.mineagen.server.Switches.get("fight.forestHunt");'],
+	['fight.skipUnreachable', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/UnreachableTargets.java', 'Switches.get("fight.skipUnreachable")'],
+	['killPosition', 'src/main/java/dev/agaminggod/mineagen/server/perception/KillSighting.java', 'Switches.get("killPosition")'],
+	['watch', 'src/main/java/dev/agaminggod/mineagen/server/watch/Watcher.java', 'Switches.get("watch")'],
+	['kit.habit', 'scripts/quality/test-iron-kit-live.mjs', "getSwitch('kit.habit')"],
+	['night.cover', 'scripts/quality/test-obtain-live.mjs', "getSwitch('night.cover')"],
 ];
 
-test('readers without an exported value still parse the way the registry copies', () => {
-	for (const [name, path, expression] of PINNED) {
+test('every reader reads its switch through the registry, and no switch variable is parsed anywhere else', () => {
+	for (const [name, path, expression] of READS) {
 		assert.ok(switchEntry(name), name);
-		assert.ok(source(path).includes(expression), `${path} no longer reads ${name} as \`${expression}\`; update coordinator/src/switches.mjs and Switches.java`);
+		assert.ok(source(path).includes(expression), `${path} should read ${name} as \`${expression}\``);
 	}
-	// What those expressions mean, through the registry's parsers.
+	assert.deepEqual(SWITCHES.map((item) => item.name).filter((name) => !READS.some(([read]) => read === name)), [], 'every switch has a reader');
+	// No other source names a switch's variable or property in a read (the registry and its tests aside).
+	const names = SWITCHES.flatMap((item) => [item.env, item.property].filter(Boolean));
+	const reads = /(?:process\.env|environment\??|env)\??\.?\[?['"]?(MINEAGEN_[A-Z_]+)|System\.(?:getenv|getProperty)\("([^"]+)"|Boolean\.getBoolean\("([^"]+)"/g;
+	for (const path of new Set(READS.map(([, file]) => file))) {
+		for (const match of source(path).matchAll(reads)) {
+			const found = match[1] ?? match[2] ?? match[3];
+			assert.ok(!names.includes(found), `${path} still reads ${found} itself`);
+		}
+	}
+	// What the server parsers mean, through the registry.
 	const cases = {
-		'obtain.costs': { env: 'MINEAGEN_OBTAIN_COSTS', table: [[undefined, true], ['off', false], ['OFF', true], [' off', true], ['on', true]] },
-		'night.cover': { env: 'MINEAGEN_NIGHT_COVER', table: [[undefined, true], ['off', false], [' OFF ', false], ['on', true], ['0', true]] },
 		'travel.walkAround': { env: 'MINEAGEN_TRAVEL_WALK_AROUND', property: 'mineagen.travel.walkAround', table: [[undefined, false], [' ON ', true], ['true', false]],
 			properties: [[undefined, false], ['TRUE', true], [' true', false], ['on', false]] },
 		'instincts': { env: 'MINEAGEN_INSTINCTS', property: 'mineagen.instincts', table: [[undefined, false], ['instincts', true], ['x, instincts', true], ['Instincts', false]],
 			properties: [[undefined, false], ['True', true], ['1', false]] },
-		'fight.cover': { property: 'mineagen.fight.cover', properties: [[undefined, false], ['true', true], ['TRUE', false], [' true', false]] },
 		'fight.chargeGuard': { property: 'mineagen.fight.chargeGuard', properties: [[undefined, true], ['false', false], ['FALSE', true], ['no', true]] },
 		'fight.recover': { property: 'mineagen.fight.recover', properties: [[undefined, true], ['false', false], ['False', true]] },
 		'fight.spawnerHold': { property: 'mineagen.fight.spawnerHold', properties: [[undefined, true], ['false', false], [' false', true]] },
@@ -159,14 +196,17 @@ test('readers without an exported value still parse the way the registry copies'
 			assert.equal(getSwitch(name, {}, { properties: value === undefined ? {} : { [property]: value } }).value, expected, `${name} -D ${JSON.stringify(value)}`);
 		}
 	}
+	// The dropped switches stay gone.
+	assert.equal(switchEntry('find.lavaShaft'), null);
+	assert.equal(switchEntry('fight.cover'), null);
 });
 
 test('sources: default, env, property, and unseen when the property cannot be read', () => {
 	assert.deepEqual({ ...getSwitch('find.caveFirst', {}) }, { value: false, source: 'default' });
 	assert.deepEqual({ ...getSwitch('find.caveFirst', { MINEAGEN_CAVE_FIRST: 'off' }) }, { value: false, source: 'env' });
-	assert.deepEqual({ ...getSwitch('fight.cover', {}) }, { value: false, source: 'unseen' });
-	assert.deepEqual({ ...getSwitch('fight.cover', {}, { properties: {} }) }, { value: false, source: 'default' });
-	assert.deepEqual({ ...getSwitch('fight.cover', {}, { properties: { 'mineagen.fight.cover': 'true' } }) }, { value: true, source: 'property' });
+	assert.deepEqual({ ...getSwitch('fight.forestHunt', {}) }, { value: false, source: 'unseen' });
+	assert.deepEqual({ ...getSwitch('fight.forestHunt', {}, { properties: {} }) }, { value: false, source: 'default' });
+	assert.deepEqual({ ...getSwitch('fight.forestHunt', {}, { properties: { 'mineagen.fight.forestHunt': 'true' } }) }, { value: true, source: 'property' });
 	// Two sources: a true env value settles it even when the property is unseen; otherwise either can turn it on.
 	assert.deepEqual({ ...getSwitch('instincts', { MINEAGEN_INSTINCTS: 'instincts' }) }, { value: true, source: 'env' });
 	assert.deepEqual({ ...getSwitch('instincts', {}) }, { value: false, source: 'unseen' });
@@ -189,7 +229,7 @@ test('describeSwitches gives one log line and a JSON-safe record', () => {
 	assert.match(line, / kit\.habit=off@env /);
 	assert.match(line, / obtain\.costs=on /);
 	assert.match(line, / experience=off /);
-	assert.match(line, / fight\.cover=off\? /);
+	assert.match(line, / fight\.forestHunt=off\? /);
 	assert.equal(line.includes('\n'), false);
 	assert.deepEqual(record['find.caveFirst'], { value: true, source: 'env' });
 	assert.deepEqual(JSON.parse(JSON.stringify(record)), record);
@@ -232,11 +272,36 @@ const HARNESS = `import dev.agaminggod.mineagen.server.Switches;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
 
 public class SwitchesParity {
+	// The server readers as they read before they moved onto Switches.get, on given maps instead of the JVM's: the
+	// registry must answer each exactly as before. Boolean.getBoolean(name) is "true".equalsIgnoreCase(property).
+	static String old(Map<String, String> env, Map<String, String> p) {
+		String listed = env.get("MINEAGEN_INSTINCTS");
+		boolean instincts = "true".equalsIgnoreCase(p.get("mineagen.instincts"))
+				|| (listed != null && Arrays.stream(listed.split(",")).map(String::trim).anyMatch("instincts"::equals));
+		boolean walkAround = "true".equalsIgnoreCase(p.get("mineagen.travel.walkAround"))
+				|| "on".equalsIgnoreCase(String.valueOf(env.get("MINEAGEN_TRAVEL_WALK_AROUND")).trim());
+		boolean[] values = { instincts, walkAround,
+				!"false".equals(p.get("mineagen.fight.chargeGuard")),
+				!"false".equals(p.get("mineagen.fight.recover")),
+				!"false".equals(p.get("mineagen.fight.spawnerHold")),
+				!"false".equals(p.get("mineagen.fight.spawnerHoldOpen")),
+				"true".equalsIgnoreCase(p.get("mineagen.fight.forestHunt")),
+				!"false".equals(p.get("mineagen.fight.skipUnreachable")),
+				!"false".equalsIgnoreCase(p.getOrDefault("mineagen.killPosition", "true").trim()),
+				"true".equalsIgnoreCase(p.getOrDefault("mineagen.watch", "false").trim()) };
+		String[] names = { "instincts", "travel.walkAround", "fight.chargeGuard", "fight.recover", "fight.spawnerHold", "fight.spawnerHoldOpen",
+				"fight.forestHunt", "fight.skipUnreachable", "killPosition", "watch" };
+		StringBuilder line = new StringBuilder("switches");
+		for (int i = 0; i < names.length; i++) line.append(' ').append(names[i]).append('=').append(values[i] ? "on" : "off");
+		return line.toString();
+	}
+
 	public static void main(String[] args) throws Exception {
 		BufferedReader in = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
 		Base64.Decoder decoder = Base64.getDecoder();
@@ -250,7 +315,7 @@ public class SwitchesParity {
 				String value = new String(decoder.decode(parts[2]), StandardCharsets.UTF_8);
 				(parts[0].equals("E") ? env : properties).put(key, value);
 			}
-			out.append(Switches.describe(Switches.resolve(env, properties))).append('\\n');
+			out.append(Switches.describe(Switches.resolve(env, properties))).append('\\t').append(old(env, properties)).append('\\n');
 		}
 		System.out.print(out);
 	}
@@ -299,8 +364,11 @@ test('the Java Switches mirror resolves and describes the same values as the coo
 		const lines = ran.stdout.split(/\r?\n/).filter(Boolean);
 		assert.equal(lines.length, cases.length, 'one Java line per case');
 		cases.forEach(({ env, properties }, index) => {
+			const [line, old] = lines[index].split('\t');
 			const expected = describeSwitches(resolveSwitches(env, { properties, sides: ['server', 'both'] })).line;
-			assert.equal(lines[index], expected, `env ${JSON.stringify(env)} -D ${JSON.stringify(properties)}`);
+			assert.equal(line, expected, `env ${JSON.stringify(env)} -D ${JSON.stringify(properties)}`);
+			// And each value is what the old Java reader gave for the same environment and properties.
+			assert.equal(line.replace(/@\w+/g, ''), old, `old readers: env ${JSON.stringify(env)} -D ${JSON.stringify(properties)}`);
 		});
 	} finally {
 		rmSync(work, { recursive: true, force: true });

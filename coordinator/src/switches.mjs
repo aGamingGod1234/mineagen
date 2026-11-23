@@ -134,44 +134,44 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'instincts', env: 'MINEAGEN_INSTINCTS', property: 'mineagen.instincts', side: 'both', default: false, parser: listHas('instincts'),
 		propertyParser: JAVA_GET_BOOLEAN, status: 'experimental',
 		reason: 'Issue 2 Step 2 instincts arm: stance, heal, pace, fight-through, weapon and food (#24).',
-		readers: ['coordinator/src/reflexes.mjs instinctsEnabled (per call; env only)', 'src/main/java/dev/agaminggod/mineagen/server/runtime/reflex/Instincts.java enabled (per call; property or env)'] }),
+		readers: ['coordinator/src/reflexes.mjs instinctsEnabled (per call; env only)', 'Instincts.java enabled (per call; property or env)'] }),
 	// ServerTravelController.java walkAroundEnabled(): per call; property or env.
 	entry({ name: 'travel.walkAround', env: 'MINEAGEN_TRAVEL_WALK_AROUND', property: 'mineagen.travel.walkAround', side: 'server', default: false, parser: ON_WORD,
 		propertyParser: JAVA_GET_BOOLEAN, status: 'default-off',
 		reason: 'Practice rooms 21 Nov (Nether courses): pickaxe uses per 100 blocks gained 69.8 on against 60.2 off (50 runs each), and 148.6 against 141.8 (34 each) (#68).',
-		readers: ['src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerTravelController.java walkAroundEnabled (per call)'] }),
+		readers: ['ServerTravelController.java walkAroundEnabled (per call)'] }),
 	// ServerFightUntilController.java CHARGE_GUARD: static final, class load.
 	entry({ name: 'fight.chargeGuard', property: 'mineagen.fight.chargeGuard', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
 		reason: 'Raises the shield before a charged blaze\'s volley; false is the fixture A/B off arm.',
-		readers: ['src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerFightUntilController.java CHARGE_GUARD (class load)'] }),
+		readers: ['ServerFightUntilController.java CHARGE_GUARD (class load)'] }),
 	// ServerFightUntilController.java RECOVER: static final, class load.
 	entry({ name: 'fight.recover', property: 'mineagen.fight.recover', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
 		reason: 'Backs off to heal during a fight; false is the fixture A/B off arm.',
-		readers: ['src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerFightUntilController.java RECOVER (class load)'] }),
+		readers: ['ServerFightUntilController.java RECOVER (class load)'] }),
 	// SpawnerHold.java ENABLED: static final, class load.
 	entry({ name: 'fight.spawnerHold', property: 'mineagen.fight.spawnerHold', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
 		reason: 'Holds a blaze spawner from a roofed cell; staged fortress runs lost 12 of 28 deaths to wither skeletons on open decks (#89).',
-		readers: ['src/main/java/dev/agaminggod/mineagen/server/runtime/controller/SpawnerHold.java ENABLED (class load)'] }),
+		readers: ['SpawnerHold.java ENABLED (class load)'] }),
 	// SpawnerHold.java OPEN_FIGHT: static final, class load.
 	entry({ name: 'fight.spawnerHoldOpen', property: 'mineagen.fight.spawnerHoldOpen', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
 		reason: 'Fights in the open and walls in only to heal; real fortress room: the open fight kept 39 rods in 9 runs, the cell fight 7 (#89).',
-		readers: ['src/main/java/dev/agaminggod/mineagen/server/runtime/controller/SpawnerHold.java OPEN_FIGHT (class load)'] }),
+		readers: ['SpawnerHold.java OPEN_FIGHT (class load)'] }),
 	// WarpedForestHunt.java enabled: static (tests reassign it), class load.
 	entry({ name: 'fight.forestHunt', property: 'mineagen.fight.forestHunt', side: 'server', default: false, parser: JAVA_GET_BOOLEAN, status: 'default-off',
 		reason: 'Forest-walking pearl hunt: ended 22 of 40 forest hunts with a pearl against 13, but died in 9 against 4 (#78).',
-		readers: ['src/main/java/dev/agaminggod/mineagen/server/runtime/controller/WarpedForestHunt.java enabled (class load)'] }),
+		readers: ['WarpedForestHunt.java enabled (class load)'] }),
 	// UnreachableTargets.java fromProperty(): per fight call.
 	entry({ name: 'fight.skipUnreachable', property: 'mineagen.fight.skipUnreachable', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
 		reason: '21 Nov room benchmark: the unreachable-enderman room passed 0 of 10 off and 10 of 10 on (added off in #39).',
-		readers: ['src/main/java/dev/agaminggod/mineagen/server/runtime/controller/UnreachableTargets.java fromProperty (per call)'] }),
+		readers: ['UnreachableTargets.java fromProperty (per call)'] }),
 	// KillSighting.java enabled(): per call.
 	entry({ name: 'killPosition', property: 'mineagen.killPosition', side: 'server', default: true, parser: flag({ token: 'false', means: 'off', trim: true, anyCase: true }), status: 'default-on',
 		reason: 'Sends where a seen kill died; false withholds it from the wire as an A/B arm (#25).',
-		readers: ['src/main/java/dev/agaminggod/mineagen/server/perception/KillSighting.java enabled (per call)'] }),
+		readers: ['KillSighting.java enabled (per call)'] }),
 	// Watcher.java enabled(): per call.
 	entry({ name: 'watch', property: 'mineagen.watch', side: 'server', default: false, parser: flag({ token: 'true', means: 'on', trim: true, anyCase: true }), status: 'diagnostic',
 		reason: 'Writes the arena-watch progress and danger logs the quality reports read; off on players\' servers because it scans the world every few ticks.',
-		readers: ['src/main/java/dev/agaminggod/mineagen/server/watch/Watcher.java enabled (per call)'] }),
+		readers: ['Watcher.java enabled (per call)'] }),
 ]);
 
 const BY_NAME = new Map(SWITCHES.map((item) => [item.name, item]));

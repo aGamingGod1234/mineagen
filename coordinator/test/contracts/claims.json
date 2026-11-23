@@ -5946,7 +5946,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 117
+        "line": 118
       },
       "status": "partial",
       "reason": "Conditional repair acknowledgement is advertised in JSON Schema and enforced by semantic normalization; physical behavior remains unverified."
@@ -5973,7 +5973,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 117
+        "line": 118
       },
       "status": "checked"
     },
@@ -6002,7 +6002,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 117
+        "line": 118
       },
       "status": "checked"
     },
@@ -6031,7 +6031,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 117
+        "line": 118
       },
       "status": "checked"
     },
@@ -6060,7 +6060,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 117
+        "line": 118
       },
       "status": "checked"
     },
@@ -6089,7 +6089,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 117
+        "line": 118
       },
       "status": "checked"
     },
@@ -6118,7 +6118,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 117
+        "line": 118
       },
       "status": "checked"
     },
@@ -6147,7 +6147,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 117
+        "line": 118
       },
       "status": "checked"
     },
@@ -6176,7 +6176,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 117
+        "line": 118
       },
       "status": "checked"
     },
@@ -6205,7 +6205,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 117
+        "line": 118
       },
       "status": "checked"
     },
@@ -6239,7 +6239,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 117
+        "line": 118
       },
       "status": "checked"
     },
@@ -6268,7 +6268,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 117
+        "line": 118
       },
       "status": "checked"
     },
@@ -6292,7 +6292,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 117
+        "line": 118
       },
       "status": "checked"
     },
@@ -6321,7 +6321,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 117
+        "line": 118
       },
       "status": "checked"
     },
@@ -6350,7 +6350,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 117
+        "line": 118
       },
       "status": "checked"
     },
@@ -6394,7 +6394,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 117
+        "line": 118
       },
       "status": "checked"
     },
@@ -6423,7 +6423,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 117
+        "line": 118
       },
       "status": "partial",
       "reason": "Normalization and in-memory production runtime checked; no Minecraft acceptance or hidden-component preservation claim. Independent review belongs to the parent."
@@ -6458,7 +6458,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 117
+        "line": 118
       },
       "status": "checked"
     },
@@ -6484,7 +6484,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 117
+        "line": 118
       },
       "status": "checked"
     },
@@ -6532,7 +6532,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 117
+        "line": 118
       },
       "status": "partial",
       "reason": "Normalization and in-memory production runtime checked; no Minecraft acceptance or hidden-component preservation claim. Independent review belongs to the parent."
@@ -6564,7 +6564,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 117
+        "line": 118
       },
       "status": "partial",
       "reason": "Normalization and in-memory production runtime checked; no Minecraft acceptance or hidden-component preservation claim. Independent review belongs to the parent."
@@ -6593,7 +6593,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 117
+        "line": 118
       },
       "status": "partial",
       "reason": "Normalization and in-memory production runtime checked; no Minecraft acceptance or hidden-component preservation claim. Independent review belongs to the parent."
@@ -6623,7 +6623,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 117
+        "line": 118
       },
       "status": "partial",
       "reason": "Normalization and in-memory production runtime checked; no Minecraft acceptance or hidden-component preservation claim. Independent review belongs to the parent."
@@ -6652,7 +6652,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 117
+        "line": 118
       },
       "status": "checked"
     },
@@ -6680,7 +6680,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 117
+        "line": 118
       },
       "status": "checked"
     },
@@ -6708,7 +6708,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 117
+        "line": 118
       },
       "status": "checked"
     },
@@ -6734,7 +6734,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 117
+        "line": 118
       },
       "status": "checked"
     },
@@ -6761,7 +6761,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 117
+        "line": 118
       },
       "status": "checked",
       "reason": "Contract changed or added; inspect behavior and update its predicate and witnesses before approving."
@@ -6785,7 +6785,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 117
+        "line": 118
       },
       "status": "checked",
       "reason": "Contract changed or added; inspect behavior and update its predicate and witnesses before approving."
@@ -6812,7 +6812,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 117
+        "line": 118
       },
       "status": "checked",
       "reason": "Contract changed or added; inspect behavior and update its predicate and witnesses before approving."
@@ -7030,7 +7030,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 126
+        "line": 127
       }
     },
     {
@@ -7056,7 +7056,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 126
+        "line": 127
       }
     },
     {
@@ -7080,7 +7080,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 126
+        "line": 127
       }
     },
     {
@@ -7104,7 +7104,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 126
+        "line": 127
       }
     },
     {
@@ -7137,7 +7137,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 126
+        "line": 127
       }
     },
     {
@@ -7163,7 +7163,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 126
+        "line": 127
       }
     },
     {
@@ -7187,7 +7187,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 126
+        "line": 127
       }
     },
     {
@@ -7211,7 +7211,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 126
+        "line": 127
       }
     },
     {
@@ -7235,7 +7235,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 126
+        "line": 127
       }
     },
     {
@@ -7259,7 +7259,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 126
+        "line": 127
       }
     },
     {
@@ -7292,7 +7292,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 126
+        "line": 127
       }
     },
     {
@@ -7325,7 +7325,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 126
+        "line": 127
       }
     },
     {
@@ -7358,7 +7358,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 126
+        "line": 127
       }
     },
     {
@@ -7390,7 +7390,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 126
+        "line": 127
       }
     },
     {
@@ -7418,7 +7418,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 126
+        "line": 127
       }
     },
     {
@@ -7446,7 +7446,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 126
+        "line": 127
       }
     },
     {
@@ -7474,7 +7474,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 126
+        "line": 127
       }
     },
     {
@@ -7507,7 +7507,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 126
+        "line": 127
       }
     },
     {
@@ -7540,7 +7540,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 126
+        "line": 127
       }
     },
     {
@@ -7568,7 +7568,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 126
+        "line": 127
       }
     },
     {
@@ -7600,7 +7600,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 126
+        "line": 127
       }
     },
     {
@@ -7628,7 +7628,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 126
+        "line": 127
       }
     },
     {
@@ -7656,7 +7656,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 126
+        "line": 127
       }
     },
     {
@@ -7684,7 +7684,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 126
+        "line": 127
       }
     },
     {
@@ -7710,7 +7710,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 126
+        "line": 127
       }
     },
     {
@@ -7734,7 +7734,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 126
+        "line": 127
       }
     },
     {
@@ -7758,7 +7758,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 126
+        "line": 127
       }
     },
     {
@@ -7784,7 +7784,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 126
+        "line": 127
       }
     },
     {
@@ -7811,7 +7811,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 126
+        "line": 127
       }
     },
     {
@@ -7837,7 +7837,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 126
+        "line": 127
       }
     },
     {
@@ -7861,7 +7861,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 126
+        "line": 127
       }
     },
     {
@@ -7885,7 +7885,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 126
+        "line": 127
       }
     },
     {
@@ -7909,7 +7909,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 126
+        "line": 127
       }
     },
     {
@@ -7933,7 +7933,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 126
+        "line": 127
       }
     },
     {
@@ -7957,7 +7957,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 126
+        "line": 127
       }
     },
     {
@@ -7981,7 +7981,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 126
+        "line": 127
       }
     },
     {
@@ -8005,7 +8005,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 126
+        "line": 127
       }
     },
     {
@@ -8029,7 +8029,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 126
+        "line": 127
       }
     },
     {
@@ -8062,7 +8062,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 126
+        "line": 127
       }
     },
     {
@@ -8094,7 +8094,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 126
+        "line": 127
       }
     },
     {
@@ -8121,7 +8121,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 126
+        "line": 127
       }
     },
     {
@@ -8149,7 +8149,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 126
+        "line": 127
       }
     },
     {
@@ -8535,7 +8535,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 135
+        "line": 136
       }
     },
     {
@@ -8561,7 +8561,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 135
+        "line": 136
       }
     },
     {
@@ -8585,7 +8585,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 135
+        "line": 136
       }
     },
     {
@@ -8609,7 +8609,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 135
+        "line": 136
       }
     },
     {
@@ -8637,7 +8637,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 135
+        "line": 136
       }
     },
     {
@@ -8761,7 +8761,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 136
+        "line": 137
       }
     },
     {
@@ -8787,7 +8787,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 136
+        "line": 137
       }
     },
     {
@@ -8811,7 +8811,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 136
+        "line": 137
       }
     },
     {
@@ -8835,7 +8835,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 136
+        "line": 137
       }
     },
     {
@@ -8859,7 +8859,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 136
+        "line": 137
       }
     },
     {
@@ -8883,7 +8883,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 136
+        "line": 137
       }
     },
     {
@@ -8906,7 +8906,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 136
+        "line": 137
       },
       "status": "checked"
     },
@@ -8935,7 +8935,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 136
+        "line": 137
       }
     },
     {
@@ -8962,7 +8962,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 136
+        "line": 137
       }
     },
     {
@@ -9131,7 +9131,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 137
+        "line": 138
       }
     },
     {
@@ -9157,7 +9157,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 137
+        "line": 138
       }
     },
     {
@@ -9181,7 +9181,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 137
+        "line": 138
       }
     },
     {
@@ -9205,7 +9205,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 137
+        "line": 138
       }
     },
     {
@@ -9229,7 +9229,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 137
+        "line": 138
       }
     },
     {
@@ -9253,7 +9253,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 137
+        "line": 138
       }
     },
     {
@@ -9277,7 +9277,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 137
+        "line": 138
       }
     },
     {
@@ -9301,7 +9301,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 137
+        "line": 138
       }
     },
     {
@@ -9325,7 +9325,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 137
+        "line": 138
       }
     },
     {
@@ -9349,7 +9349,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 137
+        "line": 138
       }
     },
     {
@@ -9373,7 +9373,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 137
+        "line": 138
       }
     },
     {
@@ -9397,7 +9397,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 137
+        "line": 138
       }
     },
     {
@@ -9421,7 +9421,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 137
+        "line": 138
       }
     },
     {
@@ -9445,7 +9445,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 137
+        "line": 138
       }
     },
     {
@@ -9469,7 +9469,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 137
+        "line": 138
       }
     },
     {
@@ -9492,7 +9492,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 137
+        "line": 138
       },
       "status": "checked"
     },
@@ -9521,7 +9521,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 137
+        "line": 138
       }
     },
     {
@@ -9549,7 +9549,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 137
+        "line": 138
       }
     },
     {
@@ -9577,7 +9577,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 137
+        "line": 138
       }
     },
     {
@@ -9605,7 +9605,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 137
+        "line": 138
       }
     },
     {
@@ -9633,7 +9633,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 137
+        "line": 138
       }
     },
     {
@@ -9661,7 +9661,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 137
+        "line": 138
       }
     },
     {
@@ -9688,7 +9688,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 137
+        "line": 138
       }
     },
     {
@@ -9716,7 +9716,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 137
+        "line": 138
       }
     },
     {
@@ -9744,7 +9744,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 137
+        "line": 138
       }
     },
     {
@@ -9772,7 +9772,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 137
+        "line": 138
       }
     },
     {
@@ -9798,7 +9798,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 137
+        "line": 138
       }
     },
     {
@@ -9824,7 +9824,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 137
+        "line": 138
       }
     },
     {
@@ -9850,7 +9850,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 137
+        "line": 138
       }
     },
     {
@@ -9876,7 +9876,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 137
+        "line": 138
       }
     },
     {
@@ -9957,7 +9957,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 146
+        "line": 147
       }
     },
     {
@@ -9985,7 +9985,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 146
+        "line": 147
       }
     },
     {
@@ -10070,7 +10070,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 147
+        "line": 148
       }
     },
     {
@@ -10098,7 +10098,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 147
+        "line": 148
       }
     },
     {
@@ -10125,7 +10125,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 147
+        "line": 148
       }
     },
     {
@@ -10306,7 +10306,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       }
     },
     {
@@ -10334,7 +10334,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       }
     },
     {
@@ -10361,7 +10361,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       }
     },
     {
@@ -10387,7 +10387,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       }
     },
     {
@@ -10410,7 +10410,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -10434,7 +10434,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -10458,7 +10458,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -10482,7 +10482,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -10506,7 +10506,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -10530,7 +10530,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -10554,7 +10554,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -10578,7 +10578,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -10602,7 +10602,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -10626,7 +10626,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -10650,7 +10650,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -10674,7 +10674,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -10698,7 +10698,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -10722,7 +10722,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -10746,7 +10746,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -10770,7 +10770,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -10794,7 +10794,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -10818,7 +10818,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -10842,7 +10842,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -10866,7 +10866,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -10890,7 +10890,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -10914,7 +10914,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -10938,7 +10938,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -10967,7 +10967,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -10996,7 +10996,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -11020,7 +11020,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -11044,7 +11044,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -11068,7 +11068,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -11092,7 +11092,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -11116,7 +11116,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -11140,7 +11140,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -11164,7 +11164,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -11188,7 +11188,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -11212,7 +11212,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -11236,7 +11236,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -11260,7 +11260,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -11284,7 +11284,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -11308,7 +11308,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -11332,7 +11332,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -11356,7 +11356,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -11380,7 +11380,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -11404,7 +11404,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -11428,7 +11428,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -11452,7 +11452,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -11476,7 +11476,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -11500,7 +11500,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -11524,7 +11524,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -11548,7 +11548,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -11572,7 +11572,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       },
       "status": "checked"
     },
@@ -11599,7 +11599,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 148
+        "line": 149
       }
     },
     {
@@ -11800,7 +11800,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       }
     },
     {
@@ -11826,7 +11826,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       }
     },
     {
@@ -11849,7 +11849,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -11873,7 +11873,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -11897,7 +11897,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -11921,7 +11921,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -11945,7 +11945,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -11969,7 +11969,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -11993,7 +11993,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -12017,7 +12017,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -12041,7 +12041,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -12065,7 +12065,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -12089,7 +12089,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -12113,7 +12113,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -12137,7 +12137,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -12161,7 +12161,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -12185,7 +12185,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -12209,7 +12209,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -12233,7 +12233,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -12257,7 +12257,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -12281,7 +12281,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -12305,7 +12305,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -12329,7 +12329,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -12353,7 +12353,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -12377,7 +12377,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -12406,7 +12406,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -12435,7 +12435,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -12459,7 +12459,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -12483,7 +12483,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -12507,7 +12507,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -12531,7 +12531,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -12555,7 +12555,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -12579,7 +12579,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -12603,7 +12603,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -12627,7 +12627,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -12651,7 +12651,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -12675,7 +12675,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -12699,7 +12699,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -12723,7 +12723,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -12747,7 +12747,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -12771,7 +12771,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -12795,7 +12795,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -12819,7 +12819,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -12843,7 +12843,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -12867,7 +12867,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -12891,7 +12891,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -12915,7 +12915,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -12939,7 +12939,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -12963,7 +12963,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -12987,7 +12987,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -13011,7 +13011,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -13038,7 +13038,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       }
     },
     {
@@ -13065,7 +13065,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -13091,7 +13091,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 152
+        "line": 153
       },
       "status": "checked"
     },
@@ -13207,7 +13207,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 153
+        "line": 154
       }
     },
     {
@@ -13240,7 +13240,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 153
+        "line": 154
       }
     },
     {
@@ -13273,7 +13273,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 153
+        "line": 154
       }
     },
     {
@@ -13411,7 +13411,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 154
+        "line": 155
       }
     },
     {
@@ -13437,7 +13437,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 154
+        "line": 155
       }
     },
     {
@@ -13461,7 +13461,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 154
+        "line": 155
       }
     },
     {
@@ -13485,7 +13485,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 154
+        "line": 155
       }
     },
     {
@@ -13509,7 +13509,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 154
+        "line": 155
       }
     },
     {
@@ -13533,7 +13533,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 154
+        "line": 155
       }
     },
     {
@@ -13566,7 +13566,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 154
+        "line": 155
       }
     },
     {
@@ -13593,7 +13593,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 154
+        "line": 155
       }
     },
     {
@@ -13621,7 +13621,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 154
+        "line": 155
       }
     },
     {
@@ -14081,7 +14081,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 155
+        "line": 156
       }
     },
     {
@@ -14109,7 +14109,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 155
+        "line": 156
       }
     },
     {
@@ -14137,7 +14137,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 155
+        "line": 156
       }
     },
     {
@@ -14163,7 +14163,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 155
+        "line": 156
       }
     },
     {
@@ -14211,7 +14211,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 155
+        "line": 156
       }
     },
     {
@@ -14237,7 +14237,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 155
+        "line": 156
       }
     },
     {
@@ -14265,7 +14265,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 155
+        "line": 156
       }
     },
     {
@@ -14298,7 +14298,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 155
+        "line": 156
       }
     },
     {
@@ -14336,7 +14336,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 155
+        "line": 156
       }
     },
     {
@@ -14374,7 +14374,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 155
+        "line": 156
       }
     },
     {
@@ -14404,7 +14404,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 155
+        "line": 156
       },
       "status": "checked"
     },
@@ -14441,7 +14441,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 155
+        "line": 156
       },
       "status": "checked"
     },
@@ -14480,7 +14480,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 155
+        "line": 156
       },
       "status": "checked"
     },
@@ -14516,7 +14516,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 155
+        "line": 156
       },
       "status": "checked"
     },
@@ -14844,7 +14844,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 156
+        "line": 157
       }
     },
     {
@@ -14872,7 +14872,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 156
+        "line": 157
       }
     },
     {
@@ -14899,7 +14899,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 156
+        "line": 157
       }
     },
     {
@@ -14926,7 +14926,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 156
+        "line": 157
       }
     },
     {
@@ -14954,7 +14954,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 156
+        "line": 157
       }
     },
     {
@@ -14982,7 +14982,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 156
+        "line": 157
       }
     },
     {
@@ -15010,7 +15010,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 156
+        "line": 157
       }
     },
     {
@@ -15036,7 +15036,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 156
+        "line": 157
       }
     },
     {
@@ -15064,7 +15064,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 156
+        "line": 157
       }
     },
     {
@@ -15092,7 +15092,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 156
+        "line": 157
       }
     },
     {
@@ -15125,7 +15125,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 156
+        "line": 157
       }
     },
     {
@@ -15163,7 +15163,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 156
+        "line": 157
       }
     },
     {
@@ -15201,7 +15201,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 156
+        "line": 157
       }
     },
     {
@@ -15277,7 +15277,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 157
+        "line": 158
       }
     },
     {
@@ -15305,7 +15305,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 157
+        "line": 158
       }
     },
     {
@@ -15332,7 +15332,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 157
+        "line": 158
       }
     },
     {
@@ -15360,7 +15360,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 157
+        "line": 158
       }
     },
     {
@@ -15483,7 +15483,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 158
+        "line": 159
       }
     },
     {
@@ -15511,7 +15511,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 158
+        "line": 159
       }
     },
     {
@@ -15581,7 +15581,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 159
+        "line": 160
       }
     },
     {
@@ -15609,7 +15609,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 159
+        "line": 160
       }
     },
     {
@@ -15636,7 +15636,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 159
+        "line": 160
       }
     },
     {
@@ -15664,7 +15664,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 159
+        "line": 160
       }
     },
     {
@@ -15691,7 +15691,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 159
+        "line": 160
       }
     },
     {
@@ -15717,7 +15717,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 159
+        "line": 160
       }
     },
     {
@@ -15741,7 +15741,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 159
+        "line": 160
       }
     },
     {
@@ -15765,7 +15765,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 159
+        "line": 160
       }
     },
     {
@@ -15789,7 +15789,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 159
+        "line": 160
       }
     },
     {
@@ -15813,7 +15813,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 159
+        "line": 160
       }
     },
     {
@@ -15841,7 +15841,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 159
+        "line": 160
       }
     },
     {
@@ -15936,7 +15936,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 160
+        "line": 161
       }
     },
     {
@@ -15964,7 +15964,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 160
+        "line": 161
       }
     },
     {
@@ -15991,7 +15991,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 160
+        "line": 161
       }
     },
     {
@@ -16063,7 +16063,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 162
+        "line": 163
       },
       "status": "checked"
     },
@@ -16100,7 +16100,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 162
+        "line": 163
       },
       "status": "checked"
     },
@@ -16136,7 +16136,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 162
+        "line": 163
       },
       "status": "checked"
     },
@@ -16303,7 +16303,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 163
+        "line": 164
       }
     },
     {
@@ -16331,7 +16331,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 163
+        "line": 164
       }
     },
     {
@@ -16359,7 +16359,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 163
+        "line": 164
       }
     },
     {
@@ -16387,7 +16387,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 163
+        "line": 164
       }
     },
     {
@@ -16415,7 +16415,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 163
+        "line": 164
       }
     },
     {
@@ -16441,7 +16441,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 163
+        "line": 164
       }
     },
     {
@@ -16748,7 +16748,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 170
+        "line": 171
       }
     },
     {
@@ -16775,7 +16775,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 170
+        "line": 171
       }
     },
     {
@@ -16803,7 +16803,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 170
+        "line": 171
       }
     },
     {
@@ -16830,7 +16830,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 170
+        "line": 171
       }
     },
     {
@@ -16856,7 +16856,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 170
+        "line": 171
       }
     },
     {
@@ -16880,7 +16880,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 170
+        "line": 171
       }
     },
     {
@@ -16904,7 +16904,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 170
+        "line": 171
       }
     },
     {
@@ -16928,7 +16928,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 170
+        "line": 171
       }
     },
     {
@@ -16952,7 +16952,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 170
+        "line": 171
       }
     },
     {
@@ -16976,7 +16976,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 170
+        "line": 171
       }
     },
     {
@@ -17000,7 +17000,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 170
+        "line": 171
       }
     },
     {
@@ -17024,7 +17024,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 170
+        "line": 171
       }
     },
     {
@@ -17052,7 +17052,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 170
+        "line": 171
       }
     },
     {
@@ -17291,7 +17291,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 171
+        "line": 172
       }
     },
     {
@@ -17319,7 +17319,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 171
+        "line": 172
       }
     },
     {
@@ -17347,7 +17347,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 171
+        "line": 172
       }
     },
     {
@@ -17373,7 +17373,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 171
+        "line": 172
       }
     },
     {
@@ -17399,7 +17399,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 171
+        "line": 172
       }
     },
     {
@@ -17425,7 +17425,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 171
+        "line": 172
       }
     },
     {
@@ -17451,7 +17451,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 171
+        "line": 172
       }
     },
     {
@@ -17477,7 +17477,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 171
+        "line": 172
       }
     },
     {
@@ -17505,7 +17505,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 171
+        "line": 172
       }
     },
     {
@@ -17533,7 +17533,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 171
+        "line": 172
       }
     },
     {
@@ -17561,7 +17561,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 171
+        "line": 172
       }
     },
     {
@@ -17587,7 +17587,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 171
+        "line": 172
       }
     },
     {
@@ -17611,7 +17611,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 171
+        "line": 172
       }
     },
     {
@@ -17635,7 +17635,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 171
+        "line": 172
       }
     },
     {
@@ -17663,7 +17663,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 171
+        "line": 172
       }
     },
     {
@@ -17689,7 +17689,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 171
+        "line": 172
       }
     },
     {
@@ -17896,7 +17896,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 186
+        "line": 187
       }
     },
     {
@@ -17924,7 +17924,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 186
+        "line": 187
       }
     },
     {
@@ -17952,7 +17952,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 186
+        "line": 187
       }
     },
     {
@@ -17980,7 +17980,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 186
+        "line": 187
       }
     },
     {
@@ -18008,7 +18008,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 186
+        "line": 187
       }
     },
     {
@@ -18034,7 +18034,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 186
+        "line": 187
       }
     },
     {
@@ -18062,7 +18062,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 186
+        "line": 187
       }
     },
     {
@@ -18088,7 +18088,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 186
+        "line": 187
       }
     },
     {
@@ -18112,7 +18112,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 186
+        "line": 187
       }
     },
     {
@@ -18136,7 +18136,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 186
+        "line": 187
       }
     },
     {
@@ -18164,7 +18164,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 186
+        "line": 187
       }
     },
     {
@@ -18189,7 +18189,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 186
+        "line": 187
       },
       "status": "checked"
     },
@@ -18447,7 +18447,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 194
+        "line": 195
       },
       "status": "checked"
     },
@@ -18475,7 +18475,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 194
+        "line": 195
       },
       "status": "checked"
     },
@@ -18503,7 +18503,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 194
+        "line": 195
       },
       "status": "checked"
     },
@@ -18531,7 +18531,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 194
+        "line": 195
       },
       "status": "checked"
     },
@@ -18559,7 +18559,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 194
+        "line": 195
       },
       "status": "checked"
     },
@@ -18587,7 +18587,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 194
+        "line": 195
       },
       "status": "checked"
     },
@@ -18615,7 +18615,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 194
+        "line": 195
       },
       "status": "checked"
     },
@@ -18641,7 +18641,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 194
+        "line": 195
       },
       "status": "checked"
     },
@@ -18676,7 +18676,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 194
+        "line": 195
       },
       "status": "checked"
     },
@@ -18706,7 +18706,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 194
+        "line": 195
       },
       "status": "checked"
     },
@@ -18736,7 +18736,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 194
+        "line": 195
       },
       "status": "checked"
     },
@@ -18766,7 +18766,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 194
+        "line": 195
       },
       "status": "checked"
     },
@@ -18799,7 +18799,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 194
+        "line": 195
       },
       "status": "checked"
     },
@@ -18833,7 +18833,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 194
+        "line": 195
       },
       "status": "checked"
     },
@@ -18865,7 +18865,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 194
+        "line": 195
       },
       "status": "checked"
     },
@@ -18896,7 +18896,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 194
+        "line": 195
       },
       "status": "checked"
     },
@@ -18929,7 +18929,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 194
+        "line": 195
       },
       "status": "checked"
     },
@@ -18957,7 +18957,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 194
+        "line": 195
       },
       "status": "checked"
     },
@@ -18985,7 +18985,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 194
+        "line": 195
       },
       "status": "checked"
     },
@@ -19011,7 +19011,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 194
+        "line": 195
       },
       "status": "checked"
     },
@@ -19039,7 +19039,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 194
+        "line": 195
       },
       "status": "checked"
     },
@@ -19065,7 +19065,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 194
+        "line": 195
       },
       "status": "checked"
     },
@@ -19089,7 +19089,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 194
+        "line": 195
       },
       "status": "checked"
     },
@@ -19113,7 +19113,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 194
+        "line": 195
       },
       "status": "checked"
     },
@@ -19141,7 +19141,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 194
+        "line": 195
       },
       "status": "checked"
     },
@@ -19167,7 +19167,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 194
+        "line": 195
       },
       "status": "checked"
     },
@@ -19339,7 +19339,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 212
+        "line": 213
       }
     },
     {
@@ -19367,7 +19367,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 212
+        "line": 213
       }
     },
     {
@@ -19395,7 +19395,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 212
+        "line": 213
       }
     },
     {
@@ -19423,7 +19423,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 212
+        "line": 213
       }
     },
     {
@@ -19451,7 +19451,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 212
+        "line": 213
       }
     },
     {
@@ -19760,7 +19760,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 218
+        "line": 219
       }
     },
     {
@@ -19788,7 +19788,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 218
+        "line": 219
       }
     },
     {
@@ -19816,7 +19816,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 218
+        "line": 219
       }
     },
     {
@@ -19844,7 +19844,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 218
+        "line": 219
       }
     },
     {
@@ -19872,7 +19872,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 218
+        "line": 219
       }
     },
     {
@@ -19900,7 +19900,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 218
+        "line": 219
       }
     },
     {
@@ -19926,7 +19926,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 218
+        "line": 219
       }
     },
     {
@@ -19952,7 +19952,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 218
+        "line": 219
       }
     },
     {
@@ -19977,7 +19977,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 218
+        "line": 219
       },
       "status": "checked"
     },
@@ -20005,7 +20005,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 218
+        "line": 219
       },
       "status": "checked"
     },
@@ -20032,7 +20032,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 218
+        "line": 219
       }
     },
     {
@@ -20056,7 +20056,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 218
+        "line": 219
       }
     },
     {
@@ -20080,7 +20080,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 218
+        "line": 219
       }
     },
     {
@@ -20108,7 +20108,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 218
+        "line": 219
       }
     },
     {
@@ -20222,7 +20222,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 229
+        "line": 230
       },
       "status": "checked"
     },
@@ -20250,7 +20250,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 229
+        "line": 230
       },
       "status": "checked"
     },
@@ -20278,7 +20278,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 229
+        "line": 230
       },
       "status": "checked"
     },
@@ -20306,7 +20306,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 229
+        "line": 230
       },
       "status": "checked"
     },
@@ -20334,7 +20334,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 229
+        "line": 230
       },
       "status": "checked"
     },
@@ -20362,7 +20362,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 229
+        "line": 230
       },
       "status": "checked"
     },
@@ -20390,7 +20390,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 229
+        "line": 230
       },
       "status": "checked"
     },
@@ -20506,7 +20506,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 236
+        "line": 237
       }
     },
     {
@@ -20534,7 +20534,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 236
+        "line": 237
       }
     },
     {
@@ -20560,7 +20560,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 236
+        "line": 237
       }
     },
     {
@@ -20584,7 +20584,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 236
+        "line": 237
       }
     },
     {
@@ -20608,7 +20608,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 236
+        "line": 237
       }
     },
     {
@@ -20632,7 +20632,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 236
+        "line": 237
       }
     },
     {
@@ -20659,7 +20659,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 236
+        "line": 237
       }
     },
     {
@@ -20717,7 +20717,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 241
+        "line": 242
       }
     },
     {
@@ -20745,7 +20745,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 241
+        "line": 242
       }
     },
     {
@@ -21470,7 +21470,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       }
     },
     {
@@ -21496,7 +21496,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       }
     },
     {
@@ -21519,7 +21519,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -21543,7 +21543,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -21567,7 +21567,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -21591,7 +21591,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -21615,7 +21615,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -21639,7 +21639,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -21663,7 +21663,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -21687,7 +21687,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -21711,7 +21711,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -21735,7 +21735,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -21759,7 +21759,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -21783,7 +21783,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -21807,7 +21807,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -21831,7 +21831,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -21855,7 +21855,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -21879,7 +21879,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -21903,7 +21903,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -21927,7 +21927,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -21951,7 +21951,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -21975,7 +21975,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -21999,7 +21999,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -22023,7 +22023,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -22047,7 +22047,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -22076,7 +22076,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -22105,7 +22105,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -22129,7 +22129,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -22153,7 +22153,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -22177,7 +22177,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -22201,7 +22201,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -22225,7 +22225,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -22249,7 +22249,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -22273,7 +22273,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -22297,7 +22297,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -22321,7 +22321,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -22345,7 +22345,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -22369,7 +22369,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -22393,7 +22393,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -22417,7 +22417,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -22441,7 +22441,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -22465,7 +22465,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -22489,7 +22489,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -22513,7 +22513,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -22537,7 +22537,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -22561,7 +22561,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -22585,7 +22585,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -22609,7 +22609,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -22633,7 +22633,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -22657,7 +22657,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -22681,7 +22681,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -22708,7 +22708,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       }
     },
     {
@@ -22840,7 +22840,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "partial",
       "reason": "New search boundary admission is verified through production normalization; server braking geometry is tested in verifyCore. External forces and arbitrary terrain remain outside finite-fixture proof."
@@ -22873,7 +22873,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -22901,7 +22901,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -22932,7 +22932,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -22960,7 +22960,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -22986,7 +22986,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -23013,7 +23013,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       }
     },
     {
@@ -23037,7 +23037,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       }
     },
     {
@@ -23061,7 +23061,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       }
     },
     {
@@ -23089,7 +23089,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       }
     },
     {
@@ -23114,7 +23114,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 244
+        "line": 245
       },
       "status": "checked"
     },
@@ -23256,7 +23256,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       }
     },
     {
@@ -23284,7 +23284,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       }
     },
     {
@@ -23315,7 +23315,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       }
     },
     {
@@ -23341,7 +23341,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       }
     },
     {
@@ -23364,7 +23364,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -23388,7 +23388,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -23412,7 +23412,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -23436,7 +23436,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -23460,7 +23460,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -23484,7 +23484,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -23508,7 +23508,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -23532,7 +23532,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -23556,7 +23556,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -23580,7 +23580,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -23604,7 +23604,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -23628,7 +23628,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -23652,7 +23652,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -23676,7 +23676,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -23700,7 +23700,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -23724,7 +23724,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -23748,7 +23748,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -23772,7 +23772,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -23796,7 +23796,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -23820,7 +23820,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -23844,7 +23844,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -23868,7 +23868,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -23892,7 +23892,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -23916,7 +23916,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -23945,7 +23945,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -23969,7 +23969,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -23993,7 +23993,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -24017,7 +24017,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -24041,7 +24041,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -24065,7 +24065,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -24089,7 +24089,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -24113,7 +24113,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -24137,7 +24137,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -24161,7 +24161,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -24185,7 +24185,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -24209,7 +24209,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -24233,7 +24233,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -24257,7 +24257,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -24281,7 +24281,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -24305,7 +24305,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -24329,7 +24329,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -24353,7 +24353,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -24377,7 +24377,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -24401,7 +24401,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -24425,7 +24425,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -24449,7 +24449,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -24473,7 +24473,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -24497,7 +24497,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -24521,7 +24521,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -24548,7 +24548,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       }
     },
     {
@@ -24578,7 +24578,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       }
     },
     {
@@ -24606,7 +24606,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       }
     },
     {
@@ -24637,7 +24637,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -24665,7 +24665,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -24696,7 +24696,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -24723,7 +24723,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       }
     },
     {
@@ -24747,7 +24747,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       }
     },
     {
@@ -24771,7 +24771,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       }
     },
     {
@@ -24799,7 +24799,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       }
     },
     {
@@ -24824,7 +24824,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 251
+        "line": 252
       },
       "status": "checked"
     },
@@ -24965,7 +24965,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 259
+        "line": 260
       }
     },
     {
@@ -24991,7 +24991,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 259
+        "line": 260
       }
     },
     {
@@ -25015,7 +25015,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 259
+        "line": 260
       }
     },
     {
@@ -25039,7 +25039,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 259
+        "line": 260
       }
     },
     {
@@ -25062,7 +25062,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 259
+        "line": 260
       },
       "status": "checked"
     },
@@ -25093,7 +25093,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 259
+        "line": 260
       }
     },
     {
@@ -25120,7 +25120,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 259
+        "line": 260
       }
     },
     {
@@ -25156,7 +25156,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 259
+        "line": 260
       }
     },
     {
@@ -25183,7 +25183,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 259
+        "line": 260
       }
     },
     {
@@ -25216,7 +25216,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 259
+        "line": 260
       }
     },
     {
@@ -25242,7 +25242,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 259
+        "line": 260
       }
     },
     {
@@ -25266,7 +25266,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 259
+        "line": 260
       }
     },
     {
@@ -25290,7 +25290,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 259
+        "line": 260
       }
     },
     {
@@ -25314,7 +25314,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 259
+        "line": 260
       }
     },
     {
@@ -25338,7 +25338,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 259
+        "line": 260
       }
     },
     {
@@ -25364,7 +25364,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 259
+        "line": 260
       }
     },
     {
@@ -25388,7 +25388,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 259
+        "line": 260
       }
     },
     {
@@ -25412,7 +25412,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 259
+        "line": 260
       }
     },
     {
@@ -25436,7 +25436,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 259
+        "line": 260
       }
     },
     {
@@ -25460,7 +25460,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 259
+        "line": 260
       }
     },
     {
@@ -25487,7 +25487,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 259
+        "line": 260
       }
     },
     {
@@ -25519,7 +25519,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 259
+        "line": 260
       }
     },
     {
@@ -25551,7 +25551,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 259
+        "line": 260
       }
     },
     {
@@ -25587,7 +25587,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 259
+        "line": 260
       }
     },
     {
@@ -25645,7 +25645,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 259
+        "line": 260
       }
     },
     {
@@ -25684,7 +25684,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 259
+        "line": 260
       }
     },
     {
@@ -25711,7 +25711,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 259
+        "line": 260
       }
     },
     {
@@ -25743,7 +25743,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 259
+        "line": 260
       }
     },
     {
@@ -25771,7 +25771,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 259
+        "line": 260
       }
     },
     {
@@ -25806,7 +25806,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 259
+        "line": 260
       }
     },
     {
@@ -25835,7 +25835,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 259
+        "line": 260
       }
     },
     {
@@ -25864,7 +25864,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 259
+        "line": 260
       }
     },
     {
@@ -25893,7 +25893,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 259
+        "line": 260
       }
     },
     {
@@ -25928,7 +25928,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 259
+        "line": 260
       }
     },
     {
@@ -25958,7 +25958,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 259
+        "line": 260
       },
       "status": "checked"
     },
@@ -25985,7 +25985,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 259
+        "line": 260
       },
       "status": "checked"
     },
@@ -26012,7 +26012,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 259
+        "line": 260
       },
       "status": "checked"
     },
@@ -26039,7 +26039,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 259
+        "line": 260
       },
       "status": "checked"
     },
@@ -26066,7 +26066,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 259
+        "line": 260
       },
       "status": "checked"
     },
@@ -26093,7 +26093,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 259
+        "line": 260
       },
       "status": "checked"
     },
@@ -26120,7 +26120,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 259
+        "line": 260
       },
       "status": "checked"
     },
@@ -26232,7 +26232,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 261
+        "line": 262
       }
     },
     {
@@ -26260,7 +26260,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 261
+        "line": 262
       }
     },
     {
@@ -26286,7 +26286,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 261
+        "line": 262
       }
     },
     {
@@ -26313,7 +26313,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 261
+        "line": 262
       }
     },
     {
@@ -26472,7 +26472,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 266
+        "line": 267
       }
     },
     {
@@ -26500,7 +26500,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 266
+        "line": 267
       }
     },
     {
@@ -26540,7 +26540,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 103
+        "line": 104
       },
       "status": "checked",
       "documentationChecks": [
@@ -26592,7 +26592,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 105
+        "line": 106
       },
       "status": "partial",
       "reason": "Stable plan identities, the intent write path and the now header (including contradicted validity) are exercised. When to read the plan, the four questions (including which known way is fastest and safe for the gear), when to write intent and whether to decide again are model decisions; intent cadence is measured by the combined-stack benchmark gate."
@@ -26644,7 +26644,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 107
+        "line": 108
       },
       "status": "checked",
       "reason": "The program clauses (looping in background programs, queueing successors from runProgram handles) left this always-sent paragraph with the program tools, which are offered only with MINEAGEN_PROGRAM_TOOLS=on; their witnesses stay on the runProgram and queueProgram descriptions."
@@ -26799,7 +26799,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 109
+        "line": 110
       },
       "status": "advisory",
       "reason": "Tactical advice remains a model choice. Deterministic tests verify the heard-lava fact, reflex arming and the reported eligibility; no gameplay trial measures model uptake. The program watcher clause left with the program tools, which are offered only with MINEAGEN_PROGRAM_TOOLS=on."
@@ -26846,7 +26846,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 111
+        "line": 112
       },
       "status": "checked",
       "reason": "The live-authorship clause (program.parameters, no noteKey or standing.template) left this always-sent paragraph with the program tools, which are offered only with MINEAGEN_PROGRAM_TOOLS=on; the runProgram description keeps it, with its witnesses."
@@ -29473,7 +29473,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       }
     },
     {
@@ -29495,7 +29495,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       }
     },
     {
@@ -29517,7 +29517,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       }
     },
     {
@@ -29539,7 +29539,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       }
     },
     {
@@ -29574,7 +29574,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       }
     },
     {
@@ -29627,7 +29627,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       }
     },
     {
@@ -29663,7 +29663,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       },
       "status": "checked"
     },
@@ -29686,7 +29686,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       }
     },
     {
@@ -29708,7 +29708,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       }
     },
     {
@@ -29752,7 +29752,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       }
     },
     {
@@ -29779,7 +29779,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       }
     },
     {
@@ -29806,7 +29806,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       }
     },
     {
@@ -29848,7 +29848,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       }
     },
     {
@@ -29870,7 +29870,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       }
     },
     {
@@ -29892,7 +29892,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       }
     },
     {
@@ -29914,7 +29914,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       }
     },
     {
@@ -29936,7 +29936,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       }
     },
     {
@@ -29958,7 +29958,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       }
     },
     {
@@ -29984,7 +29984,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       },
       "status": "checked"
     },
@@ -30022,7 +30022,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       },
       "status": "partial",
       "reason": "New search boundary admission is verified through production normalization; server braking geometry is tested in verifyCore. External forces and arbitrary terrain remain outside finite-fixture proof."
@@ -30045,7 +30045,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       },
       "status": "checked"
     },
@@ -30072,7 +30072,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       },
       "status": "checked"
     },
@@ -30094,7 +30094,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       },
       "status": "checked"
     },
@@ -30121,7 +30121,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       },
       "status": "checked"
     },
@@ -30153,7 +30153,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       },
       "status": "checked"
     },
@@ -30180,7 +30180,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       },
       "status": "checked"
     },
@@ -30229,7 +30229,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       },
       "status": "partial",
       "reason": "New search boundary admission is verified through production normalization; server braking geometry is tested in verifyCore. External forces and arbitrary terrain remain outside finite-fixture proof."
@@ -30253,7 +30253,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       }
     },
     {
@@ -30275,7 +30275,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       }
     },
     {
@@ -30297,7 +30297,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       }
     },
     {
@@ -30351,7 +30351,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       }
     },
     {
@@ -30385,7 +30385,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       }
     },
     {
@@ -30407,7 +30407,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       }
     },
     {
@@ -30429,7 +30429,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       }
     },
     {
@@ -30480,7 +30480,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       }
     },
     {
@@ -30514,7 +30514,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       }
     },
     {
@@ -30542,7 +30542,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       }
     },
     {
@@ -30564,7 +30564,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       }
     },
     {
@@ -30586,7 +30586,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       }
     },
     {
@@ -30608,7 +30608,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       }
     },
     {
@@ -30630,7 +30630,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       }
     },
     {
@@ -30652,7 +30652,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       }
     },
     {
@@ -30674,7 +30674,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       }
     },
     {
@@ -30696,7 +30696,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       }
     },
     {
@@ -30718,7 +30718,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       }
     },
     {
@@ -30740,7 +30740,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       }
     },
     {
@@ -30762,7 +30762,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       }
     },
     {
@@ -30784,7 +30784,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       }
     },
     {
@@ -30806,7 +30806,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       }
     },
     {
@@ -30828,7 +30828,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 91
+        "line": 92
       }
     },
     {
@@ -30851,7 +30851,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 99
+        "line": 100
       }
     },
     {
@@ -30874,7 +30874,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 99
+        "line": 100
       }
     },
     {
@@ -30897,7 +30897,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 99
+        "line": 100
       }
     },
     {
@@ -30920,7 +30920,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 99
+        "line": 100
       }
     },
     {
@@ -30943,7 +30943,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 99
+        "line": 100
       }
     },
     {
@@ -30966,7 +30966,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 99
+        "line": 100
       }
     },
     {
@@ -30989,7 +30989,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 99
+        "line": 100
       }
     },
     {
@@ -31012,7 +31012,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 99
+        "line": 100
       }
     },
     {
@@ -31045,7 +31045,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 99
+        "line": 100
       }
     },
     {
@@ -31082,7 +31082,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 99
+        "line": 100
       },
       "status": "checked"
     },
@@ -31110,7 +31110,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 99
+        "line": 100
       },
       "status": "checked"
     },
@@ -31144,7 +31144,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 99
+        "line": 100
       }
     },
     {
@@ -31168,7 +31168,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 94
+        "line": 95
       }
     },
     {
@@ -31192,7 +31192,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 94
+        "line": 95
       }
     },
     {
@@ -31216,7 +31216,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 94
+        "line": 95
       }
     },
     {
@@ -31240,7 +31240,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 94
+        "line": 95
       }
     },
     {
@@ -31264,7 +31264,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 94
+        "line": 95
       }
     },
     {
@@ -31288,7 +31288,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 94
+        "line": 95
       }
     },
     {
@@ -31312,7 +31312,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 94
+        "line": 95
       }
     },
     {
@@ -31336,7 +31336,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 94
+        "line": 95
       }
     },
     {
@@ -31360,7 +31360,7 @@
       },
       "location": {
         "file": "coordinator/src/native-minecraft-tools.mjs",
-        "line": 94
+        "line": 95
       }
     },
     {
@@ -40276,7 +40276,7 @@
         {
           "type": "live-behavior",
           "test": "blaze-survive.blaze-spawner",
-          "predicate": "a plain fight_target on a seen blaze while a plan step has:minecraft:blaze_rod*6 is open (plan-count default, default reflexes, no model shield rules, 0 model calls) runs in count mode at a real fortress spawner, steps off fire, raises the offhand shield at inbound fireballs, and reports fire time, shield raises/blocks and cover moves",
+          "predicate": "a plain fight_target on a seen blaze while a plan step has:minecraft:blaze_rod*6 is open (plan-count default, default reflexes, no model shield rules, 0 model calls) runs in count mode at a real fortress spawner, steps off fire, raises the offhand shield at inbound fireballs, and reports fire time and shield raises/blocks",
           "command": "api/fix-slot.sh: STANDIN=plan PLAN_NEED=6 DEFAULTS=1 SHIELD_STANCE=0 VARIANTS=gap0 REPEATS=5 RUN_S=240 node scripts/quality/test-blaze-spawner-live.mjs evals/d41-blaze-survive/<round>"
         },
         {
@@ -40539,7 +40539,7 @@
       "status": "checked"
     },
     {
-      "predicate": "fight_until stops at the held count, timeoutMs, fleeAtHealth, new lava contact, death, bow-only out of arrows or bow, 30 s without a seen target, or (after at least one kill, outside blazes, roof:true and open-ground enderman hunts) a 3 to 5 s look around with no target left (AREA_CLEARED, with the partial count), two failed walks back, or two same-code failed engagements in a row. Fire does not stop it: in a fire block it walks to the nearest seen exit and fights on; with an offhand shield it puts the engagement down and raises the shield toward a seen inbound shot (vanilla delay and arc), then fights the same target on. After a kill that gained nothing it turns toward where the target died for up to 1.5 s and collects an untilItem drop it then sees within 4 blocks. The result lists fire time, steps off fire, shield raises and blocks, cover moves, drops looked for and found, kills, counts before and after, arrows used, engagements, endings and the last engagement messages. Cover steps between engagements are off by default (-Dmineagen.fight.cover=true enables them for fixtures).; The authored combat action attempts existing flee steering for at most five seconds and its remaining timeout, then reports LOW_HEALTH_BAILOUT with the actual retreat outcome and movement facts. Hold-ground choices preserve no movement; blocked retreat starts no new fight or build. A reported attempt does not establish safe escape.",
+      "predicate": "fight_until stops at the held count, timeoutMs, fleeAtHealth, new lava contact, death, bow-only out of arrows or bow, 30 s without a seen target, or (after at least one kill, outside blazes, roof:true and open-ground enderman hunts) a 3 to 5 s look around with no target left (AREA_CLEARED, with the partial count), two failed walks back, or two same-code failed engagements in a row. Fire does not stop it: in a fire block it walks to the nearest seen exit and fights on; with an offhand shield it puts the engagement down and raises the shield toward a seen inbound shot (vanilla delay and arc), then fights the same target on. After a kill that gained nothing it turns toward where the target died for up to 1.5 s and collects an untilItem drop it then sees within 4 blocks. The result lists fire time, steps off fire, shield raises and blocks, drops looked for and found, kills, counts before and after, arrows used, engagements, endings and the last engagement messages.; The authored combat action attempts existing flee steering for at most five seconds and its remaining timeout, then reports LOW_HEALTH_BAILOUT with the actual retreat outcome and movement facts. Hold-ground choices preserve no movement; blocked retreat starts no new fight or build. A reported attempt does not establish safe escape.",
       "checks": [
         {
           "file": "coordinator/test/schema.test.mjs",
@@ -40561,12 +40561,12 @@
         {
           "type": "live-behavior",
           "test": "blaze-survive.blaze-spawner",
-          "predicate": "a plain fight_target on a seen blaze while a plan step has:minecraft:blaze_rod*6 is open (plan-count default, default reflexes, no model shield rules, 0 model calls) runs in count mode at a real fortress spawner, steps off fire, raises the offhand shield at inbound fireballs, and reports fire time, shield raises/blocks and cover moves",
+          "predicate": "a plain fight_target on a seen blaze while a plan step has:minecraft:blaze_rod*6 is open (plan-count default, default reflexes, no model shield rules, 0 model calls) runs in count mode at a real fortress spawner, steps off fire, raises the offhand shield at inbound fireballs, and reports fire time and shield raises/blocks",
           "command": "api/fix-slot.sh: STANDIN=plan PLAN_NEED=6 DEFAULTS=1 SHIELD_STANCE=0 VARIANTS=gap0 REPEATS=5 RUN_S=240 node scripts/quality/test-blaze-spawner-live.mjs evals/d41-blaze-survive/<round>"
         },
         {
           "file": "src/test/java/dev/agaminggod/mineagen/server/runtime/controller/CountFightVerification.java",
-          "test": "verifyCoverSentinel",
+          "test": "verifyIdleWalk",
           "type": "java-behavior",
           "command": "gradlew verifyCore"
         },
@@ -40583,10 +40583,10 @@
           "command": "gradlew verifyCore"
         }
       ],
-      "id": "control:629c87d2f91da4c7:7cfd708427b1234f",
+      "id": "control:629c87d2f91da4c7:05fe98ec9c8ce0eb",
       "contract": {
-        "id": "control:629c87d2f91da4c7:7cfd708427b1234f",
-        "claim": "Stops: SUCCEEDED `UNTIL_COUNT_REACHED` once the count is held; `FIGHT_UNTIL_TIMED_OUT` at `timeoutMs`; `LOW_HEALTH_BAILOUT` at or below `fleeAtHealth` (bounded retreat outcome in receipt, pursue:false/roof holds ground); `IN_LAVA` on new lava contact; `AGENT_DEAD`; `OUT_OF_ARROWS`/`BOW_NOT_EQUIPPED` with `weapon:\"bow\"` (auto switches to melee); `NO_TARGET_SEEN` after 30 s without a seen target in the area; `AREA_CLEARED` after at least one kill once a 3 to 5 s look around finds none left (blazes, `roof:true` and open-ground enderman hunts keep the 30 s wait), with the partial count; `SPOT_UNREACHABLE` after two failed walks back; the failing code after two engagements in a row fail with the same code without a kill; cancelAction. Fire does not stop it: in a fire block the body walks to the nearest seen exit and fights on while it burns. With a shield in the offhand it lowers the weapon and raises the shield toward a seen shot about to hit (vanilla blocking: a quarter-second raise, front arc only), then fights on. After a kill whose drop it did not see fall, it looks toward where the target died and, with `collect`, picks up a drop it then sees. Armed reflexes pause and resume it like fight_target. The result lists fire time, steps off fire, shield raises and blocks, cover moves, drops looked for and found, kills, the item count before and after, arrows used, bow and sword engagements, each ending code and the last engagement messages.",
+        "id": "control:629c87d2f91da4c7:05fe98ec9c8ce0eb",
+        "claim": "Stops: SUCCEEDED `UNTIL_COUNT_REACHED` once the count is held; `FIGHT_UNTIL_TIMED_OUT` at `timeoutMs`; `LOW_HEALTH_BAILOUT` at or below `fleeAtHealth` (bounded retreat outcome in receipt, pursue:false/roof holds ground); `IN_LAVA` on new lava contact; `AGENT_DEAD`; `OUT_OF_ARROWS`/`BOW_NOT_EQUIPPED` with `weapon:\"bow\"` (auto switches to melee); `NO_TARGET_SEEN` after 30 s without a seen target in the area; `AREA_CLEARED` after at least one kill once a 3 to 5 s look around finds none left (blazes, `roof:true` and open-ground enderman hunts keep the 30 s wait), with the partial count; `SPOT_UNREACHABLE` after two failed walks back; the failing code after two engagements in a row fail with the same code without a kill; cancelAction. Fire does not stop it: in a fire block the body walks to the nearest seen exit and fights on while it burns. With a shield in the offhand it lowers the weapon and raises the shield toward a seen shot about to hit (vanilla blocking: a quarter-second raise, front arc only), then fights on. After a kill whose drop it did not see fall, it looks toward where the target died and, with `collect`, picks up a drop it then sees. Armed reflexes pause and resume it like fight_target. The result lists fire time, steps off fire, shield raises and blocks, drops looked for and found, kills, the item count before and after, arrows used, bow and sword engagements, each ending code and the last engagement messages.",
         "kind": "control-reference",
         "topic": "fight_until"
       },
@@ -53650,14 +53650,14 @@
           "command": "api/fix-slot.sh: STANDIN=until VARIANTS=gap0 REPEATS=5 RUN_S=240 node scripts/quality/test-blaze-spawner-live.mjs <out> (headless Minecraft, 0 model calls)"
         }
       ],
-      "id": "control:629c87d2f91da4c7:7cfd708427b1234f:result:SUCCEEDED",
+      "id": "control:629c87d2f91da4c7:05fe98ec9c8ce0eb:result:SUCCEEDED",
       "contract": {
-        "id": "control:629c87d2f91da4c7:7cfd708427b1234f:result:SUCCEEDED",
-        "claim": "Stops: SUCCEEDED `UNTIL_COUNT_REACHED` once the count is held; `FIGHT_UNTIL_TIMED_OUT` at `timeoutMs`; `LOW_HEALTH_BAILOUT` at or below `fleeAtHealth` (bounded retreat outcome in receipt, pursue:false/roof holds ground); `IN_LAVA` on new lava contact; `AGENT_DEAD`; `OUT_OF_ARROWS`/`BOW_NOT_EQUIPPED` with `weapon:\"bow\"` (auto switches to melee); `NO_TARGET_SEEN` after 30 s without a seen target in the area; `AREA_CLEARED` after at least one kill once a 3 to 5 s look around finds none left (blazes, `roof:true` and open-ground enderman hunts keep the 30 s wait), with the partial count; `SPOT_UNREACHABLE` after two failed walks back; the failing code after two engagements in a row fail with the same code without a kill; cancelAction. Fire does not stop it: in a fire block the body walks to the nearest seen exit and fights on while it burns. With a shield in the offhand it lowers the weapon and raises the shield toward a seen shot about to hit (vanilla blocking: a quarter-second raise, front arc only), then fights on. After a kill whose drop it did not see fall, it looks toward where the target died and, with `collect`, picks up a drop it then sees. Armed reflexes pause and resume it like fight_target. The result lists fire time, steps off fire, shield raises and blocks, cover moves, drops looked for and found, kills, the item count before and after, arrows used, bow and sword engagements, each ending code and the last engagement messages.",
+        "id": "control:629c87d2f91da4c7:05fe98ec9c8ce0eb:result:SUCCEEDED",
+        "claim": "Stops: SUCCEEDED `UNTIL_COUNT_REACHED` once the count is held; `FIGHT_UNTIL_TIMED_OUT` at `timeoutMs`; `LOW_HEALTH_BAILOUT` at or below `fleeAtHealth` (bounded retreat outcome in receipt, pursue:false/roof holds ground); `IN_LAVA` on new lava contact; `AGENT_DEAD`; `OUT_OF_ARROWS`/`BOW_NOT_EQUIPPED` with `weapon:\"bow\"` (auto switches to melee); `NO_TARGET_SEEN` after 30 s without a seen target in the area; `AREA_CLEARED` after at least one kill once a 3 to 5 s look around finds none left (blazes, `roof:true` and open-ground enderman hunts keep the 30 s wait), with the partial count; `SPOT_UNREACHABLE` after two failed walks back; the failing code after two engagements in a row fail with the same code without a kill; cancelAction. Fire does not stop it: in a fire block the body walks to the nearest seen exit and fights on while it burns. With a shield in the offhand it lowers the weapon and raises the shield toward a seen shot about to hit (vanilla blocking: a quarter-second raise, front arc only), then fights on. After a kill whose drop it did not see fall, it looks toward where the target died and, with `collect`, picks up a drop it then sees. Armed reflexes pause and resume it like fight_target. The result lists fire time, steps off fire, shield raises and blocks, drops looked for and found, kills, the item count before and after, arrows used, bow and sword engagements, each ending code and the last engagement messages.",
         "kind": "result-code",
         "topic": "fight_until",
         "code": "SUCCEEDED",
-        "parent": "control:629c87d2f91da4c7:7cfd708427b1234f"
+        "parent": "control:629c87d2f91da4c7:05fe98ec9c8ce0eb"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -53681,14 +53681,14 @@
           "command": "api/fix-slot.sh: STANDIN=until VARIANTS=gap0 REPEATS=5 RUN_S=240 node scripts/quality/test-blaze-spawner-live.mjs <out> (headless Minecraft, 0 model calls)"
         }
       ],
-      "id": "control:629c87d2f91da4c7:7cfd708427b1234f:result:UNTIL_COUNT_REACHED",
+      "id": "control:629c87d2f91da4c7:05fe98ec9c8ce0eb:result:UNTIL_COUNT_REACHED",
       "contract": {
-        "id": "control:629c87d2f91da4c7:7cfd708427b1234f:result:UNTIL_COUNT_REACHED",
-        "claim": "Stops: SUCCEEDED `UNTIL_COUNT_REACHED` once the count is held; `FIGHT_UNTIL_TIMED_OUT` at `timeoutMs`; `LOW_HEALTH_BAILOUT` at or below `fleeAtHealth` (bounded retreat outcome in receipt, pursue:false/roof holds ground); `IN_LAVA` on new lava contact; `AGENT_DEAD`; `OUT_OF_ARROWS`/`BOW_NOT_EQUIPPED` with `weapon:\"bow\"` (auto switches to melee); `NO_TARGET_SEEN` after 30 s without a seen target in the area; `AREA_CLEARED` after at least one kill once a 3 to 5 s look around finds none left (blazes, `roof:true` and open-ground enderman hunts keep the 30 s wait), with the partial count; `SPOT_UNREACHABLE` after two failed walks back; the failing code after two engagements in a row fail with the same code without a kill; cancelAction. Fire does not stop it: in a fire block the body walks to the nearest seen exit and fights on while it burns. With a shield in the offhand it lowers the weapon and raises the shield toward a seen shot about to hit (vanilla blocking: a quarter-second raise, front arc only), then fights on. After a kill whose drop it did not see fall, it looks toward where the target died and, with `collect`, picks up a drop it then sees. Armed reflexes pause and resume it like fight_target. The result lists fire time, steps off fire, shield raises and blocks, cover moves, drops looked for and found, kills, the item count before and after, arrows used, bow and sword engagements, each ending code and the last engagement messages.",
+        "id": "control:629c87d2f91da4c7:05fe98ec9c8ce0eb:result:UNTIL_COUNT_REACHED",
+        "claim": "Stops: SUCCEEDED `UNTIL_COUNT_REACHED` once the count is held; `FIGHT_UNTIL_TIMED_OUT` at `timeoutMs`; `LOW_HEALTH_BAILOUT` at or below `fleeAtHealth` (bounded retreat outcome in receipt, pursue:false/roof holds ground); `IN_LAVA` on new lava contact; `AGENT_DEAD`; `OUT_OF_ARROWS`/`BOW_NOT_EQUIPPED` with `weapon:\"bow\"` (auto switches to melee); `NO_TARGET_SEEN` after 30 s without a seen target in the area; `AREA_CLEARED` after at least one kill once a 3 to 5 s look around finds none left (blazes, `roof:true` and open-ground enderman hunts keep the 30 s wait), with the partial count; `SPOT_UNREACHABLE` after two failed walks back; the failing code after two engagements in a row fail with the same code without a kill; cancelAction. Fire does not stop it: in a fire block the body walks to the nearest seen exit and fights on while it burns. With a shield in the offhand it lowers the weapon and raises the shield toward a seen shot about to hit (vanilla blocking: a quarter-second raise, front arc only), then fights on. After a kill whose drop it did not see fall, it looks toward where the target died and, with `collect`, picks up a drop it then sees. Armed reflexes pause and resume it like fight_target. The result lists fire time, steps off fire, shield raises and blocks, drops looked for and found, kills, the item count before and after, arrows used, bow and sword engagements, each ending code and the last engagement messages.",
         "kind": "result-code",
         "topic": "fight_until",
         "code": "UNTIL_COUNT_REACHED",
-        "parent": "control:629c87d2f91da4c7:7cfd708427b1234f"
+        "parent": "control:629c87d2f91da4c7:05fe98ec9c8ce0eb"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -53712,14 +53712,14 @@
           "command": "api/fix-slot.sh: STANDIN=until VARIANTS=gap0 REPEATS=5 RUN_S=240 node scripts/quality/test-blaze-spawner-live.mjs <out> (headless Minecraft, 0 model calls)"
         }
       ],
-      "id": "control:629c87d2f91da4c7:7cfd708427b1234f:result:FIGHT_UNTIL_TIMED_OUT",
+      "id": "control:629c87d2f91da4c7:05fe98ec9c8ce0eb:result:FIGHT_UNTIL_TIMED_OUT",
       "contract": {
-        "id": "control:629c87d2f91da4c7:7cfd708427b1234f:result:FIGHT_UNTIL_TIMED_OUT",
-        "claim": "Stops: SUCCEEDED `UNTIL_COUNT_REACHED` once the count is held; `FIGHT_UNTIL_TIMED_OUT` at `timeoutMs`; `LOW_HEALTH_BAILOUT` at or below `fleeAtHealth` (bounded retreat outcome in receipt, pursue:false/roof holds ground); `IN_LAVA` on new lava contact; `AGENT_DEAD`; `OUT_OF_ARROWS`/`BOW_NOT_EQUIPPED` with `weapon:\"bow\"` (auto switches to melee); `NO_TARGET_SEEN` after 30 s without a seen target in the area; `AREA_CLEARED` after at least one kill once a 3 to 5 s look around finds none left (blazes, `roof:true` and open-ground enderman hunts keep the 30 s wait), with the partial count; `SPOT_UNREACHABLE` after two failed walks back; the failing code after two engagements in a row fail with the same code without a kill; cancelAction. Fire does not stop it: in a fire block the body walks to the nearest seen exit and fights on while it burns. With a shield in the offhand it lowers the weapon and raises the shield toward a seen shot about to hit (vanilla blocking: a quarter-second raise, front arc only), then fights on. After a kill whose drop it did not see fall, it looks toward where the target died and, with `collect`, picks up a drop it then sees. Armed reflexes pause and resume it like fight_target. The result lists fire time, steps off fire, shield raises and blocks, cover moves, drops looked for and found, kills, the item count before and after, arrows used, bow and sword engagements, each ending code and the last engagement messages.",
+        "id": "control:629c87d2f91da4c7:05fe98ec9c8ce0eb:result:FIGHT_UNTIL_TIMED_OUT",
+        "claim": "Stops: SUCCEEDED `UNTIL_COUNT_REACHED` once the count is held; `FIGHT_UNTIL_TIMED_OUT` at `timeoutMs`; `LOW_HEALTH_BAILOUT` at or below `fleeAtHealth` (bounded retreat outcome in receipt, pursue:false/roof holds ground); `IN_LAVA` on new lava contact; `AGENT_DEAD`; `OUT_OF_ARROWS`/`BOW_NOT_EQUIPPED` with `weapon:\"bow\"` (auto switches to melee); `NO_TARGET_SEEN` after 30 s without a seen target in the area; `AREA_CLEARED` after at least one kill once a 3 to 5 s look around finds none left (blazes, `roof:true` and open-ground enderman hunts keep the 30 s wait), with the partial count; `SPOT_UNREACHABLE` after two failed walks back; the failing code after two engagements in a row fail with the same code without a kill; cancelAction. Fire does not stop it: in a fire block the body walks to the nearest seen exit and fights on while it burns. With a shield in the offhand it lowers the weapon and raises the shield toward a seen shot about to hit (vanilla blocking: a quarter-second raise, front arc only), then fights on. After a kill whose drop it did not see fall, it looks toward where the target died and, with `collect`, picks up a drop it then sees. Armed reflexes pause and resume it like fight_target. The result lists fire time, steps off fire, shield raises and blocks, drops looked for and found, kills, the item count before and after, arrows used, bow and sword engagements, each ending code and the last engagement messages.",
         "kind": "result-code",
         "topic": "fight_until",
         "code": "FIGHT_UNTIL_TIMED_OUT",
-        "parent": "control:629c87d2f91da4c7:7cfd708427b1234f"
+        "parent": "control:629c87d2f91da4c7:05fe98ec9c8ce0eb"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -53755,14 +53755,14 @@
           "command": "gradlew verifyCore"
         }
       ],
-      "id": "control:629c87d2f91da4c7:7cfd708427b1234f:result:LOW_HEALTH_BAILOUT",
+      "id": "control:629c87d2f91da4c7:05fe98ec9c8ce0eb:result:LOW_HEALTH_BAILOUT",
       "contract": {
-        "id": "control:629c87d2f91da4c7:7cfd708427b1234f:result:LOW_HEALTH_BAILOUT",
-        "claim": "Stops: SUCCEEDED `UNTIL_COUNT_REACHED` once the count is held; `FIGHT_UNTIL_TIMED_OUT` at `timeoutMs`; `LOW_HEALTH_BAILOUT` at or below `fleeAtHealth` (bounded retreat outcome in receipt, pursue:false/roof holds ground); `IN_LAVA` on new lava contact; `AGENT_DEAD`; `OUT_OF_ARROWS`/`BOW_NOT_EQUIPPED` with `weapon:\"bow\"` (auto switches to melee); `NO_TARGET_SEEN` after 30 s without a seen target in the area; `AREA_CLEARED` after at least one kill once a 3 to 5 s look around finds none left (blazes, `roof:true` and open-ground enderman hunts keep the 30 s wait), with the partial count; `SPOT_UNREACHABLE` after two failed walks back; the failing code after two engagements in a row fail with the same code without a kill; cancelAction. Fire does not stop it: in a fire block the body walks to the nearest seen exit and fights on while it burns. With a shield in the offhand it lowers the weapon and raises the shield toward a seen shot about to hit (vanilla blocking: a quarter-second raise, front arc only), then fights on. After a kill whose drop it did not see fall, it looks toward where the target died and, with `collect`, picks up a drop it then sees. Armed reflexes pause and resume it like fight_target. The result lists fire time, steps off fire, shield raises and blocks, cover moves, drops looked for and found, kills, the item count before and after, arrows used, bow and sword engagements, each ending code and the last engagement messages.",
+        "id": "control:629c87d2f91da4c7:05fe98ec9c8ce0eb:result:LOW_HEALTH_BAILOUT",
+        "claim": "Stops: SUCCEEDED `UNTIL_COUNT_REACHED` once the count is held; `FIGHT_UNTIL_TIMED_OUT` at `timeoutMs`; `LOW_HEALTH_BAILOUT` at or below `fleeAtHealth` (bounded retreat outcome in receipt, pursue:false/roof holds ground); `IN_LAVA` on new lava contact; `AGENT_DEAD`; `OUT_OF_ARROWS`/`BOW_NOT_EQUIPPED` with `weapon:\"bow\"` (auto switches to melee); `NO_TARGET_SEEN` after 30 s without a seen target in the area; `AREA_CLEARED` after at least one kill once a 3 to 5 s look around finds none left (blazes, `roof:true` and open-ground enderman hunts keep the 30 s wait), with the partial count; `SPOT_UNREACHABLE` after two failed walks back; the failing code after two engagements in a row fail with the same code without a kill; cancelAction. Fire does not stop it: in a fire block the body walks to the nearest seen exit and fights on while it burns. With a shield in the offhand it lowers the weapon and raises the shield toward a seen shot about to hit (vanilla blocking: a quarter-second raise, front arc only), then fights on. After a kill whose drop it did not see fall, it looks toward where the target died and, with `collect`, picks up a drop it then sees. Armed reflexes pause and resume it like fight_target. The result lists fire time, steps off fire, shield raises and blocks, drops looked for and found, kills, the item count before and after, arrows used, bow and sword engagements, each ending code and the last engagement messages.",
         "kind": "result-code",
         "topic": "fight_until",
         "code": "LOW_HEALTH_BAILOUT",
-        "parent": "control:629c87d2f91da4c7:7cfd708427b1234f"
+        "parent": "control:629c87d2f91da4c7:05fe98ec9c8ce0eb"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -53786,14 +53786,14 @@
           "command": "api/fix-slot.sh: STANDIN=until VARIANTS=gap0 REPEATS=5 RUN_S=240 node scripts/quality/test-blaze-spawner-live.mjs <out> (headless Minecraft, 0 model calls)"
         }
       ],
-      "id": "control:629c87d2f91da4c7:7cfd708427b1234f:result:IN_LAVA",
+      "id": "control:629c87d2f91da4c7:05fe98ec9c8ce0eb:result:IN_LAVA",
       "contract": {
-        "id": "control:629c87d2f91da4c7:7cfd708427b1234f:result:IN_LAVA",
-        "claim": "Stops: SUCCEEDED `UNTIL_COUNT_REACHED` once the count is held; `FIGHT_UNTIL_TIMED_OUT` at `timeoutMs`; `LOW_HEALTH_BAILOUT` at or below `fleeAtHealth` (bounded retreat outcome in receipt, pursue:false/roof holds ground); `IN_LAVA` on new lava contact; `AGENT_DEAD`; `OUT_OF_ARROWS`/`BOW_NOT_EQUIPPED` with `weapon:\"bow\"` (auto switches to melee); `NO_TARGET_SEEN` after 30 s without a seen target in the area; `AREA_CLEARED` after at least one kill once a 3 to 5 s look around finds none left (blazes, `roof:true` and open-ground enderman hunts keep the 30 s wait), with the partial count; `SPOT_UNREACHABLE` after two failed walks back; the failing code after two engagements in a row fail with the same code without a kill; cancelAction. Fire does not stop it: in a fire block the body walks to the nearest seen exit and fights on while it burns. With a shield in the offhand it lowers the weapon and raises the shield toward a seen shot about to hit (vanilla blocking: a quarter-second raise, front arc only), then fights on. After a kill whose drop it did not see fall, it looks toward where the target died and, with `collect`, picks up a drop it then sees. Armed reflexes pause and resume it like fight_target. The result lists fire time, steps off fire, shield raises and blocks, cover moves, drops looked for and found, kills, the item count before and after, arrows used, bow and sword engagements, each ending code and the last engagement messages.",
+        "id": "control:629c87d2f91da4c7:05fe98ec9c8ce0eb:result:IN_LAVA",
+        "claim": "Stops: SUCCEEDED `UNTIL_COUNT_REACHED` once the count is held; `FIGHT_UNTIL_TIMED_OUT` at `timeoutMs`; `LOW_HEALTH_BAILOUT` at or below `fleeAtHealth` (bounded retreat outcome in receipt, pursue:false/roof holds ground); `IN_LAVA` on new lava contact; `AGENT_DEAD`; `OUT_OF_ARROWS`/`BOW_NOT_EQUIPPED` with `weapon:\"bow\"` (auto switches to melee); `NO_TARGET_SEEN` after 30 s without a seen target in the area; `AREA_CLEARED` after at least one kill once a 3 to 5 s look around finds none left (blazes, `roof:true` and open-ground enderman hunts keep the 30 s wait), with the partial count; `SPOT_UNREACHABLE` after two failed walks back; the failing code after two engagements in a row fail with the same code without a kill; cancelAction. Fire does not stop it: in a fire block the body walks to the nearest seen exit and fights on while it burns. With a shield in the offhand it lowers the weapon and raises the shield toward a seen shot about to hit (vanilla blocking: a quarter-second raise, front arc only), then fights on. After a kill whose drop it did not see fall, it looks toward where the target died and, with `collect`, picks up a drop it then sees. Armed reflexes pause and resume it like fight_target. The result lists fire time, steps off fire, shield raises and blocks, drops looked for and found, kills, the item count before and after, arrows used, bow and sword engagements, each ending code and the last engagement messages.",
         "kind": "result-code",
         "topic": "fight_until",
         "code": "IN_LAVA",
-        "parent": "control:629c87d2f91da4c7:7cfd708427b1234f"
+        "parent": "control:629c87d2f91da4c7:05fe98ec9c8ce0eb"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -53817,14 +53817,14 @@
           "command": "api/fix-slot.sh: STANDIN=until VARIANTS=gap0 REPEATS=5 RUN_S=240 node scripts/quality/test-blaze-spawner-live.mjs <out> (headless Minecraft, 0 model calls)"
         }
       ],
-      "id": "control:629c87d2f91da4c7:7cfd708427b1234f:result:AGENT_DEAD",
+      "id": "control:629c87d2f91da4c7:05fe98ec9c8ce0eb:result:AGENT_DEAD",
       "contract": {
-        "id": "control:629c87d2f91da4c7:7cfd708427b1234f:result:AGENT_DEAD",
-        "claim": "Stops: SUCCEEDED `UNTIL_COUNT_REACHED` once the count is held; `FIGHT_UNTIL_TIMED_OUT` at `timeoutMs`; `LOW_HEALTH_BAILOUT` at or below `fleeAtHealth` (bounded retreat outcome in receipt, pursue:false/roof holds ground); `IN_LAVA` on new lava contact; `AGENT_DEAD`; `OUT_OF_ARROWS`/`BOW_NOT_EQUIPPED` with `weapon:\"bow\"` (auto switches to melee); `NO_TARGET_SEEN` after 30 s without a seen target in the area; `AREA_CLEARED` after at least one kill once a 3 to 5 s look around finds none left (blazes, `roof:true` and open-ground enderman hunts keep the 30 s wait), with the partial count; `SPOT_UNREACHABLE` after two failed walks back; the failing code after two engagements in a row fail with the same code without a kill; cancelAction. Fire does not stop it: in a fire block the body walks to the nearest seen exit and fights on while it burns. With a shield in the offhand it lowers the weapon and raises the shield toward a seen shot about to hit (vanilla blocking: a quarter-second raise, front arc only), then fights on. After a kill whose drop it did not see fall, it looks toward where the target died and, with `collect`, picks up a drop it then sees. Armed reflexes pause and resume it like fight_target. The result lists fire time, steps off fire, shield raises and blocks, cover moves, drops looked for and found, kills, the item count before and after, arrows used, bow and sword engagements, each ending code and the last engagement messages.",
+        "id": "control:629c87d2f91da4c7:05fe98ec9c8ce0eb:result:AGENT_DEAD",
+        "claim": "Stops: SUCCEEDED `UNTIL_COUNT_REACHED` once the count is held; `FIGHT_UNTIL_TIMED_OUT` at `timeoutMs`; `LOW_HEALTH_BAILOUT` at or below `fleeAtHealth` (bounded retreat outcome in receipt, pursue:false/roof holds ground); `IN_LAVA` on new lava contact; `AGENT_DEAD`; `OUT_OF_ARROWS`/`BOW_NOT_EQUIPPED` with `weapon:\"bow\"` (auto switches to melee); `NO_TARGET_SEEN` after 30 s without a seen target in the area; `AREA_CLEARED` after at least one kill once a 3 to 5 s look around finds none left (blazes, `roof:true` and open-ground enderman hunts keep the 30 s wait), with the partial count; `SPOT_UNREACHABLE` after two failed walks back; the failing code after two engagements in a row fail with the same code without a kill; cancelAction. Fire does not stop it: in a fire block the body walks to the nearest seen exit and fights on while it burns. With a shield in the offhand it lowers the weapon and raises the shield toward a seen shot about to hit (vanilla blocking: a quarter-second raise, front arc only), then fights on. After a kill whose drop it did not see fall, it looks toward where the target died and, with `collect`, picks up a drop it then sees. Armed reflexes pause and resume it like fight_target. The result lists fire time, steps off fire, shield raises and blocks, drops looked for and found, kills, the item count before and after, arrows used, bow and sword engagements, each ending code and the last engagement messages.",
         "kind": "result-code",
         "topic": "fight_until",
         "code": "AGENT_DEAD",
-        "parent": "control:629c87d2f91da4c7:7cfd708427b1234f"
+        "parent": "control:629c87d2f91da4c7:05fe98ec9c8ce0eb"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -53848,14 +53848,14 @@
           "command": "api/fix-slot.sh: STANDIN=until VARIANTS=gap0 REPEATS=5 RUN_S=240 node scripts/quality/test-blaze-spawner-live.mjs <out> (headless Minecraft, 0 model calls)"
         }
       ],
-      "id": "control:629c87d2f91da4c7:7cfd708427b1234f:result:OUT_OF_ARROWS",
+      "id": "control:629c87d2f91da4c7:05fe98ec9c8ce0eb:result:OUT_OF_ARROWS",
       "contract": {
-        "id": "control:629c87d2f91da4c7:7cfd708427b1234f:result:OUT_OF_ARROWS",
-        "claim": "Stops: SUCCEEDED `UNTIL_COUNT_REACHED` once the count is held; `FIGHT_UNTIL_TIMED_OUT` at `timeoutMs`; `LOW_HEALTH_BAILOUT` at or below `fleeAtHealth` (bounded retreat outcome in receipt, pursue:false/roof holds ground); `IN_LAVA` on new lava contact; `AGENT_DEAD`; `OUT_OF_ARROWS`/`BOW_NOT_EQUIPPED` with `weapon:\"bow\"` (auto switches to melee); `NO_TARGET_SEEN` after 30 s without a seen target in the area; `AREA_CLEARED` after at least one kill once a 3 to 5 s look around finds none left (blazes, `roof:true` and open-ground enderman hunts keep the 30 s wait), with the partial count; `SPOT_UNREACHABLE` after two failed walks back; the failing code after two engagements in a row fail with the same code without a kill; cancelAction. Fire does not stop it: in a fire block the body walks to the nearest seen exit and fights on while it burns. With a shield in the offhand it lowers the weapon and raises the shield toward a seen shot about to hit (vanilla blocking: a quarter-second raise, front arc only), then fights on. After a kill whose drop it did not see fall, it looks toward where the target died and, with `collect`, picks up a drop it then sees. Armed reflexes pause and resume it like fight_target. The result lists fire time, steps off fire, shield raises and blocks, cover moves, drops looked for and found, kills, the item count before and after, arrows used, bow and sword engagements, each ending code and the last engagement messages.",
+        "id": "control:629c87d2f91da4c7:05fe98ec9c8ce0eb:result:OUT_OF_ARROWS",
+        "claim": "Stops: SUCCEEDED `UNTIL_COUNT_REACHED` once the count is held; `FIGHT_UNTIL_TIMED_OUT` at `timeoutMs`; `LOW_HEALTH_BAILOUT` at or below `fleeAtHealth` (bounded retreat outcome in receipt, pursue:false/roof holds ground); `IN_LAVA` on new lava contact; `AGENT_DEAD`; `OUT_OF_ARROWS`/`BOW_NOT_EQUIPPED` with `weapon:\"bow\"` (auto switches to melee); `NO_TARGET_SEEN` after 30 s without a seen target in the area; `AREA_CLEARED` after at least one kill once a 3 to 5 s look around finds none left (blazes, `roof:true` and open-ground enderman hunts keep the 30 s wait), with the partial count; `SPOT_UNREACHABLE` after two failed walks back; the failing code after two engagements in a row fail with the same code without a kill; cancelAction. Fire does not stop it: in a fire block the body walks to the nearest seen exit and fights on while it burns. With a shield in the offhand it lowers the weapon and raises the shield toward a seen shot about to hit (vanilla blocking: a quarter-second raise, front arc only), then fights on. After a kill whose drop it did not see fall, it looks toward where the target died and, with `collect`, picks up a drop it then sees. Armed reflexes pause and resume it like fight_target. The result lists fire time, steps off fire, shield raises and blocks, drops looked for and found, kills, the item count before and after, arrows used, bow and sword engagements, each ending code and the last engagement messages.",
         "kind": "result-code",
         "topic": "fight_until",
         "code": "OUT_OF_ARROWS",
-        "parent": "control:629c87d2f91da4c7:7cfd708427b1234f"
+        "parent": "control:629c87d2f91da4c7:05fe98ec9c8ce0eb"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -53879,14 +53879,14 @@
           "command": "api/fix-slot.sh: STANDIN=until VARIANTS=gap0 REPEATS=5 RUN_S=240 node scripts/quality/test-blaze-spawner-live.mjs <out> (headless Minecraft, 0 model calls)"
         }
       ],
-      "id": "control:629c87d2f91da4c7:7cfd708427b1234f:result:BOW_NOT_EQUIPPED",
+      "id": "control:629c87d2f91da4c7:05fe98ec9c8ce0eb:result:BOW_NOT_EQUIPPED",
       "contract": {
-        "id": "control:629c87d2f91da4c7:7cfd708427b1234f:result:BOW_NOT_EQUIPPED",
-        "claim": "Stops: SUCCEEDED `UNTIL_COUNT_REACHED` once the count is held; `FIGHT_UNTIL_TIMED_OUT` at `timeoutMs`; `LOW_HEALTH_BAILOUT` at or below `fleeAtHealth` (bounded retreat outcome in receipt, pursue:false/roof holds ground); `IN_LAVA` on new lava contact; `AGENT_DEAD`; `OUT_OF_ARROWS`/`BOW_NOT_EQUIPPED` with `weapon:\"bow\"` (auto switches to melee); `NO_TARGET_SEEN` after 30 s without a seen target in the area; `AREA_CLEARED` after at least one kill once a 3 to 5 s look around finds none left (blazes, `roof:true` and open-ground enderman hunts keep the 30 s wait), with the partial count; `SPOT_UNREACHABLE` after two failed walks back; the failing code after two engagements in a row fail with the same code without a kill; cancelAction. Fire does not stop it: in a fire block the body walks to the nearest seen exit and fights on while it burns. With a shield in the offhand it lowers the weapon and raises the shield toward a seen shot about to hit (vanilla blocking: a quarter-second raise, front arc only), then fights on. After a kill whose drop it did not see fall, it looks toward where the target died and, with `collect`, picks up a drop it then sees. Armed reflexes pause and resume it like fight_target. The result lists fire time, steps off fire, shield raises and blocks, cover moves, drops looked for and found, kills, the item count before and after, arrows used, bow and sword engagements, each ending code and the last engagement messages.",
+        "id": "control:629c87d2f91da4c7:05fe98ec9c8ce0eb:result:BOW_NOT_EQUIPPED",
+        "claim": "Stops: SUCCEEDED `UNTIL_COUNT_REACHED` once the count is held; `FIGHT_UNTIL_TIMED_OUT` at `timeoutMs`; `LOW_HEALTH_BAILOUT` at or below `fleeAtHealth` (bounded retreat outcome in receipt, pursue:false/roof holds ground); `IN_LAVA` on new lava contact; `AGENT_DEAD`; `OUT_OF_ARROWS`/`BOW_NOT_EQUIPPED` with `weapon:\"bow\"` (auto switches to melee); `NO_TARGET_SEEN` after 30 s without a seen target in the area; `AREA_CLEARED` after at least one kill once a 3 to 5 s look around finds none left (blazes, `roof:true` and open-ground enderman hunts keep the 30 s wait), with the partial count; `SPOT_UNREACHABLE` after two failed walks back; the failing code after two engagements in a row fail with the same code without a kill; cancelAction. Fire does not stop it: in a fire block the body walks to the nearest seen exit and fights on while it burns. With a shield in the offhand it lowers the weapon and raises the shield toward a seen shot about to hit (vanilla blocking: a quarter-second raise, front arc only), then fights on. After a kill whose drop it did not see fall, it looks toward where the target died and, with `collect`, picks up a drop it then sees. Armed reflexes pause and resume it like fight_target. The result lists fire time, steps off fire, shield raises and blocks, drops looked for and found, kills, the item count before and after, arrows used, bow and sword engagements, each ending code and the last engagement messages.",
         "kind": "result-code",
         "topic": "fight_until",
         "code": "BOW_NOT_EQUIPPED",
-        "parent": "control:629c87d2f91da4c7:7cfd708427b1234f"
+        "parent": "control:629c87d2f91da4c7:05fe98ec9c8ce0eb"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -53916,14 +53916,14 @@
           "command": "gradlew verifyCore"
         }
       ],
-      "id": "control:629c87d2f91da4c7:7cfd708427b1234f:result:NO_TARGET_SEEN",
+      "id": "control:629c87d2f91da4c7:05fe98ec9c8ce0eb:result:NO_TARGET_SEEN",
       "contract": {
-        "id": "control:629c87d2f91da4c7:7cfd708427b1234f:result:NO_TARGET_SEEN",
-        "claim": "Stops: SUCCEEDED `UNTIL_COUNT_REACHED` once the count is held; `FIGHT_UNTIL_TIMED_OUT` at `timeoutMs`; `LOW_HEALTH_BAILOUT` at or below `fleeAtHealth` (bounded retreat outcome in receipt, pursue:false/roof holds ground); `IN_LAVA` on new lava contact; `AGENT_DEAD`; `OUT_OF_ARROWS`/`BOW_NOT_EQUIPPED` with `weapon:\"bow\"` (auto switches to melee); `NO_TARGET_SEEN` after 30 s without a seen target in the area; `AREA_CLEARED` after at least one kill once a 3 to 5 s look around finds none left (blazes, `roof:true` and open-ground enderman hunts keep the 30 s wait), with the partial count; `SPOT_UNREACHABLE` after two failed walks back; the failing code after two engagements in a row fail with the same code without a kill; cancelAction. Fire does not stop it: in a fire block the body walks to the nearest seen exit and fights on while it burns. With a shield in the offhand it lowers the weapon and raises the shield toward a seen shot about to hit (vanilla blocking: a quarter-second raise, front arc only), then fights on. After a kill whose drop it did not see fall, it looks toward where the target died and, with `collect`, picks up a drop it then sees. Armed reflexes pause and resume it like fight_target. The result lists fire time, steps off fire, shield raises and blocks, cover moves, drops looked for and found, kills, the item count before and after, arrows used, bow and sword engagements, each ending code and the last engagement messages.",
+        "id": "control:629c87d2f91da4c7:05fe98ec9c8ce0eb:result:NO_TARGET_SEEN",
+        "claim": "Stops: SUCCEEDED `UNTIL_COUNT_REACHED` once the count is held; `FIGHT_UNTIL_TIMED_OUT` at `timeoutMs`; `LOW_HEALTH_BAILOUT` at or below `fleeAtHealth` (bounded retreat outcome in receipt, pursue:false/roof holds ground); `IN_LAVA` on new lava contact; `AGENT_DEAD`; `OUT_OF_ARROWS`/`BOW_NOT_EQUIPPED` with `weapon:\"bow\"` (auto switches to melee); `NO_TARGET_SEEN` after 30 s without a seen target in the area; `AREA_CLEARED` after at least one kill once a 3 to 5 s look around finds none left (blazes, `roof:true` and open-ground enderman hunts keep the 30 s wait), with the partial count; `SPOT_UNREACHABLE` after two failed walks back; the failing code after two engagements in a row fail with the same code without a kill; cancelAction. Fire does not stop it: in a fire block the body walks to the nearest seen exit and fights on while it burns. With a shield in the offhand it lowers the weapon and raises the shield toward a seen shot about to hit (vanilla blocking: a quarter-second raise, front arc only), then fights on. After a kill whose drop it did not see fall, it looks toward where the target died and, with `collect`, picks up a drop it then sees. Armed reflexes pause and resume it like fight_target. The result lists fire time, steps off fire, shield raises and blocks, drops looked for and found, kills, the item count before and after, arrows used, bow and sword engagements, each ending code and the last engagement messages.",
         "kind": "result-code",
         "topic": "fight_until",
         "code": "NO_TARGET_SEEN",
-        "parent": "control:629c87d2f91da4c7:7cfd708427b1234f"
+        "parent": "control:629c87d2f91da4c7:05fe98ec9c8ce0eb"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -53942,14 +53942,14 @@
           "command": "gradlew verifyCore"
         }
       ],
-      "id": "control:629c87d2f91da4c7:7cfd708427b1234f:result:AREA_CLEARED",
+      "id": "control:629c87d2f91da4c7:05fe98ec9c8ce0eb:result:AREA_CLEARED",
       "contract": {
-        "id": "control:629c87d2f91da4c7:7cfd708427b1234f:result:AREA_CLEARED",
-        "claim": "Stops: SUCCEEDED `UNTIL_COUNT_REACHED` once the count is held; `FIGHT_UNTIL_TIMED_OUT` at `timeoutMs`; `LOW_HEALTH_BAILOUT` at or below `fleeAtHealth` (bounded retreat outcome in receipt, pursue:false/roof holds ground); `IN_LAVA` on new lava contact; `AGENT_DEAD`; `OUT_OF_ARROWS`/`BOW_NOT_EQUIPPED` with `weapon:\"bow\"` (auto switches to melee); `NO_TARGET_SEEN` after 30 s without a seen target in the area; `AREA_CLEARED` after at least one kill once a 3 to 5 s look around finds none left (blazes, `roof:true` and open-ground enderman hunts keep the 30 s wait), with the partial count; `SPOT_UNREACHABLE` after two failed walks back; the failing code after two engagements in a row fail with the same code without a kill; cancelAction. Fire does not stop it: in a fire block the body walks to the nearest seen exit and fights on while it burns. With a shield in the offhand it lowers the weapon and raises the shield toward a seen shot about to hit (vanilla blocking: a quarter-second raise, front arc only), then fights on. After a kill whose drop it did not see fall, it looks toward where the target died and, with `collect`, picks up a drop it then sees. Armed reflexes pause and resume it like fight_target. The result lists fire time, steps off fire, shield raises and blocks, cover moves, drops looked for and found, kills, the item count before and after, arrows used, bow and sword engagements, each ending code and the last engagement messages.",
+        "id": "control:629c87d2f91da4c7:05fe98ec9c8ce0eb:result:AREA_CLEARED",
+        "claim": "Stops: SUCCEEDED `UNTIL_COUNT_REACHED` once the count is held; `FIGHT_UNTIL_TIMED_OUT` at `timeoutMs`; `LOW_HEALTH_BAILOUT` at or below `fleeAtHealth` (bounded retreat outcome in receipt, pursue:false/roof holds ground); `IN_LAVA` on new lava contact; `AGENT_DEAD`; `OUT_OF_ARROWS`/`BOW_NOT_EQUIPPED` with `weapon:\"bow\"` (auto switches to melee); `NO_TARGET_SEEN` after 30 s without a seen target in the area; `AREA_CLEARED` after at least one kill once a 3 to 5 s look around finds none left (blazes, `roof:true` and open-ground enderman hunts keep the 30 s wait), with the partial count; `SPOT_UNREACHABLE` after two failed walks back; the failing code after two engagements in a row fail with the same code without a kill; cancelAction. Fire does not stop it: in a fire block the body walks to the nearest seen exit and fights on while it burns. With a shield in the offhand it lowers the weapon and raises the shield toward a seen shot about to hit (vanilla blocking: a quarter-second raise, front arc only), then fights on. After a kill whose drop it did not see fall, it looks toward where the target died and, with `collect`, picks up a drop it then sees. Armed reflexes pause and resume it like fight_target. The result lists fire time, steps off fire, shield raises and blocks, drops looked for and found, kills, the item count before and after, arrows used, bow and sword engagements, each ending code and the last engagement messages.",
         "kind": "result-code",
         "topic": "fight_until",
         "code": "AREA_CLEARED",
-        "parent": "control:629c87d2f91da4c7:7cfd708427b1234f"
+        "parent": "control:629c87d2f91da4c7:05fe98ec9c8ce0eb"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -53973,14 +53973,14 @@
           "command": "api/fix-slot.sh: STANDIN=until VARIANTS=gap0 REPEATS=5 RUN_S=240 node scripts/quality/test-blaze-spawner-live.mjs <out> (headless Minecraft, 0 model calls)"
         }
       ],
-      "id": "control:629c87d2f91da4c7:7cfd708427b1234f:result:SPOT_UNREACHABLE",
+      "id": "control:629c87d2f91da4c7:05fe98ec9c8ce0eb:result:SPOT_UNREACHABLE",
       "contract": {
-        "id": "control:629c87d2f91da4c7:7cfd708427b1234f:result:SPOT_UNREACHABLE",
-        "claim": "Stops: SUCCEEDED `UNTIL_COUNT_REACHED` once the count is held; `FIGHT_UNTIL_TIMED_OUT` at `timeoutMs`; `LOW_HEALTH_BAILOUT` at or below `fleeAtHealth` (bounded retreat outcome in receipt, pursue:false/roof holds ground); `IN_LAVA` on new lava contact; `AGENT_DEAD`; `OUT_OF_ARROWS`/`BOW_NOT_EQUIPPED` with `weapon:\"bow\"` (auto switches to melee); `NO_TARGET_SEEN` after 30 s without a seen target in the area; `AREA_CLEARED` after at least one kill once a 3 to 5 s look around finds none left (blazes, `roof:true` and open-ground enderman hunts keep the 30 s wait), with the partial count; `SPOT_UNREACHABLE` after two failed walks back; the failing code after two engagements in a row fail with the same code without a kill; cancelAction. Fire does not stop it: in a fire block the body walks to the nearest seen exit and fights on while it burns. With a shield in the offhand it lowers the weapon and raises the shield toward a seen shot about to hit (vanilla blocking: a quarter-second raise, front arc only), then fights on. After a kill whose drop it did not see fall, it looks toward where the target died and, with `collect`, picks up a drop it then sees. Armed reflexes pause and resume it like fight_target. The result lists fire time, steps off fire, shield raises and blocks, cover moves, drops looked for and found, kills, the item count before and after, arrows used, bow and sword engagements, each ending code and the last engagement messages.",
+        "id": "control:629c87d2f91da4c7:05fe98ec9c8ce0eb:result:SPOT_UNREACHABLE",
+        "claim": "Stops: SUCCEEDED `UNTIL_COUNT_REACHED` once the count is held; `FIGHT_UNTIL_TIMED_OUT` at `timeoutMs`; `LOW_HEALTH_BAILOUT` at or below `fleeAtHealth` (bounded retreat outcome in receipt, pursue:false/roof holds ground); `IN_LAVA` on new lava contact; `AGENT_DEAD`; `OUT_OF_ARROWS`/`BOW_NOT_EQUIPPED` with `weapon:\"bow\"` (auto switches to melee); `NO_TARGET_SEEN` after 30 s without a seen target in the area; `AREA_CLEARED` after at least one kill once a 3 to 5 s look around finds none left (blazes, `roof:true` and open-ground enderman hunts keep the 30 s wait), with the partial count; `SPOT_UNREACHABLE` after two failed walks back; the failing code after two engagements in a row fail with the same code without a kill; cancelAction. Fire does not stop it: in a fire block the body walks to the nearest seen exit and fights on while it burns. With a shield in the offhand it lowers the weapon and raises the shield toward a seen shot about to hit (vanilla blocking: a quarter-second raise, front arc only), then fights on. After a kill whose drop it did not see fall, it looks toward where the target died and, with `collect`, picks up a drop it then sees. Armed reflexes pause and resume it like fight_target. The result lists fire time, steps off fire, shield raises and blocks, drops looked for and found, kills, the item count before and after, arrows used, bow and sword engagements, each ending code and the last engagement messages.",
         "kind": "result-code",
         "topic": "fight_until",
         "code": "SPOT_UNREACHABLE",
-        "parent": "control:629c87d2f91da4c7:7cfd708427b1234f"
+        "parent": "control:629c87d2f91da4c7:05fe98ec9c8ce0eb"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
