@@ -22,14 +22,16 @@ export function boat(args, { timeoutMs = 10 * 60_000, input = null, binary = fal
 		let stderr = '';
 		child.stdout.on('data', chunk => { chunks.push(chunk); });
 		child.stderr.on('data', chunk => { stderr += chunk; });
-		const kill = () => child.kill('SIGKILL');
-		const timer = setTimeout(kill, timeoutMs);
-		signal?.addEventListener('abort', kill, { once: true });
+		// On a timeout or an abort the pipes are closed too: a grandchild (the ssh or scp under boat) that outlives the kill
+		// would otherwise hold them and delay the rejection, and this process's exit, until it ends.
+		const cancel = () => { child.kill('SIGKILL'); child.stdout.destroy(); child.stderr.destroy(); };
+		const timer = setTimeout(cancel, timeoutMs);
+		signal?.addEventListener('abort', cancel, { once: true });
 		if (input !== null) { child.stdin.on('error', () => {}); child.stdin.end(input); }
-		child.on('error', error => { clearTimeout(timer); signal?.removeEventListener('abort', kill); reject(error); });
+		child.on('error', error => { clearTimeout(timer); signal?.removeEventListener('abort', cancel); reject(error); });
 		child.on('close', code => {
 			clearTimeout(timer);
-			signal?.removeEventListener('abort', kill);
+			signal?.removeEventListener('abort', cancel);
 			const stdout = binary ? Buffer.concat(chunks) : Buffer.concat(chunks).toString();
 			if (code === 0 || anyExit) resolve(stdout);
 			else reject(Object.assign(new Error(`boat ${args[0]} exited ${code}: ${(stderr || String(stdout)).trim().split('\n').slice(-2).join(' ').slice(0, 400)}`), { stdout }));
@@ -181,16 +183,34 @@ export async function waitHydrated(id, { maxMs = 5 * 60_000, everyMs = 2000, log
 	return Math.round((Date.now() - began) / 1000);
 }
 
-export async function machineState(id) {
-	const info = JSON.parse(await boat(['info', id, '--json'], { timeoutMs: 60_000 }));
+export async function machineState(id, options = {}) {
+	const info = JSON.parse(await boat(['info', id, '--json'], { timeoutMs: 60_000, ...options }));
 	return info.sandbox?.state ?? null;
 }
 const LIVE = new Set(['provisioned', 'cloning', 'ready', 'idle', 'running']);
-export const destroyMachine = id => boat(['delete', id, '--yes', '--json'], { timeoutMs: 120_000 });
+export const destroyMachine = (id, options = {}) => boat(['delete', id, '--yes', '--json'], { timeoutMs: 120_000, ...options });
 export const machineUsage = async id => JSON.parse(await boat(['usage', id, '--json'], { timeoutMs: 60_000 }));
-export const extendMachine = (id, ttlSeconds) => boat(['extend', id, '--ttl', String(ttlSeconds), '--json'], { timeoutMs: 60_000 });
-export const upload = (id, local, remotePath) => boat(['scp', local, `${id}:${remotePath}`], { timeoutMs: 15 * 60_000 });
-export const download = (id, remotePath, local) => boat(['scp', `${id}:${remotePath}`, local], { timeoutMs: 15 * 60_000 });
+/**
+ * Puts the Codex CLI and a Codex sign-in on a machine for real-model games: codex VERSION under ~/.local (installed only
+ * when missing or different) and AUTH_FILE as ~/.codex/auth.json, owner-only. Callers put ~/.local/bin on PATH, keep
+ * auth.json and every per-run .codex-home out of copy-backs, and call removeCodexSignIn when done. Resolves to the
+ * sign-in's sha256 on the machine; compare it after each game, because a changed hash means Codex refreshed the
+ * sign-in there, which can sign out every other copy.
+ */
+export async function installCodex(id, { authFile, version, signal = null }) {
+	if (!/^[0-9][0-9A-Za-z.+-]*$/.test(version)) throw new Error(`bad codex version ${version}`);
+	await remote(id, `set -e; mkdir -p ~/.codex; chmod 700 ~/.codex
+[ "$(~/.local/bin/codex --version 2>/dev/null | awk '{print $NF}')" = ${quote(version)} ] || npm i -g --prefix ~/.local @openai/codex@${quote(version)} >/dev/null 2>&1; ~/.local/bin/codex --version >/dev/null`, { timeoutMs: 15 * 60_000, signal });
+	await upload(id, authFile, '.codex/auth.json', { signal });
+	return (await remote(id, 'chmod 600 ~/.codex/auth.json; sha256sum ~/.codex/auth.json | cut -c1-64', { signal })).trim();
+}
+export const codexSignInHash = async id => (await remote(id, 'sha256sum ~/.codex/auth.json | cut -c1-64')).trim();
+// A sign-in or folder that is not there is fine; a removal that fails (a folder no longer writable) rejects, so callers
+// retry it or name the machine as still signed in instead of marking it clean.
+export const removeCodexSignIn = (id, dirs = ['~/ck'], options) => remote(id, `rm -f ~/.codex/auth.json || exit 1; for d in ${dirs.join(' ')}; do if [ -d "$d" ]; then find "$d" \\( -name auth.json -o -type d -name .codex-home -prune \\) -exec rm -rf {} + || exit 1; fi; done`, options);
+export const extendMachine = (id, ttlSeconds, options = {}) => boat(['extend', id, '--ttl', String(ttlSeconds), '--json'], { timeoutMs: 60_000, ...options });
+export const upload = (id, local, remotePath, options = {}) => boat(['scp', local, `${id}:${remotePath}`], { timeoutMs: 15 * 60_000, ...options });
+export const download = (id, remotePath, local, options = {}) => boat(['scp', `${id}:${remotePath}`, local], { timeoutMs: 15 * 60_000, ...options });
 
 function untar(data, dir) {
 	return new Promise((resolve, reject) => {
