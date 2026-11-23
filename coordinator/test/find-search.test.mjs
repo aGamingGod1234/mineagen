@@ -2154,8 +2154,8 @@ test('kit gates: a lava find starting on the lake shore it filled its bucket at 
 	const seen = { result: { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', message: 'minecraft:lava seen at -40,-54,0, 9 blocks away' } };
 	const run = async (blocks, player = { x: 334.5, y: 63, z: -7.5, yaw: 0, health: 20, skyOpen: true }) => {
 		const body = fakeBody({ start: sample({ player, blocks, inventory: { items: [{ itemId: 'minecraft:iron_pickaxe', count: 1, slot: 'mainhand' }, { itemId: 'minecraft:water_bucket', count: 1, slot: 1 }] } }),
-			frontier: { candidates: [], coverage: { headings: {} } }, acts: { dig_to: [seen], travel_to: [{ result: { state: 'SUCCEEDED', reasonCode: 'ARRIVED' },
-				move: (at, args) => ({ x: at.x - Math.sin(args.yaw * Math.PI / 180) * args.distance, z: at.z + Math.cos(args.yaw * Math.PI / 180) * args.distance }) }] } });
+			frontier: { candidates: [], coverage: { headings: {} } }, acts: { dig_to: [seen], travel_to: [1, 2, 3].map(() => ({ result: { state: 'SUCCEEDED', reasonCode: 'ARRIVED' },
+				move: (at, args) => ({ x: at.x - Math.sin(args.yaw * Math.PI / 180) * args.distance, z: at.z + Math.cos(args.yaw * Math.PI / 180) * args.distance }) })) } });
 		await searchFor({ block }, body);
 		return body.calls.filter((call) => ['dig_to', 'travel_to'].includes(call.actionType))
 			.map((call) => (call.actionType === 'dig_to' ? `${call.args.pattern}` : `walk ${call.args.yaw} ${call.args.distance}`));
@@ -2170,6 +2170,9 @@ test('kit gates: a lava find starting on the lake shore it filled its bucket at 
 	assert.deepEqual(await run([{ blockId: 'minecraft:water', x: 336, y: 70, z: -8 }]), ['shaft']);
 	// Already down in the band: no walk off, whatever water is in sight.
 	assert.deepEqual(await run([{ blockId: 'minecraft:water', x: 335, y: -40, z: -8 }], { x: 334.5, y: -40, z: -7.5, yaw: 0, health: 20, skyOpen: false }).then((moves) => moves.includes('walk 0 32')), false);
+	// The walk off lands by more water (kit-gate-1, round 1: a second lake 32 blocks south): off that too, not back toward
+	// the first, then down.
+	assert.deepEqual(await run([{ blockId: 'minecraft:water', x: 334, y: 62, z: -9 }, { blockId: 'minecraft:water', x: 334, y: 62, z: 26 }]), ['walk 0 32', 'walk -90 48', 'shaft']);
 	// Lava only: an iron find from the same shore keeps its old start (no gate-room evidence for other targets yet).
 	block = 'minecraft:iron_ore';
 	assert.equal((await run([{ blockId: 'minecraft:water', x: 334, y: 62, z: -9 }]))[0]?.startsWith('walk 0 32'), false);
