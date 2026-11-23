@@ -283,7 +283,8 @@ export async function mergeArms({ out, rooms, arms, outcomes, meta = {}, code = 
 					pass: judged.verdict === 'PASS' ? true : judged.verdict === 'FAIL' ? false : null,
 					...(judged.verdict === 'INVALID' ? { measurementStatus: 'INVALID', measurementReason: judged.reason } : judged.verdict === 'FAIL' ? { failReason: judged.reason } : {}),
 					startedAt: launched ? 0 : null, finishedAt: launched && !killed && Number.isFinite(run.seconds) ? run.seconds * 1000 : null, deaths: judged.deaths, damageTaken: judged.damage });
-				perRoom.push({ room: room.room, lost: false, reason: null, rows: 1, planned: 1, exit: run.exit ?? null, seconds: run.seconds ?? null, timedOut: !!run.timedOut, cantKeepUp: run.cantKeepUp ?? null });
+				// An arm that never launched brought back no run, so the arm's death and damage totals stay unknown.
+				perRoom.push({ room: room.room, lost: false, reason: null, rows: launched ? 1 : 0, planned: 1, exit: run.exit ?? null, seconds: run.seconds ?? null, timedOut: !!run.timedOut, cantKeepUp: run.cantKeepUp ?? null });
 				continue;
 			}
 			const own = found.summary;
