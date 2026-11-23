@@ -61,6 +61,14 @@ public final class BrinkGuardVerification {
 		assertions++;
 		check(!BrinkGuard.refusedForEverySource(null, true), "a jump that lands on footing or a survivable drop is never refused");
 		assertions++;
+		BrinkGuard.Fall seenLava = new BrinkGuard.Fall("lava", 4);
+		check(BrinkGuard.worse(BrinkGuard.worse(seenLava, unseen), unseen) == seenLava,
+				"lava seen under the near landing ticks is not hidden by an unseen column beyond it");
+		assertions++;
+		check(BrinkGuard.worse(BrinkGuard.worse(unseen, seenLava), unseen) == seenLava, "nor by one before it");
+		assertions++;
+		check(BrinkGuard.worse(null, unseen) == unseen && BrinkGuard.worse(unseen, unseen) == unseen, "unseen all the way stays unseen");
+		assertions++;
 		check(BrinkGuard.fall(world, body(0.5D, -0.5D), -64, voids, 0.0D, 20.0D) == null, "standing on the ledge falls nowhere");
 		assertions++;
 		WalkabilityView vines = position -> position.z() >= 1 && position.y() >= 68 && position.y() <= 70

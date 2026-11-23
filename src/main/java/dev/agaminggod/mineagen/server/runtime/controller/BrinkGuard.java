@@ -249,16 +249,9 @@ public final class BrinkGuard {
 
 	/**
 	 * One tick before the body moves, with the keys its input holds. Returns the keys to move with; the caller applies
-	 * {@link Keys#sneak} only when it differs from the body's shift state (see {@link #applySneak}).
-	 */
-	public static synchronized Keys tick(ServerPlayer player, float forward, float strafe, boolean sneak, boolean jump,
-			boolean clickUse, InputPresence input) {
-		return tick(player, forward, strafe, sneak, jump, clickUse, input, false);
-	}
-
-	/**
-	 * As above, with the sprint key the input holds: a sprint jump from a standstill takes off with sprint's boost on the
-	 * very tick the key starts the sprint, so a jump's landing is judged as a sprint jump whenever the key is held.
+	 * {@link Keys#sneak} only when it differs from the body's shift state (see {@link #applySneak}). {@code sprintKey} is
+	 * the sprint the body takes this tick (the key held, not sneaking, enough food): a sprint jump from a standstill
+	 * gets sprint's boost on the very tick the key starts the sprint, so its landing is judged as a sprint jump.
 	 */
 	public static synchronized Keys tick(ServerPlayer player, float forward, float strafe, boolean sneak, boolean jump,
 			boolean clickUse, InputPresence input, boolean sprintKey) {
@@ -611,10 +604,20 @@ public final class BrinkGuard {
 			if (!walled) landing = box.move(shift[0], 0.0D, shift[1]);
 			if (!unsupportedAt(player, landing)) return null;
 			if (world == null) world = ObservedTerrain.of(player);
-			last = fall(player, world, landing);
-			if (last == null) return null;
+			Fall here = fall(player, world, landing);
+			if (here == null) return null;
+			last = worse(last, here);
 		}
 		return last;
+	}
+
+	/**
+	 * The landing a jump is judged by over its possible landing ticks: a known lethal one (lava under the near landings)
+	 * outweighs an unseen bottom further on, so a seen pool is not hidden by the dark beyond it.
+	 */
+	static Fall worse(Fall so, Fall next) {
+		if (so == null) return next;
+		return so.unknown() && !next.unknown() ? next : so;
 	}
 
 	/** Compare actual supported steps; an averaged inward direction can point into a hole in the deck. */

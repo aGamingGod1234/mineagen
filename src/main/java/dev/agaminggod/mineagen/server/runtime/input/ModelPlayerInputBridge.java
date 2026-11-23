@@ -95,7 +95,10 @@ public final class ModelPlayerInputBridge {
 		if (operator) return BrinkGuard.passThrough(player, forward, strafe, sneak);
 		boolean jump = state != null && state.jump();
 		boolean clickUse = state != null && state.use() && !player.isUsingItem();
-		return BrinkGuard.tick(player, forward, strafe, sneak, jump, clickUse, inputPresence(state), state != null && state.sprint());
+		// The sprint the body will really take this tick (the action pack drops a held sprint key the same way).
+		boolean sprintKey = state != null && state.sprint() && !state.sneak() && VanillaSprint.enoughFood(player.isPassenger(),
+				player.getFoodData().getFoodLevel(), player.getAbilities().mayfly);
+		return BrinkGuard.tick(player, forward, strafe, sneak, jump, clickUse, inputPresence(state), sprintKey);
 	}
 
 	static BrinkGuard.InputPresence inputPresence(AgentInputState state) {
