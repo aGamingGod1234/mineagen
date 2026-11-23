@@ -22,11 +22,11 @@ import java.util.regex.Pattern;
  */
 public final class ReflexSpec {
 	/**
-	 * The model's own 12 rules plus the coordinator's 15 default rules (14 survival rules and the owed-drops habit) and the
+	 * The model's own 12 rules plus the coordinator's 16 default rules (15 survival rules and the owed-drops habit) and the
 	 * 4 it arms only in the End (breath, the dragon's throw, the gaze guard and water against an angry enderman,
 	 * reflexes.mjs DIMENSION_REFLEXES).
 	 */
-	public static final int MAX_RULES = 31;
+	public static final int MAX_RULES = 32;
 	/** Ids the coordinator's default survival rules carry (reflexes.mjs DEFAULT_REFLEXES). */
 	public static final String DEFAULT_RULE_PREFIX = "default-";
 	public static final int MAX_CONDITIONS = 4;
@@ -166,6 +166,8 @@ public final class ReflexSpec {
 		action("brace");
 		// Only while no action of the agent's runs: shield toward shots and attackers, the best hotbar weapon at one in reach.
 		action("defend");
+		// No shield in either hand: strafe across a drawn bow's line around release, the other way on the next draw.
+		action("dodge");
 	}
 
 	private ReflexSpec() {

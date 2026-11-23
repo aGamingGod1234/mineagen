@@ -22,6 +22,12 @@ export const DEFAULT_REFLEXES = Object.freeze([
 	// hits with a shield in hand unblocked). 10 s, not the 4 s trigger default: two skeletons drawing in turn hold the
 	// condition true, and four timed-out firings in a row would switch the rule off.
 	{ id: 'default-arrow', kind: 'trigger', priority: 7, when: [{ type: 'incoming_projectile', withinS: 0.6, drawn: true }], do: { type: 'shield' }, maxMs: 10_000, ttlMs: 3_600_000 },
+	// The same drawn bow with no shield in either hand (it sleeps while one is held): step across the shot's line. Shieldless,
+	// the body stood still facing the archer and took every arrow (no-shield archers room: died 10 of 10, 35-39 HP taken).
+	// A hold like default-arrow: its release grace bridges a volley, so two skeletons do not fire it 40 times a minute.
+	// Priority 6, under default-retreat: at 7 a volley held the body through the low-health run (only a higher priority
+	// preempts), and over default-defend, so a draw takes the body from defend's stand to step aside.
+	{ id: 'default-arrow-dodge', kind: 'trigger', priority: 6, when: [{ type: 'incoming_projectile', withinS: 0.6, drawn: true }], do: { type: 'dodge' }, maxMs: 10_000, ttlMs: 3_600_000 },
 	// Air and fire must interrupt a retreat already in progress; only a strictly higher priority preempts.
 	{ id: 'default-retreat', kind: 'trigger', priority: 7, when: [{ type: 'health_below', value: 7 }, { type: 'hostile_near', within: 6 }], do: { type: 'sprint_away', blocks: 10 }, cooldownMs: 5_000, ttlMs: 3_600_000 },
 	// Each firing eats one item. A stance retries after cooldown while hungry and releases if a hostile comes within 8 blocks.
@@ -70,7 +76,7 @@ export const DEFAULT_REFLEX_IDS = Object.freeze(new Set([...DEFAULT_REFLEXES, ..
 // The mod runs at most this many rules (ReflexSpec.MAX_RULES): the cap of every rule-set bound on the wire (C24). The
 // model's own rules plus the defaults (with the most any dimension adds) must fit it, so a new default needs a raise on
 // both sides first.
-export const MAX_REFLEX_RULES = 31;
+export const MAX_REFLEX_RULES = 32;
 if (MAX_REFLEXES + DEFAULT_REFLEXES.length + MOST_DIMENSION_REFLEXES > MAX_REFLEX_RULES) throw new Error(`reflex rules ${MAX_REFLEXES} + ${DEFAULT_REFLEXES.length} + ${MOST_DIMENSION_REFLEXES} exceed the mod's ${MAX_REFLEX_RULES}`);
 
 /**
@@ -233,6 +239,8 @@ export const REFLEX_ACTIONS = Object.freeze({
 	// Idle or over any action but fight_target, fight_until, use_ranged and flee_from (it ends when one starts): shield
 	// toward shots and attackers, the best hotbar weapon at one in reach.
 	defend: {},
+	// No shield in either hand: strafe across a drawn bow's line around release, the other way on the next draw.
+	dodge: {},
 });
 
 function codedError(code, message) { return Object.assign(new Error(message), { code }); }

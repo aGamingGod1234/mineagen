@@ -367,6 +367,12 @@ public final class ReflexSensors {
 		return soonest == null ? Reading.FALSE : new Reading(true, soonest);
 	}
 
+	/** A projectile still in flight: not stuck in a block and still moving (what incoming_projectile counts). */
+	static boolean inFlight(Projectile projectile) {
+		boolean grounded = projectile instanceof AbstractArrow arrow && ((AbstractArrowInvoker) arrow).mineagen$isInGround();
+		return projectile.isAlive() && ProjectilePerception.flying(grounded, projectile.getDeltaMovement());
+	}
+
 	/**
 	 * Seconds until this projectile hits the body along a clear flight, or NaN: what incoming_projectile and shots read.
 	 * A projectile that already struck this body or its shield ({@link StruckShots}) is no shot.
@@ -435,6 +441,17 @@ public final class ReflexSensors {
 	 */
 	static boolean aims(boolean drawingBow, int ticksDrawing, boolean loadedCrossbow, boolean targetsBody) {
 		return drawingBow ? ticksDrawing >= DRAW_RAISE_TICKS : loadedCrossbow && targetsBody;
+	}
+
+	/**
+	 * Whether {@code mob}'s hands say it is about to shoot {@code player}: a bow being drawn (any time drawn), or a loaded
+	 * crossbow within {@link #CROSSBOW_RANGE} while it targets the body, as {@link #drawnAt} reads it without its sight and
+	 * head tests. A crossbow still loading is not a shot coming.
+	 */
+	static boolean shotComing(Mob mob, ServerPlayer player) {
+		if (mob.isUsingItem() && mob.getUseItem().getItem() instanceof BowItem) return true;
+		return mob instanceof CrossbowAttackMob && mob.getTarget() == player && player.distanceTo(mob) < CROSSBOW_RANGE
+				&& (loaded(mob.getMainHandItem()) || loaded(mob.getOffhandItem()));
 	}
 
 	private static boolean loaded(ItemStack hand) {

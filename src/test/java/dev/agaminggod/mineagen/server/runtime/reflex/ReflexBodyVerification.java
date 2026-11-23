@@ -257,7 +257,7 @@ public final class ReflexBodyVerification {
 		check(!ReflexEngine.sleepsWithoutItem(parsed.get(0), ReflexActions.lacks(parsed.get(0).action(), empty, 0, held("minecraft:shield"))), "an offhand shield wakes it");
 		java.util.function.IntFunction<ReflexActions.Held> bread = index -> index == 2 ? new ReflexActions.Held("minecraft:bread", true, false) : none;
 		check(!ReflexEngine.sleepsWithoutItem(parsed.get(1), ReflexActions.lacks(parsed.get(1).action(), bread, 0, none)), "hotbar food wakes it");
-		check(ReflexSpec.MAX_RULES == 31, "the mod holds the model's 12 rules plus the 15 defaults and the End's 4");
+		check(ReflexSpec.MAX_RULES == 32, "the mod holds the model's 12 rules plus the 16 defaults and the End's 4");
 	}
 
 	/** Vanilla food values (nutrition, saturation) for the choice below. */
