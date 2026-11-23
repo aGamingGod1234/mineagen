@@ -56,7 +56,12 @@ public final class BlockObservationOrderingVerification {
 				throw new AssertionError("ranked scan order matches the sorted order (trial " + trial + ")");
 			}
 		}
-		return 7;
+		// Two candidates in one cell, or one outside the box, fall back to the full sort.
+		List<BlockObservationOrdering.Candidate> twice = List.of(candidate(1, 0, 0, "minecraft:stone"), candidate(1, 0, 0, "minecraft:dirt"), candidate(0, 0, 0, "minecraft:dirt"));
+		assertEquals(BlockObservationOrdering.ordered(twice), BlockObservationOrdering.orderedByRank(twice, ranks, 6, 3), "a shared cell keeps both candidates in sorted order");
+		List<BlockObservationOrdering.Candidate> outside = List.of(candidate(7, 0, 0, "minecraft:stone"), candidate(-6, 0, 1, "minecraft:dirt"), candidate(0, 4, 0, "minecraft:dirt"), candidate(0, 0, 0, "minecraft:dirt"));
+		assertEquals(BlockObservationOrdering.ordered(outside), BlockObservationOrdering.orderedByRank(outside, ranks, 6, 3), "a cell outside the box gets the sorted order");
+		return 9;
 	}
 
 	private static BlockObservationOrdering.Candidate candidate(int x, int y, int z, String blockId) {

@@ -125,7 +125,11 @@ public final class BlockObservationOrdering {
 		int width = 2 * radius + 1;
 		Candidate[] slots = new Candidate[ranks.length];
 		for (Candidate candidate : candidates) {
-			slots[ranks[((candidate.y() + verticalRadius) * width + (candidate.x() + radius)) * width + (candidate.z() + radius)]] = candidate;
+			// The rank table covers one candidate per cell of the box; anything else gets the full sort.
+			if (Math.abs(candidate.x()) > radius || Math.abs(candidate.y()) > verticalRadius || Math.abs(candidate.z()) > radius) return ordered(candidates);
+			int slot = ranks[((candidate.y() + verticalRadius) * width + (candidate.x() + radius)) * width + (candidate.z() + radius)];
+			if (slots[slot] != null) return ordered(candidates);
+			slots[slot] = candidate;
 		}
 		ArrayList<Candidate> ordered = new ArrayList<>(candidates.size());
 		for (Candidate candidate : slots) if (candidate != null) ordered.add(candidate);
