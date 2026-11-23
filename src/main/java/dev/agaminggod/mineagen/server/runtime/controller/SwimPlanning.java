@@ -197,4 +197,34 @@ public final class SwimPlanning {
 	public static double surfacingEyeY(int openY, double eyeY) {
 		return Math.max(openY, eyeY);
 	}
+
+	/**
+	 * How high above the water a swimmer climbs out onto a ledge, holding forward and jump against it: the ledge's top
+	 * may be this far above the top face of the highest water cell in the column the body pushes from. Measured with
+	 * test-water-exit-live (23 Nov, main jar, 2 runs per height, both alike): afloat in 4-deep water and wading in 1-deep
+	 * water, ledge tops 0.875 over the water climbed and 0.9375 or higher never did. Standing on the bed of 2-deep water
+	 * with the eyes under, every ledge up to the water's top climbed (that sweep went no higher). Afloat the feet ride
+	 * 0.41 under that face, so this is 1.29 over the floating feet; wading it is 1.875 over the feet.
+	 */
+	public static final double CLIMB_OVER_WATER = 0.875D;
+
+	/**
+	 * The one water-exit rule escape and travel share: whether a swimmer in a water column whose highest water cell's top
+	 * face is {@code waterTop} gets onto a ledge whose top is {@code ledgeTop} by holding forward and jump. Headroom over
+	 * the body is the caller's check (a ceiling on the water stops the hop however low the ledge).
+	 */
+	public static boolean climbsOut(double ledgeTop, double waterTop) {
+		return ledgeTop <= waterTop + CLIMB_OVER_WATER + 1.0E-6D;
+	}
+
+	/**
+	 * The top face of the highest water cell in a column, rising from {@code fromY} while {@code water} holds: the level a
+	 * swimmer there floats up to. {@code Integer.MIN_VALUE} when the start cell is not water.
+	 */
+	public static int waterTop(int fromY, java.util.function.IntPredicate water) {
+		if (!water.test(fromY)) return Integer.MIN_VALUE;
+		int y = fromY;
+		while (y < fromY + 64 && water.test(y + 1)) y++;
+		return y + 1;
+	}
 }
