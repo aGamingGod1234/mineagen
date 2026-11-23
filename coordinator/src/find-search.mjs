@@ -231,6 +231,10 @@ const WET_SAME = 12;
 const SKY_CLIMB = 6;
 const WET_REGION = 64;
 const WET_SPOT = 'water under a dig down';
+// Seen water this close (across) to the start of a dig down from the surface, at or below the feet: a lake shore or a
+// river bank, where the ground under the body is usually the lake's own aquifer. The search walks off it first.
+const DRY_START_NEAR = 8;
+const DRY_START_BELOW = 8;
 const MAX_SWIMS = 6;
 // Air still at this share of full after the swims up: breathing between bobs, so one swim out to a bank before handing
 // back; the leg's length.
@@ -1465,6 +1469,10 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 		// or below the body and not far under the band, not where the body stands, and with no hostile seen near it.
 		const waterCells = () => [observation, observation?.sighted, lastSurvey].flatMap((source) => ['blocks', 'veins'].flatMap((section) => Array.isArray(source?.[section]) ? source[section] : []))
 			.filter((row) => row?.blockId === 'minecraft:water').map(cellOf).filter((cell) => cell !== null);
+		// The nearest seen water beside a start on the surface (see DRY_START_NEAR), or undefined.
+		const waterBeside = (at) => waterCells().filter((cell) => cell.y <= at.y + 1 && cell.y >= at.y - DRY_START_BELOW
+			&& Math.hypot(cell.x + 0.5 - at.x, cell.z + 0.5 - at.z) <= DRY_START_NEAR)
+			.sort((a, b) => Math.hypot(a.x + 0.5 - at.x, a.z + 0.5 - at.z) - Math.hypot(b.x + 0.5 - at.x, b.z + 0.5 - at.z))[0];
 		const caveChoices = (here) => {
 			const wet = waterCells();
 			const hostiles = [...(observation?.entities ?? []).filter((row) => row?.hostile === true && row.alive !== false), ...sweepHostiles].filter((row) => [row?.x, row?.y, row?.z].every(Number.isFinite));
@@ -1540,9 +1548,12 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 			// try the same few headings again.
 			// Only digs count: walling off or a fight in place is not a dig going nowhere.
 			const lastLeg = legs.at(-1), lastHow = lastLeg?.how ?? '';
-			// The start, near a spot where an earlier search's dig down met water: off it first, not down into it again.
+			// The start, near a spot where an earlier search's dig down met water, or beside water in sight (the lake a water
+			// bucket was just filled at): off it first, as a player walks away from a lake before digging down, not down into
+			// its aquifer. Gate rooms on main (8f309b76): the first dig down met water in 55 of 79 kit-gate runs, which start
+			// at the lake shore after the water fetch; 3 of those 55 lit a portal.
 			const nearWet = legs.length === 0 && profile.depth !== null && at.y > profile.depth + CAVE_BAND
-				? wetSpots().find((place) => Math.hypot(place.x + 0.5 - at.x, place.z + 0.5 - at.z) <= 12) : undefined;
+				? wetSpots().find((place) => Math.hypot(place.x + 0.5 - at.x, place.z + 0.5 - at.z) <= 12) ?? waterBeside(at) : undefined;
 			const wetDig = counted < legs.length && DESCENTS.test(lastHow) && lastLeg?.reasonCode === 'WATER_AHEAD';
 			const wet = lastLeg?.underWater === true || observation?.player?.underWater === true;
 			if (wetDig) miss({ x: Math.floor(at.x), y: Math.floor(at.y + 1e-3), z: Math.floor(at.z) }, WET_SPOT);

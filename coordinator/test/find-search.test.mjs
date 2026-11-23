@@ -2149,3 +2149,24 @@ test('iron-obtain-20261107: water that reaches the body only after the wet dig s
 	assert.ok(!moves.some((call) => call.actionType === 'travel_to' && call.args.retrace === true), 'no retrace back up to the start');
 	assert.equal(result.reasonCode, 'FIND_SEEN', result.message);
 });
+
+test('kit gates: a lava find starting on the lake shore it filled its bucket at walks off the water before the first dig down', async () => {
+	const seen = { result: { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', message: 'minecraft:lava seen at -40,-54,0, 9 blocks away' } };
+	const run = async (blocks, player = { x: 334.5, y: 63, z: -7.5, yaw: 0, health: 20, skyOpen: true }) => {
+		const body = fakeBody({ start: sample({ player, blocks, inventory: { items: [{ itemId: 'minecraft:iron_pickaxe', count: 1, slot: 'mainhand' }, { itemId: 'minecraft:water_bucket', count: 1, slot: 1 }] } }),
+			frontier: { candidates: [], coverage: { headings: {} } }, acts: { dig_to: [seen], travel_to: [{ result: { state: 'SUCCEEDED', reasonCode: 'ARRIVED' },
+				move: (at, args) => ({ x: at.x - Math.sin(args.yaw * Math.PI / 180) * args.distance, z: at.z + Math.cos(args.yaw * Math.PI / 180) * args.distance }) }] } });
+		await searchFor({ block: 'minecraft:lava' }, body);
+		return body.calls.filter((call) => ['dig_to', 'travel_to'].includes(call.actionType))
+			.map((call) => (call.actionType === 'dig_to' ? `${call.args.pattern}` : `walk ${call.args.yaw} ${call.args.distance}`));
+	};
+	// kit-gate-5: the water it scooped lies a block north of the feet; the dig down there met the lake's water.
+	assert.deepEqual(await run([{ blockId: 'minecraft:water', x: 334, y: 62, z: -9 }]), ['walk 0 32', 'shaft'], 'south, away from the water, then down');
+	// Water across the shore to the east: off to the west.
+	assert.deepEqual(await run([{ blockId: 'minecraft:water', x: 339, y: 62, z: -8 }]), ['walk 90 32', 'shaft']);
+	// Water out of reach of the dig (12 across) or high above the feet (a spring up the hill): down at once.
+	assert.deepEqual(await run([{ blockId: 'minecraft:water', x: 346, y: 62, z: -8 }]), ['shaft']);
+	assert.deepEqual(await run([{ blockId: 'minecraft:water', x: 336, y: 70, z: -8 }]), ['shaft']);
+	// Already down in the band: no walk off, whatever water is in sight.
+	assert.deepEqual(await run([{ blockId: 'minecraft:water', x: 335, y: -40, z: -8 }], { x: 334.5, y: -40, z: -7.5, yaw: 0, health: 20, skyOpen: false }).then((moves) => moves.includes('walk 0 32')), false);
+});
