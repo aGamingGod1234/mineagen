@@ -18,6 +18,7 @@ import { scoreStageRun } from './stage-score.mjs';
 import { recordOperatorStop } from './operator-stop.mjs';
 import { writeTimeReport } from './watch-time.mjs';
 import { experienceHash, isInsideDirectory, normalizeSeedHash } from '../../coordinator/src/experience-store.mjs';
+import { switchRecord } from './lib/switch-record.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const USAGE = 'Regenerate: node scripts/quality/run-long.mjs --report RAW_RUN_DIR --out REPORT_DIR\nRun: node scripts/quality/run-long.mjs --budget-minutes 180 --max-total-cost-usd 80 --ledger FILE --port-base 26900 --out DIR [--prior-spend-usd P] [--run-reserve-usd R] [--provider claude|codex --model M --effort low --service-tier priority] [--codex-observer-cap yes [--spend-cap-mode stop|log]] [--seed N] [--goal "Beat the game"] [--arms arms.json --arm B | --jar PATH --coordinator-root PATH] [--checkpoint SAVE_POINT.json [--random-salt N|none]] [--codex-mid-turn-rotation-tokens N] [--experience lessons --experience-dir DIR_OUTSIDE_CHECKOUT [--experience-profile NAME] [--experience-frozen yes] [--exclude-seeds S1,S2]] [--java PATH --server-template PATH]';
@@ -167,6 +168,8 @@ export async function runLong(options, { execute = runScenarios } = {}) {
 		definition, termination: run?.termination ?? null, measurementStatus: run?.measurementStatus ?? 'UNAVAILABLE', observerErrors: [...(run?.observerErrors ?? []), ...(evidence?.errors ?? [])], diagnostics: run?.diagnostics ?? null, stopRequest: run?.stopRequest ?? null, failure: failure?.message ?? null,
 		// Memory state on every round row: off, or the profile hash, frozen flag and this game's seed hash.
 		experience: { ...experienceRow(options.experience, definition.seed), observed: evidence?.experience ?? null },
+		// The switch set this game played with: the coordinator's environment as launched, and the mod's own logged line.
+		switches: await switchRecord(run?.artifacts ?? null, { ...process.env, ...(build.env ?? {}), ...experienceEnv }).catch(error => ({ error: error.message })),
 		spend, ledger: { file: options.ledger, capUsd: options.capUsd, reservedForRunUsd: reserveUsd, stopAtUsd, ...totals }, spendCap: { mode: spendCapMode, stopAtUsd, crossed: run?.spendCap?.crossed ?? null }, timeline, artifacts: run?.artifacts ?? null, capturedAt: new Date().toISOString() };
 	await writeArtifactReport(path.join(options.out, 'long-run.json'), report);
 	report.stageScore = await scoreStageRun(options.out, { rawDirectory: run?.artifacts }).catch(error => ({ error: error.message }));

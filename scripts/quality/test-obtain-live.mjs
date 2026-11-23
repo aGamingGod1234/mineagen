@@ -44,6 +44,7 @@ import { parseSavedWorldSpawn } from '../../coordinator/src/headless-world-spawn
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 import { damageCounter, recordDamageEvidence, deathCounter, deathEvidence } from './lib/damage-counter.mjs';
+import { getSwitch } from '../../coordinator/src/switches.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const USAGE = 'Usage: test-obtain-live.mjs PLAN.json OUT_DIR [JAR] [--strict|--descriptive] under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME';
@@ -272,7 +273,7 @@ async function runLane(s, agent, queue, seed, seedIndex, nextSpot) {
 			agent.resetLog();
 			// The new respawn line at night says rest first; the stand-in follows it, as the model is told to. With
 			// MINEAGEN_NIGHT_COVER=off (the old code) that line is not shown, so the stand-in goes straight to obtain.
-			if (Array.isArray(entry.respawnInto) && String(process.env.MINEAGEN_NIGHT_COVER ?? '').toLowerCase() !== 'off') {
+			if (Array.isArray(entry.respawnInto) && getSwitch('night.cover').value) {
 				const before = agent.actions.length;
 				const rested = await runtime.execute({ agentId: record.agentId, goalRevision: record.goalRevision, turnId: `respawn-rest-${seedIndex}-${lane}-${index}`, callId: `respawn-rest-${index}`,
 					tool: normalizeMinecraftToolCall('do_step', { verb: 'rest', target: { timeoutMs: Math.max(60_000, (entry.playMs ?? entry.budgetMs) - (now() - t0)) }, why: 'respawned at night: rest first' }) }, record).catch((error) => ({ state: 'ERROR', reasonCode: error?.code, message: String(error?.message ?? error) }));
