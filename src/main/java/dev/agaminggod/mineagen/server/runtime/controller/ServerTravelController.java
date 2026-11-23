@@ -1878,6 +1878,18 @@ public final class ServerTravelController implements ServerController {
 	private TickResult clearUpTick(ServerPlayer player, long nowEpochMs) {
 		BlockPos over = new BlockPos(moveFeet.x(), moveFeet.y() + 2, moveFeet.z());
 		BlockState state = player.level().getBlockState(over);
+		if (shaftSettle >= 0 && (LavaStep.lava(state) || state.getCollisionShape(player.level(), over).isEmpty() && LavaStep.lava(player.level().getBlockState(over.above())))) {
+			// Lava the mined shaft headroom let in, or showed right above the opening once mined: as the tunnel does, plug it with a
+			// block (the opening first, once lava is in it) before ending; when it cannot be plugged, back out from under it.
+			BlockPos lava = LavaStep.lava(state) ? over : over.above();
+			Boolean plugged = plugLava(player, lava, nowEpochMs);
+			if (plugged == null) return null;
+			if (plugged && !LavaStep.lava(player.level().getBlockState(over))
+					&& (!player.level().getBlockState(over).getCollisionShape(player.level(), over).isEmpty() || !LavaStep.lava(player.level().getBlockState(over.above()))))
+				return fail(player, "TUNNEL_LAVA_PLUGGED", "Lava above the mined headroom at " + cell(lava) + "; plugged it with a block and did not climb this way");
+			if (!plugged) return retreat(player, nowEpochMs, "TUNNEL_FLOODED", "Lava above the mined headroom at " + cell(lava) + "; backed out from under it");
+			return null;
+		}
 		if (state.getCollisionShape(player.level(), over).isEmpty()) {
 			if (!state.getFluidState().isEmpty()) return fail(player, "TUNNEL_FLOODED", "Fluid flowed in above the head at " + cell(over));
 			if (shaftSettle >= 0) {
@@ -1886,6 +1898,7 @@ public final class ServerTravelController implements ServerController {
 				// the Overworld, 10 in the Nether) for anything beside the opening to pour in before it pillars into it.
 				BlockPos next = over.above();
 				BlockState above = player.level().getBlockState(next);
+				// Lava there is plugged above; water only wets the climb, which ends here.
 				if (!above.getFluidState().isEmpty()) return fail(player, "TUNNEL_FLOODED", "Fluid above the mined headroom at " + cell(next));
 				if (above.getBlock() instanceof net.minecraft.world.level.block.Fallable)
 					return fail(player, "NO_ROUTE", "Remembered shaft has " + BuiltInRegistries.BLOCK.getKey(above.getBlock()).getPath() + " above the mined headroom at " + cell(next));
