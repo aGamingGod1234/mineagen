@@ -518,6 +518,28 @@ test('scripted gate seed 2: a search started in its own covered stair also climb
 	assert.deepEqual(moves, ['steep_down', 'retrace', 'walk', 'steep_down'], 'up at y72 first, never a level walk at y46 in the aquifer');
 });
 
+test('B-1 aquifer: afloat in its own flooded hole with the way back shut, the escape job runs from that cell before any swim or laid block', async () => {
+	// The dig down opens the aquifer and the body floats at the bottom of its hole, 4 under its last open sky; the way back
+	// up answers NO_ROUTE toward the next cell over. Swimming toward that cell first left the body where the escape found
+	// no step to place (ESCAPE_NO_SHORE, then FIND_BLOCKED, every run since #74).
+	const wet = { result: { state: 'FAILED', reasonCode: 'WATER_AHEAD', message: 'Stopped: Water at 10,54,-45 beside the opened cell 10,55,-45; water on 3 sides of it: a body of water (an aquifer or lake), not a trickle' },
+		move: () => ({ x: 10.5, y: 54.3, z: -44.5, inWater: true, underWater: false, onGround: false, skyOpen: false }) };
+	const shut = { result: { state: 'FAILED', reasonCode: 'NO_ROUTE', message: 'No route out of the water toward Point[x=11, y=56, z=-45]' } };
+	const body = fakeBody({ start: sample({ player: { x: 12.5, y: 58, z: -44.5, yaw: 90, health: 20, air: 300, maxAir: 300, skyOpen: true },
+		inventory: { items: [{ itemId: 'minecraft:stone_pickaxe', count: 1 }, { itemId: 'minecraft:cobblestone', count: 64 }] } }),
+	frontier: { candidates: [], coverage: { headings: {} } },
+	acts: { dig_to: [wet], travel_to: [shut],
+		escape: [{ result: { state: 'SUCCEEDED', reasonCode: 'ESCAPED', message: 'Safe: footing, eyes in air' }, ms: 2_000,
+			move: () => ({ x: 10.5, y: 56, z: -44.5, inWater: false, underWater: false, onGround: true }) }] } });
+	body.openSky = () => ({ x: 12.5, y: 58, z: -44.5 });
+	await searchFor({ block: 'minecraft:iron_ore' }, body, { timeoutMs: 120_000 });
+	const types = body.calls.map((call) => call.actionType);
+	const retrace = body.calls.findIndex((call) => call.actionType === 'travel_to' && call.args.retrace === true);
+	const escape = types.indexOf('escape');
+	assert.ok(retrace >= 0 && escape > retrace, `escape after the shut way back (calls: ${types.join(',')})`);
+	assert.deepEqual(types.slice(retrace + 1, escape).filter((type) => type === 'control' || type === 'place_block'), [], 'no swim pulse or laid block before the escape');
+});
+
 test('water under a dig down: up out of the wet hole, a walk clear of the water, then down again; inside the band, the search mines at that level', async () => {
 	const wet = { result: { state: 'FAILED', reasonCode: 'WATER_AHEAD', message: 'Stopped: Water at 2,57,0 beside the opened cell 1,58,0; water on 3 sides of it: a body of water (an aquifer or lake), not a trickle' }, move: () => ({ x: 0.5, y: 58 }) };
 	const missed = [];
