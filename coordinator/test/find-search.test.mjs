@@ -1056,7 +1056,7 @@ test('scripted gate seed 7: the way back up its own stair is flooded: a new stai
 test('iron-obtain-6006: a stair out of the flooded way that reaches the remembered spot\'s height still under cover climbs on to the open sky', async () => {
 	// As seed 7's flooded way back up, but the remembered open-sky spot lies on lower ground: the stair to its y70 ends under
 	// this ground, a covered 1-wide cut every walk from stalled in (6006: 17 of 17 runs). Out in the open at y70, nothing more.
-	const run = async (skyOpen) => {
+	const run = async (skyOpen, remembered = true) => {
 		const wet = { result: { state: 'FAILED', reasonCode: 'WATER_AHEAD', message: 'Stopped: Water at 2,57,0 beside the opened cell 1,58,0; water on 3 sides of it: a body of water (an aquifer or lake), not a trickle' }, move: () => ({ x: 0.5, y: 52 }) };
 		const body = fakeBody({ frontier: { candidates: [], coverage: { headings: {} } },
 			acts: { dig_to: [wet, { result: { state: 'SUCCEEDED', reasonCode: 'DIG_GOAL_REACHED' }, move: () => ({ x: -3.5, y: 70, skyOpen }) },
@@ -1065,12 +1065,15 @@ test('iron-obtain-6006: a stair out of the flooded way that reaches the remember
 				{ result: { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', message: 'minecraft:iron_ore seen at -40,20,0, 3 blocks away' } }],
 				travel_to: [{ result: { state: 'FAILED', reasonCode: 'TUNNEL_FLOODED', message: 'Fluid flowed into the opened tunnel at 1,56,0; not entered; backed out' } },
 					{ result: { state: 'SUCCEEDED', reasonCode: 'ARRIVED' }, move: (player) => ({ x: player.x - 32 }) }] } });
+		// The remembered open-sky spot: 10 blocks off, at y70 (not the search's own start).
+		if (remembered) body.openSky = () => ({ x: 10.5, y: 70, z: 0.5 });
 		const result = await searchFor({ block: 'minecraft:iron_ore' }, body);
 		assert.equal(result.reasonCode, 'FIND_SEEN', result.message);
 		return body.calls.filter((call) => call.actionType === 'dig_to' && call.args.pattern === 'stairs_up').map((call) => call.args.y);
 	};
 	assert.deepEqual(await run(false), [70, 76], 'under cover at y70: on up, aimed 6 past it, stopping where it comes out');
 	assert.deepEqual(await run(true), [70], 'out in the open at y70: no second stair');
+	assert.deepEqual(await run(false, false), [70], 'back to the search\'s own start (which can be under cover): no second stair');
 });
 
 test('scripted gate seed 7: off a second wet spot the walk goes away from the first one too, and farther', async () => {

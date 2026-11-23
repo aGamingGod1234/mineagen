@@ -1406,7 +1406,8 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 			// stair top under cover is a 1-wide cut no walk gets out of. On up until out in the open (the stair stops itself
 			// there: OPEN_SKY_REACHED). iron-obtain-6006: the spot 15 blocks west at y61, the ground here at y63; every walk
 			// from the covered stair top stalled in place, 17 of 17 runs.
-			if (stair.result?.reasonCode !== 'DIG_GOAL_REACHED' || observation?.player?.skyOpen !== false || afloat()) return null;
+			// Not on the way back to the search's own start: that can be under cover itself (a search begun at ore depth).
+			if (top === origin || stair.result?.reasonCode !== 'DIG_GOAL_REACHED' || observation?.player?.skyOpen !== false || afloat()) return null;
 			return settle(await leg(`stairs on up ${away.name} to the open sky`, 'dig_to', { pattern: 'stairs_up', y: Math.floor(top.y) + SKY_CLIMB, heading: away.name,
 				maxBlocks: Math.min(MAX_DIG_BLOCKS, STEP_CELLS.stairs_up * (SKY_CLIMB + 4)), stopWhenSeen: profile.stopId, discard: DISCARD }));
 		};
