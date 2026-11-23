@@ -111,6 +111,7 @@ const FLUID_LEVEL_SIGHT = 24;
 // this many legs, each stair leg up to CLIMB_LEG blocks higher.
 const MAX_CLIMBS = 8;
 const CLIMB_LEG = 24;
+const STAIR_TOP_NEAR = 8;
 // The retrace is tried this many times; between tries, a stair this many blocks up gets past where it stopped.
 const MAX_RETRACE_TRIES = 3;
 const DETOUR_RISE = 8;
@@ -1208,9 +1209,24 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 	};
 	// A mob search (no block id to stop at) also climbs out; its legs carry no stopWhenSeen and the watch sees for them.
 	const stopWhen = profile.stopId === undefined ? {} : { stopWhenSeen: profile.stopId };
+	// Out under the sky but still down its own stair cut: the last open-sky spot is the deepest stair step still open above,
+	// a few blocks below the ground the stair was cut from. A walk from there follows the cut back down (water-6-y-54: the
+	// way up stopped at y67 under ground at y71, and the first walk went back down the stair to y59 in 5 of 5 runs).
+	const stairTop = () => {
+		const top = body.skyTop?.() ?? null, at = bodyAt(observation);
+		return top !== null && at !== null && [top.x, top.y, top.z].every(Number.isFinite) && at.y < top.y - 1.5
+			&& Math.hypot(top.x - at.x, top.z - at.z) <= STAIR_TOP_NEAR && insideBoundary(top) ? top : null;
+	};
 	const climbOut = async () => {
-		let retraces = MAX_RETRACE_TRIES, detour = false, stalls = 0, rosePastStop = false;
-		for (let climbs = 0; climbs < MAX_CLIMBS && stalls < 2 && left() >= MIN_LEG_MS && !outside(); climbs += 1) {
+		let retraces = MAX_RETRACE_TRIES, detour = false, stalls = 0, rosePastStop = false, topTried = false;
+		for (let climbs = 0; climbs < MAX_CLIMBS && stalls < 2 && left() >= MIN_LEG_MS && (!outside() || !topTried && stairTop() !== null); climbs += 1) {
+			if (outside()) {
+				topTried = true;
+				const top = stairTop();
+				const ended = await settle(await leg('up the last steps of its own stair to the ground', 'travel_to', { x: top.x, y: top.y, z: top.z, retrace: true, tolerance: 1, ...stopWhen }));
+				if (ended !== null) return ended;
+				continue;
+			}
 			const at = bodyAt(observation);
 			const sky = retraces > 0 && !detour ? body.openSky?.() ?? null : null;
 			const back = sky !== null && [sky.x, sky.y, sky.z].every(Number.isFinite) && sky.y > at.y + 1 && insideBoundary(sky);

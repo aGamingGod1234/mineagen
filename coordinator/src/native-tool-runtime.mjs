@@ -1,6 +1,8 @@
 import { forgetResourceResult, knownResources, newResourceMemory, rememberKnownBlocks, rememberResources } from './seen-resources.mjs';
 /** How often the dig-seen ore rows are merged from the observed-memory store, per agent. */
 const KNOWN_ORE_MS = 5_000;
+const SKY_TOP_NEAR = 8;
+const SKY_TOP_SPOTS = 32;
 import { createHash, randomUUID } from 'node:crypto';
 import { holdCancelRefusal } from './spawner-hold.mjs';
 import { validateTraceId } from './control-latency-registry.mjs';
@@ -136,6 +138,8 @@ export class NativeToolRuntime {
 	#missedPlaces = new Map();
 	// The last spot each body stood on under open sky: the way up out of a wet hole or a flooded chamber ends there.
 	#openSky = new Map();
+	// Open-sky spots stood on near the last one (SKY_TOP_NEAR blocks across): the highest is the ground a stair was cut down from.
+	#skyTop = new Map();
 	#dugStairs = new DugStairs();
 	#decorateObservation;
 	#requestObservation;
@@ -466,7 +470,14 @@ export class NativeToolRuntime {
 		this.#rememberResources(record.agentId, storedObservation);
 		const player = storedObservation.player;
 		if (player?.skyOpen === true && player.onGround !== false && [player.x, player.y, player.z].every(Number.isFinite)) {
-			this.#openSky.set(record.agentId, { x: player.x, y: player.y, z: player.z, dimension: storedObservation.world?.dimension ?? null });
+			const row = { x: player.x, y: player.y, z: player.z, dimension: storedObservation.world?.dimension ?? null };
+			this.#openSky.set(record.agentId, row);
+			// One spot per block, and the highest always kept: samples while standing at the stair top would otherwise push it out.
+			const block = (spot) => `${Math.floor(spot.x)},${Math.floor(spot.y)},${Math.floor(spot.z)}`;
+			const spots = [...(this.#skyTop.get(record.agentId) ?? []).filter((spot) => spot.dimension === row.dimension
+				&& Math.hypot(spot.x - row.x, spot.z - row.z) <= SKY_TOP_NEAR && block(spot) !== block(row)), row];
+			const top = spots.reduce((best, spot) => spot.y > best.y ? spot : best, row);
+			this.#skyTop.set(record.agentId, spots.length <= SKY_TOP_SPOTS ? spots : [top, ...spots.filter((spot) => spot !== top).slice(-(SKY_TOP_SPOTS - 1))]);
 		}
 		this.#observations.set(record.agentId, {
 			goalRevision: record.goalRevision,
@@ -2757,6 +2768,7 @@ export class NativeToolRuntime {
 			// The last open-sky spot the body stood on (kept from every sample): a way out of water it filled in with no dry
 			// ground stood on during this obtain.
 			openSky: () => this.#searchBody(request, record, executionEpoch, blockingRun, 'obtain').openSky(),
+			skyTop: () => this.#searchBody(request, record, executionEpoch, blockingRun, 'obtain').skyTop(),
 			// A source obtain cannot see is found by find's own search (find-search.mjs), on the same body and blocking run.
 			search: async (target, options) => {
 				if (!current()) throw codedError('NATIVE_ACTION_CANCELLED', 'obtain cancelled before its search');
@@ -3071,6 +3083,13 @@ export class NativeToolRuntime {
 			openSky: () => {
 				const row = this.#openSky.get(agentId);
 				return row === undefined || row.dimension !== (latest().world?.dimension ?? null) ? null : { x: row.x, y: row.y, z: row.z };
+			},
+			// The highest open-sky spot stood on near the last one: the top of the body's own stair cut, where the last
+			// open-sky spot is only the deepest stair step still open above, a few blocks down the cut.
+			skyTop: () => {
+				const dimension = latest().world?.dimension ?? null;
+				const top = (this.#skyTop.get(agentId) ?? []).filter((spot) => spot.dimension === dimension).reduce((best, spot) => best === null || spot.y > best.y ? spot : best, null);
+				return top === null ? null : { x: top.x, y: top.y, z: top.z };
 			},
 			missedPlaces: () => {
 				const dimension = latest().world?.dimension ?? null;
