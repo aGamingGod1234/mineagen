@@ -250,6 +250,8 @@ try {
 			if (died) { await command('kill @e[type=minecraft:enderman]'); await (await startAction('respawn', {})).result.catch(() => null); died = false; await sleep(2000); }
 			results[name] = { tick, provoked, healthBefore: before, health: dead ? 0 : health(o), lowest: dead ? 0 : Math.min(...rows.map((row) => row.health)), dead, diedAfterMs,
 				waterAtFeet: water, events: (o.reflexes?.events ?? []).slice(-4), samples: rows.filter((_, index) => index % 4 === 0) };
+			// No anger after three stares: the setup never ran, so the trial measured nothing (INVALID, rerun), not a miss.
+			if (!provoked) results[name].notExercised = 'the stare never provoked the enderman (3 tries)';
 			return results[name];
 		} catch (error) { await settle(name, error); return null; }
 	};
