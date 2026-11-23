@@ -531,6 +531,8 @@ export class NativeToolRuntime {
 
 	/** The mod's latest reflex firing reports (not consumed), for the wake filter. */
 	reflexEvents(record) { return this.#reflexes.events(record.agentId); }
+	/** Water sources this agent's reflexes poured and the observation does not contradict, newest first. */
+	reflexPours(record, observation) { return this.#reflexes.pours?.(record.agentId, observation) ?? []; }
 
 	/** Installed rule definitions with their live state, for the danger coverage lines. */
 	reflexRules(record) { return this.#reflexes.rules(record.agentId); }

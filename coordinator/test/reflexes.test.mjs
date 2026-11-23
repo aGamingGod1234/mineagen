@@ -399,3 +399,20 @@ test('replace_action yields only once past every refusal: a cancel racing the yi
 	assert.equal(racedOutcome?.code, 'CANCELLATION_IN_PROGRESS', 'the racing cancel is the call refused');
 	assert.deepEqual(types, ['reflex_update:true', 'action_cancel', 'action_command'], 'the yield goes ahead of the cancel, then the replacement');
 });
+
+test('the book remembers the cells its water reflex poured, per dimension, and forgets one the observation shows scooped', () => {
+	const book = new ReflexBook({ now: () => 0 });
+	const end = { ready: true, world: { dimension: 'minecraft:the_end' }, player: { health: 20 }, inventory: { items: [] }, blocks: [] };
+	book.observeContext('a', end);
+	book.apply('a', normalizeReflexEntries([SWAP]));
+	const pour = (seq, cell, outcome = 'done') => ({ revision: 1, rules: [], events: [{ seq, id: 'default-ender-water', outcome, ms: 50, detail: `placed minecraft:water_bucket at feet ${cell}; the source stays until scooped` }] });
+	book.observe('a', pour(1, '2,62,13'));
+	book.observe('a', pour(2, '9,62,13', 'failed'));
+	book.observe('a', pour(3, '-4,62,0'));
+	assert.deepEqual(book.pours('a', end), [{ x: -4, y: 62, z: 0 }, { x: 2, y: 62, z: 13 }]);
+	assert.deepEqual(book.pours('a', { ...end, world: { dimension: 'minecraft:overworld' } }), [], 'another dimension names none');
+	// A row at the cell that is no water source (scooped: air, or only flow) forgets that pour; an unlisted cell keeps it.
+	assert.deepEqual(book.pours('a', { ...end, blocks: [{ blockId: 'minecraft:air', x: -4, y: 62, z: 0 }] }), [{ x: 2, y: 62, z: 13 }]);
+	assert.deepEqual(book.pours('a', { ...end, blocks: [{ blockId: 'minecraft:water', x: 2, y: 62, z: 13, fluid: { type: 'minecraft:flowing_water' } }] }), []);
+	book.clear('a');
+});
