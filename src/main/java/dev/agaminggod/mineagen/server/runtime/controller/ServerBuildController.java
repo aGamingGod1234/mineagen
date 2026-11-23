@@ -670,7 +670,7 @@ public final class ServerBuildController implements ServerController {
 		Direction bestBack = null;
 		double bestCost = Double.MAX_VALUE;
 		boolean bestSure = true;
-		List<BlockPos> pool = casting ? castPool(player, center, SITE_RADIUS + (int) CAST_POOL_REACH) : List.of();
+		List<BlockPos> pool = casting ? scoopable(player, castPool(player, center, SITE_RADIUS + (int) CAST_POOL_REACH)) : List.of();
 		int plain = casting ? plainCount(player) : 0;
 		int lavaRefused = 0;
 		for (Direction.Axis axis : new Direction.Axis[] { Direction.Axis.X, Direction.Axis.Z })
@@ -1900,6 +1900,31 @@ public final class ServerBuildController implements ServerController {
 	 * center, the frame two cells from the spot (the row between dug too), within reach of the pool, fewest cells to dig
 	 * and nearest first. True when the dig starts; false (with the reasons added to the site rejects) when none fits.
 	 */
+	/**
+	 * The sources a site is judged by: those a bucket reaches from a seen dry spot (open-topped, a standing spot within
+	 * reach, as the fetch looks for one), so each of the ten trips has somewhere to stand. A site judged by a source under
+	 * a ledge or out in the pool stopped casts with every cell left and sources in view ("no lava source in reach", 11
+	 * of 240 gate runs on main). With none such seen, the whole pool, as before: the fetch looks round and walks the shore.
+	 */
+	private List<BlockPos> scoopable(ServerPlayer player, List<BlockPos> pool) {
+		ServerLevel level = (ServerLevel) player.level();
+		Vec3 from = Vec3.atCenterOf(center);
+		List<BlockPos> sorted = new ArrayList<>(pool);
+		sorted.sort(Comparator.comparingDouble(at -> Vec3.atCenterOf(at).distanceToSqr(from)));
+		List<BlockPos> out = new ArrayList<>();
+		for (BlockPos source : sorted.subList(0, Math.min(96, sorted.size()))) {
+			if (!surface(player, source)) continue;
+			Vec3 top = Vec3.atCenterOf(source).add(0.0D, 0.4D, 0.0D);
+			for (BlockPos at : BlockPos.betweenClosed(source.offset(-4, -1, -4), source.offset(4, 3, 4))) {
+				Vec3 eye = Vec3.atBottomCenterOf(at).add(0.0D, player.getEyeHeight(), 0.0D);
+				if (eye.distanceTo(top) > player.blockInteractionRange() - 0.3D || !standable(player, level, at) && !stoodOn(player, at)) continue;
+				out.add(source);
+				break;
+			}
+		}
+		return out.isEmpty() ? pool : out;
+	}
+
 	private boolean carve(ServerPlayer player, List<BlockPos> pool, int plain) {
 		ServerLevel level = (ServerLevel) player.level();
 		java.util.function.BiPredicate<BlockPos, BlockState> rock = (cell, state) -> state.isCollisionShapeFullBlock(level, cell)
