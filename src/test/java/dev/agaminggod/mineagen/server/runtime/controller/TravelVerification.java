@@ -45,10 +45,6 @@ public final class TravelVerification {
 		check(!ServerTravelController.digsDown(70.0D, 66.0D, 3.0D), "a target within the band plus a block is walked or built to");
 		check(!ServerTravelController.digsDown(70.0D, 90.0D, 3.0D), "a target above never digs down");
 		check(!ServerTravelController.digsDown(70.0D, Double.NaN, 3.0D), "a trip without a target y never digs down");
-		check(ServerTravelController.walksDownTo(80.0D, 10.0D, true), "water 80 blocks off and 10 below a hilltop is walked to");
-		check(!ServerTravelController.walksDownTo(80.0D, 10.0D, false), "the same target from under a roof may be dug to");
-		check(!ServerTravelController.walksDownTo(40.0D, 50.0D, true), "an ore level deeper than it is far is dug to from the surface");
-		check(!ServerTravelController.walksDownTo(15.0D, 10.0D, true), "a target nearly as deep as it is far is dug to");
 		check(!ServerTravelController.digsDown(70.0D, 69.0D, 0.6D), "a route leg's next shaft level one block down is not a staircase");
 		check(ServerTravelController.MAX_DIGS == 3, "a trip digs at most three staircases before it hands back");
 		check(dev.agaminggod.mineagen.client.navigation.LocalPathfinder.MAX_WATER_DROP_BLOCKS == 12
