@@ -138,6 +138,8 @@ public final class AgentServerRuntime {
 		// Terrain a body saw or walked is forgotten when the body leaves its world.
 		dev.agaminggod.mineagen.server.perception.SeenTerrain.register();
 		dev.agaminggod.mineagen.server.perception.RouteMemory.register();
+		// Where each body last breathed and the way it swam since, for the escape job's way back to air.
+		dev.agaminggod.mineagen.server.perception.LastBreath.register();
 		ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
 			dev.agaminggod.mineagen.server.audit.InterventionAuditHook.playerJoined(server, handler.getPlayer());
 			WorldPlayerNames.get(server).remember(handler.getPlayer().getGameProfile().name(), handler.getPlayer().getUUID());

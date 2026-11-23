@@ -1,9 +1,12 @@
 package dev.agaminggod.mineagen.server.runtime.reflex;
 
+import dev.agaminggod.mineagen.server.perception.LastBreath;
 import dev.agaminggod.mineagen.server.perception.ThreatPerception;
+import dev.agaminggod.mineagen.server.runtime.controller.SwimPlanning;
 import dev.agaminggod.mineagen.server.runtime.input.AgentInputState;
 import java.util.List;
 import java.util.function.Consumer;
+import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Mob;
 
@@ -26,8 +29,10 @@ public final class EscapeMoves {
 	}
 
 	/**
-	 * Swim to the nearest breathable cell the player has seen; under a seen ceiling with none, duck out beside it (the
-	 * reflex's duck-out, travel's PEEK); with neither, rise holding jump with the view tilted up.
+	 * Swim to the nearest breathable cell the player has seen; with none, back the way it swam to where it last breathed
+	 * when the breath left covers it (LastBreath: a sealed pocket at the end of a flooded tunnel, past the seen-air
+	 * search's reach); under a seen ceiling with neither, duck out beside it (the reflex's duck-out, travel's PEEK); else
+	 * rise holding jump with the view tilted up.
 	 */
 	public static Move swimUp() {
 		Move swim = adapt(new ReflexActions.SwimUp(), null);
@@ -45,8 +50,41 @@ public final class EscapeMoves {
 				}
 				mark[0] = eye; mark[1] = player.getX(); mark[2] = player.getZ();
 			}
+			var back = player.isUnderWater() && ReflexActions.airRoute(player) == null ? wayBack(LastBreath.wayBack(player), player.getAirSupply()) : null;
+			if (back != null) {
+				input.accept(swimBack(player, back.path().get(1)));
+				return new Result(Status.RUNNING, "swimming back to where it last breathed at " + back.x() + "," + back.openY() + "," + back.z()
+						+ ", " + back.path().size() + " cells");
+			}
 			return swim.tick(player, input);
 		};
+	}
+
+	/**
+	 * One tick along the way back toward eye cell {@code next}: forward toward it, jump to rise to it, sneak to sink to it
+	 * (the way back can lead down, out of a pocket the body rose into, which the swim to seen air never does).
+	 */
+	static AgentInputState swimBack(ServerPlayer player, BlockPos next) {
+		var eye = player.getEyePosition();
+		double dx = next.getX() + 0.5D - eye.x, dz = next.getZ() + 0.5D - eye.z, dy = next.getY() + 0.5D - eye.y;
+		boolean across = dx * dx + dz * dz > 0.04D;
+		float heading = across ? net.minecraft.util.Mth.wrapDegrees((float) Math.toDegrees(Math.atan2(-dx, dz))) : player.getYRot();
+		float yaw = dev.agaminggod.mineagen.server.runtime.input.AgentInputStates.turnYaw(player.getYRot(), heading);
+		float pitch = dev.agaminggod.mineagen.server.runtime.input.AgentInputStates.turnPitch(player.getXRot(), dy > 0.3D ? SwimPlanning.SURFACING_PITCH : dy < -0.3D ? 30.0F : 0.0F);
+		float forward = across ? dev.agaminggod.mineagen.server.runtime.controller.CombatPlanning.alignedForward(1.0F,
+				dev.agaminggod.mineagen.server.runtime.input.AgentInputStates.shortestAngleDelta(yaw, heading)) : 0.0F;
+		return new AgentInputState(forward, 0.0F, dy > -0.3D, dy < -0.3D, false, false, false, yaw, pitch,
+				player.getInventory().getSelectedSlot(), net.minecraft.world.InteractionHand.MAIN_HAND);
+	}
+
+	/**
+	 * The way back to the last breath as a swim route (eye cells, the breath cell last), when the breath left covers it
+	 * with the reserve (the end is known air, an authored breathable target); else null.
+	 */
+	static SwimPlanning.Surface wayBack(List<BlockPos> back, int air) {
+		if (back.size() < 2 || !SwimPlanning.breathCovers(air + SwimPlanning.AIR_RESERVE_TICKS, back.size() - 1)) return null;
+		BlockPos breath = back.get(back.size() - 1);
+		return new SwimPlanning.Surface(breath.getX(), breath.getY(), breath.getZ(), back.size() - 1, true, back);
 	}
 
 	/** A blind swim's 2 s window made way: the eyes rose, or the body moved across (out from under a ledge), half a block. */

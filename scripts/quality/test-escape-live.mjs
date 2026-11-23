@@ -22,8 +22,8 @@
 //            ceiling too low over the body to rise onto it, and to the east a column open above whose dry bank is one
 //            step up: the way out is the bank, not the step. Water breathing keeps the air full, so the air rule never
 //            sends the body to swim off; 16 cobblestone carried. Pass: dry footing out of the water.
-//   pocket   a sealed flooded chamber (3x3, 4 high, stone roof) at the end of a flooded tunnel 2 high running 13 blocks
-//            east from the bottom of a 3x3 pool 13 deep: the body breathes at the pool's top, swims down and along the
+//   pocket   a sealed flooded chamber (3x3, 4 high, stone roof) at the end of a flooded tunnel 2 high running 7 blocks
+//            east from the bottom of a 3x3 pool 13 deep (22 cells back to the breath, inside a full breath's 24): the body breathes at the pool's top, swims down and along the
 //            tunnel into the chamber (1-block moves), so the only air it knows is where it last breathed, past the air
 //            search's 8-block reach. The pad is 13 above the chamber, past escape's bank search. Water breathing keeps the
 //            air full (the room tests the way back, not the air clock); nothing carried. Pass: dry footing out of the water.
@@ -165,16 +165,16 @@ try {
 			await s.command(`item replace entity ${NAME} hotbar.0 with minecraft:cobblestone 16`);
 			await s.command(`effect give ${NAME} minecraft:water_breathing 120 0 true`);
 		} else if (room === 'pocket') {
-			// The pool x X-1..X+1, water F-13 to F-1; the tunnel x X+2..X+13 at F-13 and F-12; the chamber x X+14..X+16,
+			// The pool x X-1..X+1, water F-13 to F-1; the tunnel x X+2..X+8 at F-13 and F-12; the chamber x X+9..X+11,
 			// F-13 to F-10, roofed by the stone at F-9 and up. All within the stone fill (F-14 up to F-1).
 			await s.command(`fill ${X - 1} ${F - 13} ${Z - 1} ${X + 1} ${F - 1} ${Z + 1} minecraft:water`);
-			await s.command(`fill ${X + 2} ${F - 13} ${Z} ${X + 13} ${F - 12} ${Z} minecraft:water`);
-			await s.command(`fill ${X + 14} ${F - 13} ${Z - 1} ${X + 16} ${F - 10} ${Z + 1} minecraft:water`);
-			start = [X + 15.5, F - 13, Z + 0.5]; facing = 90;
+			await s.command(`fill ${X + 2} ${F - 13} ${Z} ${X + 8} ${F - 12} ${Z} minecraft:water`);
+			await s.command(`fill ${X + 9} ${F - 13} ${Z - 1} ${X + 11} ${F - 10} ${Z + 1} minecraft:water`);
+			start = [X + 10.5, F - 13, Z + 0.5]; facing = 90;
 			// The way in, as a dive: a breath at the pool's top, then one cell at a time down the pool and along the tunnel.
 			pocketWay = [];
 			for (let y = F - 1; y >= F - 13; y--) pocketWay.push([X + 0.5, y, Z + 0.5]);
-			for (let x = X + 1; x <= X + 15; x++) pocketWay.push([x + 0.5, F - 13, Z + 0.5]);
+			for (let x = X + 1; x <= X + 10; x++) pocketWay.push([x + 0.5, F - 13, Z + 0.5]);
 		} else if (room === 'pitcreeper' || room === 'pitcreeper-rim') {
 			// Climbing a stair out toward a creeper: the hole 4 deep with a stone pickaxe only (stairs up), a creeper on the
 			// surface 7 blocks from the hole that hunts the body once it is out.
