@@ -3353,6 +3353,83 @@
    "estMinutes": 4,
    "tickRate": 20,
    "reads": "exit code; OUT/result.json row pass (control): the walled 3-wide deck with the blaze at its end, over 180 game s the body never went below it or into the lava; wallingSeen should be true; no hit taken reads INVALID"
+  },
+  {
+   "room": "lava-lip-jump",
+   "fixture": "test-find-live.mjs",
+   "stage": "nether-fortress",
+   "skill": "movement",
+   "skill2": "survival",
+   "line": "FIND_ONLY=lava-lip-jump node scripts/quality/test-find-live.mjs scripts/quality/lava-lip-spots.json $OUT $JAR --descriptive",
+   "estMinutes": 1,
+   "tickRate": 60,
+   "reads": "OUT/result-summary.json: a 20-tick sprint jump off a deck lip 5 above the lava sea (raw control keys); pass = no damage, no death"
+  },
+  {
+   "room": "lava-lip-walk",
+   "fixture": "test-find-live.mjs",
+   "stage": "nether-fortress",
+   "skill": "movement",
+   "skill2": "survival",
+   "line": "FIND_ONLY=lava-lip-walk node scripts/quality/test-find-live.mjs scripts/quality/lava-lip-spots.json $OUT $JAR --descriptive",
+   "estMinutes": 1,
+   "tickRate": 60,
+   "reads": "OUT/result-summary.json: a 40-tick sprint toward the same lip, no jump; pass = no damage, no death"
+  },
+  {
+   "room": "lava-step-narrow",
+   "fixture": "test-find-live.mjs",
+   "stage": "nether-fortress",
+   "skill": "movement",
+   "skill2": "survival",
+   "line": "FIND_ONLY=lava-step-narrow node scripts/quality/test-find-live.mjs scripts/quality/lava-lip-spots.json $OUT $JAR --descriptive",
+   "estMinutes": 1,
+   "tickRate": 60,
+   "reads": "OUT/result-summary.json: move_to over a jump up onto a 1-wide walkway turning north over the lava sea; pass = no damage, no death"
+  },
+  {
+   "room": "lava-step-control",
+   "fixture": "test-find-live.mjs",
+   "stage": "nether-fortress",
+   "skill": "movement",
+   "skill2": "survival",
+   "line": "FIND_ONLY=lava-step-control node scripts/quality/test-find-live.mjs scripts/quality/lava-lip-spots.json $OUT $JAR --descriptive",
+   "estMinutes": 1,
+   "tickRate": 60,
+   "reads": "OUT/result-summary.json: a sprint jump onto one block over the lava sea, then 10 ticks of sprint (raw control keys); pass = no damage, no death"
+  },
+  {
+   "room": "lava-step-top",
+   "fixture": "test-find-live.mjs",
+   "stage": "nether-fortress",
+   "skill": "movement",
+   "skill2": "survival",
+   "line": "FIND_ONLY=lava-step-top node scripts/quality/test-find-live.mjs scripts/quality/lava-lip-spots.json $OUT $JAR --descriptive",
+   "estMinutes": 1,
+   "tickRate": 60,
+   "reads": "OUT/result-summary.json: move_to onto one block standing 1 up over the lava sea; pass = no damage, no death"
+  },
+  {
+   "room": "lava-deck-walk",
+   "fixture": "test-find-live.mjs",
+   "stage": "nether-fortress",
+   "skill": "movement",
+   "skill2": "survival",
+   "line": "FIND_ONLY=lava-deck-walk node scripts/quality/test-find-live.mjs scripts/quality/lava-lip-spots.json $OUT $JAR --descriptive",
+   "estMinutes": 1,
+   "tickRate": 60,
+   "reads": "OUT/result-summary.json: move_to along the south lip lane of a 3-wide deck over the lava sea; pass = no damage, no death; the trail shows the lane kept"
+  },
+  {
+   "room": "lava-deck-skeleton",
+   "fixture": "test-find-live.mjs",
+   "stage": "nether-fortress",
+   "skill": "movement",
+   "skill2": "combat",
+   "line": "FIND_ONLY=lava-deck-skeleton node scripts/quality/test-find-live.mjs scripts/quality/lava-lip-spots.json $OUT $JAR --descriptive",
+   "estMinutes": 1,
+   "tickRate": 60,
+   "reads": "OUT/result-summary.json: the deck walk with a caged skeleton shooting from 5 blocks off the lip, no shield; pass = no damage, no death"
   }
  ]
 }
