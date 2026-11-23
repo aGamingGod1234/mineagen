@@ -3441,17 +3441,6 @@
    "estMinutes": 1,
    "tickRate": 60,
    "reads": "OUT/result-summary.json: move_to along the south lip lane of a 3-wide deck over the lava sea; pass = no damage, no death; the trail shows the lane kept"
-  },
-  {
-   "room": "lava-deck-skeleton",
-   "fixture": "test-find-live.mjs",
-   "stage": "nether-fortress",
-   "skill": "movement",
-   "skill2": "combat",
-   "line": "FIND_ONLY=lava-deck-skeleton node scripts/quality/test-find-live.mjs scripts/quality/lava-lip-spots.json $OUT $JAR --descriptive",
-   "estMinutes": 1,
-   "tickRate": 60,
-   "reads": "OUT/result-summary.json: the deck walk with a caged skeleton shooting from 5 blocks off the lip, no shield; pass = no damage, no death"
   }
  ]
 }

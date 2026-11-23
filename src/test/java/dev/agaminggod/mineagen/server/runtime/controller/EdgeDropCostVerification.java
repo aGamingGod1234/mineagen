@@ -27,7 +27,7 @@ public final class EdgeDropCostVerification {
 	/** Stone at y63 everywhere unless set; the body walks at y64. */
 	static final class World implements BlockGetter, SeenTerrain.Source<BlockState> {
 		final Map<BlockPos, BlockState> states = new HashMap<>();
-		boolean seeAll = true;
+		int seenFrom = Integer.MIN_VALUE;
 		@Override public BlockEntity getBlockEntity(BlockPos position) { return null; }
 		@Override public BlockState getBlockState(BlockPos position) {
 			return states.getOrDefault(position, position.getY() == 63 ? Blocks.STONE.defaultBlockState() : Blocks.AIR.defaultBlockState());
@@ -36,7 +36,7 @@ public final class EdgeDropCostVerification {
 		@Override public int getHeight() { return 384; }
 		@Override public int getMinY() { return -64; }
 		@Override public BlockState live(int x, int y, int z) { return getBlockState(new BlockPos(x, y, z)); }
-		@Override public boolean sees(int x, int y, int z) { return seeAll || y >= 62; }
+		@Override public boolean sees(int x, int y, int z) { return y >= seenFrom; }
 
 		/** An open column at (x, z) from the floor down to {@code bottom} exclusive, with {@code base} at {@code bottom}. */
 		World pit(int x, int z, int bottom, BlockState base) {
@@ -65,8 +65,14 @@ public final class EdgeDropCostVerification {
 				"a seen 11-block drop onto stone is an edge");
 		check(view(new World().pit(1, 0, 55, stone)).edgeDropCost(at) == 0, "a seen 8-block drop hurts but is no edge");
 		World unseen = new World().pit(1, 0, 40, stone);
-		unseen.seeAll = false;
-		check(view(unseen).edgeDropCost(at) == MinecraftNavigationWorld.EDGE_DROP_COST, "a drop whose bottom is unseen is an edge");
+		unseen.seenFrom = 60;
+		check(view(unseen).edgeDropCost(at) == MinecraftNavigationWorld.EDGE_DROP_COST, "a drop seen open 4 down to a bottom not seen is an edge");
+		World ditch = new World().pit(1, 0, 40, stone);
+		ditch.seenFrom = 62;
+		check(view(ditch).edgeDropCost(at) == 0, "seen open only 2 down, it is a ditch the view has not reached, no edge");
+		check(view(new World().pit(1, 0, 20, stone)).edgeDropCost(at) == MinecraftNavigationWorld.EDGE_DROP_COST,
+				"a column open past the scan's depth (a fall far down to the lava sea or the void) is an edge");
+		check(view(new World().pit(1, 0, 54, Blocks.WATER.defaultBlockState())).edgeDropCost(at) == 0, "water at the bottom breaks the fall");
 		World walled = new World().pit(1, 0, 59, lava);
 		walled.states.put(new BlockPos(1, 64, 0), stone);
 		walled.states.put(new BlockPos(1, 65, 0), stone);
@@ -86,14 +92,14 @@ public final class EdgeDropCostVerification {
 		check(along.outcome() == PathOutcome.FOUND, "a lip-to-lip walk along the deck plans");
 		long middle = along.nodes().stream().filter(node -> node.position().z() == 0).count();
 		check(middle >= 8, "the walk keeps to the middle lane for most of the deck, stepping out only at its ends (" + middle + " middle cells)");
-		// A 1-wide bridge over the lava sea is still a route when it is the only way.
+		// A 1-wide bridge over the lava sea is still a route when it is the only way: pads at both ends, a lava pit between
+		// them wider than the search reaches round, and the bridge lane z 0 left standing.
 		World bridge = new World();
-		for (int x = -2; x <= 14; x++) for (int z = -3; z <= 3; z++) if (z != 0 || x > 1 && x < 11) bridge.pit(x, z, 58, lava);
-		for (int x = -2; x <= 1; x++) for (int z = -3; z <= 3; z++) bridge.states.remove(new BlockPos(x, 63, z));
-		for (int x = -2; x <= 1; x++) for (int z = -3; z <= 3; z++) bridge.states.put(new BlockPos(x, 63, z), stone);
-		for (int x = 11; x <= 14; x++) for (int z = -3; z <= 3; z++) bridge.states.put(new BlockPos(x, 63, z), stone);
-		check(find(view(bridge), new GridPosition(0, 64, 0), new GridPosition(12, 64, 0)).outcome() == PathOutcome.FOUND,
-				"a 1-wide bridge over lava that is the only way still plans");
+		for (int x = 2; x <= 10; x++) for (int z = -30; z <= 30; z++) if (z != 0) bridge.pit(x, z, 58, lava);
+		check(view(bridge).edgeDropCost(new GridPosition(6, 64, 0)) > 0, "every bridge cell is beside the lava");
+		PathPlan across = find(view(bridge), new GridPosition(0, 64, 0), new GridPosition(12, 64, 0));
+		check(across.outcome() == PathOutcome.FOUND && across.nodes().stream().allMatch(node -> node.position().z() == 0 || node.position().x() < 2 || node.position().x() > 10),
+				"a 1-wide bridge over lava that is the only way still plans, and the route crosses on it");
 		System.out.println("EDGE_DROP_COST checks=" + assertions);
 		return assertions;
 	}

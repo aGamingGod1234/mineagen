@@ -625,11 +625,12 @@ public final class MinecraftNavigationWorld implements WalkabilityView {
 	}
 
 	/**
-	 * A cell beside an open edge whose drop, as the player knows the columns under it, burns (lava or fire), reaches the
-	 * void, falls {@link #EDGE_DROP_BLOCKS} or more, or has a bottom it has not seen: one slip, a hit's shove or a jump's
-	 * drift there goes over (the fortress search's walk drifted off a block above the lava sea, 5 blocks down, in every
-	 * recorded death on that spot). The fall is judged as the brink guard judges a walk-off ({@link BrinkGuard#fall}).
-	 * A cost, not a refusal: a bridge deck or a ledge that is the only way stays a route, but a way a step inland wins.
+	 * A cell beside an open edge whose drop, as the player knows the column under it, burns (lava or fire), falls
+	 * {@link #EDGE_DROP_BLOCKS} or more (the void and the lava sea far below included), or is seen open
+	 * {@link #EDGE_DARK_BLOCKS} or more down to a bottom it has not seen: one slip, a hit's shove or a jump's drift there
+	 * goes over (the fortress search's walk drifted off a block above the lava sea, 5 blocks down, in every recorded death
+	 * on that spot). A cost, not a refusal: a bridge deck or a ledge that is the only way stays a route, but a way a step
+	 * inland wins. The column is read only {@code EDGE_DROP_BLOCKS + 1} deep: open that far is already such a drop.
 	 */
 	@Override
 	public int edgeDropCost(GridPosition position) {
@@ -637,15 +638,11 @@ public final class MinecraftNavigationWorld implements WalkabilityView {
 		int cost = edgeDropCosts.get(key);
 		if (cost >= 0) return cost;
 		cost = 0;
-		BrinkGuard.VoidProbe voids = level instanceof net.minecraft.world.level.Level world
-				? (x, y, z) -> dev.agaminggod.mineagen.server.perception.VoidColumn.below(world, x, y, z) : (x, y, z) -> false;
 		for (Direction direction : HORIZONTAL_DIRECTIONS) {
 			GridPosition beside = position.offset(direction.getStepX(), 0, direction.getStepZ());
 			// A wall or a floor beside the cell is no edge; only open air the body can be shoved into is.
 			if (!isBodyClear(beside) || !isBodyClear(beside.above()) || isStandable(beside)) continue;
-			double x = beside.x(), z = beside.z();
-			AABB box = new AABB(x + 0.2D, position.y(), z + 0.2D, x + 0.8D, position.y() + 1.8D, z + 0.8D);
-			if (BrinkGuard.fall(this, box, level.getMinY(), voids, 0.0D, EDGE_DROP_HEALTH) != null) {
+			if (dangerousDrop(beside)) {
 				cost = EDGE_DROP_COST;
 				break;
 			}
@@ -654,11 +651,33 @@ public final class MinecraftNavigationWorld implements WalkabilityView {
 		return cost;
 	}
 
+	/** Whether the open column under {@code beside} (feet level) is a drop {@link #edgeDropCost} prices. */
+	private boolean dangerousDrop(GridPosition beside) {
+		for (int depth = 1; depth <= EDGE_DROP_BLOCKS + 1; depth++) {
+			if (level.isOutsideBuildHeight(beside.y() - depth)) return true;
+			GridPosition at = beside.below(depth);
+			Cell cell = cellAt(at);
+			if (cell == Cell.CLEAR || cell == Cell.CLIMBABLE) continue;
+			// Water breaks the fall.
+			if (cell == Cell.WATER) return false;
+			if (cell == Cell.UNLOADED) return depth - 1 >= EDGE_DARK_BLOCKS;
+			if (cell == Cell.HAZARD) {
+				BlockState state = stateAt(at.x(), at.y(), at.z());
+				// Lava or fire burns a body falling in; magma, cactus or berries are a landing that only hurts.
+				if (state != null && (isLava(state) || state.is(Blocks.FIRE) || state.is(Blocks.SOUL_FIRE))) return true;
+			}
+			// Floor, water or a hurting block ends the fall here: a drop of depth - 1 blocks.
+			return depth - 1 >= EDGE_DROP_BLOCKS;
+		}
+		return true;
+	}
+
 	/** About one and a half blocks of walking: a route keeps a step in from such an edge where the ground allows it. */
 	static final int EDGE_DROP_COST = 15;
-	/** A drop of this many blocks costs about 7 hearts (vanilla: distance minus 3), as a fall into lava or the void. */
+	/** A drop of this many blocks costs about 7 hearts (vanilla: distance minus 3). */
 	static final int EDGE_DROP_BLOCKS = 10;
-	private static final double EDGE_DROP_HEALTH = EDGE_DROP_BLOCKS - 3.0D;
+	/** An unseen bottom counts once this much of the drop is seen open: below that it is a ditch the view has not reached. */
+	static final int EDGE_DARK_BLOCKS = 3;
 
 	@Override
 	public int surfaceCost(GridPosition position) {
