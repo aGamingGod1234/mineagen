@@ -16,8 +16,9 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
  * Tells far sight which chunk dropped a full status. getChunkNow stops returning a chunk only when its ticket level
- * leaves full status, and DistanceManager.runAllUpdates lowers the allowed status and calls updateFutures, which calls
- * this, in one pass with no game code between; so a look never sees a chunk gone before far sight heard of it.
+ * leaves full status. DistanceManager.runAllUpdates lowers the allowed status and then calls updateFutures, which calls
+ * this, inside ServerChunkCache.runDistanceManagerUpdates, which then clears getChunkNow's cache. No far-sight look runs
+ * inside runDistanceManagerUpdates, so every look after a chunk is gone comes after far sight heard of it.
  */
 @Mixin(ChunkHolder.class)
 abstract class ChunkHolderDemotionMixin implements ChunkDemotionHook {

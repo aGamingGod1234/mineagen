@@ -559,11 +559,12 @@ public final class FarSight {
 
 	/** A chunk of {@code level} dropped a full status (ChunkHolderDemotionMixin); its scans are checked at the next look. */
 	public static void chunkDemoted(ServerLevel level, long key) {
-		List<LevelIndex> indexes = new ArrayList<>();
+		List<LevelIndex> indexes;
 		synchronized (LISTENING) {
 			List<java.lang.ref.WeakReference<LevelIndex>> refs = LISTENING.get(level);
 			if (refs == null) return;
 			refs.removeIf(ref -> ref.get() == null);
+			indexes = new ArrayList<>(refs.size());
 			for (java.lang.ref.WeakReference<LevelIndex> ref : refs) {
 				LevelIndex index = ref.get();
 				if (index != null) indexes.add(index);
