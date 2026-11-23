@@ -180,6 +180,8 @@ public final class ServerTravelController implements ServerController {
 	private String lastLegFailure, buildRefusal, buildRefusalCode;
 	private float lookYaw, lookPitch;
 	private boolean glanced;
+	/** Mined shaft headroom: ticks spent watching the cell above it before pillaring into it, or -1. */
+	private int shaftSettle = -1;
 	private int lookTicks;
 	// Build moves.
 	private TravelBuilder.Plan move;
@@ -1226,9 +1228,20 @@ public final class ServerTravelController implements ServerController {
     glanced=true;lookYaw=player.getYRot();lookPitch=-90;lookTicks=0;phase=Phase.LOOK;
     return look(player,nowEpochMs);
    }
-   if(!world.isBodyClear(feet.above(2))) return fail(player,"NO_ROUTE","Remembered shaft has blocked or unseen headroom above; no new tunnel chosen");
+   if(failedLegs>=MAX_FAILED_LEGS) return fail(player,"NO_ROUTE","Remembered shaft could not be climbed"+(buildRefusal==null?"":": "+buildRefusal));
+   // Blocked headroom under the route's own way up (a later tunnel under the stair's step, a drop it fell) is mined
+   // out first when nothing seen can pour or fall in, as a player digs up into the passage it came down.
+   TravelBuilder.Plan headroom=TravelBuilder.shaftHeadroom(world,states(world),feet);
+   if(headroom!=null && !headroom.possible()) return fail(player,"NO_ROUTE","Remembered shaft has blocked or unseen headroom above: "+headroom.refusal()+"; no new tunnel chosen");
    if(!haveBlocks) return fail(player,"OUT_OF_BLOCKS","Remembered shaft needs a plain carried block per level to pillar up"+offHotbarText(player));
-   best=new TravelBuilder.Plan(TravelBuilder.Kind.PILLAR,Direction.NORTH,1,null,null);
+   if(headroom!=null) {
+    BlockPos over=new BlockPos(feet.x(),feet.y()+2,feet.z());
+    BlockState known=world.stateAt(over);
+    if(!mayModify.test(player,over)) return fail(player,"NO_ROUTE","Remembered shaft has protected headroom at "+cell(over));
+    TravelBuilder.ToolRefusal tool=TravelBuilder.toolRefusal(player,known);
+    if(tool!=null) return fail(player,tool.code(),"Remembered shaft headroom "+BuiltInRegistries.BLOCK.getKey(known.getBlock())+" at "+cell(over)+"; "+tool.facts());
+   }
+   best=headroom!=null?headroom:new TravelBuilder.Plan(TravelBuilder.Kind.PILLAR,Direction.NORTH,1,null,null);
   }
   for (Direction direction : shaft ? new Direction[0] : directionsToward(player)) {
 			TravelBuilder.Plan plan = TravelBuilder.decide(world, states(world), feet, direction, haveBlocks, climb);
@@ -1268,6 +1281,7 @@ public final class ServerTravelController implements ServerController {
 		buildDirection = best.direction();
 		moveFeet = feet;
 		moveTicks = 0;
+		shaftSettle = shaft && best.kind() == TravelBuilder.Kind.CLEAR_UP ? 0 : -1;
 		moveStage = 0;
 		pillarDone = 0;
 		centred = false;
@@ -1858,12 +1872,49 @@ public final class ServerTravelController implements ServerController {
 		return null;
 	}
 
+	private static final int SHAFT_SETTLE_TICKS = 40;
+
 	/** Mine the block over the head (a low ceiling over feet-level lava ahead), then judge the line again. */
 	private TickResult clearUpTick(ServerPlayer player, long nowEpochMs) {
 		BlockPos over = new BlockPos(moveFeet.x(), moveFeet.y() + 2, moveFeet.z());
 		BlockState state = player.level().getBlockState(over);
+		// Only once the headroom is open: before that the solid block shields the body and hides the column above it.
+		if (shaftSettle >= 0 && state.getCollisionShape(player.level(), over).isEmpty() && !player.level().getEntitiesOfClass(net.minecraft.world.entity.item.FallingBlockEntity.class,
+				new AABB(over.below(2)).expandTowards(0.0D, 6.0D, 0.0D).inflate(0.2D, 0.0D, 0.2D)).isEmpty()) {
+			// Sand or gravel the mined headroom held up is coming down the column: step out from under it, as a digger does,
+			// before the climb ends, or the stack fills the feet and head cells.
+			return retreat(player, nowEpochMs, "NO_ROUTE", "Falling blocks came down the shaft above the mined headroom at " + cell(over) + "; backed out from under them");
+		}
+		if (shaftSettle >= 0 && (LavaStep.lava(state) || state.getCollisionShape(player.level(), over).isEmpty() && LavaStep.lava(player.level().getBlockState(over.above())))) {
+			// Lava the mined shaft headroom let in, or showed right above the opening once mined: as the tunnel does, plug it with a
+			// block (the opening first, once lava is in it) before ending; when it cannot be plugged, back out from under it.
+			BlockPos lava = LavaStep.lava(state) ? over : over.above();
+			Boolean plugged = plugLava(player, lava, nowEpochMs);
+			if (plugged == null) return null;
+			if (plugged && !LavaStep.lava(player.level().getBlockState(over))
+					&& (!player.level().getBlockState(over).getCollisionShape(player.level(), over).isEmpty() || !LavaStep.lava(player.level().getBlockState(over.above()))))
+				return fail(player, "TUNNEL_LAVA_PLUGGED", "Lava above the mined headroom at " + cell(lava) + "; plugged it with a block and did not climb this way");
+			if (!plugged) return retreat(player, nowEpochMs, "TUNNEL_FLOODED", "Lava above the mined headroom at " + cell(lava) + "; backed out from under it");
+			return null;
+		}
 		if (state.getCollisionShape(player.level(), over).isEmpty()) {
 			if (!state.getFluidState().isEmpty()) return fail(player, "TUNNEL_FLOODED", "Fluid flowed in above the head at " + cell(over));
+			if (shaftSettle >= 0) {
+				// The mined shaft headroom hid the cell above it. Looking up through the opening, the body now sees that cell:
+				// fluid or a falling block there refuses the climb, and it watches long enough (lava spreads every 30 ticks in
+				// the Overworld, 10 in the Nether) for anything beside the opening to pour in before it pillars into it.
+				BlockPos next = over.above();
+				BlockState above = player.level().getBlockState(next);
+				// Lava there is plugged above; water only wets the climb, which ends here.
+				if (!above.getFluidState().isEmpty()) return fail(player, "TUNNEL_FLOODED", "Fluid above the mined headroom at " + cell(next));
+				if (above.getBlock() instanceof net.minecraft.world.level.block.Fallable)
+					return retreat(player, nowEpochMs, "NO_ROUTE", "Remembered shaft has " + BuiltInRegistries.BLOCK.getKey(above.getBlock()).getPath() + " above the mined headroom at " + cell(next) + "; backed out from under it");
+				if (++shaftSettle < SHAFT_SETTLE_TICKS) {
+					apply(player, new AgentInputStates.MotorTarget(player.getYRot(), -90.0F, false, false, false), true, false, false, nowEpochMs);
+					return null;
+				}
+				shaftSettle = -1;
+			}
 			return moveDone(player, nowEpochMs);
 		}
 		String why = TravelBuilder.unmineable(state);

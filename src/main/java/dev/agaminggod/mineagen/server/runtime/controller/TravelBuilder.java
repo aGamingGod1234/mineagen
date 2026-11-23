@@ -142,6 +142,34 @@ final class TravelBuilder {
 		return new Plan(Kind.TUNNEL, direction, 1, null, null);
 	}
 
+	/**
+	 * The headroom over a remembered shaft a retrace climbs back up: null when the body can pillar now; CLEAR_UP when the
+	 * block over the head is seen, mineable and nothing seen above or beside it could pour or fall in once it is mined;
+	 * otherwise the refusal. A retrace can stand under its own way up, as when a later tunnel passes under the step of
+	 * the stair it came down: one mined block reopens the route.
+	 */
+	static Plan shaftHeadroom(WalkabilityView world, java.util.function.Function<GridPosition, BlockState> states, GridPosition feet) {
+		GridPosition over = feet.above(2), next = feet.above(3);
+		if (world.isBodyClear(over)) return null;
+		BlockState overState = states.apply(over);
+		if (world.cellAt(over) == WalkabilityView.Cell.UNLOADED || overState == null) return Plan.refuse(Direction.UP, "unseen", "the headroom at " + cell(over) + " is unseen");
+		if (!overState.getFluidState().isEmpty() || world.cellAt(over) == WalkabilityView.Cell.HAZARD || world.cellAt(over) == WalkabilityView.Cell.WATER)
+			return Plan.refuse(Direction.UP, "hazard", "fluid or a hazard fills the headroom at " + cell(over));
+		String why = unmineable(overState);
+		if (why != null) return Plan.refuse(Direction.UP, "unmineable", "the headroom at " + cell(over) + " cannot be mined: " + why);
+		BlockState nextState = states.apply(next);
+		// The cell above is usually hidden behind the headroom (the stair's own step); as for a low ceiling over lava, only
+		// what is seen there refuses; once mined, clearUpTick looks up through the opening and waits out a lava spread.
+		if (nextState != null && !nextState.getFluidState().isEmpty()) return Plan.refuse(Direction.UP, "hazard", "fluid at " + cell(next) + " would pour in once the headroom is mined");
+		if (nextState != null && nextState.getBlock() instanceof net.minecraft.world.level.block.Fallable) return Plan.refuse(Direction.UP, "falling", "the " + BuiltInRegistries.BLOCK.getKey(nextState.getBlock()).getPath()
+				+ " at " + cell(next) + " would fall onto the head once the headroom is mined");
+		for (Direction side : Direction.Plane.HORIZONTAL) {
+			if (lava(states.apply(over.offset(side.getStepX(), 0, side.getStepZ()))))
+				return Plan.refuse(Direction.UP, "hazard", "seen lava is beside the headroom at " + cell(over));
+		}
+		return new Plan(Kind.CLEAR_UP, Direction.NORTH, 1, null, null);
+	}
+
 	static boolean fire(BlockState state) {
 		return state != null && (state.is(Blocks.FIRE) || state.is(Blocks.SOUL_FIRE));
 	}
