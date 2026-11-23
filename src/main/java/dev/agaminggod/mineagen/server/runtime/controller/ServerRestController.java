@@ -387,16 +387,24 @@ public final class ServerRestController implements ServerController {
 		BlockPos start = feet(player);
 		surfaceY = start.getY();
 		log.add(why + "; digging down 2 where it stands");
-		return digDownStep(player, start, 1, away);
+		// Off the middle of its cell the 0.6-wide body still rests on the next block and never drops into the dug one.
+		if (Math.abs(start.getX() + 0.5D - player.getX()) <= 0.15D && Math.abs(start.getZ() + 0.5D - player.getZ()) <= 0.15D) return digDownStep(player, start, 1, away);
+		return runChild(() -> new ServerNavigationController(Vec3.atBottomCenterOf(start), 0.15D, false, dev.agaminggod.mineagen.server.runtime.GameClock.nowMs(), 3_000L, false),
+				centred -> digDownStep(player, start, 1, away));
 	}
 
 	private TickResult digDownStep(ServerPlayer player, BlockPos start, int depth, Direction away) {
 		BlockPos target = start.below(depth);
 		if (!diggable(player, target)) return stuck(player, "could not dig down: under the body is " + describeBelow(player, target));
+		// The last block dug is the hole's floor-to-be: never dig it over an open or fluid floor the body knows of.
+		BlockPos floor = target.below();
+		if (depth == 2 && SeenTerrain.of(player).known(floor.getX(), floor.getY(), floor.getZ()) != null && !solid(player, floor)) {
+			return stuck(player, "could not dig down: under " + target.toShortString() + " is " + describeBelow(player, floor));
+		}
 		return runChild(() -> environment.clear(player, target, STEP_MS), dug -> {
 			if (dug.state() != State.SUCCEEDED) return stuck(player, "could not dig down: " + dug.reasonCode() + " " + dug.message());
 			return runChild(() -> dropInto(target), dropped -> {
-				if (dropped.state() != State.SUCCEEDED) return stuck(player, "dug " + target.toShortString() + " but did not drop into it");
+				if (dropped.state() != State.SUCCEEDED) return stuck(player, "dug " + target.toShortString() + " but did not drop into it: " + dropped.message());
 				if (depth < 2) return digDownStep(player, start, depth + 1, away);
 				pit = true;
 				log.add("dug down to " + target.toShortString());
@@ -405,11 +413,12 @@ public final class ServerRestController implements ServerController {
 		});
 	}
 
-	/** Succeeds once the feet stand in {@code cell} on the ground, fails after 2 s. */
+	/** Succeeds once the feet stand in {@code cell} on the ground, fails at once below it (a hidden drop) or after 2 s. */
 	private static ServerController dropInto(BlockPos cell) {
 		int[] ticks = {0};
 		return (player, now) -> {
-			if (player.onGround() && feet(player).getY() <= cell.getY()) return TickResult.succeeded("DROPPED", "in the hole");
+			if (feet(player).getY() < cell.getY()) return TickResult.failed("FELL_THROUGH", "fell below the dug cell into a hidden drop", 0.0D);
+			if (player.onGround() && feet(player).equals(cell)) return TickResult.succeeded("DROPPED", "in the hole");
 			return ++ticks[0] > 40 ? TickResult.failed("NOT_DROPPED", "still above the hole", 0.0D) : TickResult.running(0.1D);
 		};
 	}
@@ -432,13 +441,13 @@ public final class ServerRestController implements ServerController {
 	private TickResult digHole(ServerPlayer player, BlockPos top, Direction away) {
 		BlockPos first = top.below(), second = top.below(2), floor = top.below(3);
 		return runChild(() -> environment.clear(player, first, STEP_MS), dug -> {
-			if (dug.state() != State.SUCCEEDED) return digDown(player, away, "could not dig the hole: " + dug.reasonCode() + " " + dug.message());
+			if (dug.state() != State.SUCCEEDED) return holeFailed(player, away, dug);
 			return lookThen(second, () -> {
 				String below = describeBelow(player, second);
 				if (!diggable(player, second)) return stuck(player, "under the dug cell " + first.toShortString() + " is " + below
 						+ ": not digging toward a drop; wall in with 10 or more plain blocks, or rest somewhere with solid ground");
 				return runChild(() -> environment.clear(player, second, STEP_MS), dug2 -> {
-					if (dug2.state() != State.SUCCEEDED) return digDown(player, away, "could not dig the hole: " + dug2.reasonCode() + " " + dug2.message());
+					if (dug2.state() != State.SUCCEEDED) return holeFailed(player, away, dug2);
 					return lookThen(floor, () -> {
 						// From beside a 1-wide hole the body's own block hides the hole's floor, so it is nearly always unseen
 						// (from-scratch game 13: rest refused every night hole at 1.3 health with an empty inventory). A player
@@ -454,6 +463,16 @@ public final class ServerRestController implements ServerController {
 				});
 			});
 		});
+	}
+
+	/**
+	 * A refused side-hole dig falls back to digging down where the body stands, except for lava seen behind the cell: the
+	 * body's own column is beside that lava, and from inside a 1-wide hole the eye no longer sees it.
+	 */
+	private TickResult holeFailed(ServerPlayer player, Direction away, TickResult dug) {
+		String why = "could not dig the hole: " + dug.reasonCode() + " " + dug.message();
+		if ("LAVA_BEHIND".equals(dug.reasonCode())) return stuck(player, why + "; not digging down beside lava");
+		return digDown(player, away, why);
 	}
 
 	/** What the body knows of a cell: its block, "an open drop", a fluid, or "unseen". */
