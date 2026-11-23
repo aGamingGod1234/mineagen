@@ -1481,7 +1481,8 @@
    "estMinutes": 1.5,
    "tickRate": 20,
    "bar": "none",
-   "reads": "no pass bar: OUT/summary.json deaths, meanBlastDamage (runs.json per run); exit 0"
+   "passWhen": { "field": "creeperFlinches", "min": 1 },
+   "reads": "pass: alive and the creeper flinch fired (OUT/summary.json creeperFlinches); deaths, meanBlastDamage (runs.json per run)"
   },
   {
    "room": "count-stance-still",
@@ -2835,7 +2836,8 @@
    "estMinutes": 2,
    "tickRate": 20,
    "bar": "none",
-   "reads": "no exit verdict (exit 0): OUT/rows.json died, damage, reasonCode (RESTED), spawnAfter; OUT/summary.json"
+   "passWhen": { "field": "bedSpawnSet", "min": 1 },
+   "reads": "pass: alive and the bed set the spawn (OUT/summary.json bedSpawnSet); OUT/rows.json died, damage, reasonCode, spawnAfter"
   },
   {
    "room": "rest-wool-2",
@@ -2847,7 +2849,8 @@
    "estMinutes": 2,
    "tickRate": 20,
    "bar": "none",
-   "reads": "no exit verdict (exit 0): OUT/rows.json died, damage, reasonCode (RESTED), spawnAfter; OUT/summary.json"
+   "passWhen": { "field": "bedSpawnSet", "min": 1 },
+   "reads": "pass: alive and the bed set the spawn (OUT/summary.json bedSpawnSet); OUT/rows.json died, damage, reasonCode, spawnAfter"
   },
   {
    "room": "rest-wool-3",
@@ -2859,7 +2862,8 @@
    "estMinutes": 2,
    "tickRate": 20,
    "bar": "none",
-   "reads": "no exit verdict (exit 0): OUT/rows.json died, damage, reasonCode (RESTED), spawnAfter; OUT/summary.json"
+   "passWhen": { "field": "bedSpawnSet", "min": 1 },
+   "reads": "pass: alive and the bed set the spawn (OUT/summary.json bedSpawnSet); OUT/rows.json died, damage, reasonCode, spawnAfter"
   },
   {
    "room": "rest-nowool-1",
@@ -2871,7 +2875,8 @@
    "estMinutes": 4.5,
    "tickRate": 20,
    "bar": "none",
-   "reads": "no exit verdict (exit 0): OUT/rows.json died, damage, reasonCode (RESTED), spawnAfter; OUT/summary.json"
+   "passWhen": { "field": "rested", "min": 1 },
+   "reads": "pass: alive and the night waited out (OUT/summary.json rested, a RESTED receipt); OUT/rows.json died, damage, reasonCode"
   },
   {
    "room": "rest-nowool-2",
@@ -2883,7 +2888,8 @@
    "estMinutes": 4.5,
    "tickRate": 20,
    "bar": "none",
-   "reads": "no exit verdict (exit 0): OUT/rows.json died, damage, reasonCode (RESTED), spawnAfter; OUT/summary.json"
+   "passWhen": { "field": "rested", "min": 1 },
+   "reads": "pass: alive and the night waited out (OUT/summary.json rested, a RESTED receipt); OUT/rows.json died, damage, reasonCode"
   },
   {
    "room": "rest-nowool-3",
@@ -2895,7 +2901,8 @@
    "estMinutes": 4.5,
    "tickRate": 20,
    "bar": "none",
-   "reads": "no exit verdict (exit 0): OUT/rows.json died, damage, reasonCode (RESTED), spawnAfter; OUT/summary.json"
+   "passWhen": { "field": "rested", "min": 1 },
+   "reads": "pass: alive and the night waited out (OUT/summary.json rested, a RESTED receipt); OUT/rows.json died, damage, reasonCode"
   },
   {
    "room": "rest-dawn",
