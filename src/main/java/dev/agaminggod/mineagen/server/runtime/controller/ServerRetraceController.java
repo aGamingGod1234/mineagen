@@ -24,6 +24,16 @@ public final class ServerRetraceController implements ServerController {
  private long portalSince;
  private double startRemaining = Double.NaN;
  private String resumeArguments;
+ private static final org.slf4j.Logger LOGGER=org.slf4j.LoggerFactory.getLogger(ServerRetraceController.class);
+ /** Column shortcut: how high a remembered footstep overhead may be, the route it must save, and the look up to see the gap. */
+ static final int SHORTCUT_RISE=12, SHORTCUT_LOOK_TICKS=30;
+ static final double SHORTCUT_MARGIN=4.0D;
+ private final java.util.Set<WalkedRoute.Point> shortcutRefused=new java.util.HashSet<>();
+ private java.util.List<WalkedRoute.Point> shortcuts=java.util.List.of();
+ private WalkedRoute.Point shortcut,shortcutsFrom;
+ private WalkedRoute.Path beforeShortcut;
+ private int beforeIndex;
+ private int shortcutLook;
  public ServerRetraceController resumeWith(String arguments) { resumeArguments=arguments; return this; }
 
  public ServerRetraceController(String dimension,double x,double y,double z,double tolerance,long timeoutMs,boolean build,String stop,Float health,BiPredicate<ServerPlayer,BlockPos> modify,java.util.function.IntFunction<ServerController> shaft,long startedAt) {
@@ -32,6 +42,10 @@ public final class ServerRetraceController implements ServerController {
  @Override public TickResult tick(ServerPlayer p,long nowEpochMs) {
   if(path==null) {
    path=RouteMemory.of(p).path(p,dimension,x,y,z);
+   // After a climb up a column the route is rebuilt from wherever the body ended; with no footing there yet, keep
+   // following the walked route it had (its arrival checks pick up from the body's new place).
+   if(path==null && beforeShortcut!=null) {path=beforeShortcut;index=beforeIndex;legEnd=beforeIndex;}
+   beforeShortcut=null;
    if(path==null) return TickResult.failed("NO_ROUTE","No walked route connects this position to the target; no straight-line replacement attempted",0);
   }
   if(Double.isNaN(startRemaining)) startRemaining=remaining(p);
@@ -57,7 +71,11 @@ public final class ServerRetraceController implements ServerController {
    boolean verticalNext=following!=null && next.dimension().equals(following.dimension()) && next.x()==following.x() && next.z()==following.z() && next.y()!=following.y();
    double arrival=verticalNext && !p.onClimbable()?0.3:1.15;
    double d=Math.sqrt(Math.pow(p.getX()-(next.x()+0.5),2)+Math.pow(p.getY()-next.y(),2)+Math.pow(p.getZ()-(next.z()+0.5),2));
-   if((leg==null || legEnd==index) && d<=arrival && Math.abs(p.getY()-next.y())<=0.6) { if(leg!=null) leg.cancel(p);leg=null;lookedOut=false;index++;continue; }
+   if(shortcut==null && (leg==null || legEnd==index) && d<=arrival && Math.abs(p.getY()-next.y())<=0.6) { if(leg!=null) leg.cancel(p);leg=null;lookedOut=false;index++;continue; }
+   if(leg==null && !lookedOut) {
+    TickResult looking=startShortcut(p,nowEpochMs);
+    if(looking!=null) return looking;
+   }
    if(leg==null) {
     if(!lookedOut) legEnd=index;
     WalkedRoute.Point feet=RouteMemory.point(p);
@@ -80,11 +98,23 @@ public final class ServerRetraceController implements ServerController {
      if(!ServerLookController.turnToward(p,new net.minecraft.world.phys.Vec3(next.x()+0.5,p.getY()+1.0,next.z()+0.5))) return TickResult.running(progress());
     } else if(navigate && horizontal>0.4 && Math.abs(p.getY()-target.y())<=2 && !ServerLookController.turnToward(p,new net.minecraft.world.phys.Vec3(target.x()+0.5,target.y()+1.0,target.z()+0.5))) return TickResult.running(progress());
     boolean down=target.y()<p.getY()-0.6 && horizontal<0.8;
+    if(ServerTravelController.DEBUG) LOGGER.info("RETRACE_LEG {}..{}/{} from {} to {} by {}",index,legEnd,path.points().size(),RouteMemory.point(p),target,navigate?"navigation":down && build?"shaft down":"travel");
     leg=navigate ? new ServerNavigationController(new net.minecraft.world.phys.Vec3(target.x()+0.5,target.y(),target.z()+0.5),verticalNext?0.2:0.3,false,nowEpochMs,timeoutMs-(nowEpochMs-startedAt)) : down && build ? shaft.apply(target.y()) : new ServerTravelController(target.x()+0.5,target.y(),target.z()+0.5,1,timeoutMs-(nowEpochMs-startedAt),build,stop,health,modify,nowEpochMs).routeLeg();
    }
    TickResult result=leg.tick(p,nowEpochMs);
    if(result.state()==State.RUNNING) return TickResult.running(progress());
    leg.cancel(p);leg=null;
+   if(shortcut!=null) {
+    WalkedRoute.Point took=shortcut;shortcut=null;
+    if(result.reasonCode().equals("TRAVEL_TIMEOUT")) return TickResult.timedOut("TRAVEL_TIMEOUT",timeoutMessage(p, result.message()),progress());
+    boolean arrived=result.state()==State.SUCCEEDED && (result.reasonCode().equals("ARRIVED") || result.reasonCode().equals("DESTINATION_REACHED"));
+    if(!arrived && !SHORTCUT_GIVE_UP.contains(result.reasonCode())) return legStopped(result,index,path.points().size(),took,progress());
+    if(!arrived) shortcutRefused.add(took);
+    if(ServerTravelController.DEBUG) LOGGER.info("RETRACE_SHORTCUT {} {} {}",arrived?"climbed to":"gave up on",took,arrived?"":result.reasonCode()+" "+result.message());
+    // The walked route from here, wherever the climb ended: the body's own footsteps up the column are on it.
+    beforeShortcut=path;beforeIndex=index;path=null;index=0;legEnd=0;lookedOut=false;
+    return TickResult.running(progress());
+   }
    WalkedRoute.Point completed=path.points().get(legEnd);
    if(result.reasonCode().equals("REACHED_FRONTIER") && legEnd>index && !lookedOut && Math.abs(p.getY()-completed.y())<=2) {lookedOut=true;return TickResult.running(progress());}
    if(result.reasonCode().equals("TRAVEL_TIMEOUT")) return TickResult.timedOut("TRAVEL_TIMEOUT",timeoutMessage(p, result.message()),progress());
@@ -103,6 +133,57 @@ public final class ServerRetraceController implements ServerController {
    if(result.state()!=State.SUCCEEDED || !result.reasonCode().equals("ARRIVED")) return result;
   }
   return TickResult.succeeded("ARRIVED","Retraced "+Math.round(path.length())+" blocks along "+path.points().size()+" remembered waypoints; target "+x+","+y+","+z);
+ }
+ /** Shortcut leg stops that only mean this column does not work: the walked route is still there to follow. */
+ static final java.util.Set<String> SHORTCUT_GIVE_UP=java.util.Set.of("NO_ROUTE","BUILD_FAILED","OUT_OF_BLOCKS","TUNNEL_FLOODED","TUNNEL_LAVA_PLUGGED","ORE_TOOL_REQUIRED","NO_TOOL","TOOL_WORN","PATH_BLOCKED","STALLED_IN_PLACE","SURFACE_NOT_FOUND");
+
+ /**
+  * A remembered footstep straight overhead (its stair, seen through a gap a later tunnel opened) whose way on is much
+  * shorter than the walked loop round to it: look up the gap once and pillar straight to it when every cell up to its
+  * headroom is seen open, dry and away from seen lava, as a player climbs to the step they see above them. Returns a
+  * running result while looking up, null otherwise (with leg set when the shortcut is taken).
+  */
+ private TickResult startShortcut(ServerPlayer p,long nowEpochMs) {
+  if(!build || p.onClimbable() || TravelBuilder.blockSlot(p)<0) return null;
+  WalkedRoute.Point feet=RouteMemory.point(p);
+  if(!feet.dimension().equals(dimension)) return null;
+  if(!feet.equals(shortcutsFrom)) {
+   shortcutsFrom=feet;shortcutLook=0;
+   shortcuts=RouteMemory.of(p).columnShortcuts(p,dimension,x,y,z,SHORTCUT_RISE,SHORTCUT_MARGIN,shortcutRefused);
+  }
+  if(shortcuts.isEmpty()) return null;
+  MinecraftNavigationWorld seen=new MinecraftNavigationWorld(p.level(),p);
+  boolean unseen=false;String refusal=null;
+  for(WalkedRoute.Point at:shortcuts) {
+   String why=columnRefusal(seen,p,feet,at);
+   if(why==null) {
+    shortcut=at;shortcuts=java.util.List.of();
+    if(ServerTravelController.DEBUG) LOGGER.info("RETRACE_SHORTCUT from {} pillar to {}",feet,at);
+    leg=new ServerTravelController(at.x()+0.5,at.y(),at.z()+0.5,1,timeoutMs-(nowEpochMs-startedAt),build,stop,health,modify,nowEpochMs).routeLeg();
+    return null;
+   }
+   if(why.startsWith("unseen")) unseen=true;
+   if(refusal==null) refusal=why;
+  }
+  if(unseen && shortcutLook++<SHORTCUT_LOOK_TICKS) {
+   ServerLookController.turnToward(p,new net.minecraft.world.phys.Vec3(feet.x()+0.5,p.getEyeY()+8.0,feet.z()+0.5));
+   return TickResult.running(progress());
+  }
+  if(ServerTravelController.DEBUG) LOGGER.info("RETRACE_SHORTCUT from {} refused: {}",feet,refusal);
+  shortcutRefused.addAll(shortcuts);shortcuts=java.util.List.of();
+  return null;
+ }
+ /** Why the column from the feet up to the footstep's headroom cannot be pillared, or null when it is seen open. */
+ static String columnRefusal(MinecraftNavigationWorld seen,ServerPlayer p,WalkedRoute.Point feet,WalkedRoute.Point at) {
+  for(int cy=feet.y()+1;cy<=at.y()+1;cy++) {
+   BlockPos cell=new BlockPos(feet.x(),cy,feet.z());
+   net.minecraft.world.level.block.state.BlockState state=seen.stateAt(cell);
+   if(state==null) return "unseen "+cell.toShortString();
+   if(!state.getFluidState().isEmpty()) return "fluid at "+cell.toShortString();
+   if(!state.getCollisionShape(p.level(),cell).isEmpty()) return "blocked at "+cell.toShortString();
+   if(TravelBuilder.seenLavaBeside(seen,cell)) return "lava beside "+cell.toShortString();
+  }
+  return null;
  }
  /** A leg that stopped short: its own state and reason, the leg target in the message as before and as nextWaypoint. */
  static TickResult legStopped(TickResult result,int index,int count,WalkedRoute.Point target,double progress) {

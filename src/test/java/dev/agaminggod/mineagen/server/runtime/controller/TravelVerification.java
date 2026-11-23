@@ -167,6 +167,16 @@ public final class TravelVerification {
 		cave.floor(2, 14, -3, 3, 55);
 		TravelCheckpoints.Checkpoint down = TravelCheckpoints.pick(cave, 0.5, 64, 0.5, 0.5, 45.0, 0.5, 26, cell -> false);
 		check(down != null && down.feet().y() == 56, "a target below the body counts the descent: the seen cave floor below is the checkpoint: " + down);
+		Grid underStep = new Grid();
+		underStep.floor(0, 0, 0, 0, 63);
+		underStep.floor(0, 0, 2, 2, 57);
+		TravelCheckpoints.Checkpoint step = TravelCheckpoints.pick(underStep, 0.5, 64, 0.5, 0.5, 66.0, 2.5, 26, cell -> false);
+		check(step == null || step.feet().y() >= 64, "a step overhead is never approached from the cave floor under it: " + step);
+		Grid pit = new Grid();
+		pit.floor(0, 0, 0, 0, 63);
+		pit.floor(0, 0, 2, 2, 59);
+		TravelCheckpoints.Checkpoint level = TravelCheckpoints.pick(pit, 0.5, 64, 0.5, 0.5, 64.0, 2.5, 26, cell -> false);
+		check(level != null && level.feet().y() == 60, "a target level with the body still takes the seen ground lower in its column: " + level);
 	}
 
 	private static void verifyNarrowRidge() {
