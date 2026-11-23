@@ -33,6 +33,12 @@ public final class SwimUnderLedgeVerification {
 		checks += check(route != null && route.x() == 0 && route.openY() == 64 && route.path().size() == 17, "full air, 16 cells back to the breath: swim back to it");
 		checks += check(EscapeMoves.wayBack(back, 60) == null, "3 s of air left cannot cover 16 cells: no way back, the other moves");
 		checks += check(EscapeMoves.wayBack(back.subList(0, 1), 300) == null, "no cell to swim to: no way back");
+		checks += check(EscapeMoves.wayBack(back, 160) != null && EscapeMoves.wayBack(back, 159) == null,
+				"16 cells back at 2 blocks/s with the reserve: taken from 160 ticks of air, not at 159");
+		checks += check(EscapeMoves.wayBack(back, 20, true) != null, "already swimming back: it keeps going with little air left rather than turn to rise blind");
+		checks += check(!EscapeMoves.rises(0.0D) && !EscapeMoves.sinks(0.0D), "a level next cell: neither jump nor sneak (jump floats the body off a tunnel's floor)");
+		checks += check(EscapeMoves.rises(0.6D) && !EscapeMoves.sinks(0.6D), "a higher next cell: jump to rise to it");
+		checks += check(EscapeMoves.sinks(-0.6D) && !EscapeMoves.rises(-0.6D), "a lower next cell: sneak to sink to it");
 		return checks;
 	}
 

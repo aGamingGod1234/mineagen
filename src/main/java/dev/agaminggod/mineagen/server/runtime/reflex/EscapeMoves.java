@@ -52,7 +52,11 @@ public final class EscapeMoves {
 				}
 				mark[0] = eye; mark[1] = player.getX(); mark[2] = player.getZ();
 			}
-			var back = wayBack(player, false);
+			// Back where it breathed (the breath cell can be on dry ground): done, not handed to the rising swim that never ran.
+			if (backing[0] && !player.isUnderWater()) return new Result(Status.DONE, "back where it last breathed");
+			// Once on its way back with no air seen, it keeps going: the breath estimate shrinks as fast as the planned swim
+			// goes, so a slow turn would otherwise drop it to the blind rise into the tunnel's roof halfway.
+			var back = wayBack(player, false, backing[0]);
 			backing[0] = back != null;
 			if (back != null) {
 				input.accept(swimBack(player, back.path().get(1)));
@@ -78,13 +82,23 @@ public final class EscapeMoves {
 		float pitch = dev.agaminggod.mineagen.server.runtime.input.AgentInputStates.turnPitch(player.getXRot(), dy > 0.3D ? SwimPlanning.SURFACING_PITCH : dy < -0.3D ? 30.0F : 0.0F);
 		float forward = across ? dev.agaminggod.mineagen.server.runtime.controller.CombatPlanning.alignedForward(1.0F,
 				dev.agaminggod.mineagen.server.runtime.input.AgentInputStates.shortestAngleDelta(yaw, heading)) : 0.0F;
-		return new AgentInputState(forward, 0.0F, dy > 0.3D, dy < -0.3D, false, false, false, yaw, pitch,
+		return new AgentInputState(forward, 0.0F, rises(dy), sinks(dy), false, false, false, yaw, pitch,
 				player.getInventory().getSelectedSlot(), net.minecraft.world.InteractionHand.MAIN_HAND);
 	}
 
 	/** Eyes under water, the seen-air search done with no route, and the way back to the last breath within the breath left. */
 	public static boolean knowsWayBack(ServerPlayer player) {
-		return wayBack(player, true) != null;
+		return wayBack(player, true, false) != null;
+	}
+
+	/**
+	 * A way back within the breath is known but the seen-air search is still running (it restarts as the eyes cross into
+	 * a new cell and each second): the escape waits for its answer before choosing, or a restart mid-search reads as
+	 * "air seen" and sends it to a bank it cannot reach.
+	 */
+	public static boolean awaitsAirSearch(ServerPlayer player) {
+		if (!player.isUnderWater() || wayBack(LastBreath.wayBack(player), player.getAirSupply(), false) == null) return false;
+		return dev.agaminggod.mineagen.server.perception.WaterAirFacts.surface(player).searching();
 	}
 
 	/**
@@ -93,11 +107,11 @@ public final class EscapeMoves {
 	 * route takes over the tick it is found; rising blind first lengthens the way past the breath (sealed-pocket room: 22
 	 * cells back, 2 to 3 more after the rise, over the 24 a full breath covers, so the first escape ended ESCAPE_NO_WAY).
 	 */
-	private static SwimPlanning.Surface wayBack(ServerPlayer player, boolean settled) {
+	private static SwimPlanning.Surface wayBack(ServerPlayer player, boolean settled, boolean underway) {
 		if (!player.isUnderWater()) return null;
 		var lookup = dev.agaminggod.mineagen.server.perception.WaterAirFacts.surface(player);
 		if (settled && lookup.searching() || lookup.surface() != null && lookup.surface().path().size() >= 2) return null;
-		return wayBack(LastBreath.wayBack(player), player.getAirSupply());
+		return wayBack(LastBreath.wayBack(player), player.getAirSupply(), underway);
 	}
 
 	/**
@@ -105,9 +119,23 @@ public final class EscapeMoves {
 	 * with the reserve (the end is known air, an authored breathable target); else null.
 	 */
 	static SwimPlanning.Surface wayBack(List<BlockPos> back, int air) {
-		if (back.size() < 2 || !SwimPlanning.breathCovers(air + SwimPlanning.AIR_RESERVE_TICKS, back.size() - 1)) return null;
+		return wayBack(back, air, false);
+	}
+
+	/** {@code underway}: already swimming back, so the way is taken whatever the breath left (turning back again is worse). */
+	static SwimPlanning.Surface wayBack(List<BlockPos> back, int air, boolean underway) {
+		if (back.size() < 2 || !underway && !SwimPlanning.breathCovers(air + SwimPlanning.AIR_RESERVE_TICKS, back.size() - 1)) return null;
 		BlockPos breath = back.get(back.size() - 1);
 		return new SwimPlanning.Surface(breath.getX(), breath.getY(), breath.getZ(), back.size() - 1, true, back);
+	}
+
+	/** Jump on the way back only to rise to the next cell, sneak only to sink to it, neither when it is level. */
+	static boolean rises(double dy) {
+		return dy > 0.3D;
+	}
+
+	static boolean sinks(double dy) {
+		return dy < -0.3D;
 	}
 
 	/** A blind swim's 2 s window made way: the eyes rose, or the body moved across (out from under a ledge), half a block. */

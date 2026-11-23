@@ -89,6 +89,9 @@ public final class ServerEscapeController implements ServerController {
 	private int swims;
 	/** Pushes onto a bank from the body's own column, and across one open water column: each kind has its own tries. */
 	private int climbs, farClimbs;
+	/** Ticks waited for the seen-air search before choosing between the way back and a bank (a full search is about 20). */
+	static final int SEARCH_WAIT_TICKS = 25;
+	private int searchWaits;
 	/** Gives back the running move's attempt when a reflex interrupts it (see {@link #resumed}). */
 	private Runnable refund;
 	private int fills, steps, wades;
@@ -214,6 +217,11 @@ public final class ServerEscapeController implements ServerController {
 		// Eyes under water with no seen air, and the way it swam from its last breath known and within the breath left (a
 		// sealed pocket past the air search's reach): a player swims back the way they came. A bank seen from there is no
 		// way out (travel stops BREATH_NOT_COVERED with no seen way up: sealed-pocket room, every try until the timeout).
+		if (player.isUnderWater() && swims < MAX_TRIES && searchWaits < SEARCH_WAIT_TICKS && EscapeMoves.awaitsAirSearch(player)) {
+			searchWaits++;
+			input.release();
+			return TickResult.running(0.5D);
+		}
 		if (player.isUnderWater() && swims < MAX_TRIES && EscapeMoves.knowsWayBack(player)) {
 			swims++;
 			refund = () -> swims--;

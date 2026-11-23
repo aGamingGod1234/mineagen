@@ -34,6 +34,13 @@ public final class LastBreathVerification {
 		dive.step(new BlockPos(31, 61, 0), true, OVERWORLD);
 		checks += check(dive.wayBack(new BlockPos(31, 61, 0), OVERWORLD).isEmpty(), "and it stays unknown until the next breath");
 
+		LastBreath steps = new LastBreath();
+		steps.step(new BlockPos(0, 64, 0), false, OVERWORLD);
+		steps.step(new BlockPos(1, 63, 1), true, OVERWORLD);
+		checks += check(steps.wayBack(new BlockPos(1, 63, 1), OVERWORLD).size() == 2, "a diagonal move of 3 (one tick's swim) stays on the way back");
+		steps.step(new BlockPos(3, 62, 2), true, OVERWORLD);
+		checks += check(steps.wayBack(new BlockPos(3, 62, 2), OVERWORLD).isEmpty(), "a jump of 4 cells is not a swim: the way back is dropped");
+
 		LastBreath far = new LastBreath();
 		far.step(new BlockPos(0, 64, 0), false, OVERWORLD);
 		for (int x = 1; x <= LastBreath.MAX_TRAIL; x++) far.step(new BlockPos(x, 63, 0), true, OVERWORLD);
