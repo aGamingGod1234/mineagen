@@ -35,10 +35,23 @@ function dragonFact(observation) {
 	return `Ender dragon: its wings and body fling a player many blocks, up to about 10 high, even on flat ground; the landing alone can kill. Water placed below before landing cancels fall damage; a turn is too slow to place it mid-fall, a falling reflex is not.${water} ${DRAGON_FINISH_FACTS}`;
 }
 
+// Only a source refills an empty bucket: its ray passes flowing water (vanilla SOURCE_ONLY). Block rows carry the fluid
+// (minecraft:water is a source, minecraft:flowing_water is not) and the block's level (0 for a source); landmark rows
+// carry neither. The block rows are the cells nearest the feet, so a pour a few blocks off often shows only its flow:
+// then the nearest water is named, and use_item with an empty bucket aimed at flowing water fills from its source.
+const waterSource = b => b.fluid?.type !== undefined ? b.fluid.type === 'minecraft:water' : b.state?.level !== undefined && String(b.state.level) === '0';
 function seenWater(observation) {
-	const rows = [...(observation.blocks ?? []), ...(observation.landmarks ?? [])].filter(b => b?.blockId === 'minecraft:water' && [b.x, b.y, b.z].every(Number.isFinite));
-	const nearest = rows.sort((a, b) => (a.distance ?? Infinity) - (b.distance ?? Infinity))[0];
-	return nearest ? ` Water seen at ${nearest.x},${nearest.y},${nearest.z}.` : '';
+	const at = observation.position ?? observation.player?.position ?? observation.player;
+	// Block rows carry no distance: measure from the feet when the row does not say.
+	const distance = b => Number.isFinite(b.distance) ? b.distance
+		: [at?.x, at?.y, at?.z].every(Number.isFinite) ? Math.hypot(b.x + 0.5 - at.x, b.y + 0.5 - at.y, b.z + 0.5 - at.z) : Infinity;
+	const nearest = rows => rows.filter(b => b?.blockId === 'minecraft:water' && [b.x, b.y, b.z].every(Number.isFinite))
+		.sort((a, b) => distance(a) - distance(b));
+	const near = nearest(observation.blocks ?? []);
+	const source = near.find(waterSource);
+	if (source) return ` Water source seen at ${source.x},${source.y},${source.z}.`;
+	const water = near[0] ?? nearest(observation.landmarks ?? [])[0];
+	return water ? ` Water seen at ${water.x},${water.y},${water.z} (flowing or not known); an empty bucket aimed at flowing water fills from the source it flows from.` : '';
 }
 
 // Sword attack damage (vanilla tiers); a falling critical deals 1.5x. Blaze health is 20.

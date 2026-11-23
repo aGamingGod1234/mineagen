@@ -1,0 +1,5 @@
+# PR #197: Dig on at the ore's depth after a flood instead of climbing back to the surface
+
+- **Problem:** two water fixes merged the same day made the bot worse at finding iron from spawn: 8 of 20 runs got iron before, 0 of 20 after. A bisect showed a small earlier change (one extra escape from water) nudged the bot a few blocks, so three minutes later its dig toward the iron opened an underground lake right over it. The search's only answer to a flood was to climb all the way back to where it started digging, which threw away the whole descent.
+- **Solution:** flooded near the ore's depth, the bot now gets out of the water where it is and keeps tunnelling at that depth, as a player would.
+- **Result:** measured on boat, 10 runs a side: iron-obtain-20261107 0/10 to 10/10; the aquifer escape room 10/10 vs 9/10 and the sealed-pocket room 5/5 vs 5/5 (no change); lava rooms untouched (the new path never ran there). iron-obtain-6006 stayed 0/10: its drop came with an earlier change and is still open.

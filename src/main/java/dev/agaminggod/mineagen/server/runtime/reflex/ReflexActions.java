@@ -2992,9 +2992,9 @@ final class ReflexActions {
 
 	/**
 	 * Defend's cover from a ranged attacker it cannot reach, for the gap while the model thinks: walls on every open side
-	 * of the body's cell, feet and head, and a roof when the shooter's eyes are above the body's head (an overhang, or the
-	 * body down a drop). A cell already solid counts. Each placement is a player's click on a seen face; the body steps to
-	 * the middle of its cell first and never places into itself. It does not start in or under water, with a creeper
+	 * of the body's cell, feet and head, then a roof while the shooter lives (with nothing bordering the roof cell, the body
+	 * jumps to put a block on a wall top first and roofs against it). A cell already solid counts. Each placement is a player's click on a seen face; the body steps to
+	 * the middle of its cell first and never places into itself. It does not start under water, or in water unless the cell is already closed on every side, with a creeper
 	 * within {@link #CREEPER_RANGE} blocks, or with a mob inside or beside the cells it would enclose; while building it
 	 * stops for water or a creeper, leaves a side open where a mob stands in a wall cell, and before the last block stops
 	 * if a mob got inside. It ends when the walls are up and says which sides are closed; the walls stay as blocks and
@@ -3013,6 +3013,7 @@ final class ReflexActions {
 		private int ticks;
 		private boolean centred;
 		private int heldSlot = -1;
+		private int jumpTicks;
 
 		WallIn(LivingEntity shooter) {
 			this.shooter = shooter;
@@ -3033,7 +3034,7 @@ final class ReflexActions {
 
 		/** Why the body must not wall in here now, or null. */
 		static String refusal(ServerPlayer player, BlockPos center, Vec3 shooter) {
-			if (unsteadyWater(player)) return "the body is in water";
+			if (unsteadyWater(player) && (player.isUnderWater() || !enclosed(player.level(), center))) return "the body is in water";
 			for (Creeper creeper : player.level().getEntitiesOfClass(Creeper.class, player.getBoundingBox().inflate(CREEPER_RANGE), Creeper::isAlive)) {
 				if (player.distanceTo(creeper) <= CREEPER_RANGE) return "a creeper is within " + (int) CREEPER_RANGE + " blocks";
 			}
@@ -3066,6 +3067,8 @@ final class ReflexActions {
 			Level level = player.level();
 			if (center == null) {
 				center = BlockPos.containing(player.getX(), player.getY() + 0.2D, player.getZ());
+				// Afloat in the jump that roofs a closed cell: the cell is the one below the body.
+				if (!enclosed(level, center) && enclosed(level, center.below()) && level.getBlockState(center.below()).canBeReplaced()) center = center.below();
 				String no = refusal(player, center, shooter.position());
 				if (no != null) return Step.failed("not walling in: " + no);
 				heldSlot = player.getInventory().getSelectedSlot();
@@ -3076,11 +3079,12 @@ final class ReflexActions {
 					BlockPos cell = center.relative(side).above(y);
 					if (level.getBlockState(cell).canBeReplaced()) plan.add(cell);
 				}
-				BlockPos roof = center.above(2);
-				if (shooter.getEyeY() > player.getY() + player.getBbHeight() && level.getBlockState(roof).canBeReplaced()) plan.add(roof);
+				planRoof(level, facing);
 				if (plan.isEmpty()) return Step.done(report(level, "already closed on every side"));
 			}
-			if (unsteadyWater(player)) return stop(level, "the body went into water");
+			// In a cell closed on every side the still water there cannot carry the body off, and the jump that roofs it
+			// lifts the body off the bottom.
+			if (unsteadyWater(player) && (player.isUnderWater() || !enclosed(level, center))) return stop(level, "the body went into water");
 			for (Creeper creeper : level.getEntitiesOfClass(Creeper.class, player.getBoundingBox().inflate(CREEPER_RANGE), Creeper::isAlive)) {
 				if (player.distanceTo(creeper) <= CREEPER_RANGE) return stop(level, "a creeper came within " + (int) CREEPER_RANGE + " blocks");
 			}
@@ -3107,27 +3111,111 @@ final class ReflexActions {
 				}
 			}
 			List<BlockPos> open = plan.stream().filter(cell -> level.getBlockState(cell).canBeReplaced() && !skipped.contains(cell)).toList();
+			// A firing that finds the sides already up (an earlier one built them) still roofs the cell.
+			if (open.isEmpty() && planRoof(level, Direction.getApproximateNearest(shooter.getX() - player.getX(), 0.0D, shooter.getZ() - player.getZ()))) {
+				open = plan.stream().filter(cell -> level.getBlockState(cell).canBeReplaced() && !skipped.contains(cell)).toList();
+			}
 			if (open.isEmpty()) {
 				input.accept(look(player, null, 0.0F, 0.0F, false, false, heldSlot, InteractionHand.MAIN_HAND));
 				return Step.done(report(level, "walled in from " + type(shooter)));
 			}
 			if (open.size() == 1 && insider(player) != null) return stop(level, type(insider(player)) + " got inside before the last wall");
 			BlockPos target = null;
+			boolean inBody = false;
 			for (BlockPos cell : open) {
-				if (player.getBoundingBox().intersects(new AABB(cell))) continue;
+				if (player.getBoundingBox().intersects(new AABB(cell))) {
+					// Only a body still off the floor (the roof jump) or afloat comes down out of the roof cell; one standing on a
+					// raised block (a bed, a slab) keeps its head there.
+					inBody |= cell.getY() >= center.getY() + 2 && (!player.onGround() || player.isInWater());
+					continue;
+				}
 				List<? extends LivingEntity> occupant = level.getEntitiesOfClass(LivingEntity.class, new AABB(cell), mob -> mob != player && mob.isAlive());
 				if (!occupant.isEmpty()) { skipped.add(cell); continue; }
 				target = cell;
 				break;
 			}
-			if (target == null || ++ticks > STUCK_TICKS * plan.size()) return stop(level, "could not place the last wall");
+			if (++ticks > STUCK_TICKS * plan.size()) return roofStop(level, "could not place the last wall");
+			if (target == null) {
+				if (!inBody) return roofStop(level, "could not place the last wall");
+				// Coming down from the jump that put a block on top of a wall: the roof cell is free once the body lands.
+				// Crouched, a body afloat in the cell's water goes down instead of bobbing at the top.
+				input.accept(new AgentInputState(0.0F, 0.0F, false, true, false, false, false, player.getYRot(), player.getXRot(),
+						player.getInventory().getSelectedSlot(), InteractionHand.MAIN_HAND));
+				return Step.running("landing before the roof over the cell to shut out " + type(shooter));
+			}
 			int slot = PlaceBlock.blockSlot(player, null);
-			if (slot < 0) return stop(level, "ran out of blocks");
+			if (slot < 0) return roofStop(level, "ran out of blocks");
 			BlockHitResult face = PlaceBlock.face(player, target);
+			if (face == null && target.getY() >= center.getY() + 2 && wallTop(level, target)) {
+				// A block on top of a wall: from the floor of a 2-high cell the wall's top face is above the eye, so a player
+				// jumps and clicks it near the top of the jump, then roofs against that block's side.
+				if (++jumpTicks > STUCK_TICKS) {
+					// The jump never lifted the eye over the wall top (deep water, a low ceiling): the sides stand unroofed.
+					skipped.add(target);
+					skipped.add(center.above(2));
+					return Step.running("could not reach the wall top to roof over the cell");
+				}
+				Vec3 top = Vec3.atCenterOf(target.below()).add(0.0D, 0.5D, 0.0D);
+				// Jump held only until the eye clears the wall top: in water the body keeps rising while it is held.
+				input.accept(look(player, top, 0.0F, 0.0F, player.getEyeY() < top.y + 0.15D, false, slot, InteractionHand.MAIN_HAND));
+				return Step.running("jumping to put a block on the wall top to roof over the cell from " + type(shooter));
+			}
 			if (face == null) { skipped.add(target); return Step.running("no face to place against at " + target.toShortString()); }
 			input.accept(look(player, face.getLocation(), 0.0F, 0.0F, false, PlaceBlock.clicksInto(player, face, target), slot, InteractionHand.MAIN_HAND));
 			placed = (int) plan.stream().filter(cell -> !level.getBlockState(cell).canBeReplaced()).count();
 			return Step.running("walling in from " + type(shooter) + ": " + placed + "/" + plan.size());
+		}
+
+		/**
+		 * Adds the roof (and, when nothing borders the roof cell, a block on top of a wall to place it against) while the
+		 * shooter lives. True when it added a cell.
+		 */
+		private boolean planRoof(Level level, Direction facing) {
+			BlockPos roof = center.above(2);
+			if (plan.contains(roof) || skipped.contains(roof) || !level.getBlockState(roof).canBeReplaced() || !roofThreat(level)) return false;
+			// Never roof over water in the head cell: a body bobbing there sinks into a sealed cell with no air.
+			if (!level.getFluidState(center.above()).isEmpty()) return false;
+			boolean bordered = false;
+			for (Direction toward : new Direction[] {Direction.UP, Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST}) {
+				BlockPos support = roof.relative(toward);
+				if (level.getBlockState(support).isFaceSturdy(level, support, toward.getOpposite())) { bordered = true; break; }
+			}
+			if (!bordered) {
+				BlockPos support = null;
+				for (Direction side : List.of(facing, facing.getClockWise(), facing.getCounterClockWise(), facing.getOpposite())) {
+					BlockPos cell = roof.relative(side);
+					if (level.getBlockState(cell).canBeReplaced() && wallTop(level, cell)) { support = cell; break; }
+				}
+				if (support == null) return false;
+				plan.add(support);
+			}
+			plan.add(roof);
+			return true;
+		}
+
+		/**
+		 * Whether the roof goes on: while the shooter lives. Where it stood when the walls began says nothing about where it
+		 * shoots from next: a skeleton that steps onto a rim or a rise sees down over 2-high walls, and once the sides are up
+		 * the arrow dodge, cover and retreat (all above defend) take the body, so defend is not there to roof it later
+		 * (defend-shallow: walled in on every side with no roof, shot from the 1-high rim at 1 block, 3 of 10 runs dead).
+		 */
+		private boolean roofThreat(Level level) {
+			return shooter.isAlive() && shooter.level() == level;
+		}
+
+		/** Whether the cell is closed on every side at feet and head. */
+		static boolean enclosed(Level level, BlockPos center) {
+			for (Direction side : Direction.Plane.HORIZONTAL) {
+				BlockPos feet = center.relative(side);
+				if (level.getBlockState(feet).canBeReplaced() || level.getBlockState(feet.above()).canBeReplaced()) return false;
+			}
+			return true;
+		}
+
+		/** A cell standing on a wall block whose top a jump can click. */
+		private static boolean wallTop(Level level, BlockPos cell) {
+			BlockPos below = cell.below();
+			return level.getBlockState(below).isFaceSturdy(level, below, Direction.UP);
 		}
 
 		/** A living thing other than the body in the body's own two cells. */
@@ -3139,6 +3227,15 @@ final class ReflexActions {
 
 		private Step stop(Level level, String why) {
 			return Step.failed(report(level, "stopped walling in: " + why));
+		}
+
+		/**
+		 * A stop that only the roof can meet: with every side already closed the wall-in did its job (the walls alone were
+		 * the whole plan before the roof), so it ends done without a roof instead of counting against defend.
+		 */
+		private Step roofStop(Level level, String why) {
+			if (enclosed(level, center)) return Step.done(report(level, "walled in from " + type(shooter) + " with no roof: " + why));
+			return stop(level, why);
 		}
 
 		/** Which sides are closed (feet and head), the roof, and that opening them is the model's call. */
