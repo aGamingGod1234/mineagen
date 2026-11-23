@@ -2903,10 +2903,11 @@ public final class ServerBuildController implements ServerController {
 	}
 
 	/**
-	 * One step of a 1x2 way dug at the feet's level toward the nearest known source a little below them: mine the next cell
-	 * (feet, then head) through the break's own fluid rules, then step in. The scoop, or the one-block window, takes over
-	 * once the source is in reach. Never through the frame, its footprint or the mould, never onto an open drop or lava
-	 * floor. Null when no step is left.
+	 * One step of a 1x2 way dug toward the nearest known source a little below the feet: mine the next cell (feet, then
+	 * head) through the break's own fluid rules, then step in. With lava heard at that level the step goes one block up
+	 * instead (kit-gate-5: lava heard 2 blocks beside the first cell), where lava cannot flow in, as a player digs over a
+	 * pool to scoop it from above. The scoop, or the one-block window, takes over once the source is in reach. Never
+	 * through the frame, its footprint or the mould, never onto an open drop or lava floor. Null when no step is left.
 	 */
 	private TickResult digTowardLava(ServerPlayer player, List<BlockPos> sources, long now) {
 		if (fetchDigs >= MAX_FETCH_DIGS || sources.isEmpty()) return null;
@@ -2915,7 +2916,7 @@ public final class ServerBuildController implements ServerController {
 		BlockPos target = null;
 		double best = Double.MAX_VALUE;
 		for (BlockPos source : sources) {
-			if (source.getY() >= feet.getY() || feet.getY() - source.getY() > 3) continue;
+			if (source.getY() >= feet.getY() || feet.getY() - source.getY() > 4) continue;
 			double across = Math.hypot(source.getX() - feet.getX(), source.getZ() - feet.getZ());
 			if (across <= FETCH_DIG_REACH && across < best) { best = across; target = source; }
 		}
@@ -2924,42 +2925,47 @@ public final class ServerBuildController implements ServerController {
 		Direction alongX = dx > 0 ? Direction.EAST : dx < 0 ? Direction.WEST : null;
 		Direction alongZ = dz > 0 ? Direction.SOUTH : dz < 0 ? Direction.NORTH : null;
 		Direction[] order = Math.abs(dx) >= Math.abs(dz) ? new Direction[] { alongX, alongZ } : new Direction[] { alongZ, alongX };
-		steps:
 		for (Direction step : order) {
 			if (step == null) continue;
 			BlockPos next = feet.relative(step);
-			if (inFootprint(next) || inFootprint(next.above()) || mould.contains(next) || mould.contains(next.above())) continue;
-			for (BlockPos cell : new BlockPos[] { next, next.above() }) {
-				BlockState state = known(player, cell);
-				if (state == null) {
-					TickResult look = lookOnce(player, cell);
+			rises:
+			for (int rise = 0; rise <= 1; rise++) {
+				BlockPos stand = next.above(rise);
+				// Up a block: the cell over the head opens too, for the jump onto the step.
+				BlockPos[] cells = rise == 0 ? new BlockPos[] { stand, stand.above() } : new BlockPos[] { feet.above(2), stand, stand.above() };
+				for (BlockPos cell : cells) if (inFootprint(cell) || mould.contains(cell)) continue rises;
+				for (BlockPos cell : cells) {
+					BlockState state = known(player, cell);
+					if (state == null) {
+						TickResult look = lookOnce(player, cell);
+						if (look != null) return look;
+						continue rises;
+					}
+					if (!state.getFluidState().isEmpty()) continue rises;
+					if (state.isAir()) continue;
+					if (uncoverDead.contains(cell) || clearTicks(player, level, cell, state) > MAX_CLEAR_TICKS) continue rises;
+					fetchDigs++;
+					uncoverCell = cell.immutable();
+					releaseInput();
+					try {
+						LOGGER.info("[build] {} digs {} toward the lava at {}", player.getGameProfile().name(), xyz(cell), xyz(target));
+						return startChild(player, Child.UNCOVER, environment.uncover(player, cell, Math.min(15_000L, Math.max(1L, deadline - now))));
+					} catch (AgentDomainException refused) {
+						uncoverDead.add(cell);
+						LOGGER.info("[build] {} could not open {}: {} {}", player.getGameProfile().name(), xyz(cell), refused.code(), refused.getMessage());
+						continue rises;
+					}
+				}
+				// The floor under a mined cell lay inside rock, never seen: look at it before stepping in.
+				BlockState floor = known(player, stand.below());
+				if (floor == null) {
+					TickResult look = lookOnce(player, stand.below());
 					if (look != null) return look;
-					continue steps;
+					continue;
 				}
-				if (!state.getFluidState().isEmpty()) continue steps;
-				if (state.isAir()) continue;
-				if (uncoverDead.contains(cell) || clearTicks(player, level, cell, state) > MAX_CLEAR_TICKS) continue steps;
-				fetchDigs++;
-				uncoverCell = cell.immutable();
-				releaseInput();
-				try {
-					LOGGER.info("[build] {} digs {} toward the lava at {}", player.getGameProfile().name(), xyz(cell), xyz(target));
-					return startChild(player, Child.UNCOVER, environment.uncover(player, cell, Math.min(15_000L, Math.max(1L, deadline - now))));
-				} catch (AgentDomainException refused) {
-					uncoverDead.add(cell);
-					LOGGER.info("[build] {} could not open {}: {} {}", player.getGameProfile().name(), xyz(cell), refused.code(), refused.getMessage());
-					continue steps;
-				}
+				if (floor.isAir() || !floor.getFluidState().isEmpty()) continue;
+				if (standable(player, level, stand) && walks < MAX_WALKS - 1) return walkTo(player, stand, now);
 			}
-			// The floor under a mined cell lay inside rock, never seen: look at it before stepping in.
-			BlockState floor = known(player, next.below());
-			if (floor == null) {
-				TickResult look = lookOnce(player, next.below());
-				if (look != null) return look;
-				continue;
-			}
-			if (floor.isAir() || !floor.getFluidState().isEmpty()) continue;
-			if (standable(player, level, next) && walks < MAX_WALKS - 1) return walkTo(player, next, now);
 		}
 		return null;
 	}
