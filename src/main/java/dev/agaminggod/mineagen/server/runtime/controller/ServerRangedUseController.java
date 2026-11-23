@@ -579,6 +579,9 @@ public final class ServerRangedUseController implements ServerTransactionAdapter
 	 */
 	static final class ArrowWatch {
 		static final int MAX_WATCH_TICKS = 60;
+		/** Ticks an arrow shot at an End crystal is followed past sight for the crystal's blast (an arrow covers ~60 blocks). */
+		static final int CRYSTAL_BLAST_WAIT_TICKS = 30;
+		private int sightLostAt = -1;
 		private final ServerPlayer player;
 		private final AbstractArrow arrow;
 		private final Entity target;
@@ -615,7 +618,17 @@ public final class ServerRangedUseController implements ServerTransactionAdapter
 					? "it struck the target, which broke or died" : "it struck the target";
 			// Stop before reading another hidden position or outcome. Seeing an earlier flight segment
 			// does not authorize following the arrow through a wall or behind the shooter's view.
-			if (!ObservationVisibility.canSeeEntity(player, arrow)) return "you lost sight of it; impact not confirmed";
+			if (!ObservationVisibility.canSeeEntity(player, arrow)) {
+				// An End crystal's blast is seen and heard from far off: a shot that leaves sight over a pillar's top edge is
+				// still judged by whether the crystal it flew at blows up in the next moments. Without this the bot kept a
+				// crystal its own arrow had broken as standing (dragon room: 2 of 20 runs chased one for over 10 minutes).
+				if (target instanceof net.minecraft.world.entity.boss.enderdragon.EndCrystal && !force && ticks < MAX_WATCH_TICKS) {
+					if (sightLostAt < 0) sightLostAt = ticks;
+					if (!target.isAlive()) return "the target broke or died (something else did it; your arrow impact not confirmed)";
+					if (ticks - sightLostAt < CRYSTAL_BLAST_WAIT_TICKS) return null;
+				}
+				return "you lost sight of it; impact not confirmed";
+			}
 			boolean alive = arrow.isAlive() && !arrow.isRemoved();
 			net.minecraft.world.phys.Vec3 now = alive ? arrow.position() : last;
 			if (target.isAlive() && ObservationVisibility.canSeeEntity(player, target)) {

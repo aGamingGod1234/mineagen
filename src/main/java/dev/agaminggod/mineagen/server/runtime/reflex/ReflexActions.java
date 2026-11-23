@@ -2274,6 +2274,8 @@ final class ReflexActions {
 		private Step ending;
 		private Vec3 settleTo;
 		private int settleTicks;
+		/** The climb out of a breath cloud the run had no level way out of ({@link RiseAboveCloud}). */
+		private RiseAboveCloud rise;
 		/** A way back along known walkable cells, taken when no straight heading has safe footing (a tunnel, a bend). */
 		private PathWalk walk;
 		private String walkNote = "";
@@ -2312,6 +2314,13 @@ final class ReflexActions {
 			}
 			if (ending != null) return settle(player, input);
 			double moved = Math.hypot(player.getX() - start.x, player.getZ() - start.z);
+			if (rise != null) return rise.tick(player, input);
+			// Already standing over the breath (on blocks it placed, or a column top): any step off sinks back into it.
+			if (context.focus() == null && dev.agaminggod.mineagen.server.perception.CloudDanger.beneath(player) != null
+					&& dev.agaminggod.mineagen.server.perception.CloudDanger.touching(player) == null && player.onGround()) {
+				rise = RiseAboveCloud.holding(player);
+				return rise.tick(player, input);
+			}
 			// The default sense hands over a lit creeper only within 5 blocks; one lit just beyond is still inside this run's clearance.
 			if (creeper != null && (!creeper.isAlive() || !ReflexSensors.fusing(creeper))) {
 				Creeper next = otherFusing(player, creeper);
@@ -2396,6 +2405,13 @@ final class ReflexActions {
 			if (heading == null) heading = SafeStep.heading(player, away, offsets, lastHeading,
 					List.of(yaw -> runsIntoCloud(player, yaw) || runsTowardVoid(player, yaw), yaw -> runsTowardVoid(player, yaw)), maxDrop);
 			lastHeading = heading;
+			// No level heading out of a breath cloud (a bridge, a column top, a platform rim): the cloud is half a block high,
+			// so a block placed under the feet lifts the body out of it, where running back across it or a drop cost a hit or
+			// more each second. Dragon room: 6 of 14 deaths were breath with no heading out.
+			if (heading == null && context.focus() == null && dev.agaminggod.mineagen.server.perception.CloudDanger.touching(player) != null) {
+				rise = RiseAboveCloud.start(player, dev.agaminggod.mineagen.server.perception.CloudDanger.touching(player));
+				if (rise != null) return rise.tick(player, input);
+			}
 			if (heading == null && dropHeading != null) heading = dropHeading;
 			if (heading == null && spentAcross) return end(player, input, Step.done(String.format(Locale.ROOT, "ran %.1f blocks; no safe heading further", moved) + dropNote + walkNote));
 			if (heading == null) {
@@ -2649,6 +2665,83 @@ final class ReflexActions {
 	private static final int MAX_PATH_CELLS = 1_500;
 
 	/** Go to a cell the model named (cover it chose) by a short safe path over seen terrain. */
+	/**
+	 * Out of a harmful cloud upward: jump and place a block under the feet until the feet stand at or above the cloud's box
+	 * top (vanilla clouds are 0.5 blocks high), then hold there while the cloud stays beneath, as a player stands on a block
+	 * out of dragon breath it cannot run from. Each firing holds {@link #HOLD_TICKS} at most; the breath floor fires again
+	 * while the cloud is in reach and a waiting command stays held, so a dig down or walk off waits for the cloud to go.
+	 */
+	static final class RiseAboveCloud {
+		static final int MAX_BLOCKS = 3;
+		static final int HOLD_TICKS = 40;
+		/** Ticks a rise may take per block before it is given up (a jump and place takes about 8). */
+		static final int TICKS_PER_BLOCK = 30;
+		private final int goalY;
+		private final int fromY;
+		private final int slot;
+		private int ticks;
+		private int held;
+
+		private RiseAboveCloud(int fromY, int goalY, int slot) {
+			this.fromY = fromY;
+			this.goalY = goalY;
+			this.slot = slot;
+		}
+
+		/** Holding above a cloud the body already stands over. */
+		static RiseAboveCloud holding(ServerPlayer player) {
+			int feet = Mth.floor(player.getY() + 1.0E-4D);
+			return new RiseAboveCloud(feet, feet, player.getInventory().getSelectedSlot());
+		}
+
+		/** A rise out of {@code cloud}, or null: no plain block in the hotbar, too high a cloud, or no headroom. */
+		static RiseAboveCloud start(ServerPlayer player, net.minecraft.world.entity.AreaEffectCloud cloud) {
+			if (cloud == null || !player.onGround()) return null;
+			int slot = PlaceBlock.blockSlot(player, null);
+			if (slot < 0) return null;
+			int feet = Mth.floor(player.getY() + 1.0E-4D);
+			int goal = Mth.ceil(cloud.getBoundingBox().maxY - 1.0E-4D);
+			if (goal <= feet) goal = feet + 1;
+			if (goal - feet > MAX_BLOCKS) return null;
+			Level level = player.level();
+			for (int y = feet + 2; y <= goal + 1; y++) {
+				BlockPos cell = BlockPos.containing(player.getX(), y, player.getZ());
+				if (!level.getBlockState(cell).getCollisionShape(level, cell).isEmpty() || !level.getFluidState(cell).isEmpty()) return null;
+			}
+			return new RiseAboveCloud(feet, goal, slot);
+		}
+
+		Step tick(ServerPlayer player, Consumer<AgentInputState> input) {
+			ticks++;
+			int feet = Mth.floor(player.getY() + 1.0E-4D);
+			if (feet >= goalY && player.onGround()) {
+				input.accept(new AgentInputState(0.0F, 0.0F, false, false, false, false, false, player.getYRot(), player.getXRot(),
+						player.getInventory().getSelectedSlot(), InteractionHand.MAIN_HAND));
+				String where = String.format(Locale.ROOT, "standing at y %d over the breath cloud", feet);
+				String risen = feet > fromY ? String.format(Locale.ROOT, "placed %d block(s) under the feet, ", feet - fromY) : "";
+				if (dev.agaminggod.mineagen.server.perception.CloudDanger.beneath(player) == null
+						&& dev.agaminggod.mineagen.server.perception.CloudDanger.touching(player) == null) return Step.done(risen + "the cloud below is gone");
+				if (dev.agaminggod.mineagen.server.perception.CloudDanger.touching(player) != null) return Step.failed(risen + "still in the cloud at y " + feet);
+				return ++held >= HOLD_TICKS ? Step.done(risen + where + "; holding until it clears") : Step.running(risen + where);
+			}
+			if (ticks > TICKS_PER_BLOCK * (goalY - fromY)) return Step.failed(String.format(Locale.ROOT, "could not climb out of the breath: feet y %d of %d", feet, goalY));
+			if (!(player.getInventory().getItem(slot).getItem() instanceof BlockItem)) return Step.failed("ran out of blocks climbing out of the breath");
+			boolean high = player.getY() >= feet + 1.0E-3D && player.getY() - feet >= 0.0D && !player.onGround();
+			BlockPos cell = BlockPos.containing(player.getX(), player.getY() - 1.0D + 1.0E-3D, player.getZ());
+			boolean use = false;
+			if (high && player.level().getBlockState(cell).canBeReplaced()) {
+				BlockPos support = cell.below();
+				if (!player.level().getBlockState(support).getCollisionShape(player.level(), support).isEmpty()) {
+					BlockHitResult face = new BlockHitResult(Vec3.atCenterOf(support).add(0.0D, 0.5D, 0.0D), Direction.UP, support, false);
+					use = PlaceBlock.clicksInto(player, face, cell);
+				}
+			}
+			input.accept(new AgentInputState(0.0F, 0.0F, player.onGround(), false, false, false, use, player.getYRot(),
+					AgentInputStates.turnPitch(player.getXRot(), 90.0F), slot, InteractionHand.MAIN_HAND));
+			return Step.running(String.format(Locale.ROOT, "climbing out of the breath: feet y %d of %d", Mth.floor(player.getY() + 1.0E-4D), goalY));
+		}
+	}
+
 	static final class MoveToCell implements Behaviour {
 		private final GridPosition goal;
 		private final boolean sprint;
