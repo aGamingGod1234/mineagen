@@ -525,8 +525,10 @@ public final class FarSight {
 
 		private void forgetUnloaded(ServerLevel level) {
 			if (chunks.size() < 2_048) return;
-			if (unchecked == null) {
+			// getChunkNow answers null off the server thread, so there the sweep drops every scan, as it always did.
+			if (unchecked == null || !level.getServer().isSameThread()) {
 				chunks.long2ObjectEntrySet().removeIf(entry -> !stillLoaded(level, entry.getLongKey(), entry.getValue()));
+				if (unchecked != null) unchecked.clear();
 				return;
 			}
 			for (LongIterator keys = unchecked.iterator(); keys.hasNext(); ) {
