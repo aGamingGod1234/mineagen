@@ -306,10 +306,16 @@ public final class BrinkGuard {
 		if (!brace) memory.bracePoint = null;
 		WalkabilityView world = null;
 		// Ruling 11 covers commanded moves (its exception: a destination below the lip). Control keys, a program's keys, a
-		// fight's crit jump and a rule's jump are the model's own and are not judged (no override exists for them).
-		Fall refusedFall = jump && !brace && player.onGround() && commandedMove(player, memory)
-				? jumpLandsLethal(player, worldHeading(player.getYRot(), forward, strafe), player.isSprinting()) : null;
-		if (refusedFall != null && refusedFall.unknown() && destinationBelow(player, memory)) refusedFall = null;
+		// fight's crit jump and a rule's jump are judged too, but only for a landing no one means to make (NE-LAVA-2):
+		// lava, fire, the void or a killing fall as the player knows it, and in the Nether a drop into the dark that
+		// reaches the lava sea (see refusedForEverySource). A control frame's sprint jump off a deck's lip was let through.
+		Fall refusedFall = null;
+		if (jump && !brace && player.onGround()) {
+			Fall landing = jumpLandsLethal(player, worldHeading(player.getYRot(), forward, strafe), player.isSprinting());
+			boolean lavaSea = landing != null && intoLavaSea(landing, player);
+			if (commandedMove(player, memory)) refusedFall = landing != null && landing.unknown() && destinationBelow(player, memory) && !lavaSea ? null : landing;
+			else if (landing != null && (!landing.unknown() || lavaSea)) refusedFall = landing;
+		}
 		boolean refuseJump = refusedFall != null;
 		// Nether lava safety: a jump that would come down in lava at take-off height (the model's own keys too: a
 		// sprint jump out of a flooded tunnel ended in the flow) is refused like a jump over a lethal drop.
@@ -468,6 +474,22 @@ public final class BrinkGuard {
 
 	/** Upward motion past which a grounded body without its own jump was lifted by a hit (vanilla knockback: 0.4). */
 	static final double SHOVE_LIFT = 0.2D;
+	/** An unseen drop at least this deep in the Nether is taken as one into the lava sea. */
+	static final int NETHER_DARK_DROP = 6;
+
+	/**
+	 * Whether an unseen-bottom landing is, in the Nether, a drop into the lava sea: seen open at least
+	 * {@link #NETHER_DARK_DROP} blocks down, or one whose unseen part begins at the sea's surface block or lower (the dimension's sea level less one).
+	 */
+	static boolean intoLavaSea(Fall landing, ServerPlayer player) {
+		if (!landing.unknown() || player.level().dimension() != net.minecraft.world.level.Level.NETHER) return false;
+		return intoLavaSea(landing, Mth.floor(player.getY() + 1.0E-4D), player.level().getSeaLevel() - 1);
+	}
+
+	static boolean intoLavaSea(Fall landing, int feetY, int seaSurface) {
+		return landing.unknown() && (landing.drop() >= NETHER_DARK_DROP || feetY - landing.drop() - 1 <= seaSurface);
+	}
+
 	/** Ticks the guard's last save stays in the model's view (player.brink.saved). */
 	static final int SAVED_FACT_TICKS = 100;
 
@@ -842,7 +864,7 @@ public final class BrinkGuard {
 	/** As above over a view of the terrain, for a body that has fallen {@code fallen} blocks with {@code health} left. */
 	static Fall fall(WalkabilityView world, AABB box, int minY, VoidProbe voidBelow, double fallen, double health) {
 		int feetY = Mth.floor(box.minY + 1.0E-4D);
-		int land = Integer.MAX_VALUE, burn = Integer.MAX_VALUE, voids = 0, columns = 0;
+		int land = Integer.MAX_VALUE, burn = Integer.MAX_VALUE, voids = 0, columns = 0, open = Integer.MAX_VALUE;
 		String burnKind = null;
 		for (int x = Mth.floor(box.minX + 1.0E-7D); x <= Mth.floor(box.maxX - 1.0E-7D); x++) {
 			for (int z = Mth.floor(box.minZ + 1.0E-7D); z <= Mth.floor(box.maxZ - 1.0E-7D); z++) {
@@ -856,6 +878,7 @@ public final class BrinkGuard {
 					if (depth > SafeStep.MAX_COUNTED_DROP) {
 						// Deeper than any counted drop: the void when the column is empty to the bottom, else unknown.
 						if (voidBelow.empty(x, y, z)) voids++;
+						else open = Math.min(open, depth - 1);
 						break;
 					}
 					GridPosition at = new GridPosition(x, y, z);
@@ -876,6 +899,7 @@ public final class BrinkGuard {
 					}
 					if (cell == WalkabilityView.Cell.UNLOADED) {
 						if (voidBelow.empty(x, y, z)) voids++;
+						else open = Math.min(open, depth - 1);
 						break;
 					}
 					// A hanging vine is handhold, not a landing; releasing it still falls through this column.
@@ -889,8 +913,8 @@ public final class BrinkGuard {
 		if (burnKind != null && burn <= land) return new Fall(burnKind, burn - 1);
 		if (land == Integer.MAX_VALUE) {
 			if (columns > 0 && voids == columns) return new Fall("void", SafeStep.MAX_COUNTED_DROP);
-			// No landing known under any column: a drop whose bottom the player has not seen.
-			return new Fall(UNKNOWN, 0);
+			// No landing known under any column: a drop whose bottom the player has not seen, seen open this far down.
+			return new Fall(UNKNOWN, open == Integer.MAX_VALUE ? 0 : open);
 		}
 		// Landing on the top of the cell at this depth: a fall of depth - 1 blocks (plus any fall under way); vanilla's
 		// damage is the distance minus 3.
