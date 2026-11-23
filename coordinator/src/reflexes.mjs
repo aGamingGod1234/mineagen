@@ -662,7 +662,8 @@ export class ReflexBook {
 	}
 
 	// A scooped source turns to air, and the observation lists no air rows, so a scoop is read from the inventory: one more
-	// water bucket than the last sample, with a remembered pour within a bucket's reach, forgets the nearest such pour.
+	// water bucket than the last sample, with a remembered pour within a bucket's reach that is not still listed as a
+	// source, forgets the nearest such pour.
 	#forgetScoopedPour(agentId, before, after) {
 		const pours = this.#pours.get(agentId);
 		// Both samples must carry the inventory: one without it would read as zero buckets and the next as a scoop.
@@ -674,7 +675,9 @@ export class ReflexBook {
 		const dimension = after.world?.dimension ?? null;
 		if (![at?.x, at?.y, at?.z].every(Number.isFinite)) return;
 		const reach = p => p.dimension === dimension ? Math.hypot(p.x + 0.5 - at.x, p.y + 0.5 - at.y, p.z + 0.5 - at.z) : Infinity;
-		const nearest = pours.filter(p => reach(p) <= SCOOP_REACH).sort((a, b) => reach(a) - reach(b))[0];
+		// A pour the new sample still lists as a water source was not the one scooped.
+		const sources = new Set(after.blocks?.filter?.(b => b?.blockId === 'minecraft:water' && waterSourceRow(b)).map(b => `${b.x},${b.y},${b.z}`) ?? []);
+		const nearest = pours.filter(p => reach(p) <= SCOOP_REACH && !sources.has(`${p.x},${p.y},${p.z}`)).sort((a, b) => reach(a) - reach(b))[0];
 		if (nearest) this.#pours.set(agentId, pours.filter(p => p !== nearest));
 	}
 

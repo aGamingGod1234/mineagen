@@ -428,5 +428,11 @@ test('the book remembers the cells its water reflex poured, per dimension, and f
 	book.observeContext('a', { ...at(4.5, 1), inventory: undefined });
 	book.observeContext('a', at(4.5, 1));
 	assert.deepEqual(book.pours('a', at(4.5, 1)), [{ x: 3, y: 62, z: 13 }, { x: 40, y: 62, z: 13 }], 'a sample without the inventory is no scoop');
+	// Two pours in reach, the farther one scooped: the nearer one, still listed as a source, is kept.
+	book.observe('a', pour(7, '6,62,13'));
+	const shown = { blockId: 'minecraft:water', x: 3, y: 62, z: 13, fluid: { type: 'minecraft:water' } };
+	book.observeContext('a', { ...at(3.5, 0), blocks: [shown] });
+	book.observeContext('a', { ...at(3.5, 1), blocks: [shown] });
+	assert.deepEqual(book.pours('a', { ...at(3.5, 1), blocks: [shown] }), [{ x: 3, y: 62, z: 13 }, { x: 40, y: 62, z: 13 }]);
 	book.clear('a');
 });
