@@ -21,7 +21,7 @@ import { spawn } from 'node:child_process';
 import { randomBytes, createHash } from 'node:crypto';
 import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
-import { DEFAULT_REFLEXES } from '../../coordinator/src/reflexes.mjs';
+import { ReflexBook, instinctsEnabled } from '../../coordinator/src/reflexes.mjs';
 import { planCountDefault } from '../../coordinator/src/plan-count.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 import { deathCounter, deathEvidence, damageCounter, recordDamageEvidence } from './lib/damage-counter.mjs';
@@ -63,8 +63,11 @@ const STANDIN = process.env.STANDIN ?? 'script', UNTIL = Number(process.env.UNTI
 const LOW_HP = process.env.LOW_HP === '1';
 // STANDIN=count (d41 fight-count): the same loop, but the call is fight_target on the nearest seen blaze with
 // untilItem blaze_rod + untilCount UNTIL (count mode); no blaze in view -> fight_until. DEFAULTS=1 also arms the default
-// survival reflexes (coordinator DEFAULT_REFLEXES) beside the shield rules, as the combined build does.
-const DEFAULTS = process.env.DEFAULTS === '1';
+// survival reflexes beside the shield rules. Rooms must play with the defaults a real game has: the production
+// coordinator's own ReflexBook arms them (with the instincts stance for the Nether and the running fight), and the shield
+// rules ride on top as the model's own. DEFAULTS=0 arms the shield rules alone, as before 23 Nov (cover 0/10 with 8
+// deaths against 3/10 with 3 armed, same batch).
+const DEFAULTS = process.env.DEFAULTS !== '0';
 // STANDIN=plan (d41 blaze-survive): the stand-in makes a plain fight_target on the nearest seen blaze (no untilItem) while
 // a plan step 'blaze_rod PLAN_NEED' with has:minecraft:blaze_rod*PLAN_NEED is open; the coordinator's own plan-count
 // default (plan-count.mjs) turns it into count mode. No blaze in view: look toward a heard one, else wait 1 s.
@@ -133,9 +136,20 @@ setInterval(async () => {
 	} catch {}
 	rodProbeBusy = false;
 }, 3000 * 20 / FIXTURE_RATE).unref?.();
+let book = null;
+const bookRules = () => book.payload(record.agentId).rules.filter(rule => !DEFAULTS_EXCLUDE.includes(rule.id));
 async function armShield() {
-	armedRules = (DEFAULTS ? DEFAULT_REFLEXES.filter(rule => !DEFAULTS_EXCLUDE.includes(rule.id)).map(rule => ({ ...rule })) : []).concat(SHIELD_STANCE ? [{id:'guard',kind:'stance',priority:6,when:{type:'hostile_near',within:24,mobs:['minecraft:blaze']},do:{type:'shield'},ttlMs:600000},{id:'shot',kind:'trigger',priority:9,when:{type:'incoming_projectile',withinS:1},do:{type:'shield'},ttlMs:600000}] : []);
+	const shield = SHIELD_STANCE ? [{id:'guard',kind:'stance',priority:6,when:{type:'hostile_near',within:24,mobs:['minecraft:blaze']},do:{type:'shield'},ttlMs:600000},{id:'shot',kind:'trigger',priority:9,when:{type:'incoming_projectile',withinS:1},do:{type:'shield'},ttlMs:600000}] : [];
+	book = DEFAULTS ? new ReflexBook({ instincts: instinctsEnabled(process.env) }) : null;
+	if (book) { book.apply(record.agentId, shield); book.observeContext(record.agentId, await observe()); }
+	armedRules = book ? bookRules() : shield;
 	await bridge.send('reflex_update', record.agentId, {revision: ++reflexRevision, rules: armedRules,yield:false});
+}
+// Each sample moves the production stance (fight while a fight runs, fortress by wither skeletons) as the coordinator does.
+async function restance(sample) {
+	if (!book || !sample?.ready || !book.observeContext(record.agentId, sample)) return;
+	armedRules = bookRules();
+	await bridge.send('reflex_update', record.agentId, {revision: ++reflexRevision, rules: armedRules,yield:false}).catch(() => {});
 }
 const command = async s => {
 	if (rcon.state === 'closed') { rcon = new HeadlessRconClient({ host: '127.0.0.1', port: port + 1, password: secret, commandTimeoutMs: 30000 }); await rcon.connect(); }
@@ -148,7 +162,7 @@ async function serverTick() {
 	if (!match) throw new Error('Unknown gametime reply: '+reply);
 	return Number(match[1]);
 }
-async function observe(ms = 30000) { const seq = observation?.eventSequence ?? 0; const next = inbox.wait('observation', e => e.agentId === record.agentId && e.payload.ready && e.payload.eventSequence > seq, ms); await bridge.send('request_observation', record.agentId, { goalRevision: record.goalRevision }).catch(() => {}); return (await next).payload; }
+async function observe(ms = 30000) { const seq = observation?.eventSequence ?? 0; const next = inbox.wait('observation', e => e.agentId === record.agentId && e.payload.ready && e.payload.eventSequence > seq, ms); await bridge.send('request_observation', record.agentId, { goalRevision: record.goalRevision }).catch(() => {}); const sample = (await next).payload; await restance(sample); return sample; }
 // Health from the server; a dead player reads 0 (or the query fails while it is respawning).
 const serverHealth = async () => { const t = await command(`data get entity ${agent} Health`).catch(() => ''); const m = /(-?[\d.]+)f?\s*$/.exec(t.trim()); return m ? Number(m[1]) : 0; };
 async function act(type, args, ms = 65000, retried = false) {
