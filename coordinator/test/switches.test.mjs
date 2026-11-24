@@ -144,7 +144,6 @@ const READS = [
 	['obtain.lavaRefusal', 'coordinator/src/obtain-runner.mjs', "const LAVA_REFUSAL = getSwitch('obtain.lavaRefusal').value;"],
 	['find.floodContained', 'coordinator/src/find-search.mjs', "const FLOOD_CONTAINED = getSwitch('find.floodContained').value;"],
 	['obtain.nextStation', 'coordinator/src/obtain-runner.mjs', "const NEXT_STATION = getSwitch('obtain.nextStation').value;"],
-	['find.wetClimb', 'coordinator/src/find-search.mjs', "const WET_CLIMB = getSwitch('find.wetClimb').value;"],
 	['kit.habit', 'coordinator/src/kit-habit.mjs', "getSwitch('kit.habit', environment)"],
 	['night.cover', 'coordinator/src/night-cover.mjs', "getSwitch('night.cover', environment)"],
 	['tools.program', 'coordinator/src/native-minecraft-tools.mjs', "getSwitch('tools.program', environment)"],
