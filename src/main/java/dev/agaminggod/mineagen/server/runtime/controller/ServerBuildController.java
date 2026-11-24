@@ -185,6 +185,8 @@ public final class ServerBuildController implements ServerController {
 	 * the lava is flat open floor: find stops at its first sighting, usually from its own 1-wide tunnel at the lava level.
 	 */
 	static final int MAX_CARVES = 2;
+	/** Off (MINEAGEN_BUILD_ROCK_MEMORY=off) only for a same-batch A/B against the old sight-only site rules. */
+	static final boolean REMEMBER_ROCK = !"off".equalsIgnoreCase(System.getenv("MINEAGEN_BUILD_ROCK_MEMORY"));
 	static final int CARVE_RADIUS = 10;
 	static final double CARVE_POOL_MARGIN = 6.0D;
 	/**
@@ -375,6 +377,13 @@ public final class ServerBuildController implements ServerController {
 	private String carveNote, uncoverNote;
 	/** Cells of this carve open to the air (dug, or open before): what water or lava met through the rock pours in by. */
 	private final Set<BlockPos> carveOpened = new HashSet<>();
+	/**
+	 * Rock this build saw, kept while the body works out of sight of it: sight memory fades in 10 s, and a carve or a
+	 * fetch takes longer, so the site's ground row and the mould wall it looked at became unseen again and the site was
+	 * refused (cast rooms: "unseen ground" or "unseen cells behind for the mould" after the dig). Rock only moves when the
+	 * body breaks it, so a cell it breaks, or sees open, is dropped; sand and gravel are never kept.
+	 */
+	private final Map<BlockPos, BlockState> rockSeen = new HashMap<>();
 	/** Opened carve cells a seen fluid outside the dig touches, filled with a carried block before it pours in. */
 	private final List<BlockPos> plugs = new ArrayList<>();
 	/** Water and lava a carve met behind the rock: out of sight behind the plugs, still there for the next site's rules. */
@@ -645,7 +654,7 @@ public final class ServerBuildController implements ServerController {
 			case CLEAR -> {
 				if (result.state() == State.SUCCEEDED) {
 					cleared++;
-					if (!clears.isEmpty()) { BlockPos opened = clears.remove(0); if (carving) carveOpened.add(opened); }
+					if (!clears.isEmpty()) { BlockPos opened = clears.remove(0); rockSeen.remove(opened); if (carving) carveOpened.add(opened); }
 					cellTicks = 0;
 					// The break may have opened onto water or lava hidden in the rock: plugged before it pours in.
 					TickResult plug = carving ? plugInlets(player, "the dig opened onto it") : null;
@@ -964,7 +973,7 @@ public final class ServerBuildController implements ServerController {
 		BlockPos cell = clears.get(0);
 		BlockState state = known(player, cell);
 		if (state == null) return observe(player, cell, now);
-		if (state.isAir()) { BlockPos open = clears.remove(0); if (carving) carveOpened.add(open); return running(); }
+		if (state.isAir()) { BlockPos open = clears.remove(0); rockSeen.remove(open); if (carving) carveOpened.add(open); return running(); }
 		if (!state.getFluidState().isEmpty() && carving && rejectedSites.size() < 3) return chooseAgain(player, now, "water or lava at " + xyz(cell));
 		if (!state.getFluidState().isEmpty()) return fail(player, "BUILD_BLOCKED", "Water or lava flowed into the site at " + xyz(cell));
 		Vec3 eye = player.getEyePosition();
@@ -3429,11 +3438,17 @@ public final class ServerBuildController implements ServerController {
 		}
 		BlockState state = seen.known(at.getX(), at.getY(), at.getZ());
 		// Pool lava this build saw stays lava out of sight: a site is never judged next to it as unseen rock.
-		if (state != null) return state;
+		if (state != null) {
+			if (REMEMBER_ROCK && state.isCollisionShapeFullBlock(player.level(), at) && state.getFluidState().isEmpty() && !(state.getBlock() instanceof EntityBlock)
+					&& !(state.getBlock() instanceof net.minecraft.world.level.block.FallingBlock)) rockSeen.put(at.immutable(), state);
+			else rockSeen.remove(at);
+			return state;
+		}
 		// So does water or lava a carve met behind the rock and plugged.
 		if (poolMemory.contains(at)) return Blocks.LAVA.defaultBlockState();
 		if (metFluid.containsKey(at)) return metFluid.get(at);
-		return carveOpened.contains(at) && mould.isEmpty() ? Blocks.AIR.defaultBlockState() : null;
+		if (carveOpened.contains(at) && mould.isEmpty()) return Blocks.AIR.defaultBlockState();
+		return rockSeen.get(at);
 	}
 
 	private boolean full(ServerPlayer player, BlockPos at) {
