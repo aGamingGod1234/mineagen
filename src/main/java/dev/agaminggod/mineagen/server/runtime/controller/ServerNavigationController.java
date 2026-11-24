@@ -669,6 +669,16 @@ public final class ServerNavigationController implements ServerController {
 		}
 	}
 
+	/** Refreshes what finished planning consulted; if any of it changed, planning starts again from what is known now. */
+	private boolean refreshedOrDiscarded(ServerPlayer player) {
+		if (searchWorld.refreshConsulted()) return true;
+		if (TICK_DIAGNOSTICS_ENABLED) LOGGER.info("NAV_DISCARD reason=final");
+		previousFrontiers.clear();
+		discardPlanning();
+		coast(player);
+		return false;
+	}
+
 	private void discardPlanning() {
 		search = null;
 		preparation = null;
@@ -971,8 +981,9 @@ public final class ServerNavigationController implements ServerController {
 		}
 		GridPosition actualOrigin = grid(player.position());
 		if (searchOrigin != null && player.isInWater() && sameSwimColumn(searchOrigin, actualOrigin)) actualOrigin = searchOrigin;
+		// Pending planning checks expiry and the change log each tick, and refreshes what it consulted once it finishes.
 		invalidatePlanning(actualOrigin, searchWorld == null || (searchWorld.matchesMovement(player)
-				&& searchWorld.isCurrent(dev.agaminggod.mineagen.server.perception.SeenTerrain.of(player))));
+				&& searchWorld.isCurrent(dev.agaminggod.mineagen.server.perception.SeenTerrain.of(player), false)));
 		if (search == null) {
 			if (preparation == null) {
 				// Keep the lease and sprint through planning; releasing here made every replan a visible
@@ -991,6 +1002,7 @@ public final class ServerNavigationController implements ServerController {
 				coast(player);
 				return TickResult.running(currentProgress());
 			}
+			if (!refreshedOrDiscarded(player)) return TickResult.running(currentProgress());
 			GridPosition start = preparation.start;
 			if (start == null) {
 				if (player.isUnderWater()) return breathe(player, nowEpochMs, elapsedMs, 0, true);
@@ -1015,6 +1027,7 @@ public final class ServerNavigationController implements ServerController {
 			coast(player);
 			return TickResult.running(currentProgress());
 		}
+		if (!refreshedOrDiscarded(player)) return TickResult.running(currentProgress());
 		PathPlan candidate = planning.plan();
 		LocalPathfinder.Search finishedSearch = search;
 		boolean unknownEndpoint = search.endedAtUnknown();
