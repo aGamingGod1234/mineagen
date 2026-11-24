@@ -25,9 +25,6 @@ export const MAX_FIND_WITHIN = 2048;
 export const DEFAULT_FIND_TIMEOUT_MS = 540_000;
 export const MAX_FIND_TIMEOUT_MS = 570_000;
 const MIN_LEG_MS = 5_000;
-// A lava sighting further than LAVA_FAR is walked to until the lava shows within LAVA_NEAR.
-const LAVA_FAR = 16;
-const LAVA_NEAR = 8;
 const SURFACE_LEG = 80;
 const MIN_SURFACE_LEG = 8;
 const BUILD_LEG = 16;
@@ -220,7 +217,6 @@ export const caveFirst = (environment = process.env) => getSwitch('find.caveFirs
 /** Off only for the A/B off arm (MINEAGEN_FIND_DRY_START=off): no walk off seen water before the first dig down. */
 export const dryStart = (environment = process.env) => getSwitch('find.dryStart', environment).value;
 export const dryFlood = (environment = process.env) => getSwitch('find.dryFlood', environment).value;
-export const walkToLavaOn = (environment = process.env) => getSwitch('find.walkToLava', environment).value;
 // Blocks a dig_to may be given (schema.mjs maxBlocks) and the cells one step cuts per pattern.
 const MAX_DIG_BLOCKS = 4_096;
 const STEP_CELLS = Object.freeze({ tunnel: 2, stairs_down: 3, stairs_up: 3, steep_down: 4 });
@@ -1008,24 +1004,7 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 	};
 	// Every sighting ends here: a Nether biome is found only standing in it, anything else on sight.
 	// During an approach a far sighting is no arrival: the approach goes on (null).
-	const arrive = (seen) => (!netherBiome() || seen.via === 'standing in it' ? (farLava(seen) ? walkToLava(seen) : found(seen)) : approaching ? null : approachSeen(seen));
-	// Lava seen far off (down in a cave, across a ravine) is walked to until it shows within LAVA_NEAR, as a player does
-	// before casting: the build looks round from where find leaves the body (cast-gate-5xa: a pool 31 blocks off below
-	// a cave lip, out of the build's sight, 0 of 4; far sightings lit 0 of 5 in the 16-gate A/B). Any stop keeps the sighting.
-	const farLava = (seen) => walkToLavaOn() && !approaching && profile.ids.has('minecraft:lava') && ['sight', 'survey'].includes(seen.via) && seen.distance > LAVA_FAR && left() >= MIN_LEG_MS;
-	const walkToLava = async (seen) => {
-		approaching = true;
-		try {
-			const near = (sample) => { const row = sightingOf(profile, sample, null, excluded); return row !== null && row.distance <= LAVA_NEAR ? row : null; };
-			const walk = await leg(`walk to the lava seen ${seen.distance} blocks away`, 'travel_to', { x: seen.x + 0.5, y: seen.y, z: seen.z + 0.5, tolerance: LAVA_NEAR }, near);
-			if (walk.seen) return found(walk.seen);
-			if (walk.interrupted || walk.ended) return settle(walk);
-			const code = walk.result?.reasonCode;
-			if (DANGER.has(code) && !['LAVA_AHEAD', 'LAVA_FLOW'].includes(code)) return settle(walk);
-			const after = near(observation);
-			return found(after ?? seen);
-		} finally { approaching = false; }
-	};
+	const arrive = (seen) => (!netherBiome() || seen.via === 'standing in it' ? found(seen) : approaching ? null : approachSeen(seen));
 	const approachSeen = async (seen) => {
 		const reached = await approach(seen, `the ${profile.label} seen at ${seen.x},${seen.y},${seen.z}`);
 		if (reached?.stuck === undefined) return reached;

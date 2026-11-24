@@ -101,22 +101,11 @@ test('a heading continues while it is set, else the least covered', () => {
 });
 
 test('find stops at a sighting in the first look around without moving', async () => {
-	const body = fakeBody({ looks: [{ state: 'SUCCEEDED', survey: { blocks: [{ blockId: 'minecraft:lava', x: 12, y: 64, z: 3 }] } }] });
+	const body = fakeBody({ looks: [{ state: 'SUCCEEDED', survey: { blocks: [{ blockId: 'minecraft:lava', x: 40, y: 64, z: 3 }] } }] });
 	const result = await searchFor({ block: 'minecraft:lava' }, body);
 	assert.equal(result.reasonCode, 'FIND_SEEN');
-	assert.deepEqual([result.find.seen.x, result.find.seen.y, result.find.seen.z], [12, 64, 3]);
+	assert.deepEqual([result.find.seen.x, result.find.seen.y, result.find.seen.z], [40, 64, 3]);
 	assert.equal(body.calls.filter((call) => call.actionType).length, 0);
-});
-
-test('lava seen far off is walked to until it shows close, so the build sees the pool (cast-gate-5xa)', async () => {
-	const body = fakeBody({ looks: [{ state: 'SUCCEEDED', survey: { blocks: [{ blockId: 'minecraft:lava', x: 40, y: 64, z: 3 }] } }],
-		acts: { travel_to: [{ move: () => ({ x: 34 }), result: { state: 'SUCCEEDED', reasonCode: 'ARRIVED' } }] } });
-	const result = await searchFor({ block: 'minecraft:lava' }, body);
-	assert.equal(result.reasonCode, 'FIND_SEEN');
-	const walks = body.calls.filter((call) => call.actionType === 'travel_to');
-	assert.equal(walks.length, 1);
-	assert.deepEqual([walks[0].args.x, walks[0].args.z, walks[0].args.tolerance], [40.5, 3.5, 8]);
-	assert.equal(walks[0].args.stopWhenSeen, undefined);
 });
 
 test('an underground target digs to its depth, then tunnels straight legs until the dig sees it', async () => {
