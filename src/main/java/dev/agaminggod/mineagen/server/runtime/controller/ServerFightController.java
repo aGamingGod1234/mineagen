@@ -203,6 +203,11 @@ public final class ServerFightController implements ServerController {
 	private Vec3 reachTargetPosition;
 	private long lastReachTick = Long.MIN_VALUE / 2L;
 	private boolean recheckRequested;
+	/** Contact and breath zones round the struck perched dragon this tick (DragonPerchSafety), or null. */
+	private DragonPerchSafety.Zones perchZones;
+	private int perchBreathSeen = Integer.MIN_VALUE;
+	/** Ticks the body stood in a perched dragon's contact or breath zone and was sent out of it. */
+	private int perchUnsafeTicks;
 	private List<PathNode> route;
 	private boolean keepBlazeRouteLevel;
 	/** Route cells a seen lava flow already reached when the route was chosen (the planner paid for them). */
@@ -455,6 +460,20 @@ public final class ServerFightController implements ServerController {
 		ServerLookController.Angles aim = inReach ? attackPoint(player, eye, aimBox, attackRange) : null;
 		if (aim == null && inReach && aimBox != box) aim = attackPoint(player, eye, box, attackRange);
 		boolean canHit = inReach && aim != null;
+		var perchedDragon = DragonPerchSafety.perched(strike);
+		perchZones = perchedDragon == null ? null : DragonPerchSafety.zones(player, perchedDragon);
+		if (perchZones != null) {
+			// A breath placed or begun moves the safe spots: search again.
+			// Where the breath is, not only how many: a predicted cloud replaced by the live one moves the safe spots too.
+			int breathKey = perchZones.breath().stream().mapToInt(c -> java.util.Objects.hash(Math.round(c.x()), Math.round(c.y()), Math.round(c.z()))).sum();
+			if (breathKey != perchBreathSeen) { perchBreathSeen = breathKey; recheckRequested = true; lastReachTick = Long.MIN_VALUE / 2; }
+			// Inside the head, neck, wings or breath (standing, or knocked up into them): no swing from here, walk to a safe spot.
+			if (perchZones.unsafe(player.getX(), player.getY(), player.getZ())) {
+				if (canHit && player.onGround()) { recheckRequested = true; lastReachTick = Long.MIN_VALUE / 2; }
+				canHit = false;
+				perchUnsafeTicks++;
+			}
+		}
 		TickResult reachability = pursue ? advanceReach(player, canHit, distance) : null;
 		if (reachability != null && !blazeWait) return finish(player, reachability);
 		if (canHit) {
@@ -511,7 +530,8 @@ public final class ServerFightController implements ServerController {
 		int food = player.getFoodData().getFoodLevel();
 		boolean shieldWanted = shield && !shieldBroke || dev.agaminggod.mineagen.server.runtime.reflex.ReflexEngine.fightHoldsShield(player)
 				&& player.getOffhandItem().getItem() instanceof net.minecraft.world.item.ShieldItem;
-		FightMotion.Move footwork = pursue && (!blazeFight || !shieldWanted) && !holdingForReach && waypoint == null && !inWater && !player.onClimbable()
+		// By a perched dragon there is no footwork (its sprint hits and spacing walk under the neck): it swings from a safe spot.
+		FightMotion.Move footwork = perchZones == null && pursue && (!blazeFight || !shieldWanted) && !holdingForReach && waypoint == null && !inWater && !player.onClimbable()
 				&& distance <= heldRange.effectiveMaxRange(player) + FOOTWORK_RANGE
 				? footwork(player, yaw, yawError, attackStrength, weaponReady && canHit, shieldWanted, food) : null;
 		if (footwork != null) {
@@ -523,6 +543,12 @@ public final class ServerFightController implements ServerController {
 				: waypoint != null && step.forward() > 0.0F ? routeForward(player, waypoint, step.forward(), yawError)
 				: safeForward(player, step.forward(), yaw, yawError);
 		float strafe = footwork == null ? 0.0F : footwork.strafe();
+		if (perchZones != null && forward != 0.0F && !perchZones.unsafe(player.getX(), player.getY(), player.getZ())) {
+			// A step (forward, or the step back after a swing) that would carry a safe body into the head, neck, wings or
+			// breath is not taken.
+			double rad = Math.toRadians(yaw), way = Math.signum(forward) * 0.6D;
+			if (perchZones.unsafe(player.getX() - Math.sin(rad) * way, player.getY(), player.getZ() + Math.cos(rad) * way)) forward = 0.0F;
+		}
 		if (blazeFight) {
 			if (blazeWait) {
 				// A hovering blaze comes down to the player. Chase only across this deck, never toward its height.
@@ -566,6 +592,10 @@ public final class ServerFightController implements ServerController {
 				|| (waypoint != null && forward > 0.0F && MeleeReach.jumpFor(waypoint.traversal(),
 						CombatMoveText.horizontal(player.position(), waypoint.position().x() + 0.5D, waypoint.position().z() + 0.5D),
 						player.onGround())));
+		// By a perched dragon a jump lifts the body into its neck, head or wing boxes (they start about 2 above the
+		// ground): only a route's step-up whose top stays clear of them.
+		if (jump && perchZones != null && (footwork != null && footwork.jump() || waypoint == null
+				|| perchZones.unsafe(player.getX(), player.getY() + DragonPerchSafety.JUMP_RISE, player.getZ()))) jump = false;
 		// Sprint follows the movement actually applied: a vanilla client drops it without forward input.
 		boolean sprint = (step.sprint() && forward > 0.0F && food > 6)
 				|| SwimPlanning.swimSprint(inWater, player.isUnderWater(), forward, food);
@@ -835,7 +865,7 @@ public final class ServerFightController implements ServerController {
 		if (start == null) return false;
 		AABB box = strike.getBoundingBox();
 		double range = player.getAttackRangeWith(player.getMainHandItem()).effectiveMaxRange(player);
-		MeleeReach.ReachCells cells = reachCells(player, view, box, range);
+		MeleeReach.ReachCells cells = reachCells(player, view, box, range, perchZones);
 		reachCheck = new ReachCheck(view, cells, start, new GridPosition(Mth.floor(strike.getX()), Mth.floor(strike.getY()),
 				Mth.floor(strike.getZ())), strike.position(), box, MeleeReach.searchRadius(distance),
 				SwimPlanning.breathNodes(player.getAirSupply()));
@@ -845,6 +875,9 @@ public final class ServerFightController implements ServerController {
 	/** A route to a named dragon part goes round wings the player sees, instead of repeatedly being thrown away. */
 	private java.util.function.ToIntFunction<GridPosition> visibleWingCost(ServerPlayer player) {
 		if (!(strike instanceof net.minecraft.world.entity.boss.enderdragon.EnderDragonPart named)) return null;
+		// Perched: every contact and breath zone, seen or not (it sits in plain view on the fountain).
+		DragonPerchSafety.Zones perch = perchZones;
+		if (perch != null) return cell -> perch.unsafeCell(cell) ? 200 : 0;
 		List<AABB> contacts = new ArrayList<>();
 		for (var part : named.parentMob.getSubEntities()) {
 			if (!part.name.contains("wing") || !dev.agaminggod.mineagen.server.perception.ObservationVisibility.canSeeEntity(player, part)) continue;
@@ -860,12 +893,14 @@ public final class ServerFightController implements ServerController {
 		};
 	}
 
-	private static MeleeReach.ReachCells reachCells(ServerPlayer player, ObservedTerrain view, AABB box, double range) {
+	private static MeleeReach.ReachCells reachCells(ServerPlayer player, ObservedTerrain view, AABB box, double range,
+			DragonPerchSafety.Zones perch) {
 		AcquiredGeometry geometry = new AcquiredGeometry(player.level(), pos -> view.stateAt(new GridPosition(pos.getX(), pos.getY(), pos.getZ())));
 		double minimum = player.getAttackRangeWith(player.getMainHandItem()).effectiveMinRange(player)
 				- player.getAttackRangeWith(player.getMainHandItem()).hitboxMargin();
 		return new MeleeReach.ReachCells(box.minX, box.minY, box.minZ, box.maxX, box.maxY, box.maxZ, range,
-				cell -> MeleeReach.knownHit(cell, box, Math.max(0, minimum), range, geometry));
+				// knownHit may be null (an unseen hit line): passed through as unknown, never unboxed.
+				cell -> perch != null && perch.unsafeCell(cell) ? Boolean.FALSE : MeleeReach.knownHit(cell, box, Math.max(0, minimum), range, geometry));
 	}
 
 	private TickResult resumeReach(ServerPlayer player, ServerPathPlanner.CombatSlice slice, ServerPathPlanner.TickBudget budget) {
@@ -1415,7 +1450,7 @@ public final class ServerFightController implements ServerController {
 		ObservedTerrain view = ObservedTerrain.of(player);
 		AABB box = strike.getBoundingBox();
 		MeleeReach.ReachCells cells = reachCells(player, view, box,
-				player.getAttackRangeWith(player.getMainHandItem()).effectiveMaxRange(player));
+				player.getAttackRangeWith(player.getMainHandItem()).effectiveMaxRange(player), perchZones);
 		cells.advance(view, () -> true);
 		ReachCheck fresh = new ReachCheck(view, cells, CombatMoveText.feet(player), CombatMoveText.feet(player),
 				strike.position(), box, 0, 0);
