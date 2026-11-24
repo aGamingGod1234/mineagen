@@ -36,28 +36,30 @@ public final class PlayerObservationEvents {
 	private static final Map<ServerPlayer, Stream> PLAYERS = new WeakHashMap<>();
 	private static final String[] DIRECTIONS = { "front", "front_right", "right", "back_right", "back", "back_left", "left", "front_left" };
 
-	// Depth of agent activity broadcasts on this thread (see activityLines).
-	private static final ThreadLocal<int[]> ACTIVITY_LINES = ThreadLocal.withInitial(() -> new int[1]);
+	// The agent activity line this thread is broadcasting (see activityLine), matched by identity.
+	private static final ThreadLocal<Component> ACTIVITY_LINE = new ThreadLocal<>();
 
 	private PlayerObservationEvents() { }
 
 	/**
-	 * Runs an agent activity broadcast ("[name] Working on it.") whose system messages stay in each agent's events as
-	 * context but never force an observation. The coordinator never wakes a model for these lines, and with every agent
+	 * Broadcasts an agent activity line ("[name] Working on it.") that stays in each agent's events as context but
+	 * never forces an observation: a line reporting another agent's work needs no immediate look, and with every agent
 	 * hearing every other agent's lines, forcing one observation per line per listener grew with the square of the bots.
+	 * Whether the coordinator wakes a model for the line is decided there, from the events. Only the
+	 * packet carrying this exact component is marked; other messages sent during the broadcast keep their attention.
 	 */
-	public static void activityLines(Runnable broadcast) {
-		int[] depth = ACTIVITY_LINES.get();
-		depth[0]++;
+	public static void activityLine(Component line, java.util.function.Consumer<Component> broadcast) {
+		Component previous = ACTIVITY_LINE.get();
+		ACTIVITY_LINE.set(line);
 		try {
-			broadcast.run();
+			broadcast.accept(line);
 		} finally {
-			depth[0]--;
+			ACTIVITY_LINE.set(previous);
 		}
 	}
 
 	public static void capture(ServerPlayer player, Packet<?> packet) {
-		capture(player, packet, ACTIVITY_LINES.get()[0] > 0);
+		capture(player, packet, packet instanceof ClientboundSystemChatPacket message && message.content() == ACTIVITY_LINE.get());
 	}
 
 	private static void capture(ServerPlayer player, Packet<?> packet, boolean activityLine) {
