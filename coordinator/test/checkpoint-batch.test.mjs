@@ -113,7 +113,7 @@ test('checkpoint batch splits every arm evenly over the sign-ins and gives the a
 	assert.ok(expandPlan(plan(), { salt: () => 1 }).every(g => g.account === 0));
 });
 
-test('checkpoint batch plays a fresh world (fresh: true, no file) and allows windows up to the launcher's 6 hours', () => {
+test('checkpoint batch plays a fresh world (fresh: true, no file) and allows windows up to the launcher limit of 6 hours', () => {
 	const p = plan(); p.minutes = 355; p.savepoints = { fresh: { fresh: true, repeats: 2, targets: ['nether', 'dragon'] } };
 	assert.deepEqual(expandPlan(p, { salt: () => 1 }).map(g => `${g.savepoint}-${g.repeat}`), ['fresh-1', 'fresh-1', 'fresh-2', 'fresh-2']);
 	p.savepoints.fresh.file = '/f.json';
