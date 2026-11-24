@@ -37,6 +37,11 @@ public final class SpawnerHoldVerification {
 		net.minecraft.server.Bootstrap.bootStrap();
 		float wither = dev.agaminggod.mineagen.compat.McEntityTypes.WITHER_SKELETON.getDimensions().height();
 		float blaze = dev.agaminggod.mineagen.compat.McEntityTypes.BLAZE.getDimensions().height();
+		check(SpawnerHold.doorway(83, 92, 84, 92, true) == net.minecraft.core.Direction.SOUTH
+				&& SpawnerHold.doorway(84, 91, 84, 92, true) == net.minecraft.core.Direction.EAST
+				&& SpawnerHold.doorway(80, 92, 84, 92, true) == net.minecraft.core.Direction.EAST
+				&& SpawnerHold.doorway(83, 92, 84, 92, false) == net.minecraft.core.Direction.EAST,
+				"a cell right beside the spawner opens to the side, never onto the spawner; farther off it faces the spawner");
 		check(Math.abs(wither - 2.4F) < 1.0E-4F, "a wither skeleton is 2.4 blocks tall, was " + wither);
 		check(Math.abs(blaze - 1.8F) < 1.0E-4F, "a blaze is 1.8 blocks tall, was " + blaze);
 		check(SpawnerHold.keptOut(wither, 2), "a two-high doorway keeps a wither skeleton out");

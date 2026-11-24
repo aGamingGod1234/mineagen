@@ -1026,7 +1026,8 @@ public final class ServerSpawnerHoldController implements ServerController {
 			cancelParts(player);
 			blockItem = item;
 			emergencyCell = player.blockPosition();
-			emergencyOpening = SpawnerHold.facing(spawner.getX() - emergencyCell.getX(), spawner.getZ() - emergencyCell.getZ());
+			emergencyOpening = SpawnerHold.doorway(emergencyCell.getX(), emergencyCell.getZ(), spawner.getX(), spawner.getZ(),
+					spawner.getY() == emergencyCell.getY());
 			emergency = roofing.seal(emergencyCell, emergencyOpening, blockItem, SEAL_MS + 4_000L, now);
 			emergencies++;
 			if (player.getHealth() >= SpawnerHold.TURTLE_HEALTH) marginTurns++;
@@ -1115,6 +1116,11 @@ public final class ServerSpawnerHoldController implements ServerController {
 	/** Mines the walled-up doorway open again (window first, then sill). Null once it is open or cannot be opened. */
 	private TickResult reopen(ServerPlayer player, long now) {
 		if (reopenWork == null) {
+			if (spawner != null && cell.relative(opening).equals(spawner)) {
+				// A cell walled up with the spawner as its doorway (before the doorway turned aside): open another side.
+				opening = SpawnerHold.doorway(cell.getX(), cell.getZ(), spawner.getX(), spawner.getZ(), true);
+				note("the doorway was the spawner: opening the " + opening.getName() + " side instead");
+			}
 			BlockPos doorway = cell.relative(opening);
 			BlockPos next = null;
 			for (BlockPos at : new BlockPos[] {doorway.above(), doorway})

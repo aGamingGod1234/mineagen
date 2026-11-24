@@ -83,6 +83,18 @@ public final class SpawnerHold {
 		return Math.abs(horizontal - SITE_IDEAL) + 0.15D * fromBody + 0.5D * blocksToPlace;
 	}
 
+	/**
+	 * The doorway of a cell walled up right beside the spawner: facing the spawner would make the spawner block itself the
+	 * doorway, which no pickaxe opens, so the body stayed sealed in for the rest of the fight (wave 6 blaze spawner rooms,
+	 * main: 39 of 135 runs). Then the doorway turns to the side along the other axis instead.
+	 */
+	static Direction doorway(int cellX, int cellZ, int spawnerX, int spawnerZ, boolean sameLevel) {
+		int dx = spawnerX - cellX, dz = spawnerZ - cellZ;
+		Direction toward = facing(dx, dz);
+		if (!sameLevel || Math.abs(dx) + Math.abs(dz) != 1) return toward;
+		return toward.getAxis() == Direction.Axis.X ? Direction.SOUTH : Direction.EAST;
+	}
+
 	/** The doorway faces the spawner along the larger horizontal axis. */
 	static Direction facing(double dx, double dz) {
 		if (Math.abs(dx) >= Math.abs(dz)) return dx >= 0.0D ? Direction.EAST : Direction.WEST;
