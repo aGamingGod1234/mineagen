@@ -28,8 +28,8 @@ const FIXTURES = {
 		items: [['minecraft:stone_pickaxe', 1], ['minecraft:wooden_pickaxe', 1], ['minecraft:cobblestone', 64], ['minecraft:dirt', 36], ['minecraft:andesite', 23]] },
 };
 // The same spot judged on the escape alone: the find's first dig can flood its own hole there, and the room passes when the
-// escape step gets the body out of it (ESCAPED), or no escape was needed (the dig stopped before the hole flooded), with no
-// death and no damage, whatever the search finds after.
+// escape step gets the body out of it (ESCAPED), or no escape was needed (a dig down from the spot stopped at the water
+// before the hole flooded), with no death and no damage, whatever the search finds after.
 FIXTURES['b1-aquifer-escape'] = { ...FIXTURES['b1-aquifer'], bar: 'escape' };
 const cli = process.argv.slice(2);
 if (cli.includes('--help')) { console.log('Usage: test-find-spot-live.mjs OUT_DIR JAR [runs] [fixture] [--strict|--descriptive]\n' + EDIT_LOOP_HELP + '\n' + FIXTURE_OUTCOME_HELP); process.exit(0); }
@@ -160,7 +160,7 @@ for (let run = 0; run < runs; run++) {
 		row.tick = { rate: s.tickRate, held: await s.tickReport() };
 		row.escaped = actions.some((a) => a.actionType === 'escape' && a.reasonCode === 'ESCAPED');
 		// A dig that stops before its hole floods needs no escape: the escape bar is met by getting out, or by never going in.
-		row.neverFlooded = !actions.some((a) => a.actionType === 'escape');
+		row.neverFlooded = !actions.some((a) => a.actionType === 'escape') && row.wetDigsAtSpot > 0 && row.result.state !== 'ERROR';
 		row.pass = (fixture.bar === 'escape' ? row.escaped || row.neverFlooded : row.result.state === 'SUCCEEDED' && row.result.reasonCode === 'FIND_SEEN')
 			&& row.deaths === 0 && row.damageTaken === 0;
 		row.end = latest?.position ? [Math.round(latest.position.x), Math.round(latest.position.y), Math.round(latest.position.z)] : null;

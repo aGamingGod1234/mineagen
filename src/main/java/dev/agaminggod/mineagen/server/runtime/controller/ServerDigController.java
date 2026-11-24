@@ -1848,8 +1848,9 @@ public final class ServerDigController implements ServerController {
 		if (!sealFluids) return null;
 		// More water beside water already sealed below sea level: the seal plugged one face of an aquifer or flooded cave.
 		BlockPos mark = wetMarkNear(fluid, AQUIFER_MARK_REACH);
-		// Flowing water the seal cut off drains in a few spread ticks; only water that keeps coming is a second sign.
-		if (mark != null && !player.level().getFluidState(fluid).isSource() && drainTicks++ < DRAIN_TICKS) {
+		// Flowing water the seal cut off drains in a few spread ticks; only water that keeps coming is a second sign. A shaft
+		// landing judges its walls once, so it stops at once rather than re-running the landing while it waits.
+		if (mark != null && phase != Phase.SHAFT_FALL && !player.level().getFluidState(fluid).isSource() && drainTicks++ < DRAIN_TICKS) {
 			hold(player, 0.0F, false, false, player.getYRot(), player.getXRot());
 			return TickResult.running(progress(player));
 		}
