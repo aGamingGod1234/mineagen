@@ -1566,8 +1566,16 @@ public final class ServerFightController implements ServerController {
 	 */
 	static final float ROD_FLEE_HEALTH = 10.0F;
 
+	/** The caller answers low health itself (the spawner hold's defend): its flee line stays as given with rods in hand. */
+	private boolean keepFleeLine;
+
+	public ServerFightController keepFleeLine() {
+		keepFleeLine = true;
+		return this;
+	}
+
 	private Float lootFlee(ServerPlayer player) {
-		if (!(target instanceof net.minecraft.world.entity.monster.Blaze) || fleeAtHealth == null || fleeAtHealth <= 0.0F || fleeAtHealth >= ROD_FLEE_HEALTH) return fleeAtHealth;
+		if (keepFleeLine || !(target instanceof net.minecraft.world.entity.monster.Blaze) || fleeAtHealth == null || fleeAtHealth <= 0.0F || fleeAtHealth >= ROD_FLEE_HEALTH) return fleeAtHealth;
 		for (int slot = 0; slot < player.getInventory().getContainerSize(); slot++)
 			if (player.getInventory().getItem(slot).is(net.minecraft.world.item.Items.BLAZE_ROD)) return ROD_FLEE_HEALTH;
 		return fleeAtHealth;
