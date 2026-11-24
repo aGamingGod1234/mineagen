@@ -1012,6 +1012,26 @@ test('scripted gate seeds 3, 6, 7: water under a dig down from obtain\'s covered
 	assert.equal(far.calls.find((call) => call.actionType === 'travel_to').args.y, 65);
 });
 
+test('iron-obtain-6006: water under a dig down that began on higher ground than the last open sky: back up to where the dig began, not to the sky spot inside its own cut', async () => {
+	// The steep stair down from the hill top at y70 is open to the sky for its first steps: the remembered sky spot is 4 blocks
+	// down it at y66, under the water table, and every walk from there tunnels and floods.
+	const run = async (sky) => {
+		const wet = { result: { state: 'FAILED', reasonCode: 'WATER_AHEAD', message: 'Stopped: Water at 0,45,-14 fills the cut; more water after sealing water at 1,45,-14 below sea level: an aquifer or flooded cave, not a trickle' }, move: () => ({ x: 0.5, y: 46, z: -12.5, skyOpen: false }) };
+		const body = fakeBody({ start: sample({ player: { x: 0.5, y: 70, z: 0.5, yaw: 180, health: 20, skyOpen: true } }), frontier: { candidates: [], coverage: { headings: {} } },
+			acts: { dig_to: [wet, { result: { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', message: 'minecraft:iron_ore seen at -33,20,0, 3 blocks away' }, move: () => ({ y: 21 }) }],
+				travel_to: [{ result: { state: 'SUCCEEDED', reasonCode: 'ARRIVED' }, move: (player) => ({ x: 0.5, y: 70, z: 0.5, skyOpen: true }) },
+					{ result: { state: 'SUCCEEDED', reasonCode: 'ARRIVED' }, move: (player) => ({ x: player.x - 32 }) }] } });
+		body.openSky = () => sky;
+		const result = await searchFor({ block: 'minecraft:iron_ore' }, body);
+		assert.equal(result.reasonCode, 'FIND_SEEN', result.message);
+		return body.calls.find((call) => call.actionType === 'travel_to' && call.args.retrace === true)?.args;
+	};
+	const up = await run({ x: 0.5, y: 66, z: -3.5 });
+	assert.deepEqual([up.x, up.y, up.z], [0.5, 70, 0.5], 'up to the dig\'s start on the hill, not the sky spot at y66 in the cut');
+	const level = await run({ x: 6.5, y: 70, z: 0.5 });
+	assert.deepEqual([level.x, level.y, level.z], [6.5, 70, 0.5], 'a sky spot as high as the dig\'s start stands');
+});
+
 test('scripted gate seed 7: bobbing in a flooded chamber with no bank in reach: out the way it came to the last open sky, then the search goes on', async () => {
 	const bobbing = { x: -15.5, y: 39, z: 31.5, yaw: 0, health: 20, inWater: true, underWater: true, air: 290, maxAir: 300, skyOpen: false };
 	const body = fakeBody({ start: sample({ player: bobbing }), frontier: { candidates: [], coverage: { headings: {} } },
