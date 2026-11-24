@@ -111,6 +111,26 @@ public final class SeenNavigationVerification {
 		check(finish(sightBoundary, view(corridor, new SeenTerrain.Memory<>(), 1L)).nodes().getLast().position().equals(new GridPosition(8, 64, 0)), "local and sight boundaries may coincide");
 		check(sightBoundary.endedAtUnknown(), "an unknown continuation at the search boundary is still a sight frontier");
 		check(!first.isCurrent(new SeenTerrain.Reader<>(memory, world, 4L, null)), "newly acquired previously unknown facts invalidate retained search");
+		// A pending search checks only expiry and the change log between ticks; it refreshes what it consulted when it finishes.
+		World pendingWorld = new World();
+		pendingWorld.seenThrough = 3;
+		SeenTerrain.Memory<BlockState> pendingMemory = new SeenTerrain.Memory<>();
+		MinecraftNavigationWorld pending = view(pendingWorld, pendingMemory, 1L);
+		finish(search(), pending);
+		pendingWorld.seenThrough = 12;
+		check(pending.isCurrent(new SeenTerrain.Reader<>(pendingMemory, pendingWorld, 2L, null), false),
+				"a pending check does not re-read consulted cells that only became visible");
+		check(!pending.refreshConsulted(), "the finishing check re-reads consulted cells through the same tick's reader");
+		pendingWorld.seenThrough = 3;
+		SeenTerrain.Memory<BlockState> loggedMemory = new SeenTerrain.Memory<>();
+		MinecraftNavigationWorld pendingLogged = view(pendingWorld, loggedMemory, 1L);
+		finish(search(), pendingLogged);
+		pendingWorld.seenThrough = 12;
+		// Another consumer of the same memory (steering, observation) acquires a consulted cell through its own reader.
+		SeenTerrain.Reader<BlockState> other = new SeenTerrain.Reader<>(loggedMemory, pendingWorld, 2L, null);
+		for (int x = 4; x <= 12; x++) for (int y = 63; y <= 66; y++) other.known(x, y, 0);
+		check(!pendingLogged.isCurrent(new SeenTerrain.Reader<>(loggedMemory, pendingWorld, 2L, null), false),
+				"a consulted fact acquired by another reader still invalidates a pending search through the change log");
 		world.visible = false;
 		world.states.put(new BlockPos(3, 63, 0), Blocks.AIR.defaultBlockState());
 		check(view(world, memory, 5L).cellAt(new GridPosition(3, 63, 0)) == WalkabilityView.Cell.SAFE_SUPPORT, "remembered hidden floor keeps its old value");

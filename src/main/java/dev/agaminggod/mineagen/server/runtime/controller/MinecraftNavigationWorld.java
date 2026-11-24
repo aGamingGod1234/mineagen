@@ -52,6 +52,8 @@ public final class MinecraftNavigationWorld implements WalkabilityView {
 
 	private final BlockGetter level;
 	private SeenTerrain.Reader<BlockState> seen;
+	// The reader every consulted fact was last read or refreshed through (see isCurrent).
+	private SeenTerrain.Reader<BlockState> refreshedThrough;
 	private Integer movementLevel;
 	private SeenTerrain.Stamp stamp;
 	private long knownUntil = Long.MAX_VALUE;
@@ -117,6 +119,7 @@ public final class MinecraftNavigationWorld implements WalkabilityView {
 	private MinecraftNavigationWorld(BlockGetter level, SeenTerrain.Reader<BlockState> seen, ServerPlayer player) {
 		this.level = Objects.requireNonNull(level, "level must not be null");
 		this.seen = Objects.requireNonNull(seen, "seen must not be null");
+		refreshedThrough = seen;
 		stamp = seen.stamp();
 		bootsEnchantments = player == null ? ItemEnchantments.EMPTY
 				: player.getItemBySlot(EquipmentSlot.FEET).getOrDefault(DataComponents.ENCHANTMENTS, ItemEnchantments.EMPTY);
@@ -833,8 +836,18 @@ public final class MinecraftNavigationWorld implements WalkabilityView {
 
 	/** Only acquired facts and their expiry invalidate a retained search, never hidden world mutations. */
 	boolean isCurrent(SeenTerrain.Reader<BlockState> now) {
+		return isCurrent(now, true);
+	}
+
+	/**
+	 * As {@link #isCurrent(SeenTerrain.Reader)}. With {@code refresh} false only expiry and the memory's change log are
+	 * checked, and later reads go through {@code now}: a search still pending between ticks uses this, and refreshes every
+	 * consulted fact once, when it finishes. Re-reading every consulted cell on every pending tick cost each planning bot
+	 * its whole consulted set per tick, which with many bots planning at once took a seventh of the server tick.
+	 */
+	boolean isCurrent(SeenTerrain.Reader<BlockState> now, boolean refresh) {
 		if (now.tick() > knownUntil) return false;
-		if (seen != now) {
+		if (refresh && refreshedThrough != now) {
 			// Memory changes are recorded on acquisition. Refresh consulted facts before trusting an unchanged log.
 			for (var entry : states.long2ObjectEntrySet()) {
 				long key = entry.getLongKey();
@@ -844,6 +857,7 @@ public final class MinecraftNavigationWorld implements WalkabilityView {
 		boolean changed = now.changedSince(stamp, key -> states.containsKey(key)
 				&& !Objects.equals(states.get(key), acquiredState(now, BlockPos.getX(key), BlockPos.getY(key), BlockPos.getZ(key))));
 		if (changed) return false;
+		if (refresh) refreshedThrough = now;
 		seen = now;
 		stamp = now.stamp();
 		return true;
@@ -851,9 +865,13 @@ public final class MinecraftNavigationWorld implements WalkabilityView {
 
 	boolean uses(SeenTerrain.Reader<BlockState> reader) { return seen == reader; }
 
+	/** Refreshes every consulted fact through the reader this view last checked, once per reader. */
+	boolean refreshConsulted() { return isCurrent(seen, true); }
+
 	/** Reuse steering storage, but read through this tick's shared knowledge. Retained searches keep their snapshot. */
 	void nextFrame(SeenTerrain.Reader<BlockState> reader) {
 		seen = reader;
+		refreshedThrough = reader;
 		stamp = reader.stamp();
 		knownUntil = Long.MAX_VALUE;
 		refreshCached = true;
