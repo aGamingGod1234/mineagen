@@ -97,7 +97,6 @@ const MAX_ESCAPES = 2;
 const BREATH_STOPS = new Set(['AIR_RESERVE_REACHED', 'BREATH_NOT_COVERED', 'TUNNEL_FLOODED']);
 const FLOOD_CONTAINED = getSwitch('find.floodContained').value;
 const FLOOD_LAVA_CLEAR = 8;
-const TUNNEL_OFF = getSwitch('find.tunnelOff').value;
 
 /**
  * A dig that opened a cell water flowed into, did not step in, backed out, and the flow stopped short of the body, with a
@@ -1741,22 +1740,6 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 				ended = await escapeWater();
 				if (ended !== null) return ended;
 				previous = bodyAt(observation);
-				// A dry walk off that went nowhere (NO_ROUTE round a lake shore): a player digs a level way off instead, one
-				// heading after another. Kit and chain gates on main: the model called find again from the same spot up to 6
-				// times, each ending "the move off this spot stopped too".
-				if (TUNNEL_OFF && idleWhy === 'water under this spot stops every dig down' && wetSky === null && !inWater() && observation?.player?.underWater !== true && !legs.some((entry) => entry.underWater === true) && Math.hypot(previous.x - from.x, previous.y - from.y, previous.z - from.z) < 2) {
-					for (let turn = 0; turn < 3; turn++) {
-						const side = CARDINALS[(CARDINALS.indexOf(heading) + turn) % 4];
-						if (stepsLeft(side) < 4) continue;
-						const cut = await leg(`tunnel ${side.name} off this spot`, 'dig_to', { pattern: 'tunnel', heading: side.name,
-							maxBlocks: STEP_CELLS.tunnel * Math.min(RELOCATE, stepsLeft(side)), stopWhenSeen: profile.stopId, discard: DISCARD });
-						ended = await settle(cut);
-						if (ended !== null) return ended;
-						previous = bodyAt(observation);
-						if (Math.hypot(previous.x - from.x, previous.y - from.y, previous.z - from.z) >= 2) { heading = side; base = heading; turns = 0; break; }
-					}
-					counted = legs.length;
-				}
 				// A move off that left the body where it was: digging here again meets the same stop. Live, B-1's aquifer cell:
 				// two such moves (BUILD_FAILED in the water) each followed by two more wet digs down, 108 s in all.
 				// A dry step is off the wet spot even when the hop moved less than two blocks.

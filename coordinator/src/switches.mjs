@@ -130,10 +130,6 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'find.floodContained', env: 'MINEAGEN_FIND_FLOOD_CONTAINED', side: 'coordinator', default: true, parser: OFF_EXACT, status: 'default-on',
 		reason: 'A flooded tunnel the dig backed out of, with the flow stopped short and the body dry and safe, is a shut way, not danger that ends obtain (helper in find-search, read by obtain-runner); off is the A/B off arm.',
 		readers: ['coordinator/src/find-search.mjs FLOOD_CONTAINED (module load, process.env only)'] }),
-	// coordinator/src/find-search.mjs TUNNEL_OFF: read once at module load.
-	entry({ name: 'find.tunnelOff', env: 'MINEAGEN_FIND_TUNNEL_OFF', side: 'coordinator', default: true, parser: OFF_EXACT, status: 'default-on',
-		reason: 'A dry walk off a spot where water stops every dig down that goes nowhere digs a level tunnel off instead (up to 3 headings) before the search hands back; off is the A/B off arm.',
-		readers: ['coordinator/src/find-search.mjs TUNNEL_OFF (module load, process.env only)'] }),
 	// coordinator/src/obtain-runner.mjs NEXT_STATION: read once at module load.
 	entry({ name: 'obtain.nextStation', env: 'MINEAGEN_OBTAIN_NEXT_STATION', side: 'coordinator', default: true, parser: OFF_EXACT, status: 'default-on',
 		reason: 'A station drop not confirmed in the inventory no longer ends the cleanup: the other placed stations (the crafting table) are still picked up; off is the A/B off arm.',
