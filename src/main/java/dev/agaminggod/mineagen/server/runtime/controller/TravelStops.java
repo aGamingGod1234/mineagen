@@ -60,6 +60,8 @@ public final class TravelStops {
 			if (mob.getSensing().hasLineOfSight(player) || mob.getTarget() == player) { LINE.computeIfAbsent(mob, key -> new java.util.HashMap<>()).put(player.getUUID(), now); return false; }
 			Long had = LINE.getOrDefault(mob, java.util.Map.of()).get(player.getUUID());
 			if (had != null && now - had < LINE_MEMORY_TICKS) return false;
+			// A hit is kept by the game even while a reflex pauses the trip, when no stop check runs to record the line.
+			if (player.getLastHurtByMob() == mob && player.tickCount - player.getLastHurtByMobTimestamp() < LINE_MEMORY_TICKS) return false;
 			return Math.abs(mob.getY() - player.getY()) >= 2.0D && mob.distanceTo(player) > 2.0D;
 		}
 		if (RANGED.contains(type) || type.equals("minecraft:creeper") || type.endsWith("guardian")
