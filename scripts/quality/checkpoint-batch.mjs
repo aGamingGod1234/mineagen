@@ -11,7 +11,7 @@
 //     "copyConcurrency": 8 (games copied home at once), "drain": "delete" (delete every machine, listed ones too, once it has no further game),
 //     "savepoints": { "nether": { "file": "/sp/9-nether-entry-123456789-v2.json", "repeats": 4, "targets": ["fortress", "blaze_rod"], "arms": ["main", "int"] } } }  (arms optional: default all)
 //   A save point { "fresh": true } in place of "file" plays a new random world with an empty inventory (no save point,
-//   no salt). "minutes" goes up to 720, as run-long.mjs allows. "keepWorld": true packs each game's final world save as
+//   no salt). "minutes" goes up to 355 (6 hours with setup, the headless launcher's limit). "keepWorld": true packs each game's final world save as
 //   world-NAME.tgz inside game.tgz instead of dropping it.
 // Each arm is `git archive REF` of its root plus that root's coordinator/node_modules, and its jar. Every repeat of a
 // save point draws one loot salt that all arms share (lib/checkpoint-batch-core.mjs). A game runs scripts/quality/run-long.mjs

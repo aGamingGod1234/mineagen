@@ -16,7 +16,8 @@ export const codexHomes = plan => Array.isArray(plan.codexHomes) ? plan.codexHom
 export function expandPlan(plan, { salt = () => randomInt(-2147483648, 2147483647) } = {}) {
 	const errors = [];
 	const need = (ok, message) => { if (!ok) errors.push(message); };
-	need(Number.isInteger(plan.minutes) && plan.minutes >= 1 && plan.minutes <= 720, 'minutes must be an integer 1..720 (run-long.mjs allows a 12-hour window)');
+	// The headless launcher refuses a scenario over 6 hours, and a long run adds 5 minutes of setup to its window.
+	need(Number.isInteger(plan.minutes) && plan.minutes >= 1 && plan.minutes <= 355, 'minutes must be an integer 1..355 (the headless launcher stops a scenario at 6 hours, setup included)');
 	need(!Number.isNaN(Date.parse(plan.deadline ?? '')), 'deadline must be an ISO time with its offset');
 	const homes = codexHomes(plan);
 	need(homes.length >= 1 && homes.every(h => typeof h === 'string' && h.length > 0), 'codexHome (or codexHomes, a list) names the folder holding each Codex sign-in (auth.json)');
