@@ -87,7 +87,10 @@ public final class PlayerObservationEventsVerification {
 		check(stream.snapshot().get("latestSequence").getAsLong() == 8, "quiet facts remain in the event stream");
 		stream.text("system_message", "whisper", 9, "minecraft:overworld");
 		check(stream.attentionSequence() == 9, "base system message and whisper attention is preserved");
-		return 10;
+		stream.text("system_message", "[sb2] Working on it.", 10, "minecraft:overworld", false);
+		check(stream.attentionSequence() == 9 && stream.snapshot().get("latestSequence").getAsLong() == 10,
+				"an agent activity line stays in the events without forcing attention");
+		return 11;
 	}
 
 	private static int verifyEyeFlight() {

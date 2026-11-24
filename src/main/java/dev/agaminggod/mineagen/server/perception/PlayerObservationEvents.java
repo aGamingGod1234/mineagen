@@ -36,9 +36,33 @@ public final class PlayerObservationEvents {
 	private static final Map<ServerPlayer, Stream> PLAYERS = new WeakHashMap<>();
 	private static final String[] DIRECTIONS = { "front", "front_right", "right", "back_right", "back", "back_left", "left", "front_left" };
 
+	// The agent activity line this thread is broadcasting (see activityLine), matched by identity.
+	private static final ThreadLocal<Component> ACTIVITY_LINE = new ThreadLocal<>();
+
 	private PlayerObservationEvents() { }
 
+	/**
+	 * Broadcasts an agent activity line ("[name] Working on it.") that stays in each agent's events as context but
+	 * never forces an observation: a line reporting another agent's work needs no immediate look, and with every agent
+	 * hearing every other agent's lines, forcing one observation per line per listener grew with the square of the bots.
+	 * Whether the coordinator wakes a model for the line is decided there, from the events. Only the
+	 * packet carrying this exact component is marked; other messages sent during the broadcast keep their attention.
+	 */
+	public static void activityLine(Component line, java.util.function.Consumer<Component> broadcast) {
+		Component previous = ACTIVITY_LINE.get();
+		ACTIVITY_LINE.set(line);
+		try {
+			broadcast.accept(line);
+		} finally {
+			ACTIVITY_LINE.set(previous);
+		}
+	}
+
 	public static void capture(ServerPlayer player, Packet<?> packet) {
+		capture(player, packet, packet instanceof ClientboundSystemChatPacket message && message.content() == ACTIVITY_LINE.get());
+	}
+
+	private static void capture(ServerPlayer player, Packet<?> packet, boolean activityLine) {
 		if (!(packet instanceof ClientboundSoundPacket || packet instanceof ClientboundSoundEntityPacket
 				|| packet instanceof ClientboundBossEventPacket || packet instanceof ClientboundSystemChatPacket
 				|| packet instanceof ClientboundSetActionBarTextPacket || packet instanceof ClientboundSetTitleTextPacket
@@ -48,7 +72,7 @@ public final class PlayerObservationEvents {
 				|| packet instanceof ClientboundPlayerInfoRemovePacket || packet instanceof ClientboundTabListPacket
 				|| packet instanceof ClientboundTrackedWaypointPacket)) return;
 		var server = player.level().getServer();
-		if (!server.isSameThread()) { server.execute(() -> capture(player, packet)); return; }
+		if (!server.isSameThread()) { server.execute(() -> capture(player, packet, activityLine)); return; }
 		Stream stream = stream(player);
 		long tick = player.level().getGameTime();
 		String dimension = player.level().dimension().identifier().toString();
@@ -101,7 +125,7 @@ public final class PlayerObservationEvents {
 				@Override public void updateStyle(UUID id, BossEvent.BossBarColor color, BossEvent.BossBarOverlay overlay) { stream.boss(id.toString(), null, null, false, tick, dimension, color.getName(), overlay.getName()); }
 			});
 		} else if (packet instanceof ClientboundSystemChatPacket message) {
-			stream.text(message.overlay() ? "action_bar" : "system_message", message.content().getString(), tick, dimension);
+			stream.text(message.overlay() ? "action_bar" : "system_message", message.content().getString(), tick, dimension, !activityLine);
 		} else if (packet instanceof ClientboundSetActionBarTextPacket message) {
 			stream.text("action_bar", message.text().getString(), tick, dimension);
 		} else if (packet instanceof ClientboundSetTitleTextPacket message) {
@@ -317,13 +341,17 @@ public final class PlayerObservationEvents {
 		}
 
 		void record(JsonObject event, long tick, String dimension) {
+			record(event, tick, dimension, true);
+		}
+
+		void record(JsonObject event, long tick, String dimension, boolean attention) {
 			String signature = event.toString() + dimension;
 			if (tick == lastTick && signature.equals(lastSignature)) return;
 			lastTick = tick;
 			lastSignature = signature;
 			JsonObject owned = event.deepCopy();
 			owned.addProperty("sequence", ++sequence);
-			if (carriesAttention(event)) attentionSequence = sequence;
+			if (attention && carriesAttention(event)) attentionSequence = sequence;
 			owned.addProperty("gameTime", tick);
 			owned.addProperty("dimension", dimension);
 			owned.addProperty("observedAtEpochMs", System.currentTimeMillis());
@@ -350,11 +378,15 @@ public final class PlayerObservationEvents {
 		}
 
 		void text(String kind, String value, long tick, String dimension) {
+			text(kind, value, tick, dimension, true);
+		}
+
+		void text(String kind, String value, long tick, String dimension, boolean attention) {
 			JsonObject event = new JsonObject();
 			event.addProperty("type", kind);
 			event.addProperty("text", ObservationDetails.bounded(value, 512));
 			event.addProperty("textTruncated", value.length() > 512);
-			record(event, tick, dimension);
+			record(event, tick, dimension, attention);
 		}
 
 		void boss(String id, String name, Float progress, boolean remove, long tick, String dimension) {
