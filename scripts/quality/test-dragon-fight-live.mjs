@@ -388,7 +388,8 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 							const R = c.y + 2 - (me.y + 1.62);
 							if (Number.isFinite(edge)) c.edge = { E: edge, R };
 							else c.raiseMin = (c.raise ?? 0) + 4;
-							if (!c.edge) { c.want = Math.max(16, flat - 8); c.tries = 2; return; }
+							// No edge named yet: EndSpikeFeature's pillar i is 76+3i high and 2+i/3 wide, so its top edge is known.
+							if (!c.edge) { const i = Math.max(0, Math.round((Math.floor(c.y) - 1 - 76) / 3)); c.edge = { E: R * (2 + Math.floor(i / 3) + 0.5) / 3, R }; }
 							tallPlan(c); c.tries = 2;
 							const h = c.raise;
 							note(`crystal ${where(c)}: shows over its pillar from ${Math.round(c.want)} out, ${h} blocks up`, null);
