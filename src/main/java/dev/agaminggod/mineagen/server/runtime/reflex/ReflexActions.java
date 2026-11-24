@@ -1262,10 +1262,14 @@ final class ReflexActions {
 				// Nothing to swing at: the body turns along the step and sprints it, as a player runs across a shot, 1.3 times
 				// as far in the arrow's flight as a strafe facing the archer (walking pace: 41% of shots that flew under a
 				// second hit the body, at 1-1.5 blocks across 11%).
+				// While the body turns, forward and strafe split the step so it still runs along the checked heading, not
+				// along a view the turn has left up to 45 degrees short of it (toward the archer, onto unchecked ground). A jump
+				// onto a rise is walked: a sprint-jump carries past the two cells the footing check looked at.
 				float yaw = AgentInputStates.turnYaw(player.getYRot(), heading);
 				float error = AgentInputStates.shortestAngleDelta(yaw, heading);
-				float forward = CombatPlanning.alignedForward(1.0F, error);
-				input.accept(new AgentInputState(forward, 0.0F, jump, false, Math.abs(error) < 30.0F, false, false, yaw, aim.pitch(), aim.selectedSlot(), aim.hand()));
+				float turn = (float) Math.toRadians(error);
+				input.accept(new AgentInputState(cleanAxis((float) Math.cos(turn)), cleanAxis(-(float) Math.sin(turn)), jump, false,
+						Math.abs(error) < 30.0F && !jump, false, false, yaw, aim.pitch(), aim.selectedSlot(), aim.hand()));
 				return Step.running("sprinting " + SafeStep.compass(heading) + " across " + type(shooter) + "'s shot" + swung);
 			}
 			float relative = (float) Math.toRadians(AgentInputStates.shortestAngleDelta(aim.yaw(), heading));
