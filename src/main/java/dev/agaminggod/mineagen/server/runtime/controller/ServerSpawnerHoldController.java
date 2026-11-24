@@ -119,6 +119,8 @@ public final class ServerSpawnerHoldController implements ServerController {
 	private int lullMeals;
 	/** Ticks with nothing taking health before the open fight stops for a bite. */
 	private static final long LULL_TICKS = 40L;
+	/** Health missing (2 hearts) before the open fight stops for a bite. */
+	private static final float LULL_MISSING_HEALTH = 4.0F;
 	/** The margin ran out outside the cell: the heal starts on arrival whatever the health (up to TURTLE_DONE). */
 	private boolean coverWanted;
 	private int marginTurns;
@@ -389,9 +391,11 @@ public final class ServerSpawnerHoldController implements ServerController {
 				lullBite = false;
 			}
 			int lullFood = foodSlot(player);
-			if (!(openPart != null && target.isDeadOrDying()) && player.getHealth() < player.getMaxHealth()
-					&& player.getFoodData().getFoodLevel() < SpawnerHold.EAT_HUNGER && player.level().getGameTime() - lastLossTick > LULL_TICKS
-					&& SpawnerHold.shouldEat(player.getFoodData().getFoodLevel(), player.getHealth(), biteSafe(player), blazeNear(player), lullFood >= 0)) {
+			// Hunger in these fights stays at 18-20, so the bite waits only for missing health: a meal that fills hunger to 20
+			// starts vanilla's fast saturation heal.
+			if (!(openPart != null && target.isDeadOrDying()) && lullFood >= 0 && player.getHealth() <= player.getMaxHealth() - LULL_MISSING_HEALTH
+					&& player.getFoodData().getFoodLevel() < 20 && player.level().getGameTime() - lastLossTick > LULL_TICKS
+					&& biteSafe(player) && !blazeNear(player)) {
 				if (openPart != null) { openPart.cancel(player); openPart = null; }
 				lullBite = true;
 				lullMeals++;
