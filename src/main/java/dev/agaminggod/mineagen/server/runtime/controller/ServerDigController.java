@@ -126,7 +126,7 @@ public final class ServerDigController implements ServerController {
 	/** A crouched lean to a block's edge: the eye is past its side face within about a second. */
 	private static final int LEAN_TICKS = 30;
 	/** Stepping back out of a cell before filling it. */
-	private static final int STEP_OUT_TICKS = 10;
+	private static final int STEP_OUT_TICKS = 20;
 	/** Blocks a player carries to fill a hole or plug lava, cheapest first. */
 	static final List<String> FILLERS = List.of("minecraft:cobblestone", "minecraft:cobbled_deepslate", "minecraft:netherrack",
 			"minecraft:dirt", "minecraft:andesite", "minecraft:diorite", "minecraft:granite", "minecraft:tuff", "minecraft:stone",
@@ -1257,10 +1257,17 @@ public final class ServerDigController implements ServerController {
 			applyInput(player, facing ? 1.0F : 0.0F, false, true, false, toward, pitch, player.getInventory().getSelectedSlot());
 			return TickResult.running(progress(player));
 		}
-		// The body hanging into the cell to fill (it arrived off centre): step back out of it, crouched, before the click.
-		if (stepOutTicks < STEP_OUT_TICKS && player.getBoundingBox().deflate(1.0E-3D).intersects(new AABB(placeAt))) {
+		// The body hanging into the cell to fill (it arrived off centre): step out of it, crouched, before the click. The way
+		// out is from the cell's centre toward the body's, not backward from the aim: the aim is on the support's face, and
+		// backing away from it can lead further into the cell. The box is the one the placement check tests, ungrown.
+		AABB body = player.getBoundingBox();
+		if (stepOutTicks < STEP_OUT_TICKS && body.deflate(1.0E-7D).intersects(new AABB(placeAt))) {
 			stepOutTicks++;
-			applyInput(player, -1.0F, false, true, false, yaw, pitch, player.getInventory().getSelectedSlot());
+			double dx = body.getCenter().x - (placeAt.getX() + 0.5D), dz = body.getCenter().z - (placeAt.getZ() + 0.5D);
+			float out = Math.hypot(dx, dz) > 1.0E-3D ? (float) Math.toDegrees(Math.atan2(-dx, dz)) : heading.getOpposite().toYRot();
+			float toward = AgentInputStates.turnYaw(player.getYRot(), out);
+			boolean facing = Math.abs(AgentInputStates.shortestAngleDelta(toward, out)) < 30.0F;
+			applyInput(player, facing ? 1.0F : 0.0F, false, true, false, toward, pitch, player.getInventory().getSelectedSlot());
 			return TickResult.running(progress(player));
 		}
 		applyInput(player, 0.0F, false, crossNext || floorAfterPlace, false, yaw, pitch, player.getInventory().getSelectedSlot());
