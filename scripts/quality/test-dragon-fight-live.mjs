@@ -58,10 +58,12 @@ const OLD_RECOVER = cli.includes('--old-recover');
 // --dry-cage (trial, off by default): with no water bucket and only caged crystals left, the cage is opened anyway and the body
 // comes down by breaking the column under its feet. Judged with --head-aim in the same batch: no gain shown, 1 fall in 6 uses.
 const OLD_CAGE = !cli.includes('--dry-cage');
-// --old-range: main's flying shot at any dragon part within 48 blocks. By default only within 26: over 2 batches (2,100
-// shots), an arrow struck 86% of the time with under 20 blocks of flight, 73% at 20-30, 48% at 30-50 and 36% past that, and
-// the 64 arrows ran out before the 20 minutes in 3 of 3 runs that cleared the crystals and timed out with the dragon alive.
-const OLD_RANGE = cli.includes('--old-range');
+// --range-cap (trial, off by default): flying shots only within 26 blocks, not main's 48. Over 3 batches (1,306 shots with a
+// distance), an arrow struck 64% of the time aimed under 20 blocks away, 37% at 20-30, 19% at 30-50 and 8% past that, and
+// main's play used 62 or more of its 64 arrows in 3 of 7 runs that cleared the crystals and timed out. Against main's stand-in,
+// 20 runs a side in one batch: 1 kill against 0, 36% of arrows struck against 26%, but half as many arrows landed (52 against
+// 103) and the dragon ended no lower, so it stays off.
+const OLD_RANGE = !cli.includes('--range-cap');
 const [outArg, jarArg] = cli.filter(arg => !arg.startsWith('--'));
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port = Number(process.env.SLOT_PORT_BASE);
 if (!outArg || !template || !port || !process.env.JAVA_HOME) { console.error('Usage: OUT_DIR [JAR] [--no-bow] [--survive] under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME'); process.exit(2); }
@@ -675,8 +677,7 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 						meleeHits += 1; note(`melee perched head (dragon ${before} -> ${after})`, r); continue;
 					}
 					// 3. In flight and close: shoot the nearest of its body and head (--head-aim: the head first, which takes an arrow's
-					// full damage, every other part about a quarter). A player saves arrows for close shots: none past 26 blocks
-					// (--old-range: 48).
+					// full damage, every other part about a quarter). Only within 48 blocks (--range-cap: 26).
 					const part = ranged ? entities.filter(row => row.type === 'minecraft:ender_dragon' && /^(body|head)$/.test(row.partName ?? '') && dist(row) <= (OLD_RANGE ? 48 : 26))
 						.sort((a, b) => (OLD_AIM ? 0 : (a.partName === 'head' ? 0 : 1) - (b.partName === 'head' ? 0 : 1)) || dist(a) - dist(b))[0] : undefined;
 					if (part) {
