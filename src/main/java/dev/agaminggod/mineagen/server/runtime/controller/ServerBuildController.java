@@ -190,7 +190,12 @@ public final class ServerBuildController implements ServerController {
 	/** Walks during a build plan over what the build remembers (cells it dug, rock it saw), not only what is in sight now. */
 	static final boolean WALK_MEMORY = !"off".equalsIgnoreCase(System.getenv("MINEAGEN_BUILD_WALK_MEMORY"));
 	static final int CARVE_RADIUS = 10;
-	static final double CARVE_POOL_MARGIN = 6.0D;
+	/** How near the pool a carved frame's middle may sit; MINEAGEN_BUILD_CARVE_MARGIN sets it for a same-batch A/B. */
+	static final double CARVE_POOL_MARGIN = carveMargin(System.getenv("MINEAGEN_BUILD_CARVE_MARGIN"));
+
+	static double carveMargin(String text) {
+		try { return text == null || text.isBlank() ? 6.0D : Math.max(3.0D, Double.parseDouble(text.trim())); } catch (NumberFormatException bad) { return 6.0D; }
+	}
 	/**
 	 * Open pool sources a cast wants in view before it starts: one bucket per frame cell and two spare. A pool met from the
 	 * side or through one opened block shows one source (sight stops at the first lava), and a scooped source refills as
