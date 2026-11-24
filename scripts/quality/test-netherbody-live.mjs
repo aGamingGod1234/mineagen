@@ -231,7 +231,7 @@ try {
       check(Math.min(...r.samples.map(s=>s.observation.player.health))===(enabled?20:17),name+' protection');
     }
     if(name.startsWith('cancel-shield-'))check(r.during.interaction.usingItem&&r.during.player.crouching&&r.result.state==='CANCELLED'&&!r.after.interaction.usingItem&&!r.after.interaction.input.sneak,name);
-    if(name.startsWith('missing-shield-'))check(r.result.reasonCode==='SHIELD_NOT_EQUIPPED',name);
+    if(name.startsWith('missing-shield-'))check(r.result.reasonCode!=='SHIELD_NOT_EQUIPPED'&&String(r.result.message??'').includes('fought unshielded'),name);
     if(name.startsWith('shield-control-sneak-'))check(r.during.interaction.usingItem&&r.during.player.crouching&&!r.after.interaction.usingItem,name);
     if(name.startsWith('fireball-cover-'))check(name.startsWith('fireball-cover-2')?r.after.player.health===20:r.after.player.health<20,name);
     if(name.startsWith('backstop-'))check(r.after.position.y===80&&r.after.position.x<0.71,name);

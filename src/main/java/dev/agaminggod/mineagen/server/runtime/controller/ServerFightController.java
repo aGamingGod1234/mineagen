@@ -161,6 +161,8 @@ public final class ServerFightController implements ServerController {
 	private boolean engineTargets;
 	/** The offhand shield broke (or left the offhand) during this fight; the fight goes on without it. */
 	private boolean shieldBroke;
+	/** shield:true asked with no shield in the offhand at the start; the fight went on unshielded. */
+	private boolean shieldMissing;
 	private boolean shieldChecked;
 	/** Calm neutral mobs this fight's swings hurt besides the target (sword sweeps), "type uuid". */
 	private final List<String> neutralHits = new ArrayList<>(4);
@@ -396,7 +398,10 @@ public final class ServerFightController implements ServerController {
 			clock.killed();
 		}
 		if (shield && !shieldBroke && !(player.getOffhandItem().getItem() instanceof net.minecraft.world.item.ShieldItem)) {
-			if (!shieldChecked) return finish(player, TickResult.failed("SHIELD_NOT_EQUIPPED", "shield:true requires an equipped offhand shield; equip it before fighting", progress(player)));
+			// No shield at the start (it broke on fireballs in an earlier call): fight on unshielded, as after a mid-fight
+			// break. Failing here left a caller that repeats shield:true standing idle among blazes (blaze spawner rooms:
+			// 7 of 27 deaths on main).
+			shieldMissing = !shieldChecked;
 			shieldBroke = true;
 		}
 		shieldChecked = true;
@@ -415,10 +420,11 @@ public final class ServerFightController implements ServerController {
 				return result.state() == State.RUNNING ? result : finish(player, bailoutReport(player, result));
 			}
 		}
-		if (CombatPlanning.shouldBailOut(player.getHealth(), fleeAtHealth)) {
+		Float flee = lootFlee(player);
+		if (CombatPlanning.shouldBailOut(player.getHealth(), flee)) {
 			BrinkGuard.keepLevel(player, this, false);
 			input.release();
-			bailout = CombatBailout.start(player, target, fleeAtHealth, pursue, timeoutMs - elapsed, nowEpochMs);
+			bailout = CombatBailout.start(player, target, flee, pursue, timeoutMs - elapsed, nowEpochMs);
 			TickResult result = bailout.tick(player, nowEpochMs);
 			return result.state() == State.RUNNING ? result : finish(player, bailoutReport(player, result));
 		}
@@ -1186,7 +1192,7 @@ public final class ServerFightController implements ServerController {
 	}
 
 	private String kills() {
-		String extra = (blazeWaitTicks == 0 ? "" : String.format(Locale.ROOT, "; held deck awaiting blaze reach %.1f s", blazeWaitTicks / 20.0D)) + footworkFacts() + (shieldBroke ? "; offhand shield broke mid-fight, fought on unshielded" : "")
+		String extra = (blazeWaitTicks == 0 ? "" : String.format(Locale.ROOT, "; held deck awaiting blaze reach %.1f s", blazeWaitTicks / 20.0D)) + footworkFacts() + (shieldMissing ? "; no shield in the offhand (shield:true), fought unshielded" : shieldBroke ? "; offhand shield broke mid-fight, fought on unshielded" : "")
 				+ (sweepHolds == 0 ? "" : String.format(Locale.ROOT, "; held the sword on %d ready swings while a calm neutral stood in its sweep", sweepHolds))
 				+ (neutralHits.isEmpty() ? "" : "; your sword sweep also hit calm " + String.join(", ", neutralHits)
 						+ " (now hostile; a hurt zombified piglin angers all within 35 blocks)");
@@ -1486,7 +1492,10 @@ public final class ServerFightController implements ServerController {
 	}
 
 	private TickResult bailoutReport(ServerPlayer player, TickResult result) {
-		return new TickResult(result.state(), result.reasonCode(), result.message() + kills() + remainingThreats(player), progress(player));
+		Float flee = lootFlee(player);
+		String raised = flee != null && !flee.equals(fleeAtHealth)
+				? String.format(java.util.Locale.ROOT, "; backed out at half health (fleeAtHealth %.1f raised to %.1f while holding a blaze rod; 0 fights on)", fleeAtHealth, flee) : "";
+		return new TickResult(result.state(), result.reasonCode(), result.message() + raised + kills() + remainingThreats(player), progress(player));
 	}
 
 	private TickResult finish(ServerPlayer player, TickResult result) {
@@ -1550,4 +1559,26 @@ public final class ServerFightController implements ServerController {
 			HANDOFFS.put(player.getUUID(), new Handoff(weaponSlot, backoffTicks, player.level().getGameTime()));
 		}
 	}
+
+	/**
+	 * Blaze rods are only kept by a body that lives: holding one against a blaze, a fight with a flee line under half health
+	 * backs out at half health instead. No flee line (a cornered stand's fight) or 0 (the model's "fight on") stays as given.
+	 */
+	static final float ROD_FLEE_HEALTH = 10.0F;
+
+	/** The caller answers low health itself (the spawner hold's defend): its flee line stays as given with rods in hand. */
+	private boolean keepFleeLine;
+
+	public ServerFightController keepFleeLine() {
+		keepFleeLine = true;
+		return this;
+	}
+
+	private Float lootFlee(ServerPlayer player) {
+		if (keepFleeLine || !(target instanceof net.minecraft.world.entity.monster.Blaze) || fleeAtHealth == null || fleeAtHealth <= 0.0F || fleeAtHealth >= ROD_FLEE_HEALTH) return fleeAtHealth;
+		for (int slot = 0; slot < player.getInventory().getContainerSize(); slot++)
+			if (player.getInventory().getItem(slot).is(net.minecraft.world.item.Items.BLAZE_ROD)) return ROD_FLEE_HEALTH;
+		return fleeAtHealth;
+	}
+
 }
