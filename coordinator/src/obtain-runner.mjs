@@ -7,6 +7,7 @@
 //
 // Finding a source is one function, locate(): what is in view or remembered, then a survey search, then exploring
 // (walking out for trees and animals, digging toward the ore's depth). A future find verb can replace it.
+import { appendFileSync } from 'node:fs';
 import { howtoIndex } from './howto.mjs';
 import { DAMAGE_STOPS, FIGHT_STOPS, DISCARD, LIFE_SAFETY_STOPS, MAX_FIND_TIMEOUT_MS, UNREACHED, UNREACHED_SPOT, caveLog, hostileIsDanger, sameVein } from './find-search.mjs';
 import { threatRows, blazeBlocksErrand } from './search-danger.mjs';
@@ -34,6 +35,7 @@ const FOODS = new Set(['beef', 'porkchop', 'mutton', 'chicken', 'rabbit', 'cod',
 // MINEAGEN_OBTAIN_COSTS=off plans as before chests, the seen-source cost model and the one-trip kit iron (A/B rooms).
 const OBTAIN_COSTS = getSwitch('obtain.costs').value;
 const FILL_LEGS = getSwitch('obtain.fillLegs').value;
+const FILL_EDGE = getSwitch('obtain.fillEdge').value;
 // Food a trip below ground is stocked with, in hunger points: one full bar (20), about a quarter hour's eating. Food the
 // trip lacks is counted in bread-sized items (5 points) for a chest's value; 4 bread held is a full bar and none is short.
 const TRIP_HUNGER = 20;
@@ -123,6 +125,28 @@ function bodyAt(o) {
 }
 const eyeDistance = (body, b) => Math.hypot(b.x + 0.5 - body.x, b.y + 0.5 - (body.y + 1.62), b.z + 0.5 - body.z);
 const flatDistance = (body, b) => Math.hypot(b.x + 0.5 - body.x, b.z + 0.5 - body.z);
+
+// The water a step or two off an edge the body stands on, 3-8 blocks below its feet (the mod's edges fact), or null.
+export function waterBelowEdge(o) {
+	const at = bodyAt(o);
+	const drops = o?.player?.edges?.drops;
+	if (at === null || !Array.isArray(drops)) return null;
+	const steps = { E: [1, 0], S: [0, 1], W: [-1, 0], N: [0, -1] };
+	const drop = drops.filter((row) => row?.into === 'water' && row.atLeast !== true && steps[row.dir] && Number.isSafeInteger(row.at) && row.at <= 1
+		&& Number.isSafeInteger(row.drop) && row.drop >= 3 && row.drop <= 8).sort((a, b) => a.at - b.at || a.drop - b.drop)[0];
+	if (!drop) return null;
+	const [dx, dz] = steps[drop.dir];
+	// Away from the drop: without a water bucket a shaft goes down as two-column stairs, and these cut into the wall behind.
+	const away = { E: 'west', S: 'north', W: 'east', N: 'south' }[drop.dir];
+	return { x: Math.floor(at.x) + dx * (drop.at + 1), y: Math.floor(at.y) - drop.drop, z: Math.floor(at.z) + dz * (drop.at + 1), away };
+}
+
+// MINEAGEN_FILL_TRACE names a file: each bucket fill that fails to reach its water appends one JSON line (diagnosis only).
+function fillTrace(row) {
+	const file = process.env.MINEAGEN_FILL_TRACE;
+	if (!file) return;
+	try { appendFileSync(file, `${JSON.stringify({ t: Date.now(), ...row })}\n`); } catch { /* diagnosis only */ }
+}
 
 function knownBlocks(o) {
 	// seenResources (seen-resources.mjs): placed blocks seen so far (a village's cobblestone, a house's planks), nearest
@@ -1857,6 +1881,23 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 				if (body.interrupted() || body.stopped()) return 'stopped';
 				o = await body.observe();
 				after = bodyAt(o);
+			}
+			// A walk that ends at an edge over water below (room kit-gate-6: a ledge 5 blocks above a pool, beyond the 7-high
+			// block sample, so no row lists it): a player digs down beside the drop until the water is in reach.
+			const edge = FILL_EDGE && after !== null && fluid === 'water' && !(await reaches()) ? waterBelowEdge(o) : null;
+			fillTrace({ at: after, walked: walked?.reasonCode ?? walked?.state ?? null, source, edges: o.player?.edges ?? null, edge,
+				rows: (await seenRows(o)).filter((row) => row.blockId === id(fluid)).length });
+			if (edge !== null) {
+				step(`dig down beside the drop to the ${fluid} at ${cell(edge)}`);
+				const dug = await act('dig_to', { pattern: 'shaft', y: edge.y + 2, heading: edge.away, maxBlocks: 2 * (Math.floor(after.y) - edge.y), throughCaves: true, timeoutMs: 20_000 });
+				if (body.interrupted() || body.stopped()) return 'stopped';
+				o = await body.observe();
+				after = bodyAt(o);
+				fillTrace({ dug: dug?.reasonCode ?? dug?.state ?? null, at: after });
+				const filled = after === null ? null : await scoop(o, { x: edge.x, y: edge.y, z: edge.z });
+				fillTrace({ scooped: filled });
+				if (filled === true) return null;
+				if (filled === 'stopped' || filled === 'no empty bucket held') return filled;
 			}
 			if (after === null || !(await reaches())) {
 				budget.failed.add(cell(source));
