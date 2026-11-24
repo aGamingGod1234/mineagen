@@ -3570,6 +3570,8 @@ public final class MultiplexedServerBridge implements AgentRuntimeHooks, AutoClo
 		payload.addProperty("agentId", record.agentId().toString());
 		record.entityUuid().ifPresent(value -> payload.addProperty("entityUuid", value.toString()));
 		record.profile().userName().ifPresent(value -> payload.addProperty("name", value));
+		// Activity lines ("[label] Working on it.") show this label, not the player name; the coordinator matches it.
+		payload.addProperty("chatLabel", dev.agaminggod.mineagen.agent.AgentIdentity.displayNameTag(record.profile()));
 		payload.addProperty("provider", record.profile().provider());
 		payload.addProperty("model", record.profile().model());
 		payload.addProperty("reasoningEffort", record.profile().reasoning());

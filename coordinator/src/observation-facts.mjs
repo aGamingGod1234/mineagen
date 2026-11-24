@@ -90,7 +90,7 @@ export function finiteOrNull(value) {
  * agent's own chat and action announcements ("<name> ...", "[name] Mining a block"), which its action results already carry.
  * Newly observed player-chat packets and advancement toasts remain facts for the next wake, preserving the base wake policy.
  */
-export function routinePerceptionChange(payload, wireObservation, previousSequence, ownName = null, agentNames = []) {
+export function routinePerceptionChange(payload, wireObservation, previousSequence, ownName = null, agentNames = [], ownLabel = null) {
 	if (!Number.isSafeInteger(previousSequence)) return false;
 	if (typeof payload?.trigger === 'string' && payload.trigger.trim().length > 0) return false;
 	const changedFacts = Array.isArray(payload?.changedFacts) ? payload.changedFacts : [];
@@ -99,9 +99,17 @@ export function routinePerceptionChange(payload, wireObservation, previousSequen
 	const fresh = events.filter((event) => Number.isSafeInteger(event?.sequence) && event.sequence > previousSequence);
 	const heard = hasHeardSection(wireObservation);
 	return fresh.length > 0 && fresh.every((event) => ['player_chat', 'advancement_toast'].includes(event.type)
-		|| (heard && event.type === 'sound') || ownEcho(event, ownName) || publicChatLine(event)
+		|| (heard && event.type === 'sound') || ownEcho(event, ownName) || ownEcho(event, ownLabel) || publicChatLine(event)
 		// Every agent's activity line ("[name] Mining a block") is broadcast public chat: context, never a wake.
 		|| agentNames.some((name) => ownEcho(event, name)));
+}
+
+/**
+ * The names other agents' lines carry: chat shows the player name ("<Claude_Opus_5_5> ..."), activity lines the
+ * label the server shows ("[Opus 5.5] Working on it."), which differs from the player name for a default-named bot.
+ */
+export function agentLineNames(records) {
+	return records.flatMap((record) => [record?.name, record?.chatLabel]).filter((name) => typeof name === 'string' && name.length > 0);
 }
 
 /** Minecraft's line for an agent's public ("<name> text") or nearby ("[Nearby] <name> text") chat: context, never a wake. */

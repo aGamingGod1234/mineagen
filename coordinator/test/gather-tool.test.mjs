@@ -80,3 +80,41 @@ test('gather walks to a remembered placed block and never sends bulk terrain to 
 	const actions = sent.filter((entry) => entry.type === 'action_command').map((entry) => entry.payload.actionType);
 	assert.ok(actions.indexOf('break_block') > 0 && actions.slice(0, actions.indexOf('break_block')).some((type) => /move|navigate|travel/.test(type)), actions.join(','));
 });
+
+// Wave 6 speed lane, 32 bots: 481 of 593 coordinator observation requests reached the server 1-2 ticks after that bot's
+// last collect. The server already publishes a sample in each action result's tick; gather's look after each break
+// ignored it and asked for another collect.
+test('gather looks at the sample the server publishes with each break instead of asking for another collect', async () => {
+	const { NativeToolRuntime } = await import('../src/native-tool-runtime.mjs');
+	const record = () => ({ agentId: 'agent-g', provider: 'codex', model: 'test-model', reasoningEffort: 'low', serviceTier: 'fast', goalRevision: 3, currentGoal: 'get logs' });
+	const world = { worldId: 'w1', dimension: 'minecraft:overworld' };
+	const logs = new Set(['1,64,0', '1,65,0', '1,66,0', '1,67,0', '1,68,0']);
+	let held = 0, sequence = 1, requests = 0, breaks = 0;
+	const observe = () => ({ player: { x: 0.5, y: 64, z: 0.5, yaw: 0, pitch: 0, health: 20 }, world, items: [],
+		inventory: { items: held > 0 ? [{ slot: 0, itemId: 'minecraft:oak_log', count: held }] : [] },
+		blocks: [...logs].map((key) => { const [x, y, z] = key.split(',').map(Number); return { blockId: 'minecraft:oak_log', x, y, z, visible: true }; }) });
+	let runtime;
+	runtime = new NativeToolRuntime({
+		bridge: { send: async (type, _agentId, payload) => {
+			if (type !== 'action_command') return;
+			if (payload.actionType === 'break_block') {
+				breaks += 1;
+				logs.delete(`${payload.arguments.x},${payload.arguments.y},${payload.arguments.z}`);
+				held += 1;
+			}
+			// As the bridge does: the result, then the observation published in the same tick.
+			queueMicrotask(() => {
+				runtime.onActionResult(record(), { actionId: payload.actionId, goalRevision: payload.goalRevision, state: 'SUCCEEDED', reasonCode: payload.actionType === 'break_block' ? 'BLOCK_BROKEN' : 'ACTION_COMPLETED', message: 'done' });
+				runtime.updateObservation(record(), observe(), { eventSequence: ++sequence });
+			});
+		} },
+		requestObservation: async (_record, { afterEventSequence }) => { requests += 1; return { eventSequence: Math.max(afterEventSequence, sequence++) + 1, observation: observe() }; },
+	});
+	runtime.updateObservation(record(), observe(), { eventSequence: 1 });
+	const tool = normalizeMinecraftToolCall('gather', { itemId: 'oak_log', count: 5, timeoutMs: 30_000 });
+	const result = await runtime.execute({ agentId: 'agent-g', goalRevision: 3, turnId: 'turn-1', callId: 'call-1', tool }, record());
+	assert.equal(result.reasonCode ?? result.result?.reasonCode, 'GATHER_DONE', JSON.stringify(result).slice(0, 600));
+	assert.equal(breaks, 5);
+	// Before: one request per break plus the first look (6 for 5 breaks). After: only the first look, which follows no break.
+	assert.equal(requests, 1, `${requests} observation requests for ${breaks} breaks`);
+});
