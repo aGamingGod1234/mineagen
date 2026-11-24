@@ -16,7 +16,8 @@
 //   folder holds ServerReplay-*.jar, fabric-language-kotlin-*.jar and server-replay-config.json, which go into each
 //   machine's template; game.tgz then also holds recordings.tar, and the world is kept as with keepWorld.
 //   A game that ends without its normal copy (its process vanished, its machine is dropped, the batch ends under it)
-//   has its recordings and world copied to OUT/salvage/ before the machine can be deleted, when either is kept.
+//   has its recordings and world copied to OUT/salvage/ before the machine can be deleted, when either is kept. A
+//   machine whose copy failed is kept (retried up to 3 times), and the last line of batch.log names it.
 // Each arm is `git archive REF` of its root plus that root's coordinator/node_modules, and its jar. Every repeat of a
 // save point draws one loot salt that all arms share (lib/checkpoint-batch-core.mjs). A game runs scripts/quality/run-long.mjs
 // --checkpoint under eatmydata (boat disks sync slowly; see lib/boat-pool.mjs) with the Codex provider, the observer cap in
@@ -376,6 +377,28 @@ async function salvage(vm, game, opts = live) {
 	await log(`copied the recordings and world of ${game.id} from ${vm.id} to salvage/${name}.tgz`);
 	return true;
 }
+// A game whose salvage failed stays on its machine's uncopied list, and a machine with any uncopied game (or a game kept
+// for a copy by hand, heldGame) is never deleted. Retirement and the final cleanup retry the copy, up to
+// MAX_COPY_FAILURES failed tries per machine; a copy cut by a signal does not count as a try.
+const MAX_COPY_FAILURES = 3;
+const holds = vm => keepsWorlds && (Boolean(vm.heldGame) || (vm.uncopied?.length ?? 0) > 0);
+const copiesLeft = vm => keepsWorlds && (vm.uncopied?.length ?? 0) > 0 && (vm.copyFailures ?? 0) < MAX_COPY_FAILURES;
+async function copyOrHold(vm, game, opts) {
+	if (!keepsWorlds) return true;
+	try { await salvage(vm, game, opts); vm.uncopied = (vm.uncopied ?? []).filter(id => id !== game.id); return true; }
+	catch (error) {
+		if (!(vm.uncopied ?? []).includes(game.id)) vm.uncopied = [...(vm.uncopied ?? []), game.id];
+		if (!opts.signal?.aborted) vm.copyFailures = (vm.copyFailures ?? 0) + 1;
+		await log(`could not copy the recordings and world of ${game.id} from ${vm.id}, so the machine is kept: ${error.message.split('\n')[0]}`);
+		return false;
+	}
+}
+async function retryCopies(vm, opts) {
+	for (const id of [...(vm.uncopied ?? [])]) {
+		if (!copiesLeft(vm) || (aborted && opts.signal)) return;
+		await copyOrHold(vm, games.find(g => g.id === id), opts);
+	}
+}
 
 async function scoreFrom(dir, game, p) {
 	const file = path.join(dir, 'games', game.id, 'report', 'long-run.json');
@@ -400,7 +423,8 @@ const deletes = vm => plan.drain === 'delete' || vm.created;
 // Its calls carry the abort signal, so a stalled one cannot hold a SIGTERM back from the cleanup, which redoes both steps.
 async function retire(vm) {
 	if (!vm.signInRemoved) { await removeCodexSignIn(vm.id, undefined, live); vm.signInRemoved = true; await log(`removed the sign-in from ${vm.id} (no further game for it)`); }
-	if (plan.drain === 'delete' && !vm.deleted && !vm.heldGame) { await destroyMachine(vm.id, live); vm.deleted = true; await log(`deleted ${vm.id} (no further game for it)`); }
+	if (copiesLeft(vm)) await retryCopies(vm, { timeoutMs: 20 * 60_000, ...live });
+	if (plan.drain === 'delete' && !vm.deleted && !holds(vm)) { await destroyMachine(vm.id, live); vm.deleted = true; await log(`deleted ${vm.id} (no further game for it)`); }
 }
 
 // One machine's turn in a pass: prepare, check its game, copy a finished one home and retire the machine when no game
@@ -441,11 +465,12 @@ async function tend(vm, step) {
 async function dropMachine(vm) {
 	vm.lost = true;
 	const lostGame = vm.game && games.find(g => g.id === vm.game);
-	if (lostGame && deletes(vm)) await salvage(vm, lostGame, { timeoutMs: 10 * 60_000, ...live }).catch(error => log(`could not copy the recordings and world of ${lostGame.id} from ${vm.id} before deleting it: ${error.message.split('\n')[0]}`));
+	if (lostGame && deletes(vm)) await copyOrHold(vm, lostGame, { timeoutMs: 10 * 60_000, ...live });
 	if (vm.game) { const g = loseGame(games, vm.game, `machine ${vm.id} stopped answering`); await log(`lost ${vm.id}; ${g.id} is ${g.state}`); vm.game = null; }
 	// A lost machine this batch would delete anyway is deleted now (a stopped one too: its snapshot bills), not left
 	// billing until the batch ends. A listed one is kept, and the cleanup still tries to take its sign-in off.
-	if (deletes(vm)) {
+	if (deletes(vm) && holds(vm)) await log(`kept lost machine ${vm.id}: it still holds the recordings and world of ${[vm.heldGame, ...(vm.uncopied ?? [])].filter(Boolean).join(', ')}; the cleanup tries the copy again`);
+	else if (deletes(vm)) {
 		// Both steps carry the abort signal like every other loop call: a stalled one must not hold a SIGTERM back from the
 		// cleanup, whose first pass takes the sign-in off again and deletes the machine if this did not.
 		await removeCodexSignIn(vm.id, undefined, live).catch(() => {});
@@ -492,7 +517,7 @@ mkdir -p "$d"; echo "exit timeout $(date -Is)" > "$d/done"`, { timeoutMs: 10 * 6
 		// coordinator run in sessions of their own and can outlive game.sh, holding the game's ports: they are ended first,
 		// and if that fails the machine keeps the game and the next pass tries again.
 		await remote(vm.id, `sid=$(cat ~/ck/games/${game.id}/sid 2>/dev/null); [ -n "$sid" ] && pkill -KILL -s "$sid"\n${leftovers}`, { timeoutMs: 120_000, ...live });
-		await salvage(vm, game, { timeoutMs: 20 * 60_000, ...live }).catch(error => log(`could not copy the recordings and world of ${game.id} from ${vm.id}: ${error.message.split('\n')[0]}`));
+		await copyOrHold(vm, game, { timeoutMs: 20 * 60_000, ...live });
 		const g = loseGame(games, game.id, `game process on ${vm.id} ended without a done file`);
 		await log(`${g.id} is not running on ${vm.id} and wrote no done file; it is ${g.state}`);
 		// The game does not go back to this machine while another can take it (see the start loop).
@@ -552,7 +577,7 @@ try {
 		if (noMoreGames()) { await tend(vm, () => retire(vm)); continue; }
 		// A game that went GONE on a machine waits for another one, unless no other live machine is left.
 		const others = machines.some(m => m !== vm && !m.lost && !m.deleted);
-		if (underCap() && await meterOk()) await tend(vm, async () => { const game = nextGame(others ? games.filter(g => g.avoid !== vm.id) : games); if (game) await start(vm, game); });
+		if (underCap() && await meterOk()) await tend(vm, async () => { const game = nextGame(games.filter(g => !(vm.uncopied ?? []).includes(g.id) && (!others || g.avoid !== vm.id))); if (game) await start(vm, game); });
 	}
 	// A failed local write (a full disk) is retried next pass; the state in memory is complete.
 	await save().then(() => writeSummary(out, state)).catch(error => log(`could not write the state: ${error.message}`));
@@ -586,7 +611,8 @@ await Promise.all(machines.filter(m => m.id !== 'none' && !m.deleted).map(async 
 		// A game ended here gets no normal copy: its recordings and world are copied first, and a machine whose copy failed
 		// is kept (its boat deadline still ends it) so they can be copied by hand.
 		const cleanupGame = vm.game && !vm.lost && games.find(g => g.id === vm.game);
-		const salvageDue = Boolean(cleanupGame) && keepsWorlds && !vm.salvaged;
+		if (cleanupGame && keepsWorlds && !vm.cleanupQueued) { vm.cleanupQueued = true; if (!(vm.uncopied ?? []).includes(cleanupGame.id)) vm.uncopied = [...(vm.uncopied ?? []), cleanupGame.id]; }
+		const salvageDue = copiesLeft(vm);
 		let steps = [endSessions, salvageDue, removeSignIn, deletes(vm)].filter(Boolean).length;
 		const opts = (capMs = Infinity) => {
 			const share = aborted ? { timeoutMs: Math.max(1_000, Math.min(capMs, Math.floor((bound() - Date.now()) / Math.max(1, steps)))) } : { ...live, ...(capMs < Infinity ? { timeoutMs: capMs } : {}) };
@@ -594,17 +620,16 @@ await Promise.all(machines.filter(m => m.id !== 'none' && !m.deleted).map(async 
 			return share;
 		};
 		if (endSessions) await remote(vm.id, stopGamesScript, opts(180_000)).then(() => { vm.sessionsEnded = true; return log(`ended the game sessions on ${vm.id}`); }, e => log(`could not end the game sessions on ${vm.id}: ${e.message.split('\n')[0]}`));
-		if (salvageDue && (vm.sessionsEnded || !endSessions)) await salvage(vm, cleanupGame, opts(20 * 60_000)).then(() => { vm.salvaged = true; }, e => { vm.salvageFailures = (vm.salvageFailures ?? 0) + 1; return log(`could not copy the recordings and world of ${cleanupGame.id} from ${vm.id}: ${e.message.split('\n')[0]}`); });
+		if (salvageDue && (vm.sessionsEnded || !endSessions)) await retryCopies(vm, opts(20 * 60_000));
 		else if (salvageDue) steps--;
-		if (salvageDue && !vm.salvaged) vm.heldGame = cleanupGame.id;
-		const holdForCopy = Boolean(vm.heldGame) && !vm.salvaged;
+		const holdForCopy = holds(vm);
 		if (removeSignIn) await removeCodexSignIn(vm.id, undefined, opts()).then(() => { vm.signInRemoved = true; return log(`removed the sign-in from ${vm.id}`); }, e => { vm.signInRemoved = false; return log(`could not remove the sign-in from ${vm.id}: ${e.message}`); });
 		// Batch-created extras (and every machine under drain "delete") are deleted, never left idle.
 		if (deletes(vm) && !holdForCopy) await destroyMachine(vm.id, opts()).then(() => { vm.deleted = true; return log(`deleted ${vm.id}`); }, e => log(`could not delete ${vm.id}: ${e.message}`));
 		else if (deletes(vm)) steps--;
 		if (vm.deleted || (vm.signInRemoved && !deletes(vm) && !holdForCopy && (vm.sessionsEnded || !(vm.game || vm.lost)))) return;
-		// A held machine is left once its sign-in is off and its copy has failed three times (or cannot be retried here).
-		if (holdForCopy && vm.signInRemoved && (vm.salvageFailures ?? 0) >= (salvageDue ? 3 : 0)) return;
+		// A held machine is left once its sign-in is off and no copy is left to retry here.
+		if (holdForCopy && vm.signInRemoved && !copiesLeft(vm)) return;
 		if (Date.now() >= bound() - (aborted ? 5_000 : 0)) return;
 		// A machine boat no longer knows took its sign-in with it; a stopped one keeps its disk, so it is named at the end.
 		const gone = await machineState(vm.id, aborted ? { timeoutMs: Math.max(1_000, bound() - Date.now()) } : live).then(s => LIVE.has(s) ? null : s ?? 'unknown', e => NOT_FOUND.test(e.message) ? 'not found' : null);
@@ -616,7 +641,7 @@ await Promise.all(machines.filter(m => m.id !== 'none' && !m.deleted).map(async 
 for (const g of games.filter(g => g.state === 'running')) g.state = 'not finished';
 state.endedAt = new Date().toISOString();
 await save().then(() => writeSummary(out, state)).catch(error => log(`could not write the final state: ${error.message}`));
-await log(`batch ended; machines not deleted: ${machines.filter(m => m.id !== 'none' && !m.deleted).map(m => `${m.id}${m.lost ? ' (lost)' : ''}${m.created ? '' : ' (listed, kept)'}${m.heldGame && !m.salvaged ? ` (kept: copy the recordings and world of ${m.heldGame} from its run folder, see ~/ck/games/${m.heldGame}/run.log, then delete it)` : ''}`).join(' ') || 'none'}`);
+await log(`batch ended; machines not deleted: ${machines.filter(m => m.id !== 'none' && !m.deleted).map(m => `${m.id}${m.lost ? ' (lost)' : ''}${m.created ? '' : ' (listed, kept)'}${holds(m) ? ` (kept: copy the recordings and world of ${[m.heldGame, ...(m.uncopied ?? [])].filter(Boolean).join(', ')} from its run folder, see ~/ck/games/<id>/run.log, then delete it)` : ''}`).join(' ') || 'none'}`);
 // state.json keeps signInRemoved for every machine; one still holding a sign-in is named here and fails the run.
 const signedIn = machines.filter(m => m.id !== 'none' && !m.deleted && !m.signInRemoved && !['not found', 'deleted'].includes(m.gone));
 if (signedIn.length) { await log(`SIGN-IN MAY STILL BE ON: ${signedIn.map(m => `${m.id}${m.gone ? ` (${m.gone} on boat)` : ''}`).join(' ')}; take it off by hand (rm ~/.codex/auth.json and ~/ck)`); process.exitCode = 1; }
