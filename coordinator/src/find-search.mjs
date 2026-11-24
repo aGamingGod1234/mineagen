@@ -162,8 +162,6 @@ export function stairBudget(uses, depthLeft, reserve = DESCENT_RESERVE) {
 const TIMED = new Set(['travel_to', 'dig_to', 'fight_target', 'break_block', 'build_shelter', 'escape', 'flee_from']);
 const SHELTER_BLOCKS = new Set(['minecraft:cobblestone', 'minecraft:cobbled_deepslate', 'minecraft:dirt', 'minecraft:stone', 'minecraft:deepslate', 'minecraft:andesite', 'minecraft:diorite', 'minecraft:granite', 'minecraft:tuff', 'minecraft:netherrack']);
 const MAX_PEEKS = 2;
-// With the floor peek (find.peekDown) a heard pool is worth a third try: each peek now looks under the floor too.
-const MAX_PEEKS_DOWN = 3;
 // Shafts a lava find short of pickaxe uses may start: one, and one more after a stop (a cave, water) turned it.
 const MAX_SHORT_SHAFTS = 2;
 // Retreats up its own stairs from a mob cave a lava find makes before it fights on where it stands.
@@ -216,8 +214,6 @@ const WET_WALK_STOPS = new Set(['WATER_AHEAD', 'TUNNEL_FLOODED', 'BREATH_LOW', '
 export const caveFirst = (environment = process.env) => getSwitch('find.caveFirst', environment).value;
 /** Off only for the A/B off arm (MINEAGEN_FIND_DRY_START=off): no walk off seen water before the first dig down. */
 export const dryStart = (environment = process.env) => getSwitch('find.dryStart', environment).value;
-/** Off only for the A/B off arm (MINEAGEN_FIND_PEEK_DOWN=off): a peek at heard lava opens the block only, not the floor under it. */
-export const peekDown = (environment = process.env) => getSwitch('find.peekDown', environment).value;
 // Blocks a dig_to may be given (schema.mjs maxBlocks) and the cells one step cuts per pattern.
 const MAX_DIG_BLOCKS = 4_096;
 const STEP_CELLS = Object.freeze({ tunnel: 2, stairs_down: 3, stairs_up: 3, steep_down: 4 });
@@ -1149,7 +1145,7 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 	// Lava heard right behind a block the dig will not break: as a player, step back two cells, break it from there
 	// and look. The opened lava is the sighting; the body then steps back two more cells, out of its flow.
 	let peeks = 0;
-	const peek = async (cell, heard = null) => {
+	const peek = async (cell) => {
 		const at = bodyAt(observation);
 		const feet = { x: Math.floor(at.x), y: Math.floor(at.y + 1e-3), z: Math.floor(at.z) };
 		const ax = cell.x - feet.x, az = cell.z - feet.z;
@@ -1162,40 +1158,10 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 		await leg('look at the block', 'look_at', { x: cell.x + 0.5, y: cell.y + 0.5, z: cell.z + 0.5 });
 		const opened = await leg('open the lava', 'break_block', { x: cell.x, y: cell.y, z: cell.z, acceptLavaRisk: true });
 		if (opened.interrupted) return settle(opened);
-		if (!opened.seen) return heard !== null && /Lava is heard (below|beside)/.test(String(heard)) && peekDown() ? peekBelow(cell, feet) : null;
+		if (!opened.seen) return null;
 		const away = bodyAt(observation);
 		await leg('step out of its flow', 'move_to', { x: Math.floor(away.x) - 2 * dir.x + 0.5, y: Math.floor(away.y + 1e-3), z: Math.floor(away.z) - 2 * dir.z + 0.5, tolerance: 0.5 });
 		return arrive(opened.seen);
-	};
-
-	// Heard below or beside and still unseen once the block is open: the pool lies under the tunnel floor (lava fills
-	// y-55 and down, the tunnel runs at y-54). As a player follows the sound down: open the floor under the opened block
-	// from two cells back (lava cannot rise, so whatever flows in stays in that hole), then step up beside the hole and
-	// look down into it, one more block down if the sound said below. kit-gate-1 (r3): heard below 2-3 blocks off, the
-	// side peek saw only rock and the search walked away; heard lava stopped the tunnel in 28 of 103 failed searches.
-	const peekBelow = async (cell, feet) => {
-		// The opened block's column down to the tunnel floor: the cell at the feet' height when the opened one was the upper.
-		const column = cell.y > feet.y ? [{ x: cell.x, y: feet.y, z: cell.z }] : [];
-		column.push({ x: cell.x, y: feet.y - 1, z: cell.z });
-		for (const at of column) {
-			const opened = await leg('open the floor over the lava heard', 'break_block', { ...at, acceptLavaRisk: true });
-			if (opened.interrupted) return settle(opened);
-			if (opened.seen) return arrive(opened.seen);
-			if (opened.result?.state !== 'SUCCEEDED' && opened.result?.reasonCode !== 'TARGET_AIR') return null;
-		}
-		const edge = await leg('step up beside the hole', 'move_to', { x: feet.x + 0.5, y: feet.y, z: feet.z + 0.5, tolerance: 0.5 });
-		if (edge.seen || edge.interrupted) return settle(edge);
-		if (edge.result?.state !== 'SUCCEEDED') return null;
-		for (let down = 1; down <= 2; down += 1) {
-			const into = await leg('look down into the hole', 'look_at', { x: cell.x + 0.5, y: feet.y - down - 0.5, z: cell.z + 0.5 });
-			if (into.seen || into.interrupted) return settle(into);
-			if (down === 2) break;
-			const deeper = await leg('open one more block down', 'break_block', { x: cell.x, y: feet.y - 2, z: cell.z, acceptLavaRisk: true });
-			if (deeper.interrupted) return settle(deeper);
-			if (deeper.seen) return arrive(deeper.seen);
-			if (deeper.result?.state !== 'SUCCEEDED') return null;
-		}
-		return null;
 	};
 
 	// Water heard but not seen (behind the look's four headings, above or below the eye): a look toward it, as a player
@@ -1919,8 +1885,8 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 			if (ended !== null) return ended;
 			const code = outcome.result?.reasonCode;
 			const refused = code === 'LAVA_AHEAD' ? String(outcome.result?.message ?? '').match(/not breaking \S+ at (-?\d+),(-?\d+),(-?\d+)/) : null;
-			if (refused !== null && profile.ids.has('minecraft:lava') && peeks < (peekDown() ? MAX_PEEKS_DOWN : MAX_PEEKS)) {
-				const peeked = await peek({ x: Number(refused[1]), y: Number(refused[2]), z: Number(refused[3]) }, outcome.result?.message);
+			if (refused !== null && profile.ids.has('minecraft:lava') && peeks < MAX_PEEKS) {
+				const peeked = await peek({ x: Number(refused[1]), y: Number(refused[2]), z: Number(refused[3]) });
 				if (peeked !== null) return peeked;
 			}
 			const after = bodyAt(observation);

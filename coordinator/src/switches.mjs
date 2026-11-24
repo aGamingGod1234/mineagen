@@ -110,10 +110,6 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'find.dryStart', env: 'MINEAGEN_FIND_DRY_START', side: 'coordinator', default: true, parser: OFF_EXACT, status: 'default-on',
 		reason: 'A lava search from the surface walks off seen water before its first dig down (kit gates on main: 55 of 79 first digs met water, 3 lit); off is the A/B off arm.',
 		readers: ['coordinator/src/find-search.mjs dryStart (per call)'] }),
-	// coordinator/src/find-search.mjs peekDown(environment): per call.
-	entry({ name: 'find.peekDown', env: 'MINEAGEN_FIND_PEEK_DOWN', side: 'coordinator', default: true, parser: OFF_EXACT, status: 'default-on',
-		reason: 'Lava heard below a tunnel at depth: the peek also opens the floor under the opened block and looks down into it (heard lava stopped the tunnel in 28 of 103 failed gate searches); off is the A/B off arm.',
-		readers: ['coordinator/src/find-search.mjs peekDown (per call)'] }),
 	// coordinator/src/obtain-runner.mjs OBTAIN_COSTS: read once at module load.
 	entry({ name: 'obtain.costs', env: 'MINEAGEN_OBTAIN_COSTS', side: 'coordinator', default: true, parser: OFF_EXACT, status: 'default-on',
 		reason: 'Off plans as before chest looting, the seen-source cost model and the one-trip kit iron, for A/B rooms (#115).',
