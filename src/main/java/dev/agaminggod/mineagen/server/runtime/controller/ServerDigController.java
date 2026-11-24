@@ -1841,8 +1841,16 @@ public final class ServerDigController implements ServerController {
 			BlockState near = around.known(beside.getX(), beside.getY(), beside.getZ());
 			if (near != null && near.getFluidState().is(FluidTags.WATER) && !cut.contains(beside) && !cells.contains(beside)) wet++;
 		}
-		if (wet >= 3) return stop(player, "WATER_AHEAD", what + "; water on " + wet + " sides of it: a body of water (an aquifer or lake), not a trickle; not going further");
 		String filler = filler(player);
+		if (wet >= 3) {
+			String lake = what + "; water on " + wet + " sides of it: a body of water (an aquifer or lake), not a trickle; not going further";
+			// Still the model's call, but the one cell joining the cut to the lake is plugged first, as a player does at once:
+			// left open, the lake pours into a 1x1 shaft and the body floats in its own hole with no way up (room lava-gate-1,
+			// 6 of 6 runs on main afloat at y56 for the rest of the search).
+			Direction plug = filler == null ? null : supportFace(player, target);
+			if (plug != null) return startPlace(player, target, plug, filler, "WATER_AHEAD", lake);
+			return stop(player, "WATER_AHEAD", lake);
+		}
 		if (filler == null) return null;
 		Direction face = supportFace(player, target);
 		if (face != null) {
