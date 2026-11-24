@@ -121,8 +121,9 @@ while IFS='=' read -r key value; do [ -n "$key" ] && export "$key=$value"; done 
 template=$(cat "$HOME/ck/server-template" 2>/dev/null || echo "$HOME/rooms/template-26.3")
 export PATH=$HOME/.local/bin:$PATH JAVA_HOME=$HOME/rooms/jdk ARENA_HEADLESS_SERVER_TEMPLATE="$template"
 cd "$HOME/ck/arms/$arm/$arm" || exit 1
-# A fresh save point's file holds only FRESH: a new random world with an empty inventory, no save point or salt.
-start=(--checkpoint "$sp" --random-salt "$salt"); grep -qx FRESH "$sp" && start=()
+# A fresh save point's file holds only FRESH: a new world with an empty inventory, no save point. The repeat's salt is
+# its world seed, so every arm of a repeat plays the same world.
+start=(--checkpoint "$sp" --random-salt "$salt"); grep -qx FRESH "$sp" && start=(--seed "$salt")
 eatmydata node scripts/quality/run-long.mjs --provider codex --model "$model" --effort "$effort" --service-tier default \\
   --codex-observer-cap yes --spend-cap-mode log "\${start[@]}" --budget-minutes "$mins" --max-total-cost-usd 100 \\
   --ledger "$dir/ledger.json" --port-base 26900 --jar "$HOME/ck/arms/$arm/mod.jar" --coordinator-root "$HOME/ck/arms/$arm/$arm" \\
@@ -294,7 +295,7 @@ async function fetch(vm, game) {
 	// could free enough space for an archive with partial journals to pass its check.
 	const text = await remote(vm.id, `cd ~/ck/games/${game.id}; raw=$(sed -n 's/^Running [^:]*: //p' run.log | tail -1); staged=yes
 if [ -n "$raw" ] && [ -d "$raw" ]; then rm -rf raw; mkdir raw
-  if (set -o pipefail; tar -C "$raw" --exclude=server --exclude=.codex-home --exclude=auth.json --exclude=rcon-password.txt --exclude=secret.txt -cf - . | tar -C raw -xf -); then ${plan.keepWorld ? 'for w in $(find "$raw/server" -maxdepth 2 -name level.dat -printf \'%h\\n\'); do tar -C "$(dirname "$w")" -czf "world-$(basename "$w").tgz" "$(basename "$w")" || staged=no; done; ' : ''}rm -rf "$raw/server"; else staged=no; rm -rf raw; echo stage-failed; fi; fi
+  if (set -o pipefail; tar -C "$raw" --exclude=server --exclude=.codex-home --exclude=auth.json --exclude=rcon-password.txt --exclude=secret.txt -cf - . | tar -C raw -xf -); then ${plan.keepWorld ? 'worlds=yes; for w in $(find "$raw/server" -maxdepth 2 -name level.dat -printf \'%h\\n\'); do tar -C "$(dirname "$w")" -czf "world-$(basename "$w").tgz" "$(basename "$w")" || worlds=no; done; ' : 'worlds=yes; '}if [ $worlds = yes ]; then rm -rf "$raw/server"; else staged=no; echo world-failed; fi; else staged=no; rm -rf raw; echo stage-failed; fi; fi
 [ -n "$raw" ] && find "$raw" -path '*.codex-home/auth.json' -exec sha256sum {} + 2>/dev/null | cut -c1-64 | sed 's/^/run=/'
 [ $staged = yes ] && tar --exclude=auth.json --exclude=.codex-home -czf ../${game.id}.tgz . && echo ok; echo tgz=$(sha256sum ../${game.id}.tgz | cut -c1-64); sha256sum ~/.codex/auth.json | cut -c1-64`, { timeoutMs: 15 * 60_000, ...live });
 	const lines = text.trim().split('\n'), remoteSha = lines.pop();
@@ -305,7 +306,7 @@ if [ -n "$raw" ] && [ -d "$raw" ]; then rm -rf raw; mkdir raw
 	if (changed) { signInChanged = true; await log(`SIGN-IN CHANGED on ${vm.id}${runShas.some(h => h !== authShas[game.account]) ? ' (the game\'s own copy)' : ''}: Codex refreshed it there; no new game starts`); }
 	// No "ok" means tar failed on the machine (its disk full, say): a machine-side failure, not a local one, so it counts
 	// against the machine instead of being copied again forever. The sign-in hashes above were already compared.
-	if (!lines.includes('ok')) throw new Error(`could not pack ${game.id} on ${vm.id}${lines.includes('stage-failed') ? ' (copying its raw journals failed)' : ''}`);
+	if (!lines.includes('ok')) throw new Error(`could not pack ${game.id} on ${vm.id}${lines.includes('stage-failed') ? ' (copying its raw journals failed)' : lines.includes('world-failed') ? ' (packing its world failed; the world stays on the machine)' : ''}`);
 	const tgzSha = lines.find(l => l.startsWith('tgz='))?.slice(4);
 	const dest = path.join(out, 'games', game.id);
 	// The raw journals stay packed in game.tgz (about 1 GB unpacked per 90-minute game); only the report and logs unpack.
@@ -337,7 +338,8 @@ async function scoreFrom(dir, game, p) {
 	const file = path.join(dir, 'games', game.id, 'report', 'long-run.json');
 	// Large report fields live in report-artifacts/ beside it; the reader restores them and checks their hashes.
 	const report = await readArtifactReport(file).catch(() => null);
-	return scoreGame(report, p.savepoints[game.savepoint].targets);
+	// A fresh world inherits nothing, so a target earned in its first 30 s counts.
+	return scoreGame(report, p.savepoints[game.savepoint].targets, p.savepoints[game.savepoint].fresh ? { inheritedMs: -1 } : undefined);
 }
 
 async function writeSummary(dir, s) {

@@ -121,3 +121,9 @@ test('checkpoint batch plays a fresh world (fresh: true, no file) and allows win
 	delete p.savepoints.fresh.file; p.minutes = 356;
 	assert.throws(() => expandPlan(p), /minutes must be an integer 1\.\.355/);
 });
+
+test('checkpoint batch counts a target a fresh world earned in its first 30 seconds', () => {
+	const report = { timeline: { startedAt: 1, stopReason: 'WALL_CLOCK_BUDGET', milestones: [{ id: 'wood', reached: true, elapsedMs: 20_000 }], deaths: [] } };
+	assert.equal(scoreGame(report, ['wood']).targets.wood, null);
+	assert.equal(scoreGame(report, ['wood'], { inheritedMs: -1 }).targets.wood, 0.33);
+});
