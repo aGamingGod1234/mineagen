@@ -1104,6 +1104,19 @@ public final class ServerDigController implements ServerController {
 		return stop(player, "CAVE_OPENING", "Cannot cross the cave at " + cell(floor) + ": " + (filler == null ? "no block to place" : "no floor to build from"));
 	}
 
+	/**
+	 * The tunnel's x/z goal stands over open space seen at the tunnel's floor: what the dig is going to is down in the
+	 * cave (seed 6006: bridged over the cave to the column of an ore on its floor 4 blocks down, then could not mine it,
+	 * 13 of 60 runs), so the body stops at the edge and goes down to it, not across.
+	 */
+	private boolean goalOverOpen(ServerPlayer player) {
+		if (targetX == null || targetZ == null) return false;
+		SeenTerrain.Reader<BlockState> seen = SeenTerrain.of(player);
+		BlockPos floor = new BlockPos(targetX, feet.getY() - 1, targetZ);
+		BlockState state = seen.known(floor.getX(), floor.getY(), floor.getZ());
+		return state != null && passable(player.level(), floor, state);
+	}
+
 	/** A floor block the body can step onto: loose gravel or sand only with solid ground seen under it. */
 	private static boolean holds(ServerPlayer player, SeenTerrain.Reader<BlockState> seen, BlockPos at, BlockState state) {
 		if (!standable(player.level(), at, state)) return false;
@@ -1164,7 +1177,8 @@ public final class ServerDigController implements ServerController {
 		}
 		// A level tunnel toward a goal that meets a cave floor: a player bridges over it on placed blocks rather than
 		// turning back (seed 6006: runs that found no iron stopped here again and again beside the same ore).
-		if (!down && active == Pattern.TUNNEL && throughCaves && crossSteps < MAX_CROSS && filler(player) != null && !poolUnder(player, next.below())) {
+		if (!down && active == Pattern.TUNNEL && throughCaves && crossSteps < MAX_CROSS && filler(player) != null && !poolUnder(player, next.below())
+				&& !goalOverOpen(player)) {
 			// An edge past a floor that holds (seen open beyond it): step onto that lip first; the crossing starts at the gap.
 			BlockPos lip = next.below();
 			if (holds(player, SeenTerrain.of(player), lip, player.level().getBlockState(lip))) return step(player);
