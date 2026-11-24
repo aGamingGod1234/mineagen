@@ -1110,9 +1110,10 @@ public final class ServerDigController implements ServerController {
 	 * 13 of 60 runs), so the body stops at the edge and goes down to it, not across.
 	 */
 	private boolean goalOverOpen(ServerPlayer player) {
-		if (targetX == null || targetZ == null) return false;
+		if (targetX == null && targetZ == null) return false;
 		SeenTerrain.Reader<BlockState> seen = SeenTerrain.of(player);
-		BlockPos floor = new BlockPos(targetX, feet.getY() - 1, targetZ);
+		// A goal on one axis only is reached anywhere on its line: the column in line with the feet.
+		BlockPos floor = new BlockPos(targetX != null ? targetX : feet.getX(), feet.getY() - 1, targetZ != null ? targetZ : feet.getZ());
 		BlockState state = seen.known(floor.getX(), floor.getY(), floor.getZ());
 		return state != null && passable(player.level(), floor, state);
 	}
