@@ -34,6 +34,7 @@ const FOODS = new Set(['beef', 'porkchop', 'mutton', 'chicken', 'rabbit', 'cod',
 // MINEAGEN_OBTAIN_COSTS=off plans as before chests, the seen-source cost model and the one-trip kit iron (A/B rooms).
 const OBTAIN_COSTS = getSwitch('obtain.costs').value;
 const FILL_LEGS = getSwitch('obtain.fillLegs').value;
+const LAVA_REFUSAL = getSwitch('obtain.lavaRefusal').value;
 // Food a trip below ground is stocked with, in hunger points: one full bar (20), about a quarter hour's eating. Food the
 // trip lacks is counted in bread-sized items (5 points) for a chest's value; 4 bread held is a full bar and none is short.
 const TRIP_HUNGER = 20;
@@ -254,6 +255,17 @@ function slotOf(o, members, skip = null) {
 // edge, air running out). A hostile far off that merely ended a walk leg is not one, unless it shoots: judged from the
 // threat rows of a sample taken after the stop (observation), never from the stop's wording.
 // (DAMAGE_STOPS and LIFE_SAFETY_STOPS are find's list, one for both verbs.)
+/**
+ * A dig that would not break the next block because lava is seen or heard behind it, while the body itself is safe (not in
+ * lava, burning, short of air or falling): the block is skipped, as a player leaves it and mines another, not danger to
+ * stop the whole obtain for. Cobblestone gathered beside the cast's pool hit this in 14 of 312 start-at-lava rooms. Lava
+ * that flowed into an opened cell, or a stop with no fresh sample, stays danger.
+ */
+export function lavaRefusalOnly(result, observation) {
+	return LAVA_REFUSAL && result?.reasonCode === 'LAVA_AHEAD' && /; not breaking /.test(String(result?.message ?? ''))
+		&& observation != null && bodyDanger(observation) === null;
+}
+
 export function isDanger(result, observation) {
 	const code = result?.reasonCode;
 	if (DAMAGE_STOPS.has(code) || LIFE_SAFETY_STOPS.has(code)) return true;
@@ -550,7 +562,8 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 	const seen = async (promise) => {
 		const result = await promise;
 		if (result?.state === 'RUNNING' && typeof result.actionId === 'string') running = result;
-		if (danger === null && forkStop() === null && isDanger(result, result?.reasonCode === 'HOSTILE_NEAR' ? withoutQuarry(await rawBody.observe().catch(() => null), quarry) : null)) {
+		if (danger === null && forkStop() === null && isDanger(result, result?.reasonCode === 'HOSTILE_NEAR' ? withoutQuarry(await rawBody.observe().catch(() => null), quarry) : null)
+			&& !(result?.reasonCode === 'LAVA_AHEAD' && lavaRefusalOnly(result, await rawBody.observe().catch(() => null)))) {
 			danger = `${result.reasonCode}: ${String(result.message ?? '').slice(0, 160)}`;
 			lowLeg = result.reasonCode === 'LOW_HEALTH';
 		}
