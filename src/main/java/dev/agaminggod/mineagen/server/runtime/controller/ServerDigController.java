@@ -1147,6 +1147,15 @@ public final class ServerDigController implements ServerController {
 				return TickResult.running(progress(player));
 			}
 		}
+		// A level tunnel toward a goal that meets a cave floor: a player bridges over it on placed blocks rather than
+		// turning back (seed 6006: runs that found no iron stopped here again and again beside the same ore).
+		if (!down && active == Pattern.TUNNEL && throughCaves && crossSteps < MAX_CROSS && filler(player) != null) {
+			crossHeading = heading;
+			crossNext = true;
+			phase = Phase.START;
+			phaseTicks = 0;
+			return TickResult.running(progress(player));
+		}
 		return stop(player, "CAVE_OPENING", why + "; not stepping in" + (down ? "; no other heading here has a floor (tried "
 				+ String.join(", ", triedHere.stream().map(Direction::getName).toList()) + "), " + (maxDrop < 0 ? "no drops (throughCaves:false)" : "no seen landing within " + maxDrop + " blocks")
 				+ (crossSteps > 0 ? " and " + crossSteps + " level steps across the cave found no floor below" : filler(player) == null ? " and no block to cross it" : "") : ""));
