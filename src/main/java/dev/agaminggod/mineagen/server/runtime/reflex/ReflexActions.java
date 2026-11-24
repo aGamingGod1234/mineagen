@@ -1120,6 +1120,8 @@ final class ReflexActions {
 		private Float lastHeading;
 		private int steps;
 		private int hits;
+		private Answer runFor;
+		private int runSide;
 
 		/** Minecraft yaw of the heading square across the line from {@code body} to {@code shooter}: side +1 or -1. */
 		static float sideYaw(Vec3 body, Vec3 shooter, int side) {
@@ -1258,8 +1260,15 @@ final class ReflexActions {
 			// A sprint runs 4 to 5 blocks a draw: a side whose run keeps clear of an edge goes first, so the body is not carried
 			// onto a rim where the next hit knocks it off (archers-zombie: every death today, 4 of 4, a fall off a platform edge).
 			java.util.function.IntPredicate clearRun = candidate -> marginSafe.test(candidate) && !SafeStep.edgeWithin(player, headings[candidate + 1], RUN_CELLS);
-			int chosen = clearRun.test(side) ? side : clearRun.test(-side) ? -side
+			// The side picked for a draw holds for that draw while it keeps the margin: chosen afresh each tick, the run away
+			// from one side's edge clears that side once the edge is 5 cells off and turns the body back toward it.
+			Answer draw = ANSWERED.get(player.getUUID());
+			boolean sameDraw = draw != null && runFor != null && draw.shooterId() == runFor.shooterId() && draw.drawStart() == runFor.drawStart();
+			int chosen = sameDraw && runSide != 0 && marginSafe.test(runSide) ? runSide
+					: clearRun.test(side) ? side : clearRun.test(-side) ? -side
 					: chooseSide(side, marginSafe, candidate -> headings[candidate + 1] != null);
+			runFor = draw;
+			runSide = chosen;
 			Float heading = chosen == 0 ? null : headings[chosen + 1];
 			// On a rim with the shooter inland, neither side keeps the knockback margin and the step ran along the rim, where
 			// the next hit knocked the body off (archers-zombie: the last deaths, a fall off the west rim after an arrow). A
