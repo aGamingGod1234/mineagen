@@ -36,6 +36,7 @@ const FOODS = new Set(['beef', 'porkchop', 'mutton', 'chicken', 'rabbit', 'cod',
 const OBTAIN_COSTS = getSwitch('obtain.costs').value;
 const FILL_LEGS = getSwitch('obtain.fillLegs').value;
 const FILL_EDGE = getSwitch('obtain.fillEdge').value;
+const EDGE_REDO = 'dug down beside a drop to water; fill again from here';
 // Food a trip below ground is stocked with, in hunger points: one full bar (20), about a quarter hour's eating. Food the
 // trip lacks is counted in bread-sized items (5 points) for a chest's value; 4 bread held is a full bar and none is short.
 const TRIP_HUNGER = 20;
@@ -1884,20 +1885,27 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			}
 			// A walk that ends at an edge over water below (room kit-gate-6: a ledge 5 blocks above a pool, beyond the 7-high
 			// block sample, so no row lists it): a player digs down beside the drop until the water is in reach.
-			const edge = FILL_EDGE && after !== null && fluid === 'water' && !(await reaches()) ? waterBelowEdge(o) : null;
-			fillTrace({ at: after, walked: walked?.reasonCode ?? walked?.state ?? null, source, edges: o.player?.edges ?? null, edge,
+			// Once per obtain, and not after a walk a mob or damage stopped. Without a water bucket on the hotbar the shaft goes
+			// down as two-column stairs that see each floor; with one it is the 1x1 bucket shaft, at most 6 blocks beside a drop
+			// already known to end in water.
+			const stoppedBy = ['HOSTILE_NEAR', ...DAMAGE_STOPS].includes(walked?.reasonCode);
+			const edge = FILL_EDGE && !budget.edgeDug && !stoppedBy && after !== null && fluid === 'water' && !(await reaches()) ? waterBelowEdge(o) : null;
+			if (process.env.MINEAGEN_FILL_TRACE) fillTrace({ at: after, walked: walked?.reasonCode ?? walked?.state ?? null, source, edges: o.player?.edges ?? null, edge,
 				rows: (await seenRows(o)).filter((row) => row.blockId === id(fluid)).length });
 			if (edge !== null) {
+				budget.edgeDug = true;
 				step(`dig down beside the drop to the ${fluid} at ${cell(edge)}`);
 				const dug = await act('dig_to', { pattern: 'shaft', y: edge.y + 2, heading: edge.away, maxBlocks: 2 * (Math.floor(after.y) - edge.y), throughCaves: true, timeoutMs: 20_000 });
 				if (body.interrupted() || body.stopped()) return 'stopped';
 				o = await body.observe();
 				after = bodyAt(o);
-				fillTrace({ dug: dug?.reasonCode ?? dug?.state ?? null, at: after });
 				const filled = after === null ? null : await scoop(o, { x: edge.x, y: edge.y, z: edge.z });
-				fillTrace({ scooped: filled });
+				fillTrace({ dug: dug?.reasonCode ?? dug?.state ?? null, at: after, scooped: filled });
 				if (filled === true) return null;
 				if (filled === 'stopped' || filled === 'no empty bucket held') return filled;
+				// The pool's own rows are in the block sample from down here: the next round picks a source among them, and the
+				// far sighting this walk aimed at is not marked out by a dig that changed where the body stands.
+				return EDGE_REDO;
 			}
 			if (after === null || !(await reaches())) {
 				budget.failed.add(cell(source));
@@ -2035,7 +2043,7 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		if (goal === null) {
 			if (placed.length > 0) await cleanup();
 			const why = await fillAt();
-			if (why !== null && why !== 'stopped') {
+			if (why !== null && why !== 'stopped' && why !== EDGE_REDO) {
 				failures.set('why:fill', why);
 				step(why);
 				if (fail('fill') >= FILL_TRIES) return end('FAILED', 'NO_SOURCE', `Stuck on ${fluid} to fill a bucket at: ${why}`);
