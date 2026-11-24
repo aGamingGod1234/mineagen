@@ -585,6 +585,24 @@ test('b12-desktop seed 4: water a tunnel or walk met marks the spot for later se
 	assert.deepEqual(await run({ block: 'minecraft:water' }, flooded('Water flowed into the opened tunnel at 1,30,5; not entered; backed out to 1,30,2')), [], 'a water search is after the water');
 });
 
+test('wave 6 kit gates: water that ran into the tunnel and stopped short of the body is a shut way to turn from, not danger; lava in the sample still hands back', async () => {
+	const stopped = { result: { state: 'FAILED', reasonCode: 'TUNNEL_FLOODED', message: 'Water flowed into the opened tunnel at -242,59,68; not entered; backed out to -244,58,68 and the flow stopped short of it' } };
+	const found = { result: { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', message: 'minecraft:iron_ore seen at 9,30,0, 8 blocks away' } };
+	const run = async ({ player = {}, blocks = [], env } = {}) => {
+		const body = fakeBody({ start: sample({ player: { x: 0.5, y: 17, z: 0.5, yaw: 0, health: 20, skyOpen: false, ...player }, blocks }),
+			frontier: { candidates: [], coverage: { headings: {} } }, acts: { dig_to: [stopped, found, found] } });
+		const before = process.env.MINEAGEN_FIND_DRY_FLOOD;
+		if (env === undefined) delete process.env.MINEAGEN_FIND_DRY_FLOOD; else process.env.MINEAGEN_FIND_DRY_FLOOD = env;
+		try { return await searchFor({ block: 'minecraft:iron_ore' }, body); } finally {
+			if (before === undefined) delete process.env.MINEAGEN_FIND_DRY_FLOOD; else process.env.MINEAGEN_FIND_DRY_FLOOD = before;
+		}
+	};
+	assert.equal((await run()).reasonCode, 'FIND_SEEN', 'turned and searched on');
+	assert.equal((await run({ player: { inWater: true } })).reasonCode, 'FIND_SEEN', 'standing in the edge of the stopped flow, head clear');
+	assert.equal((await run({ env: 'off' })).reasonCode, 'FIND_DANGER', 'switch off: the old hand-back');
+	assert.equal((await run({ blocks: [{ blockId: 'minecraft:lava', x: 3, y: 16, z: 0 }] })).reasonCode, 'FIND_DANGER', 'lava in the sample: the flow may be lava');
+});
+
 test('review P1 3: under water the body swims until its eyes are in air, and hands back at once with its air when it cannot', async () => {
 	const stuck = fakeBody({ start: sample({ player: { x: 0.5, y: 38, z: 0.5, yaw: 0, health: 20, inWater: true, underWater: true, air: 143, maxAir: 300 } }),
 		frontier: { candidates: [], coverage: { headings: {} } } });
