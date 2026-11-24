@@ -161,6 +161,8 @@ public final class ServerFightController implements ServerController {
 	private boolean engineTargets;
 	/** The offhand shield broke (or left the offhand) during this fight; the fight goes on without it. */
 	private boolean shieldBroke;
+	/** shield:true asked with no shield in the offhand at the start; the fight went on unshielded. */
+	private boolean shieldMissing;
 	private boolean shieldChecked;
 	/** Calm neutral mobs this fight's swings hurt besides the target (sword sweeps), "type uuid". */
 	private final List<String> neutralHits = new ArrayList<>(4);
@@ -396,7 +398,10 @@ public final class ServerFightController implements ServerController {
 			clock.killed();
 		}
 		if (shield && !shieldBroke && !(player.getOffhandItem().getItem() instanceof net.minecraft.world.item.ShieldItem)) {
-			if (!shieldChecked) return finish(player, TickResult.failed("SHIELD_NOT_EQUIPPED", "shield:true requires an equipped offhand shield; equip it before fighting", progress(player)));
+			// No shield at the start (it broke on fireballs in an earlier call): fight on unshielded, as after a mid-fight
+			// break. Failing here left a caller that repeats shield:true standing idle among blazes (blaze spawner rooms:
+			// 7 of 27 deaths on main).
+			shieldMissing = !shieldChecked;
 			shieldBroke = true;
 		}
 		shieldChecked = true;
@@ -1186,7 +1191,7 @@ public final class ServerFightController implements ServerController {
 	}
 
 	private String kills() {
-		String extra = (blazeWaitTicks == 0 ? "" : String.format(Locale.ROOT, "; held deck awaiting blaze reach %.1f s", blazeWaitTicks / 20.0D)) + footworkFacts() + (shieldBroke ? "; offhand shield broke mid-fight, fought on unshielded" : "")
+		String extra = (blazeWaitTicks == 0 ? "" : String.format(Locale.ROOT, "; held deck awaiting blaze reach %.1f s", blazeWaitTicks / 20.0D)) + footworkFacts() + (shieldMissing ? "; no shield in the offhand (shield:true), fought unshielded" : shieldBroke ? "; offhand shield broke mid-fight, fought on unshielded" : "")
 				+ (sweepHolds == 0 ? "" : String.format(Locale.ROOT, "; held the sword on %d ready swings while a calm neutral stood in its sweep", sweepHolds))
 				+ (neutralHits.isEmpty() ? "" : "; your sword sweep also hit calm " + String.join(", ", neutralHits)
 						+ " (now hostile; a hurt zombified piglin angers all within 35 blocks)");
