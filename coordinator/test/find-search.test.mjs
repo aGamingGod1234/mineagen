@@ -2227,4 +2227,6 @@ test('chain gates: a tunnel the dig backed out of, with the flow stopped short a
 	assert.equal(floodContained(flood.result, sample({ ready: true, player: { health: 20, underWater: true } })), false, 'under water is still danger');
 	assert.equal(floodContained({ ...flood.result, message: 'Fluid flowed into the opened tunnel at 2,56,0; not entered; backed out to 0,56,0 and the lava kept coming' }, sample({ ready: true })), false);
 	assert.equal(floodContained(flood.result, sample({ ready: false })), false, 'no fresh sample');
+	assert.equal(floodContained(flood.result, sample({ ready: true, player: { health: 20, inWater: true } })), true, 'standing in the stopped flow\'s edge');
+	assert.equal(floodContained(flood.result, sample({ ready: true, blocks: [{ blockId: 'minecraft:lava', x: 2, y: 56, z: 0, distance: 2 }] })), false, 'lava near');
 });

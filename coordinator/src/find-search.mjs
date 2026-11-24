@@ -96,10 +96,11 @@ export function hostileIsDanger(observation) {
 const MAX_ESCAPES = 2;
 const BREATH_STOPS = new Set(['AIR_RESERVE_REACHED', 'BREATH_NOT_COVERED', 'TUNNEL_FLOODED']);
 const FLOOD_CONTAINED = getSwitch('find.floodContained').value;
+const FLOOD_LAVA_CLEAR = 8;
 
 /**
  * A dig that opened a cell water flowed into, did not step in, backed out, and the flow stopped short of the body, with a
- * fresh sample of a live body out of the water: a shut way, as a player walls off a leak and digs elsewhere, not danger
+ * fresh sample of a live body with its head out of the water and no lava near: a shut way, as a player walls off a leak and digs elsewhere, not danger
  * that ends the search. Chain gates on main: 31 such stops in 17 of 48 runs ended find or obtain as danger.
  */
 export function floodContained(result, observation) {
@@ -107,7 +108,10 @@ export function floodContained(result, observation) {
 	return FLOOD_CONTAINED && result?.reasonCode === 'TUNNEL_FLOODED' && !/Lava flowed/i.test(String(result?.message ?? ''))
 		&& /not entered; backed out to -?\d+,-?\d+,-?\d+ and the flow stopped short of it/.test(String(result?.message ?? ''))
 		&& observation?.ready === true && player != null && player.dead !== true && Number.isFinite(player.health) && player.health > 0
-		&& player.inWater !== true && player.underWater !== true && bodyDanger(observation) === null;
+		// Backed out, the body usually stands in the stopped flow's edge (inWater): only a head under water counts. An
+		// unplugged lava flood ends in the same words, so lava in the fresh block sample keeps it danger.
+		&& player.underWater !== true && bodyDanger(observation) === null
+		&& !(observation.blocks ?? []).some((row) => /lava/.test(String(row?.blockId ?? '')) && !(Number(row?.distance) > FLOOD_LAVA_CLEAR));
 }
 // A walk's or swim's own stop for its air (travel's breath rule), as against a dig that flooded.
 const AIR_STOPS = new Set(['AIR_RESERVE_REACHED', 'BREATH_NOT_COVERED']);
