@@ -54,6 +54,7 @@ public final class SightedFeaturesVerification {
 		denseSectionsAreReadThrough();
 		neighbourEditsExposeBlocks();
 		neighbourEditsKeepScanProgress();
+		chunkGridAsksMissingChunksAgain();
 		cachedSurveyReusesSightLines();
 		veinRaysAreReservedFromEarlierSections();
 		lavaRowsPointAtSources();
@@ -750,6 +751,18 @@ public final class SightedFeaturesVerification {
 		for (int x = 0; x < 16; x++) for (int y = 0; y < 16; y++) for (int z = 0; z < 16; z++) replaced.set(x, y, z, Blocks.STONE.defaultBlockState());
 		replaced.revisions[0] = 0;
 		check(!oreAt(gather(level, index, eye), 15, 8, 8), "a replaced neighbour chunk with a reset write count still invalidates the scan");
+	}
+
+	/** Codex review: a chunk a world-generation worker publishes during a gather is seen, as a fresh lookup sees it. */
+	private static void chunkGridAsksMissingChunksAgain() {
+		ScanLevel level = ScanLevel.create();
+		ScanChunk centre = level.add(0, 0);
+		var grid = new FarSight.ChunkGrid(level, 0, 0);
+		check(grid.get(0, 0) == centre && grid.get(1, 0) == null, "the grid answers a loaded chunk and a missing one");
+		ScanChunk published = level.add(1, 0);
+		check(grid.get(1, 0) == published && grid.beside(centre)[1] == published, "a chunk published after it was missing is found");
+		ScanChunk far = level.add(40, 0);
+		check(grid.get(40, 0) == far, "a chunk outside the grid is looked up");
 	}
 
 	private static void neighbourEditsKeepScanProgress() {

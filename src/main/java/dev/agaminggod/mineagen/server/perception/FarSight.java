@@ -417,17 +417,17 @@ public final class FarSight {
 	}
 
 	/**
-	 * The chunk lookups of one gather, each chunk asked once. A chunk leaves getChunkNow in the chunk map's distance
-	 * updates (see ChunkHolderDemotionMixin) and joins it through main-thread tasks; a gather runs neither, and reads the
-	 * level only through getChunkNow and section reads. So within one gather a remembered answer is the one a fresh
-	 * lookup would give. Never kept past the gather.
+	 * The range loop's and neighbour scan's chunk lookups in one gather, each loaded chunk asked once. Only a loaded
+	 * chunk is remembered. A chunk leaves getChunkNow only in the chunk map's distance updates on the server thread (see
+	 * ChunkHolderDemotionMixin), and a gather never runs them, so a remembered chunk is the one a fresh lookup gives. A
+	 * missing chunk is asked again every time, because a world-generation worker can publish a new full chunk at any
+	 * moment. Never kept past the gather.
 	 */
 	static final class ChunkGrid {
 		private static final int WIDTH = 2 * CHUNK_RADIUS + 1;
 		private final ServerLevel level;
 		final int centreX, centreZ;
 		private final LevelChunk[] chunks = new LevelChunk[WIDTH * WIDTH];
-		private final boolean[] asked = new boolean[WIDTH * WIDTH];
 
 		ChunkGrid(ServerLevel level, int centreX, int centreZ) {
 			this.level = level;
@@ -439,11 +439,9 @@ public final class FarSight {
 			int column = x - centreX + CHUNK_RADIUS, row = z - centreZ + CHUNK_RADIUS;
 			if (column < 0 || row < 0 || column >= WIDTH || row >= WIDTH) return level.getChunkSource().getChunkNow(x, z);
 			int at = column * WIDTH + row;
-			if (!asked[at]) {
-				chunks[at] = level.getChunkSource().getChunkNow(x, z);
-				asked[at] = true;
-			}
-			return chunks[at];
+			LevelChunk chunk = chunks[at];
+			if (chunk == null) chunks[at] = chunk = level.getChunkSource().getChunkNow(x, z);
+			return chunk;
 		}
 
 		/** As {@link FarSight#beside}: west, east, north and south. */
