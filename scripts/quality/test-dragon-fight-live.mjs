@@ -50,6 +50,8 @@ const OLD_REFILL = cli.includes('--old-refill');
 const OLD_PERCH = cli.includes('--old-perch');
 // --old-aim: main's flying shot, at the nearest of the dragon's body and head (kept to judge the head-first aim on the same jar).
 const OLD_AIM = cli.includes('--old-aim');
+// --old-recover: the first hurt rule, which backed off only below 11 (a step-out at 12 then walked straight back to the fountain).
+const OLD_RECOVER = cli.includes('--old-recover');
 const [outArg, jarArg] = cli.filter(arg => !arg.startsWith('--'));
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port = Number(process.env.SLOT_PORT_BASE);
 if (!outArg || !template || !port || !process.env.JAVA_HOME) { console.error('Usage: OUT_DIR [JAR] [--no-bow] [--survive] under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME'); process.exit(2); }
@@ -503,7 +505,8 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 				const recover = async (o, me) => {
 					if (OLD_PERCH || !Number.isFinite(me.health)) return false;
 					if (me.health >= 16) { if (recovering) note(`healed to ${Math.round(me.health)}: back to work`, null); recovering = false; return false; }
-					if (!recovering && me.health >= 11) return false;
+					// From 13, just past the perch swing's step-out at 12, so every step-out heals first; --old-recover: from 11.
+					if (!recovering && me.health >= (OLD_RECOVER ? 11 : 13)) return false;
 					if (!recovering) note(`hurt to ${Math.round(me.health)}: back off and heal`, null);
 					recovering = true;
 					if ((me.hunger ?? 20) < 20 && now() - lastEat > 5000 && (o.inventory?.items ?? []).some(i => i.itemId === 'minecraft:cooked_beef')) {
