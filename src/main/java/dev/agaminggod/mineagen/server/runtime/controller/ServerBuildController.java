@@ -839,15 +839,24 @@ public final class ServerBuildController implements ServerController {
 		return running();
 	}
 
+	/** The cell behind the last "too slow to clear or unseen" reject, named in a refusal; slowState null when unseen. */
+	private BlockPos slowCell;
+	private BlockState slowState;
+
 	/** Why one cast site fails the usual rules, in words: the first reject count it raises. */
 	private String refusal(ServerPlayer player, ServerLevel level, Portal p, Direction wall, List<BlockPos> pool, int plain) {
 		int[] rejects = new int[11];
 		rejects[10] = Integer.MAX_VALUE;
+		slowCell = null;
 		if (siteCost(player, level, p, rejects) != Double.MAX_VALUE) castCost(player, level, p, wall, pool, plain, rejects);
 		String[] why = { "no flat solid ground row", "water or lava in or beside the footprint", "a block too slow to clear or unseen cells",
 				"no standing spot in front", "other", "unseen ground", "unseen or open cells behind for the mould or before the frame",
 				"too far from, or above or below, the lava", "poured water would run into the lava", "short of plain blocks", "" };
-		for (int k = 0; k < 10; k++) if (rejects[k] > 0) return why[k];
+		for (int k = 0; k < 10; k++) if (rejects[k] > 0) {
+			if (k != 2 || slowCell == null) return why[k];
+			return why[k] + ": " + (slowState == null ? "unseen " : BuiltInRegistries.BLOCK.getKey(slowState.getBlock()).getPath() + " ") + xyz(slowCell)
+					+ " (frame cell " + (slowCell.getY() - p.origin().getY()) + " up)";
+		}
 		if (digRefusedByLava(player, siteClears(player, p, wall)) != null) return "lava heard right behind a block to clear";
 		return "passed, but another site cost less";
 	}
@@ -867,7 +876,7 @@ public final class ServerBuildController implements ServerController {
 				if (below != null && (!below.isCollisionShapeFullBlock(level, ground.below()) || !below.getFluidState().isEmpty())) { rejects[0]++; return Double.MAX_VALUE; }
 				if (!state.is(Blocks.OBSIDIAN)) {
 					double ticks = clearTicks(player, level, ground, state);
-					if (ticks > MAX_CLEAR_TICKS) { rejects[2]++; return Double.MAX_VALUE; }
+					if (ticks > MAX_CLEAR_TICKS) { rejects[2]++; slowCell = ground; slowState = state; return Double.MAX_VALUE; }
 					cost += 0.5D + ticks / 20.0D;
 				}
 			}
@@ -875,12 +884,12 @@ public final class ServerBuildController implements ServerController {
 		for (int i = 0; i <= 3; i++) for (int y = 1; y <= 4; y++) {
 			BlockPos cell = p.at(i, y);
 			BlockState state = known(player, cell);
-			if (state == null) { rejects[2]++; return Double.MAX_VALUE; }
+			if (state == null) { rejects[2]++; slowCell = cell; slowState = null; return Double.MAX_VALUE; }
 			if (!state.getFluidState().isEmpty()) { rejects[1]++; return Double.MAX_VALUE; }
 			if (state.isAir()) continue;
 			if (state.is(Blocks.OBSIDIAN) && p.frame().contains(cell)) { cost -= 0.5D; continue; }
 			double ticks = clearTicks(player, level, cell, state);
-			if (ticks > MAX_CLEAR_TICKS) { rejects[2]++; return Double.MAX_VALUE; }
+			if (ticks > MAX_CLEAR_TICKS) { rejects[2]++; slowCell = cell; slowState = state; return Double.MAX_VALUE; }
 			cost += (state.canBeReplaced() ? 0.2D : 1.0D) + ticks / 20.0D;
 		}
 		// Water or lava in or beside the footprint, or lava a little further out: never build there.
