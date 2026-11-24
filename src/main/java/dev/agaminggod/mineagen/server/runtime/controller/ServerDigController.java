@@ -113,9 +113,9 @@ public final class ServerDigController implements ServerController {
 	static final int MAX_TURNS = 24;
 	/** Level steps across the top of a cave (a placed floor where needed) before the descent is handed back. */
 	static final int MAX_CROSS = 12;
-	/** Most ticks a crouch to the edge before a placed floor lasts, and how near the edge (blocks) it ends sooner. */
+	/** Most ticks a crouch to the edge before a placed floor lasts, and how far past the edge (blocks) the body leans to end it sooner: the eye must be past the face it places on (eye 0.18 short saw no face, 10 of 10). */
 	static final int LEAN_TICKS = 40;
-	static final double LEAN_EDGE = 0.35D;
+	static final double LEAN_EDGE = -0.1D;
 	/** Landing blocks that hurt or give way: a drop never chooses them. */
 	private static final Set<String> BAD_LANDINGS = Set.of("minecraft:magma_block", "minecraft:campfire", "minecraft:soul_campfire",
 			"minecraft:pointed_dripstone", "minecraft:powder_snow", "minecraft:cactus", "minecraft:sweet_berry_bush", "minecraft:scaffolding");
