@@ -208,6 +208,12 @@ public final class ServerRestController implements ServerController {
 				return bed != null ? bed : shelterPlan(player, after, null);
 			});
 			if (walk != null) return walk;
+			TickResult notch = digBedNotch(player, () -> {
+				long after = dev.agaminggod.mineagen.server.runtime.GameClock.nowMs();
+				TickResult bed = bedPlan(player, after);
+				return bed != null ? bed : shelterPlan(player, after, null);
+			});
+			if (notch != null) return notch;
 			log.add("no flat 2-cell spot within " + SPOT_RADIUS + " blocks for a bed");
 			return null;
 		}
@@ -267,6 +273,51 @@ public final class ServerRestController implements ServerController {
 			sleepClicks = 0;
 		}, () -> placeBed(player, bedItem));
 		return TickResult.running(0.3D);
+	}
+
+	/** The notch for a bed is dug once a rest. */
+	private boolean dugNotch;
+
+	/**
+	 * No bed spot near and no flat ground to walk to (a gully on a lake shore, rest-wool-3 24 Nov: 2 of 60 nights walled in
+	 * or dug a hole for want of one): a player digs a two-block notch into the slope at their feet and puts the bed in it.
+	 * Picks the side with ground under the first cell where the two cells at feet level and the two over them are open or
+	 * diggable, the fewest digs first, digs them, then {@code then}; null when no side has one or it was dug already.
+	 */
+	private TickResult digBedNotch(ServerPlayer player, java.util.function.Supplier<TickResult> then) {
+		if (dugNotch) return null;
+		BlockPos feet = feet(player);
+		List<BlockPos> best = null;
+		for (Direction side : SIDES) {
+			BlockPos foot = feet.relative(side), head = foot.relative(side);
+			if (!solid(player, foot.below()) || refusedSpots.contains(foot) || refusedSpots.contains(head)) continue;
+			List<BlockPos> digs = new ArrayList<>();
+			boolean fits = true;
+			for (BlockPos cell : List.of(head.above(), foot.above(), head, foot)) {
+				if (open(player, cell)) continue;
+				if (!diggable(player, cell)) { fits = false; break; }
+				digs.add(cell);
+			}
+			if (fits && !digs.isEmpty() && (best == null || digs.size() < best.size())) best = digs;
+		}
+		if (best == null) return null;
+		dugNotch = true;
+		log.add("no flat 2-cell spot within " + SPOT_RADIUS + " blocks: digging a bed notch of " + best.size() + " block(s) into the slope");
+		return digCells(player, best, 0, then);
+	}
+
+	private TickResult digCells(ServerPlayer player, List<BlockPos> cells, int index, java.util.function.Supplier<TickResult> then) {
+		if (index >= cells.size()) return then.get();
+		BlockPos cell = cells.get(index);
+		return runChild(() -> environment.clear(player, cell, STEP_MS), dug -> {
+			if (dug.state() != State.SUCCEEDED) {
+				log.add("digging the bed notch at " + cell.toShortString() + " failed: " + dug.reasonCode());
+				long after = dev.agaminggod.mineagen.server.runtime.GameClock.nowMs();
+				TickResult bed = bedPlan(player, after);
+				return bed != null ? bed : shelterPlan(player, after, null);
+			}
+			return digCells(player, cells, index + 1, then);
+		});
 	}
 
 	/** How far the body walks for flat ground to put a bed on when none is beside it. */
