@@ -1,0 +1,403 @@
+[
+ {
+  "seed": 20261107,
+  "inventory": [
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "monsters": false,
+  "time": 6000,
+  "budgetMs": 120000,
+  "name": "tunnel-cave-gap",
+  "note": "A level tunnel toward a goal 12 blocks ahead meets a cave 4 blocks across and 12 deep. A player bridges over it on placed cobblestone and tunnels on. Pass: the dig reaches its goal (on main it stops CAVE_OPENING at the edge).",
+  "setup": [
+   "forceload add {x-20} {z-20} {x+20} {z+30}",
+   "fill {x-4} -63 {z-2} {x+4} -44 {z+16} minecraft:stone",
+   "fill {x} -50 {z} {x} -49 {z+3} minecraft:air",
+   "fill {x-3} -62 {z+4} {x+3} -45 {z+7} minecraft:air",
+   "setblock {x} -63 {z+5} minecraft:glowstone",
+   "tp Probe {x+0.5} -50 {z+0.5} 0 0",
+   "kill @e[type=minecraft:item,distance=..40]"
+  ],
+  "calls": [
+   {
+    "name": "act",
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "x": "{x}",
+      "z": "{z+12}",
+      "maxBlocks": 32,
+      "throughCaves": "small",
+      "timeoutMs": 90000
+     }
+    }
+   }
+  ],
+  "expectCode": "DIG_GOAL_REACHED"
+ },
+ {
+  "seed": 20261107,
+  "inventory": [
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "monsters": false,
+  "time": 6000,
+  "budgetMs": 120000,
+  "name": "tunnel-cave-gap-gravel",
+  "note": "The same 4-wide gap, with the last floor block before it gravel on stone. A player steps onto loose floor that has solid ground under it and bridges on. Pass: the dig reaches its goal.",
+  "setup": [
+   "forceload add {x-20} {z-20} {x+20} {z+30}",
+   "fill {x-4} -63 {z-2} {x+4} -44 {z+16} minecraft:stone",
+   "fill {x} -50 {z} {x} -49 {z+3} minecraft:air",
+   "fill {x-3} -62 {z+4} {x+3} -45 {z+7} minecraft:air",
+   "setblock {x} -63 {z+5} minecraft:glowstone",
+   "setblock {x} -51 {z+3} minecraft:gravel",
+   "tp Probe {x+0.5} -50 {z+0.5} 0 0",
+   "kill @e[type=minecraft:item,distance=..40]"
+  ],
+  "calls": [
+   {
+    "name": "act",
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "x": "{x}",
+      "z": "{z+12}",
+      "maxBlocks": 32,
+      "throughCaves": "small",
+      "timeoutMs": 90000
+     }
+    }
+   }
+  ],
+  "expectCode": "DIG_GOAL_REACHED"
+ },
+ {
+  "seed": 20261107,
+  "inventory": [
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "monsters": false,
+  "time": 6000,
+  "budgetMs": 120000,
+  "name": "tunnel-cave-gap-gravel-water",
+  "note": "tunnel-cave-gap-gravel with water under the gravel lip, the gravel left floating (setblock strict, as worldgen leaves it): gravel falls through water, so it is no lip to step onto. A player bridges from the stone before it. Pass: the dig reaches its goal and the body is still at the tunnel level, not down in the cave.",
+  "setup": [
+   "forceload add {x-20} {z-20} {x+20} {z+30}",
+   "fill {x-4} -63 {z-2} {x+4} -44 {z+16} minecraft:stone",
+   "fill {x} -50 {z} {x} -49 {z+3} minecraft:air",
+   "fill {x-3} -62 {z+4} {x+3} -45 {z+7} minecraft:air",
+   "setblock {x} -63 {z+5} minecraft:glowstone",
+   "setblock {x} -52 {z+3} minecraft:water strict",
+   "setblock {x} -51 {z+3} minecraft:gravel strict",
+   "tp Probe {x+0.5} -50 {z+0.5} 0 0",
+   "kill @e[type=minecraft:item,distance=..40]"
+  ],
+  "calls": [
+   {
+    "name": "act",
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "x": "{x}",
+      "z": "{z+12}",
+      "maxBlocks": 32,
+      "throughCaves": "small",
+      "timeoutMs": 90000
+     }
+    }
+   }
+  ],
+  "expectCode": "DIG_GOAL_REACHED",
+  "probe": [
+   "execute if block {x} -51 {z+3} minecraft:gravel",
+   "execute if block {x} -52 {z+3} minecraft:water"
+  ],
+  "finalProbe": [
+   "execute as Probe at @s if entity @s[y=-51,dy=4]"
+  ],
+  "expectFinalProbe": [
+   {
+    "index": 0,
+    "match": "Test passed"
+   }
+  ]
+ },
+ {
+  "seed": 20261107,
+  "inventory": [
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "monsters": false,
+  "time": 6000,
+  "budgetMs": 120000,
+  "name": "tunnel-cave-gap-goal-below",
+  "note": "The same 4-wide gap, with the tunnel goal over the middle of the cave (an ore on its floor would be there). A player goes down into the cave to it, not across over it. Pass: the dig stops at the edge CAVE_OPENING, as on main.",
+  "setup": [
+   "forceload add {x-20} {z-20} {x+20} {z+30}",
+   "fill {x-4} -63 {z-2} {x+4} -44 {z+16} minecraft:stone",
+   "fill {x} -50 {z} {x} -49 {z+3} minecraft:air",
+   "fill {x-3} -62 {z+4} {x+3} -45 {z+7} minecraft:air",
+   "setblock {x} -63 {z+5} minecraft:glowstone",
+   "tp Probe {x+0.5} -50 {z+0.5} 0 0",
+   "kill @e[type=minecraft:item,distance=..40]"
+  ],
+  "calls": [
+   {
+    "name": "act",
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "x": "{x}",
+      "z": "{z+5}",
+      "maxBlocks": 32,
+      "throughCaves": "small",
+      "timeoutMs": 90000
+     }
+    }
+   }
+  ],
+  "expectCode": "CAVE_OPENING"
+ },
+ {
+  "seed": 20261107,
+  "inventory": [
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "monsters": false,
+  "time": 6000,
+  "budgetMs": 120000,
+  "name": "tunnel-cave-gap-goal-below-z",
+  "note": "tunnel-cave-gap-goal-below with the goal given on z only (the tunnel runs along z, so x is the feet). Pass: the dig stops at the edge CAVE_OPENING, as on main.",
+  "setup": [
+   "forceload add {x-20} {z-20} {x+20} {z+30}",
+   "fill {x-4} -63 {z-2} {x+4} -44 {z+16} minecraft:stone",
+   "fill {x} -50 {z} {x} -49 {z+3} minecraft:air",
+   "fill {x-3} -62 {z+4} {x+3} -45 {z+7} minecraft:air",
+   "setblock {x} -63 {z+5} minecraft:glowstone",
+   "tp Probe {x+0.5} -50 {z+0.5} 0 0",
+   "kill @e[type=minecraft:item,distance=..40]"
+  ],
+  "calls": [
+   {
+    "name": "act",
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "z": "{z+5}",
+      "maxBlocks": 32,
+      "throughCaves": "small",
+      "timeoutMs": 90000
+     }
+    }
+   }
+  ],
+  "expectCode": "CAVE_OPENING"
+ },
+ {
+  "seed": 20261107,
+  "inventory": [
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "monsters": false,
+  "time": 6000,
+  "budgetMs": 120000,
+  "name": "tunnel-cave-gap-lava",
+  "note": "Guard: the same cave with lava filling its bottom 2 blocks. The tunnel stops at the edge for the lava below it, as before, without burning. Pass: LAVA_AHEAD.",
+  "setup": [
+   "forceload add {x-20} {z-20} {x+20} {z+30}",
+   "fill {x-4} -63 {z-2} {x+4} -44 {z+16} minecraft:stone",
+   "fill {x} -50 {z} {x} -49 {z+3} minecraft:air",
+   "fill {x-3} -62 {z+4} {x+3} -45 {z+7} minecraft:air",
+   "setblock {x} -63 {z+5} minecraft:glowstone",
+   "fill {x-3} -62 {z+4} {x+3} -61 {z+7} minecraft:lava",
+   "tp Probe {x+0.5} -50 {z+0.5} 0 0",
+   "kill @e[type=minecraft:item,distance=..40]"
+  ],
+  "calls": [
+   {
+    "name": "act",
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "x": "{x}",
+      "z": "{z+12}",
+      "maxBlocks": 32,
+      "throughCaves": "small",
+      "timeoutMs": 90000
+     }
+    }
+   }
+  ],
+  "expectCode": "LAVA_AHEAD"
+ },
+ {
+  "seed": 20261107,
+  "inventory": [
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "monsters": false,
+  "time": 6000,
+  "budgetMs": 120000,
+  "name": "tunnel-cave-gap-pool",
+  "note": "Guard: the same cave with water filling its bottom 2 blocks. A pool under the drop stays a stop, as before. Pass: CAVE_OPENING.",
+  "setup": [
+   "forceload add {x-20} {z-20} {x+20} {z+30}",
+   "fill {x-4} -63 {z-2} {x+4} -44 {z+16} minecraft:stone",
+   "fill {x} -50 {z} {x} -49 {z+3} minecraft:air",
+   "fill {x-3} -62 {z+4} {x+3} -45 {z+7} minecraft:air",
+   "setblock {x} -63 {z+5} minecraft:glowstone",
+   "fill {x-3} -62 {z+4} {x+3} -61 {z+7} minecraft:water",
+   "tp Probe {x+0.5} -50 {z+0.5} 0 0",
+   "kill @e[type=minecraft:item,distance=..40]"
+  ],
+  "calls": [
+   {
+    "name": "act",
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "x": "{x}",
+      "z": "{z+12}",
+      "maxBlocks": 32,
+      "throughCaves": "small",
+      "timeoutMs": 90000
+     }
+    }
+   }
+  ],
+  "expectCode": "CAVE_OPENING"
+ },
+ {
+  "seed": 20261107,
+  "inventory": [
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "monsters": false,
+  "time": 6000,
+  "budgetMs": 120000,
+  "name": "tunnel-cave-gap-wide",
+  "note": "A level tunnel meets a cave 10 blocks across, seen open from one step back. A player bridges all 10. Pass: the dig reaches its goal 16 blocks ahead.",
+  "setup": [
+   "forceload add {x-20} {z-20} {x+20} {z+30}",
+   "fill {x-4} -63 {z-2} {x+4} -44 {z+22} minecraft:stone",
+   "fill {x} -50 {z} {x} -49 {z+3} minecraft:air",
+   "fill {x-3} -62 {z+4} {x+3} -45 {z+13} minecraft:air",
+   "setblock {x} -63 {z+5} minecraft:glowstone",
+   "tp Probe {x+0.5} -50 {z+0.5} 0 0",
+   "kill @e[type=minecraft:item,distance=..40]"
+  ],
+  "calls": [
+   {
+    "name": "act",
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "x": "{x}",
+      "z": "{z+16}",
+      "maxBlocks": 32,
+      "throughCaves": "small",
+      "timeoutMs": 90000
+     }
+    }
+   }
+  ],
+  "expectCode": "DIG_GOAL_REACHED"
+ }
+]
