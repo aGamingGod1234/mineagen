@@ -1955,8 +1955,11 @@ public final class ServerBuildController implements ServerController {
 	 */
 	/** Uses a cast may take beyond its carves' own cells: the frame's foot, the site clearing and the fetch's digs. */
 	static final int CARVE_USE_MARGIN = 40;
-	/** Off (MINEAGEN_BUILD_PICK_CHECK=off) only for a same-batch A/B against carving with whatever pickaxe is left. */
-	static final boolean PICK_CHECK = !"off".equalsIgnoreCase(System.getenv("MINEAGEN_BUILD_PICK_CHECK"));
+	/**
+	 * On only with MINEAGEN_BUILD_PICK_CHECK=on: stopping for a fresh pickaxe lost 8 of 104 start-at-lava rooms in a same-batch
+	 * A/B, because making one beside the pool stops on lava heard nearby.
+	 */
+	static final boolean PICK_CHECK = "on".equalsIgnoreCase(System.getenv("MINEAGEN_BUILD_PICK_CHECK"));
 	/** Set when a carve was ruled out only by the pickaxes carried: the build stops with TOOL_WORN so a fresh one is made first. */
 	private String carveToolStop;
 
