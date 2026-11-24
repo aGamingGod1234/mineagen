@@ -449,8 +449,23 @@ test('digs that go nowhere move the body off the spot, and a spot it cannot leav
 	assert.equal(result.reasonCode, 'FIND_BLOCKED');
 	assert.match(result.message, /No way on from here: water under this spot stops every dig down, and the move off this spot stopped too \(NO_ROUTE\)/);
 	assert.equal(body.calls.filter((call) => call.actionType === 'travel_to').length, 2, 'the walk off the water and the move off the spot, both going nowhere');
-	assert.deepEqual(body.calls.filter((call) => call.actionType === 'dig_to').map((call) => call.args.pattern), ['steep_down', 'tunnel'],
+	// With the tunnel off (find.tunnelOff), the move off that went nowhere is followed by a level tunnel on each of 3 headings.
+	const tunnelOff = process.env.MINEAGEN_FIND_TUNNEL_OFF !== 'off';
+	assert.deepEqual(body.calls.filter((call) => call.actionType === 'dig_to').map((call) => call.args.pattern), ['steep_down', 'tunnel', ...(tunnelOff ? ['tunnel', 'tunnel', 'tunnel'] : [])],
 		'one dig down, a walk off the water and a tunnel sideways that both went nowhere, then the move off');
+});
+
+test('chain gates: a dry walk off a spot where water stops every dig down tunnels off it and searches on', async () => {
+	const wet = { result: { state: 'FAILED', reasonCode: 'WATER_AHEAD', message: 'water on 3 sides' }, ms: 1_000 };
+	const body = fakeBody({ frontier: { candidates: [], coverage: { headings: {} } }, acts: {
+		dig_to: [wet, wet, { result: { state: 'SUCCEEDED', reasonCode: 'DIG_LIMIT_REACHED' }, move: (player) => ({ x: player.x - 12 }) },
+			{ result: { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', message: 'minecraft:iron_ore seen at -40,20,0, 3 blocks away' } }],
+		travel_to: [{ result: { state: 'FAILED', reasonCode: 'NO_ROUTE' } }, { result: { state: 'FAILED', reasonCode: 'NO_ROUTE' } }] } });
+	const result = await searchFor({ block: 'minecraft:iron_ore' }, body);
+	if (process.env.MINEAGEN_FIND_TUNNEL_OFF === 'off') { assert.equal(result.reasonCode, 'FIND_BLOCKED'); return; }
+	assert.equal(result.reasonCode, 'FIND_SEEN', result.message);
+	assert.ok(body.calls.some((call) => call.actionType === 'dig_to' && call.args.pattern === 'tunnel' && body.calls.indexOf(call) > body.calls.findLastIndex((one) => one.actionType === 'travel_to')),
+		'the tunnel off comes after the move off that went nowhere');
 });
 
 const pillarFailed = (left) => ({ result: { state: 'FAILED', reasonCode: 'BUILD_FAILED',
@@ -488,7 +503,7 @@ test('round 1 seed 1: a sideways tunnel that also goes nowhere leaves the move o
 	await searchFor({ block: 'minecraft:iron_ore' }, body);
 	const walks = body.calls.filter((call) => call.actionType === 'travel_to');
 	assert.equal(walks[1].args.yaw, 0, 'the walk off the water goes south, away from it');
-	assert.deepEqual(body.calls.filter((call) => call.actionType === 'dig_to').map((call) => [call.args.pattern, call.args.heading]), [['steep_down', 'south'], ['tunnel', 'west']]);
+	assert.deepEqual(body.calls.filter((call) => call.actionType === 'dig_to').map((call) => [call.args.pattern, call.args.heading]).slice(0, 2), [['steep_down', 'south'], ['tunnel', 'west']]);
 	// Turned one step from south (the way away), not from the tunnel's west, which would point north at the water.
 	assert.equal(walks.at(-1).args.yaw, 90, 'the move off goes sideways, not back toward the water');
 });
