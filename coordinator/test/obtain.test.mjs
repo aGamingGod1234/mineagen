@@ -1293,6 +1293,31 @@ test('review of PR #197: a walk to water that ends out of reach marks that spot 
 	}
 });
 
+test('room water-8-y-54: a walk to the far bank of a lake goes in legs and fills at the near bank once it is in reach', async () => {
+	const body = simulatedBody({ start: { bucket: 1 } });
+	const search = body.search, observe = body.observe;
+	let x = 0.5, legs = 0;
+	body.search = async (target, options) => {
+		if (!/water/.test(target.block ?? '')) return search(target, options);
+		return { state: 'SUCCEEDED', reasonCode: 'FIND_SEEN', message: 'Found: water', find: { seen: { x: 80, y: 62, z: 0, id: 'minecraft:water' } } };
+	};
+	body.observe = async () => { const o = await observe(); return { ...o, player: { ...o.player, x, y: 63, z: 0.5 } }; };
+	// The near bank comes into view once the body is beside it, after the second leg.
+	body.blocksNear = async () => x < 40 ? [] : [{ blockId: 'minecraft:water', x: 42, y: 62, z: 0, state: { level: '0' } }];
+	body.act = async (type, args) => {
+		body.calls.push([type, args]);
+		if (type === 'select_item' || type === 'select_tool') return { state: 'SUCCEEDED' };
+		if (type === 'travel_to') { legs += 1; x += 20; return { state: 'TIMED_OUT', reasonCode: 'TRAVEL_TIMEOUT', message: 'The trip\'s timeoutMs ran out before arrival' }; }
+		if (type === 'use_item') { body.inv.set('bucket', 0); body.inv.set('water_bucket', 1); return { state: 'SUCCEEDED', reasonCode: 'USE_INPUT_CONFIRMED' }; }
+		return { state: 'SUCCEEDED' };
+	};
+	const result = await runObtain({ item: 'water_bucket', count: 1, timeoutMs: 120_000 }, body, { index, now: ticking() });
+	assert.equal(result.state, 'SUCCEEDED', result.message);
+	assert.equal(legs, 2);
+	assert.ok(body.calls.filter(([type]) => type === 'travel_to').every(([, args]) => args.x === 80.5 && args.timeoutMs <= 10_000));
+	assert.deepEqual(aims(body), ['42.5,62.5,0.5']);
+});
+
 // Batch 4 water step: fills aimed at flowing water (a find sighting, or the cells of a body standing in a stream) met the
 // rock behind it, and find kept stopping at the same cell. A body ARRIVED 3 above a lake was never in reach.
 function waterSighting(seen, { flowing = [], wet = false, arrivedAbove = 0, miss = false } = {}) {
