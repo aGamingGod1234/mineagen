@@ -466,5 +466,9 @@ test('a pour held against an angry enderman is remembered from its running repor
 	assert.deepEqual(book.pours('a', end), [{ x: 7, y: 60, z: -3 }]);
 	book.observe('a', { revision: 1, rules: [], events: [{ seq: 3, id: 'default-ender-water', outcome: 'done', ms: 1500, detail: 'poured water at feet 7,60,-3; the source is gone' }] });
 	assert.deepEqual(book.pours('a', end), [], 'a pour whose source is gone is forgotten');
+	// Scooped as the dragon came near and the bucket spent before the next sample: the report itself forgets the pour.
+	book.observe('a', { revision: 1, rules: [], events: [], firing: { id: 'default-ender-water', ms: 400, detail: 'placed minecraft:water_bucket at feet 9,60,-3; standing in it while an angry enderman is near' } });
+	book.observe('a', { revision: 1, rules: [], events: [{ seq: 4, id: 'default-ender-water', outcome: 'done', ms: 800, detail: 'poured water at feet 9,60,-3, scooped it back as the dragon came near' }] });
+	assert.deepEqual(book.pours('a', end), [], 'a pour the hold scooped back is forgotten from its report');
 	book.clear('a');
 });

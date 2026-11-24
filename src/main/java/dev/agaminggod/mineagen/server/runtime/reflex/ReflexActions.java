@@ -1996,11 +1996,15 @@ final class ReflexActions {
 				input.accept(look(player, centre, 0.0F, 0.0F, false, false, placedSlot, placedHand));
 				return Step.running(placed + "; standing in it while an angry enderman is near");
 			}
-			ItemStack held = player.getItemInHand(placedHand);
-			if (!held.is(net.minecraft.world.item.Items.BUCKET)) return Step.done(left + " (no empty bucket in hand to scoop it back)");
-			if (++scoopTicks > 30) return Step.done(left + (dragonNear ? " (the dragon came near; could not scoop it back)" : " (could not scoop it back)"));
+			// Knocked onto dry ground with the dragon near, the scoop gets a few ticks, not the full aim: standing still to aim
+			// past a lip would hold the body exposed under the dragon.
+			int scoopBudget = dragonNear && holdTicks > HOLD_SETTLE_TICKS && !player.isInWater() ? 6 : 30;
+			if (++scoopTicks > scoopBudget) return Step.done(left + (dragonNear ? " (the dragon came near; could not scoop it back)" : " (could not scoop it back)"));
 			input.accept(look(player, centre, 0.0F, 0.0F, false, false, placedSlot, placedHand));
 			if (placedHand == InteractionHand.MAIN_HAND && player.getInventory().getSelectedSlot() != placedSlot) return Step.running(placed + "; no angry enderman near; selecting the bucket");
+			// Read once the pour's slot is selected again: a slot changed during the hold holds something else.
+			ItemStack held = player.getItemInHand(placedHand);
+			if (!held.is(net.minecraft.world.item.Items.BUCKET)) return Step.done(left + " (no empty bucket in hand to scoop it back)");
 			BlockHitResult sight = level.clip(new ClipContext(player.getEyePosition(), player.getEyePosition().add(player.getLookAngle().scale(player.blockInteractionRange())),
 					ClipContext.Block.OUTLINE, ClipContext.Fluid.SOURCE_ONLY, player));
 			if (sight.getType() != HitResult.Type.BLOCK || !sight.getBlockPos().equals(heldWater)) return Step.running(placed + "; no angry enderman near; aiming at the poured water");
