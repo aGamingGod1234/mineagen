@@ -163,6 +163,53 @@
   "monsters": false,
   "time": 6000,
   "budgetMs": 120000,
+  "name": "tunnel-cave-gap-goal-below-z",
+  "note": "tunnel-cave-gap-goal-below with the goal given on z only (the tunnel runs along z, so x is the feet). Pass: the dig stops at the edge CAVE_OPENING, as on main.",
+  "setup": [
+   "forceload add {x-20} {z-20} {x+20} {z+30}",
+   "fill {x-4} -63 {z-2} {x+4} -44 {z+16} minecraft:stone",
+   "fill {x} -50 {z} {x} -49 {z+3} minecraft:air",
+   "fill {x-3} -62 {z+4} {x+3} -45 {z+7} minecraft:air",
+   "setblock {x} -63 {z+5} minecraft:glowstone",
+   "tp Probe {x+0.5} -50 {z+0.5} 0 0",
+   "kill @e[type=minecraft:item,distance=..40]"
+  ],
+  "calls": [
+   {
+    "name": "act",
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "z": "{z+5}",
+      "maxBlocks": 32,
+      "throughCaves": "small",
+      "timeoutMs": 90000
+     }
+    }
+   }
+  ],
+  "expectCode": "CAVE_OPENING"
+ },
+ {
+  "seed": 20261107,
+  "inventory": [
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "monsters": false,
+  "time": 6000,
+  "budgetMs": 120000,
   "name": "tunnel-cave-gap-lava",
   "note": "Guard: the same cave with lava filling its bottom 2 blocks. The tunnel stops at the edge for the lava below it, as before, without burning. Pass: LAVA_AHEAD.",
   "setup": [
