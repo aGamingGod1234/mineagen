@@ -198,6 +198,10 @@ const CAVE_BAND = 24;
 const MAX_IDLE_DIGS = 3;
 const MAX_RELOCATIONS = 2;
 const RELOCATE = 12;
+// A stair out of a wet shaft foot rises this far: above the water a dig down met, onto ground the next dig starts from.
+const WET_CLIMB_RISE = 6;
+const WALLED_MOVE = new Set(['NO_ROUTE', 'NO_STANDABLE_PATH', 'STALLED_IN_PLACE', 'NO_SEEN_ROUTE']);
+const WET_CLIMB = getSwitch('find.wetClimb').value;
 const CLEAR_CAVE = 24;
 const MAX_CAVE_VISITS = 8;
 // Cave first: before the first dig down for an ore, walk (never dig) into a cave the body has seen or remembers, as a
@@ -1716,6 +1720,17 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 				ended = await escapeWater();
 				if (ended !== null) return ended;
 				previous = bodyAt(observation);
+				// Walled in at the foot of its own shaft, with no walk off the wet spot: a player climbs out by a stair cut
+				// away from it and searches from the new ground. Chain gates on main: 183 hand-backs were this
+				// walk stopping (NO_ROUTE, NO_STANDABLE_PATH) where the dig down met water.
+				if (WET_CLIMB && wetSky === null && previous !== null && Math.hypot(previous.x - from.x, previous.y - from.y, previous.z - from.z) < 2
+					&& WALLED_MOVE.has(out.result?.reasonCode) && !inWater()) {
+					const up = await leg('stairs up off the wet spot', 'dig_to', { pattern: 'stairs_up', y: Math.floor(from.y) + WET_CLIMB_RISE, heading: heading.name,
+						maxBlocks: STEP_CELLS.stairs_up * (WET_CLIMB_RISE + 2), stopWhenSeen: profile.stopId, discard: DISCARD });
+					ended = await settle(up);
+					if (ended !== null) return ended;
+					previous = bodyAt(observation);
+				}
 				// A move off that left the body where it was: digging here again meets the same stop. Live, B-1's aquifer cell:
 				// two such moves (BUILD_FAILED in the water) each followed by two more wet digs down, 108 s in all.
 				// A dry step is off the wet spot even when the hop moved less than two blocks.

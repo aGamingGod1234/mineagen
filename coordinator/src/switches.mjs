@@ -130,6 +130,10 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'obtain.nextStation', env: 'MINEAGEN_OBTAIN_NEXT_STATION', side: 'coordinator', default: true, parser: OFF_EXACT, status: 'default-on',
 		reason: 'A station drop not confirmed in the inventory no longer ends the cleanup: the other placed stations (the crafting table) are still picked up; off is the A/B off arm.',
 		readers: ['coordinator/src/obtain-runner.mjs NEXT_STATION (module load, process.env only)'] }),
+	// coordinator/src/find-search.mjs WET_CLIMB: read once at module load.
+	entry({ name: 'find.wetClimb', env: 'MINEAGEN_FIND_WET_CLIMB', side: 'coordinator', default: true, parser: OFF_EXACT, status: 'default-on',
+		reason: 'At the foot of its own shaft where a dig down met water and no walk leads off, the search climbs out by a stair and searches on, instead of handing back; off is the A/B off arm.',
+		readers: ['coordinator/src/find-search.mjs WET_CLIMB (module load, process.env only)'] }),
 	// coordinator/src/kit-habit.mjs kitHabitEnabled(environment): per call.
 	entry({ name: 'kit.habit', env: 'MINEAGEN_KIT_HABIT', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
 		reason: 'Keeps a shield, iron armour and food in reach after each obtain; off is the A/B off arm (#32).',

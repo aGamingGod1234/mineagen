@@ -449,8 +449,22 @@ test('digs that go nowhere move the body off the spot, and a spot it cannot leav
 	assert.equal(result.reasonCode, 'FIND_BLOCKED');
 	assert.match(result.message, /No way on from here: water under this spot stops every dig down, and the move off this spot stopped too \(NO_ROUTE\)/);
 	assert.equal(body.calls.filter((call) => call.actionType === 'travel_to').length, 2, 'the walk off the water and the move off the spot, both going nowhere');
-	assert.deepEqual(body.calls.filter((call) => call.actionType === 'dig_to').map((call) => call.args.pattern), ['steep_down', 'tunnel'],
-		'one dig down, a walk off the water and a tunnel sideways that both went nowhere, then the move off');
+	assert.deepEqual(body.calls.filter((call) => call.actionType === 'dig_to').map((call) => call.args.pattern),
+		['steep_down', 'tunnel', ...(process.env.MINEAGEN_FIND_WET_CLIMB === 'off' ? [] : ['stairs_up'])],
+		'one dig down, a walk off the water and a tunnel sideways that both went nowhere, then the move off (and a stair out of the shaft)');
+});
+
+test('chain gates: walled in at a wet shaft foot with no walk off, the search climbs out by a stair and searches on', async () => {
+	const wet = { result: { state: 'FAILED', reasonCode: 'WATER_AHEAD', message: 'water on 3 sides' }, ms: 1_000 };
+	const body = fakeBody({ frontier: { candidates: [], coverage: { headings: {} } }, acts: {
+		dig_to: [wet, wet, { result: { state: 'SUCCEEDED', reasonCode: 'DIG_GOAL_REACHED' }, move: (player) => ({ x: player.x + 6, y: player.y + 6 }) },
+			{ result: { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', message: 'minecraft:iron_ore seen at 20,60,0, 3 blocks away' } }],
+		travel_to: [{ result: { state: 'FAILED', reasonCode: 'NO_ROUTE' } }, { result: { state: 'FAILED', reasonCode: 'NO_STANDABLE_PATH' } }] } });
+	const result = await searchFor({ block: 'minecraft:iron_ore' }, body);
+	if (process.env.MINEAGEN_FIND_WET_CLIMB === 'off') { assert.equal(result.reasonCode, 'FIND_BLOCKED', result.message); return; }
+	assert.equal(result.reasonCode, 'FIND_SEEN', result.message);
+	const up = body.calls.find((call) => call.actionType === 'dig_to' && call.args.pattern === 'stairs_up');
+	assert.equal(up?.args.y, 76, 'six up from the shaft foot');
 });
 
 const pillarFailed = (left) => ({ result: { state: 'FAILED', reasonCode: 'BUILD_FAILED',
