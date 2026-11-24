@@ -171,3 +171,45 @@ test('chain gates: a furnace drop not picked up still leaves the crafting table 
 	assert.equal(items.some((row) => row.itemId === 'minecraft:crafting_table'), on);
 	assert.deepEqual(placed.map((station) => station.kind), on ? ['furnace'] : ['furnace', 'crafting_table'], 'the missed furnace drop stays in the ledger');
 });
+
+test('chain gates: a missed furnace drop that comes in with the table\'s sweep leaves the ledger', async () => {
+	const furnace = { kind: 'furnace', x: 0, y: 64, z: 2, dimension: 'minecraft:overworld', drop: true };
+	const table = { kind: 'crafting_table', x: 0, y: 64, z: 1, dimension: 'minecraft:overworld' };
+	const placed = [furnace, table];
+	const items = [{ itemId: 'minecraft:stone_pickaxe', slot: 0, count: 1 }];
+	let broken = false, sweeps = 0;
+	const body = checkedObtainBody({
+		observe: async () => ({ player: { x: 0.5, y: 64, z: 0.5, health: 20, skyOpen: true }, world: { dimension: table.dimension },
+			inventory: { selectedSlot: 0, items: structuredClone(items) }, blocks: broken ? [] : [{ ...table, blockId: 'minecraft:crafting_table' }],
+			items: broken && !items.some((row) => row.itemId === 'minecraft:furnace') ? [{ stableId: '00000000-0000-4000-8000-00000000f0f0', itemId: 'minecraft:furnace', x: 0.5, y: 64, z: 2.5 }] : [] }),
+		stopped: () => false, interrupted: () => false, note: () => {},
+		act: async (type) => {
+			if (type === 'break_block') { broken = true; items.push({ itemId: 'minecraft:crafting_table', slot: 1, count: 1 }); }
+			// The table's sweep picks up the furnace lying next to it.
+			if (type === 'pick_up_item' && broken && ++sweeps >= 1) items.push({ itemId: 'minecraft:furnace', slot: 2, count: 1 });
+			return { state: 'SUCCEEDED', reasonCode: 'ACTION_COMPLETED' };
+		},
+	});
+	await runObtain({ item: 'stone_pickaxe' }, body, { placed, now: () => 0 });
+	if (process.env.MINEAGEN_OBTAIN_NEXT_STATION === 'off') return;
+	assert.ok(items.some((row) => row.itemId === 'minecraft:furnace'));
+	assert.deepEqual(placed, [], 'the furnace picked up with the table is no longer a drop to fetch');
+});
+
+test('station cleanup never breaks a station on a sample that is not ready', async () => {
+	const table = { kind: 'crafting_table', x: 0, y: 64, z: 1, dimension: 'minecraft:overworld' };
+	const placed = [table];
+	let samples = 0, broken = false;
+	const body = checkedObtainBody({
+		// A not-ready sample carries an empty inventory list: unknown room, not 36 free slots.
+		observe: async () => (++samples === 1 ? { ready: true, player: { x: 0.5, y: 64, z: 0.5, health: 20, skyOpen: true }, world: { dimension: table.dimension },
+			inventory: { selectedSlot: 0, items: [{ itemId: 'minecraft:stone_pickaxe', slot: 0, count: 1 }] }, blocks: [{ ...table, blockId: 'minecraft:crafting_table' }], items: [] }
+			: { ready: false, player: { x: 0.5, y: 64, z: 0.5, health: 20, skyOpen: true }, world: { dimension: table.dimension }, inventory: { items: [] },
+				blocks: [{ ...table, blockId: 'minecraft:crafting_table' }], items: [] }),
+		stopped: () => false, interrupted: () => false, note: () => {},
+		act: async (type) => { if (type === 'break_block') broken = true; return { state: 'SUCCEEDED', reasonCode: 'ACTION_COMPLETED' }; },
+	});
+	await runObtain({ item: 'stone_pickaxe' }, body, { placed, now: () => 0 });
+	assert.equal(broken, false);
+	assert.equal(placed.length, 1);
+});

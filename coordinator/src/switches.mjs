@@ -124,7 +124,7 @@ export const SWITCHES = Object.freeze([
 		readers: ['coordinator/src/obtain-runner.mjs LAVA_REFUSAL (module load, process.env only)'] }),
 	// coordinator/src/find-search.mjs FLOOD_CONTAINED: read once at module load.
 	entry({ name: 'find.floodContained', env: 'MINEAGEN_FIND_FLOOD_CONTAINED', side: 'coordinator', default: true, parser: OFF_EXACT, status: 'default-on',
-		reason: 'A flooded tunnel the dig backed out of, with the flow stopped short and the body dry and safe, is a shut way, not danger that ends find or obtain; off is the A/B off arm.',
+		reason: 'A flooded tunnel the dig backed out of, with the flow stopped short and the body dry and safe, is a shut way, not danger that ends obtain (helper in find-search, read by obtain-runner); off is the A/B off arm.',
 		readers: ['coordinator/src/find-search.mjs FLOOD_CONTAINED (module load, process.env only)'] }),
 	// coordinator/src/obtain-runner.mjs NEXT_STATION: read once at module load.
 	entry({ name: 'obtain.nextStation', env: 'MINEAGEN_OBTAIN_NEXT_STATION', side: 'coordinator', default: true, parser: OFF_EXACT, status: 'default-on',

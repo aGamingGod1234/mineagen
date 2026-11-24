@@ -36,6 +36,8 @@ const OBTAIN_COSTS = getSwitch('obtain.costs').value;
 const FILL_LEGS = getSwitch('obtain.fillLegs').value;
 const LAVA_REFUSAL = getSwitch('obtain.lavaRefusal').value;
 const NEXT_STATION = getSwitch('obtain.nextStation').value;
+// A sample whose inventory cannot be trusted: not ready (it carries an empty list), not listed, or remembered, not seen.
+const inventoryUnknown = (sample) => sample?.ready === false || !Array.isArray(sample?.inventory?.items) || sample?.continuity?.rememberedSections?.includes('inventory') === true;
 // Food a trip below ground is stocked with, in hunger points: one full bar (20), about a quarter hour's eating. Food the
 // trip lacks is counted in bread-sized items (5 points) for a chest's value; 4 bread held is a full bar and none is short.
 const TRIP_HUNGER = 20;
@@ -771,6 +773,14 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 	// Workstations this run placed go back into the inventory before it walks away and at the end.
 	const cleanup = async () => {
 		checkingCleanup = true;
+		// A drop left unconfirmed can still come in with a later station's sweep (it picks up every station kind near it).
+		const collected = (sample) => {
+			if (inventoryUnknown(sample)) return;
+			for (const left of placed.filter((one) => one.missedHeld !== undefined))
+				if ((heldCounts(sample).get(left.kind) ?? 0) > left.missedHeld) placed.splice(placed.indexOf(left), 1);
+		};
+		// Only this call's sweeps count: a later call may hold a station of that kind made elsewhere.
+		for (const one of placed) delete one.missedHeld;
 		try {
 			for (let pass = 0; pass < 2 && placed.length > 0; pass++) for (const station of [...placed]) {
 				if (body.interrupted() || body.stopped()) return;
@@ -800,7 +810,7 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 					}
 				}
 				const fits = (sample) => {
-					if (!Array.isArray(sample.inventory?.items) || sample.continuity?.rememberedSections?.includes('inventory')) return null;
+					if (inventoryUnknown(sample)) return null;
 					const rows = (sample.inventory?.items ?? []).filter((row) => row.count > 0 &&
 						(Number.isSafeInteger(row.slot) && row.slot >= 0 && row.slot < 36 || row.slot === 'mainhand'));
 					return rows.length < 36 || rows.some((row) => bare(row.itemId) === station.kind && row.count < 64);
@@ -834,6 +844,8 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 				} else {
 					const fresh = await body.observe();
 					if (cleanupStopped(fresh) || fits(fresh) === null) return;
+					collected(fresh);
+					if (!placed.includes(station)) continue;
 					heldBefore = heldCounts(fresh).get(station.kind) ?? 0;
 				}
 				removed.add(`${station.x},${station.y},${station.z}`);
@@ -850,20 +862,26 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 					await pickUpNear(station, [station.kind], 4, false, room);
 					const fresh = await body.observe();
 					if (cleanupStopped(fresh)) return;
-					const unknown = fresh.continuity?.rememberedSections?.includes('inventory') || !Array.isArray(fresh.inventory?.items);
+					const unknown = inventoryUnknown(fresh);
 					if (unknown || (heldCounts(fresh).get(station.kind) ?? 0) <= heldBefore) {
 						step(`leave the ${station.kind} drop at ${station.x},${station.y},${station.z}: not confirmed in inventory`);
 						// A drop not picked up leaves the other stations to fetch: chain gates on main left the crafting table
 						// behind after every furnace drop missed, and with the pickaxe worn underground no table could be made.
 						// The drop stays in the ledger, so a later call can still collect it.
 						if (unknown || !NEXT_STATION) return;
+						station.missedHeld = heldBefore;
 						continue;
 					}
 				}
 				placed.splice(placed.indexOf(station), 1);
+				for (const left of placed) if (left.missedHeld !== undefined && left.kind === station.kind) left.missedHeld++;
 				for (const load of loads.filter((one) => one.x === station.x && one.y === station.y && one.z === station.z)) loads.splice(loads.indexOf(load), 1);
 				if (station.drop) await pickUpNear(station, ['coal', 'charcoal', 'raw_iron', 'iron_ingot', ...OBTAIN_STATIONS], 4);
 
+			}
+			if (placed.some((one) => one.missedHeld !== undefined) && !body.interrupted() && !body.stopped()) {
+				const last = await body.observe().catch(() => null);
+				if (last && !cleanupStopped(last)) collected(last);
 			}
 		} finally { checkingCleanup = false; }
 	};

@@ -2199,20 +2199,16 @@ test('kit gates: a lava find starting on the lake shore it filled its bucket at 
 	try { assert.deepEqual(await run([{ blockId: 'minecraft:water', x: 334, y: 62, z: -9 }]), ['shaft']); } finally { delete process.env.MINEAGEN_FIND_DRY_START; }
 });
 
-test('chain gates: a tunnel the dig backed out of, with the flow stopped short and the body dry, is a shut way, not danger', async () => {
-	const flood = { result: { state: 'FAILED', reasonCode: 'TUNNEL_FLOODED', message: 'Fluid flowed into the opened tunnel at 2,56,0; not entered; backed out to 0,56,0 and the flow stopped short of it' }, move: () => ({ y: 56 }) };
-	const run = () => {
-		const body = fakeBody({ start: sample({ ready: true }), frontier: { candidates: [], coverage: { headings: {} } },
-			acts: { dig_to: [flood, { result: { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', message: 'minecraft:iron_ore seen at -40,20,0, 3 blocks away' } }],
-				travel_to: [{ result: { state: 'SUCCEEDED', reasonCode: 'ARRIVED' } }] } });
-		return searchFor({ block: 'minecraft:iron_ore' }, body);
-	};
-	const result = await run();
-	if (process.env.MINEAGEN_FIND_FLOOD_CONTAINED === 'off') assert.equal(result.reasonCode, 'FIND_DANGER', result.message);
-	else assert.equal(result.reasonCode, 'FIND_SEEN', result.message);
-	assert.equal(floodContained(flood.result, sample({ ready: true, player: { health: 20, underWater: true } })), false, 'under water is still danger');
-	assert.equal(floodContained({ ...flood.result, message: 'Fluid flowed into the opened tunnel at 2,56,0; not entered; backed out to 0,56,0 and the lava kept coming' }, sample({ ready: true })), false);
-	assert.equal(floodContained(flood.result, sample({ ready: false })), false, 'no fresh sample');
-	assert.equal(floodContained(flood.result, sample({ ready: true, player: { health: 20, inWater: true } })), true, 'standing in the stopped flow\'s edge');
-	assert.equal(floodContained(flood.result, sample({ ready: true, blocks: [{ blockId: 'minecraft:lava', x: 2, y: 56, z: 0, distance: 2 }] })), false, 'lava near');
+test('chain gates: a tunnel the dig backed out of, with the flow stopped short and the body dry, is a shut way, not danger', () => {
+	const flood = { state: 'FAILED', reasonCode: 'TUNNEL_FLOODED', message: 'Fluid flowed into the opened tunnel at 2,56,0; not entered; backed out to 0,56,0 and the flow stopped short of it' };
+	const on = process.env.MINEAGEN_FIND_FLOOD_CONTAINED !== 'off';
+	const at = { x: 0.5, y: 56, z: 0.5, health: 20 };
+	assert.equal(floodContained(flood, sample({ ready: true, player: at })), on);
+	assert.equal(floodContained(flood, sample({ ready: true, player: { ...at, inWater: true } })), on, 'standing in the stopped flow\'s edge');
+	assert.equal(floodContained(flood, sample({ ready: true, player: { ...at, underWater: true } })), false, 'under water is still danger');
+	assert.equal(floodContained({ ...flood, message: 'Fluid flowed into the opened tunnel at 2,56,0; not entered; backed out to 0,56,0 and the lava kept coming' }, sample({ ready: true, player: at })), false);
+	assert.equal(floodContained(flood, sample({ ready: false, player: at })), false, 'no fresh sample');
+	// Live samples list lava by its coordinates: near (2 blocks) stays danger, far (20 blocks) does not.
+	assert.equal(floodContained(flood, sample({ ready: true, player: at, blocks: [{ blockId: 'minecraft:lava', x: 2, y: 56, z: 0 }] })), false, 'lava near');
+	assert.equal(floodContained(flood, sample({ ready: true, player: at, blocks: [{ blockId: 'minecraft:lava', x: 20, y: 56, z: 0 }] })), on, 'lava far');
 });
