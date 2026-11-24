@@ -187,6 +187,8 @@ public final class ServerBuildController implements ServerController {
 	static final int MAX_CARVES = 2;
 	/** Off (MINEAGEN_BUILD_ROCK_MEMORY=off) only for a same-batch A/B against the old sight-only site rules. */
 	static final boolean REMEMBER_ROCK = !"off".equalsIgnoreCase(System.getenv("MINEAGEN_BUILD_ROCK_MEMORY"));
+	/** Walks during a build plan over what the build remembers (cells it dug, rock it saw), not only what is in sight now. */
+	static final boolean WALK_MEMORY = !"off".equalsIgnoreCase(System.getenv("MINEAGEN_BUILD_WALK_MEMORY"));
 	static final int CARVE_RADIUS = 10;
 	static final double CARVE_POOL_MARGIN = 6.0D;
 	/**
@@ -490,7 +492,7 @@ public final class ServerBuildController implements ServerController {
 					// The frame or pool can cut an old hop. Try the same target before refusing the whole patch of shore.
 					// Keep the detour on the working side. A route across the frame can close when more blocks go in.
 					walk = new ServerNavigationController(Vec3.atBottomCenterOf(walkTarget), 0.35D, false, now, 20_000L)
-							.withWalkedGround(walkedGround).seenRouteOnly();
+							.withWalkedGround(WALK_MEMORY ? walkMemory() : walkedGround).seenRouteOnly();
 					LOGGER.info("[build] {} replan walk {} to {} after a remembered hop failed", player.getGameProfile().name(), walks, xyz(walkTarget));
 					return running();
 				}
@@ -644,7 +646,10 @@ public final class ServerBuildController implements ServerController {
 		switch (kind) {
 			case SHELTER -> { return end(player, result); }
 			case UNCOVER -> {
-				if (result.state() == State.SUCCEEDED) { if (!uncoverForFetch) { uncovers++; uncovered.add(uncoverCell); } }
+				if (result.state() == State.SUCCEEDED) {
+					if (!uncoverForFetch) { uncovers++; uncovered.add(uncoverCell); }
+					if (WALK_MEMORY) rockSeen.put(uncoverCell.immutable(), Blocks.AIR.defaultBlockState());
+				}
 				else {
 					uncoverDead.add(uncoverCell);
 					LOGGER.info("[build] {} could not open {}: {} {}", player.getGameProfile().name(), xyz(uncoverCell), result.reasonCode(), result.message());
@@ -3092,7 +3097,16 @@ public final class ServerBuildController implements ServerController {
 			return running();
 		}
 		walk = new ServerNavigationController(Vec3.atBottomCenterOf(spot), 0.35D, false, now, 20_000L);
+		// Out of sight, the tunnel the fetch dug and the rock round it read as unseen, and travel stops at their edge.
+		if (WALK_MEMORY) walk.withWalkedGround(walkMemory());
 		return running();
+	}
+
+	/** What the build remembers of the ground, for travel: rock and opened cells, then the cells stood in (newest wins). */
+	private Map<BlockPos, BlockState> walkMemory() {
+		Map<BlockPos, BlockState> memory = new HashMap<>(rockSeen);
+		memory.putAll(walkedGround);
+		return memory;
 	}
 
 	static BlockPos lavaNamed(String message) {
