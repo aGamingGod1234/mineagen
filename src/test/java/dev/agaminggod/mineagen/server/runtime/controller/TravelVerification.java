@@ -351,22 +351,24 @@ public final class TravelVerification {
 				"centred but still moving along the wall: line up (stop the drift) before jumping");
 		check(!ServerNavigationController.turningIntoNotch(notch, nodes, 1, -85.0F), "facing the notch: jump");
 		check(ServerNavigationController.turningIntoNotch(notch, nodes, 1, -40.0F), "mid-turn into a notch: hold the jump");
-		// water-3-y-54: the last step of a pillar ended facing yaw -126 with the notch's landing 0.8 blocks east as the
-		// route's endpoint. A held view never turned to the notch, so the jump stayed held for two stall timeouts.
-		ServerNavigationController.Heading atNotch = ServerNavigationController.heading(-126.2F, 0.8D, -0.0023D, true, Float.NaN,
-				!ServerNavigationController.narrowStepUp(notch, nodes, 1));
-		check(Math.abs(net.minecraft.util.Mth.wrapDegrees(atNotch.viewYaw() + 90.0F)) < 1.0F
-				&& !ServerNavigationController.turningIntoNotch(notch, nodes, 1, atNotch.viewYaw()),
-				"pressed against a notch's step with the view off its axis: the view turns to the notch, so the jump is pressed");
+		// water-3-y-54: after a pillar the body stood below a notch's step facing yaw -126, the notch due east (-90); the
+		// jump waited for the view, which never turned. On the ground below the step the view faces the notch.
+		float notchView = ServerNavigationController.notchViewYaw(notch, nodes, 1, 64.0D, true);
+		check(Math.abs(net.minecraft.util.Mth.wrapDegrees(notchView + 90.0F)) < 1.0E-3F
+				&& !ServerNavigationController.turningIntoNotch(notch, nodes, 1, notchView), "below a notch's step: the view faces the notch, so the jump is pressed");
+		check(Float.isNaN(ServerNavigationController.notchViewYaw(notch, nodes, 1, 65.0D, true)), "landed on the step: the view is free again (no spin on an overshoot)");
+		check(Float.isNaN(ServerNavigationController.notchViewYaw(notch, nodes, 1, 64.4D, false)), "in the air: the view is left alone");
+		List<PathNode> bend = List.of(nodes.get(0), nodes.get(1), new PathNode(new GridPosition(2, 65, 0), TraversalType.WALK),
+				new PathNode(new GridPosition(2, 65, 1), TraversalType.WALK), new PathNode(new GridPosition(2, 65, 2), TraversalType.WALK));
+		check(Math.abs(net.minecraft.util.Mth.wrapDegrees(ServerNavigationController.notchViewYaw(notch, bend, 1, 64.0D, true) + 90.0F)) < 1.0E-3F,
+				"a notch mid-route with a bend after it: the view faces the notch, not the gaze down the bend");
 		Grid open = new Grid();
 		open.floor(-5, 5, -5, 5, 63);
 		open.seenUpTo = 30;
 		for (int z = -5; z <= 5; z++) open.solid.add(new GridPosition(1, 64, z));
 		check(ServerNavigationController.jumpLineUp(open, new Vec3(0.6, 64, 0.95), Vec3.ZERO, nodes, 1) == null, "an open step is jumped from wherever the body is");
 		check(!ServerNavigationController.turningIntoNotch(open, nodes, 1, 0.0F), "an open step is jumped at any facing");
-		check(Math.abs(net.minecraft.util.Mth.wrapDegrees(ServerNavigationController.heading(-126.2F, 0.8D, -0.0023D, true, Float.NaN,
-				!ServerNavigationController.narrowStepUp(open, nodes, 1)).viewYaw() + 126.2F)) < 1.0E-3F,
-				"an open step keeps the held view near the endpoint");
+		check(Float.isNaN(ServerNavigationController.notchViewYaw(open, nodes, 1, 64.0D, true)), "an open step leaves the view alone");
 		// Braking short of fire presses against the motion in vanilla's input frame: facing +z (yaw 0) and moving +z is back;
 		// facing +z and moving +x (the body's left) is a right strafe.
 		float[] back = ServerNavigationController.brakeInput(new Vec3(0, 0, 0.2), 0.0F);

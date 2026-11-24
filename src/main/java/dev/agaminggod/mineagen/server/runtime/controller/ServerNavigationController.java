@@ -1406,14 +1406,18 @@ public final class ServerNavigationController implements ServerController {
 		double steerHorizontal = Math.sqrt(steerDx * steerDx + steerDz * steerDz);
 		boolean walkingOnGround = !swimming && !climbing && !crouching && !gapJump && player.onGround();
 		// Swimming and climbing move where the view points (no separate walk direction), so they never hold the
-		// heading near a point: a swimmer that held it swam on past the point, looped back and stalled. Nor does a body
-		// at a one-wide step-up: its jump waits for the view to face the notch, and a held view (the yaw a pillar left)
-		// never turned, so it pressed against the step without jumping until the stall replans ran out.
+		// heading near a point: a swimmer that held it swam on past the point, looped back and stalled.
 		Heading heading = heading(motorState.yaw(), steerDx, steerDz, steerIsEndpoint,
 				walkingOnGround && steerIsWaypoint ? gazeYaw(player.position(), plan.nodes(), waypointIndex) : Float.NaN,
-				!swimming && !climbing && !narrowStepUp(world, plan.nodes(), waypointIndex));
+				!swimming && !climbing);
 		float targetYaw = heading.viewYaw();
 		float moveYaw = swimming || climbing ? Float.NaN : heading.moveYaw();
+		float notch = notchViewYaw(world, plan.nodes(), waypointIndex, player.getY(), walkingOnGround);
+		if (!Float.isNaN(notch)) {
+			// The view faces the notch while the walk keys still steer to the takeoff or landing point.
+			if (Float.isNaN(moveYaw)) moveYaw = targetYaw;
+			targetYaw = notch;
+		}
 		float targetPitch;
 		if (swimming || climbing) {
 			Vec3 delta = target.add(0.0D, 0.85D, 0.0D).subtract(player.getEyePosition());
@@ -1573,9 +1577,23 @@ public final class ServerNavigationController implements ServerController {
 
 	static boolean turningIntoNotch(WalkabilityView world, List<PathNode> nodes, int index, float facing) {
 		if (!narrowStepUp(world, nodes, index)) return false;
+		return Math.abs(net.minecraft.util.Mth.wrapDegrees(facing - notchAxis(nodes, index))) > NOTCH_FACING_DEGREES;
+	}
+
+	private static float notchAxis(List<PathNode> nodes, int index) {
 		GridPosition from = nodes.get(index - 1).position(), to = nodes.get(index).position();
-		float axis = (float) Math.toDegrees(Math.atan2(-(to.x() - from.x()), to.z() - from.z()));
-		return Math.abs(net.minecraft.util.Mth.wrapDegrees(facing - axis)) > NOTCH_FACING_DEGREES;
+		return (float) Math.toDegrees(Math.atan2(-(to.x() - from.x()), to.z() - from.z()));
+	}
+
+	/**
+	 * The view yaw for a body on the ground below a one-wide step-up: the notch's axis, or NaN elsewhere (in the air,
+	 * landed, or at an open step). Its jump waits for the view to face the notch, and a view held near a walk's end, turned
+	 * to a later node's gaze, or to an off-centre endpoint never did: water-3-y-54 pressed against the step after a
+	 * pillar, facing yaw -126 with the notch due east, until the stall replans ran out.
+	 */
+	static float notchViewYaw(WalkabilityView world, List<PathNode> nodes, int index, double bodyY, boolean walkingOnGround) {
+		if (!walkingOnGround || !narrowStepUp(world, nodes, index) || bodyY >= nodes.get(index).position().y() - 0.5D) return Float.NaN;
+		return notchAxis(nodes, index);
 	}
 
 	/** Wading is slow and a current can pin the body against a wall, so the fast blocked rule only judges dry ground. */
