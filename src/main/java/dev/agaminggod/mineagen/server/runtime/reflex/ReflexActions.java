@@ -1255,12 +1255,19 @@ final class ReflexActions {
 			// the body back from any range, so the margin holds however far the archer stands.
 			int chosen = chooseSide(side, candidate -> headings[candidate + 1] != null && SafeStep.canStep(player, headings[candidate + 1], true),
 					candidate -> headings[candidate + 1] != null);
-			if (chosen == 0) {
+			Float heading = chosen == 0 ? null : headings[chosen + 1];
+			// On a rim with the shooter inland, neither side keeps the knockback margin and the step ran along the rim, where
+			// the next hit knocked the body off (archers-zombie: the last deaths, a fall off the west rim after an arrow). A
+			// heading angled inland toward the shooter that keeps the margin gets it off the rim, still moving across the shot.
+			if (heading == null || !SafeStep.canStep(player, heading, true)) {
+				Float inland = offRim(player, body, at, chosen == 0 ? side : chosen);
+				if (inland != null) heading = inland;
+			}
+			if (heading == null) {
 				input.accept(aim);
 				lastHeading = null;
 				return Step.running("no safe footing to either side of " + type(shooter) + "'s shot, facing it" + swung);
 			}
-			Float heading = headings[chosen + 1];
 			if (lastHeading == null) steps++;
 			lastHeading = heading;
 			// A one-block rise on the step is jumped, as a running player does; walked into, it would stop the body on the line.
@@ -1286,6 +1293,21 @@ final class ReflexActions {
 			float strafe = cleanAxis(-(float) Math.sin(relative));
 			input.accept(new AgentInputState(forward, strafe, jump, false, false, false, false, aim.yaw(), aim.pitch(), aim.selectedSlot(), aim.hand()));
 			return Step.running("stepping " + SafeStep.compass(heading) + " across " + type(shooter) + "'s shot" + swung);
+		}
+
+		/** Headings tried off a rim, angled from square toward the shooter's side or away: the first keeping the margin wins. */
+		static final float[] RIM_OFFSETS = {60.0F, -60.0F, 75.0F, -75.0F};
+
+		/** A heading off a rim that keeps the knockback margin and safe footing, tried on the given side first; or null. */
+		private static Float offRim(ServerPlayer player, Vec3 body, Vec3 at, int side) {
+			for (int candidate : new int[]{side, -side}) {
+				float square = sideYaw(body, at, candidate);
+				for (float offset : RIM_OFFSETS) {
+					Float safe = SafeStep.heading(player, Mth.wrapDegrees(square + offset), new float[]{0.0F}, null, List.of(), MAX_DROP, true);
+					if (safe != null && SafeStep.canStep(player, safe, true)) return safe;
+				}
+			}
+			return null;
 		}
 
 		/** The nearest hostile a swing of {@code weapon} reaches now (defend's reach test), or null. */
