@@ -774,9 +774,9 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 		const timeout = Math.min(left(), 600_000, args.timeoutMs ?? Infinity);
 		// Controllers enforce the original circle on every tick, including retrace detours.
 		if (profile.ids.has('minecraft:water') && ['travel_to', 'dig_to'].includes(actionType)) args = { ...args, boundaryX: origin.x, boundaryZ: origin.z, boundaryRadius: within };
-		const from = bodyAt(observation);
+		const from = bodyAt(observation), fromSky = observation?.player?.skyOpen === true;
 		const result = await body.act(actionType, TIMED.has(actionType) ? { ...args, timeoutMs: Math.max(MIN_LEG_MS, Math.floor(timeout)) } : args, { watch: sight ?? ((sample) => sightingOf(profile, sample, null, excluded) ?? (until?.(sample) ? { until: true } : null)) });
-		const entry = { how, actionType, from, state: result?.state, reasonCode: result?.reasonCode, underWater: /body is under water/i.test(String(result?.message ?? '')),
+		const entry = { how, actionType, from, fromSky, state: result?.state, reasonCode: result?.reasonCode, underWater: /body is under water/i.test(String(result?.message ?? '')),
 			waterAt: result?.reasonCode === 'WATER_AHEAD' ? waterOf(result?.message) : null };
 		legs.push(entry);
 		noteCaves(result?.message, null);
@@ -1623,7 +1623,8 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 					// own cut, under the same water table: back up to where the dig began, as a player climbs out of the stair
 					// before walking off. iron-obtain-6006: the sky spot 4 blocks down the stair at y60, every walk from there a
 					// tunnel at y59-60 that flooded, until night ended the run.
-					const began = wetDig ? lastLeg.from : null;
+					// Only a start under open sky: a start under cover is no surface to walk off from.
+					const began = wetDig && lastLeg.fromSky ? lastLeg.from : null;
 					if (top !== origin && began != null && began.y > top.y + 1 && Math.hypot(began.x - here.x, began.z - here.z) <= SKY_REACH) top = began;
 					if (here.y < top.y - 3 || (top !== origin && observation?.player?.skyOpen === false)) {
 						const upEnded = await climbOut(top, away, top === origin ? 'back up out of the wet hole' : 'back up to the surface it came down from');
