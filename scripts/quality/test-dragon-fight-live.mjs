@@ -26,7 +26,7 @@ import { warmBoots } from './fixture-servers.mjs';
 import { liveRecord, unshownTickRate } from './watch-replay.mjs';
 import { gameClockFromObservations } from '../../coordinator/src/game-clock.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
-import { damageCounter, damageEvidence, deathCounter, deathEvidence, statCounter } from './lib/damage-counter.mjs';
+import { damageCounter, damageEvidence, deathCounter, deathEvidence, recordDamageEvidence, statCounter } from './lib/damage-counter.mjs';
 import { finishRun, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
@@ -739,13 +739,25 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 							await s.clock.sleep(500);
 						}
 						tracing = null;
-						const damage1 = await readDamage(), dragon1 = await dragonHealth();
-						pr.dealt = Number.isFinite(dragon0) && Number.isFinite(dragon1) ? Math.round((dragon0 - dragon1) * 10) / 10 : Number.isFinite(dragon0) && !Number.isFinite(dragon1) ? dragon0 : null;
-						pr.lost = damageEvidence(damage0, damage1).damageTaken;
+						const damage1 = await readDamage();
+						let dragon1 = await dragonHealth();
+						// An unreadable health counts as a kill (all of it dealt) only once the dragon is confirmed gone 2 s later, as the
+						// full fight confirms one; otherwise the perch's damage dealt is unknown and it cannot pass.
+						if (!Number.isFinite(dragon1) && Number.isFinite(dragon0)) {
+							await s.clock.sleep(2000);
+							const gone = /Test failed/i.test(String(await end(s, 'execute if entity @e[type=minecraft:ender_dragon]').catch(() => '')));
+							dragon1 = await dragonHealth();
+							if (!Number.isFinite(dragon1) && gone) dragon1 = 0;
+						}
+						pr.dealt = Number.isFinite(dragon0) && Number.isFinite(dragon1) ? Math.round((dragon0 - dragon1) * 10) / 10 : null;
+						recordDamageEvidence(pr, damage0, damage1, 'lost');
 						pr.hpStart = hp0;
-						pr.pass = pr.sat !== null && pr.ended !== null && !dead && pr.dealt >= PERCH_DEALT && Number.isFinite(pr.lost) && pr.lost < PERCH_LOST;
+						pr.pass = pr.sat !== null && pr.ended !== null && !dead && !pr.integrity?.length && Number.isFinite(pr.dealt) && pr.dealt >= PERCH_DEALT && Number.isFinite(pr.lost) && pr.lost < PERCH_LOST;
 						console.log(`[dragon-fight] perch ${p + 1}: sat=${pr.sat} ended=${pr.ended} dealt=${pr.dealt} lost=${pr.lost} clouds=${pr.clouds.length} pass=${pr.pass}`);
-						if (dead || !Number.isFinite(dragon1)) break;
+						// A perch with unknown evidence makes the run invalid, never a fail or a pass.
+						if (pr.integrity?.length) (row.integrity ??= []).push(...pr.integrity.map(entry => ({ ...entry, perch: p + 1 })));
+						if (!Number.isFinite(pr.dealt)) (row.integrity ??= []).push({ file: 'dragon_health', error: `perch ${p + 1}: dragon health unreadable and the dragon not confirmed gone` });
+						if (dead || !Number.isFinite(dragon1) || dragon1 <= 0) break;
 						// Back to its holding pattern before the next order.
 						await s.clock.sleep(8000);
 					}
