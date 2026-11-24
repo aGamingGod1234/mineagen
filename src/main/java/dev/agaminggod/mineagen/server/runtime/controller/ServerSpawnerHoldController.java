@@ -144,6 +144,8 @@ public final class ServerSpawnerHoldController implements ServerController {
 	private ServerFightController defend;
 	private int defends;
 	private int meleeHeldTicks;
+	/** The running open part had a wall-in held back for a blaze in melee: its own retreat at the flee line finishes, not cut short by a wall-in once the blaze is out of reach. */
+	private boolean meleeHeldPart;
 	private KillDropCollector collector;
 	/**
 	 * A rod that landed on a ledge above the feet (the platform round a fortress spawner, over the cell's floor) is
@@ -385,7 +387,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 		}
 		if (target != null && SpawnerHold.OPEN_FIGHT && phase != Phase.HOLD && emergency == null
 				&& (!marginGone(player, 0.0D) || !canWallIn(player) || openPart != null && target.isDeadOrDying() && afterOpenKill
-						|| blazeInMelee(player))) {
+						|| blazeInMelee(player) || openPart != null && meleeHeldPart && atFleeLine(player))) {
 			// A lull in the open fight: health regrows slowly, and the default eat waits for no hostile within 8 blocks, which
 			// a spawner room never has (blaze spawner rooms: bodies sat at 10 health for minutes, then died to the next crowd).
 			// A player eats then: no blaze in reach, nothing hit for 2 s, no volley charging, the blaze in sight. A hit ends
@@ -411,6 +413,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 				try {
 					// While a wall-in is left the open fight's floor stays under TURTLE_HEALTH: the wall-in answers low health.
 					openPart = openTarget.apply(wallInLeft(player) ? SpawnerHold.TURTLE_HEALTH - 1.0F : null);
+					meleeHeldPart = false;
 				} catch (dev.agaminggod.mineagen.agent.AgentDomainException lost) {
 					// The named blaze went out of sight while the body healed walled in: the call ends as fight_target does for
 					// a target it cannot see (the model picks the next blaze), not with an exception.
@@ -1009,7 +1012,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 				e -> e.getType() == McEntityTypes.BLAZE && e instanceof net.minecraft.world.entity.Mob m && m.getTarget() == player
 						&& e.isAlive() && !e.isDeadOrDying())) {
 			if (mob.distanceToSqr(player) > reach || !mob.hasLineOfSight(player)) continue;
-			if (marginGone(player, 0.0D) && canWallIn(player)) meleeHeldTicks++;
+			if (marginGone(player, 0.0D) && canWallIn(player)) { meleeHeldTicks++; meleeHeldPart = openPart != null; }
 			return true;
 		}
 		return false;
