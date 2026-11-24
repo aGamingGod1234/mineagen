@@ -4,6 +4,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.SplittableRandom;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.block.Blocks;
@@ -52,7 +53,9 @@ public final class SightBlockersVerification {
 				Blocks.OAK_SLAB.defaultBlockState().setValue(SlabBlock.TYPE, SlabType.BOTTOM),
 				Blocks.SNOW.defaultBlockState().setValue(BlockStateProperties.LAYERS, 1),
 				Blocks.SNOW.defaultBlockState().setValue(BlockStateProperties.LAYERS, 4),
-				Blocks.OAK_FENCE.defaultBlockState(), Blocks.GRASS_BLOCK.defaultBlockState(), Blocks.TORCH.defaultBlockState()
+				Blocks.OAK_FENCE.defaultBlockState(), Blocks.GRASS_BLOCK.defaultBlockState(), Blocks.TORCH.defaultBlockState(),
+				// Long piston heads: the rod reaches a quarter block out of the cell, so a sample on it lies in the next cell.
+				pistonHead(Direction.NORTH), pistonHead(Direction.UP), pistonHead(Direction.EAST), pistonHead(Direction.DOWN)
 		};
 		SplittableRandom random = new SplittableRandom(0x5EE5L);
 		CollisionContext context = CollisionContext.empty();
@@ -73,7 +76,7 @@ public final class SightBlockersVerification {
 				}
 			}
 			for (int look = 0; look < 50; look++) {
-				int kind = random.nextInt(3);
+				int kind = random.nextInt(4);
 				double ex = coordinate(random, kind, -4, 4);
 				double ey = coordinate(random, kind, 62, 68) + (kind == 0 ? 0.12D : 0.0D);
 				double ez = coordinate(random, kind, -4, 4);
@@ -86,9 +89,11 @@ public final class SightBlockersVerification {
 				for (int body = 0; body < 10; body++) {
 					double width = 0.3D + random.nextDouble();
 					double height = 0.5D + random.nextDouble() * 1.5D;
-					double bx = random.nextDouble() * 10 - 5;
-					double by = 60 + random.nextDouble() * 10;
-					double bz = random.nextDouble() * 10 - 5;
+					// A few bodies right at the eye, where the rays are shorter than vanilla's minimum shape-test length.
+					boolean close = body < 3;
+					double bx = close ? ex + random.nextDouble() * 1.2E-3D - 6.0E-4D : random.nextDouble() * 10 - 5;
+					double by = close ? ey + random.nextDouble() * 1.2E-3D - 6.0E-4D - height / 2 : 60 + random.nextDouble() * 10;
+					double bz = close ? ez + random.nextDouble() * 1.2E-3D - 6.0E-4D : random.nextDouble() * 10 - 5;
 					AABB box = new AABB(bx, by, bz, bx + width, by + height, bz + width);
 					boolean expected = EntityHitboxSight.point(eye, box, point -> {
 						Vec3 hit = EntityHitboxSight.intersection(eye, point, box);
@@ -129,6 +134,33 @@ public final class SightBlockersVerification {
 		check(ObservationVisibility.seesCell(world, context, farEye, farView, farCell) == referenceSeesCell(world, context, farEye, farView, farCell),
 				"a very long ray is traced in full, as before");
 		assertions++;
+		// A body pressed into a wall beside an eye 0.00015 from it: the nearest ray is shorter than vanilla's minimum
+		// shape-test length and misses, so the body is seen, though a longer ray found the stone first.
+		states.clear();
+		states.put(new BlockPos(8, 64, 0), Blocks.STONE.defaultBlockState());
+		Vec3 wallEye = new Vec3(7.99985D, 64.1D, 0.5D);
+		AABB pressed = new AABB(8.00012D, 64.05D, 0.05D, 8.90012D, 64.95D, 0.95D);
+		boolean pressedSeen = EntityHitboxSight.point(wallEye, pressed, point -> {
+			Vec3 hit = EntityHitboxSight.intersection(wallEye, point, pressed);
+			return hit != null && world.clip(new ClipContext(wallEye, hit, ClipContext.Block.VISUAL, ClipContext.Fluid.NONE, context)).getType() == HitResult.Type.MISS;
+		}) != null;
+		ObservationVisibility.Blockers wallBlockers = new ObservationVisibility.Blockers();
+		boolean pressedActual = EntityHitboxSight.point(wallEye, pressed, point -> {
+			Vec3 hit = EntityHitboxSight.intersection(wallEye, point, pressed);
+			return hit != null && ObservationVisibility.clearOfBlocks(world, context, wallEye, hit, wallBlockers);
+		}) != null;
+		check(pressedSeen && pressedActual, "a body pressed into the wall beside the eye is seen, as before");
+		assertions++;
+		// A long piston head whose rod reaches into the stone behind it: the ray to the rod meets the piston first.
+		states.clear();
+		states.put(new BlockPos(0, 64, 0), pistonHead(Direction.NORTH));
+		states.put(new BlockPos(0, 64, 1), Blocks.STONE.defaultBlockState());
+		Vec3 pistonEye = new Vec3(0.5D, 65.02D, 0.99D);
+		Vec3 pistonView = new Vec3(0, 0, 1);
+		BlockPos piston = new BlockPos(0, 64, 0);
+		check(referenceSeesCell(world, context, pistonEye, pistonView, piston), "the piston head is seen by the full trace");
+		check(ObservationVisibility.seesCell(world, context, pistonEye, pistonView, piston), "the piston head is seen with blockers, as before");
+		assertions += 2;
 		assertions += verifyFluidShapes(world, states);
 		check(ObservationVisibility.Blockers.crossesInside(new Vec3(-1, 0.5, 0.5), new Vec3(2, 0.5, 0.5), 0, 0, 0),
 				"a ray through a block's middle crosses its inside");
@@ -230,11 +262,17 @@ public final class SightBlockersVerification {
 		}
 	}
 
+	private static BlockState pistonHead(Direction facing) {
+		return Blocks.PISTON_HEAD.defaultBlockState().setValue(BlockStateProperties.FACING, facing).setValue(BlockStateProperties.SHORT, false);
+	}
+
 	private static double coordinate(SplittableRandom random, int kind, int low, int high) {
 		int cell = random.nextInt(low, high + 1);
 		return switch (kind) {
 			case 0 -> cell + 0.5D;
 			case 1 -> cell;
+			// Just off a face, closer than the margin's few tenths of a thousandth: the eye pressed against a wall.
+			case 3 -> cell + (random.nextBoolean() ? 1.0D : -1.0D) * random.nextDouble() * 4.0E-4D;
 			default -> cell + random.nextDouble();
 		};
 	}

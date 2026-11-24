@@ -225,13 +225,21 @@ public final class ObservationVisibility {
 
 	private static boolean seesPoint(BlockGetter level, CollisionContext context, Vec3 eye, BlockPos position, Vec3 target, Blockers blockers) {
 		// A ray through the inside of a full block already found in the way stops there, so the trace would only repeat it.
-		if (blockers.crosses(eye, target)) return false;
+		// Only for a point inside the target's own cell: the trace then reaches that cell last, after the block. A point on
+		// a shape reaching out of the cell (a piston rod) can meet the target first, which counts as seen.
+		if (insideCell(target, position) && blockers.crosses(eye, target)) return false;
 		BlockHitResult hit = level.clip(new CellSightClip(eye, target, context, position));
 		if (hit.getType() != HitResult.Type.MISS && !hit.getBlockPos().equals(position)) {
 			blockers.note(level, context, eye, position, hit.getBlockPos());
 			return false;
 		}
 		return !lavaBetween(level, eye, target, position);
+	}
+
+	private static boolean insideCell(Vec3 point, BlockPos cell) {
+		return point.x >= cell.getX() && point.x <= cell.getX() + 1.0D
+				&& point.y >= cell.getY() && point.y <= cell.getY() + 1.0D
+				&& point.z >= cell.getZ() && point.z <= cell.getZ() + 1.0D;
 	}
 
 	/**
@@ -270,11 +278,14 @@ public final class ObservationVisibility {
 	 * during one {@link Frame#hasLineOfSight} call, when the world cannot change. A later ray that passes through the
 	 * inside of one (kept a margin clear of its faces, so edge and
 	 * corner grazes never count) is stopped by it or by a block before it: the trace visits every cell whose inside
-	 * the ray crosses, and a full block's shape reports a ray that enters it from outside. That block is never the
-	 * target, whose cell holds the ray's end, so the ray would fail; skipping its trace gives the same answer.
+	 * the ray crosses, and a full block's shape reports a ray that enters it from outside. A cell ray is only skipped
+	 * when it ends inside the target's own cell, which the trace then reaches last, after that block, so the ray would
+	 * fail; skipping its trace gives the same answer. A ray ending on a shape that reaches out of its cell (a piston
+	 * rod) can meet the target before the block and is traced in full. Entity rays fail on any block.
 	 *
 	 * <p>Not kept: a block the eye is in or touches, since a ray that starts inside a block can leave it unreported.
-	 * Not skipped: a ray longer than {@link #MAX_SKIP_DISTANCE}, since the trace's grid stepping drifts with each cell
+	 * Not skipped: a ray shorter than about 1e-3 blocks, since vanilla's shape test misses every ray under its minimum
+	 * length (squared 1e-7); and a ray longer than {@link #MAX_SKIP_DISTANCE}, since the trace's grid stepping drifts with each cell
 	 * and over millions of cells can step past a block corner by more than the margin. At this length the drift stays
 	 * below a millionth of the margin. The margin must also stay well above 7.6e-5: a shorter crossing than the shape
 	 * clip's minimum ray length would go unreported.
@@ -282,6 +293,7 @@ public final class ObservationVisibility {
 	static final class Blockers {
 		private static final double MARGIN = 1.0E-4D;
 		private static final double MAX_SKIP_DISTANCE = 512.0D;
+		private static final double MIN_SKIP_LENGTH_SQR = 1.0E-6D;
 		// Made on the first block noted: most checks see their cell on the first ray and note nothing.
 		private int[] cells;
 		private int size;
@@ -307,7 +319,9 @@ public final class ObservationVisibility {
 		}
 
 		boolean crosses(Vec3 from, Vec3 to) {
-			if (size == 0 || from.distanceToSqr(to) > MAX_SKIP_DISTANCE * MAX_SKIP_DISTANCE) return false;
+			// Vanilla's shape test misses any ray shorter than about 3e-4 blocks, so a very short ray is traced as before.
+			double lengthSqr = from.distanceToSqr(to);
+			if (size == 0 || lengthSqr < MIN_SKIP_LENGTH_SQR || lengthSqr > MAX_SKIP_DISTANCE * MAX_SKIP_DISTANCE) return false;
 			for (int index = 0; index < size; index += 3) {
 				if (crossesInside(from, to, cells[index], cells[index + 1], cells[index + 2])) return true;
 			}
