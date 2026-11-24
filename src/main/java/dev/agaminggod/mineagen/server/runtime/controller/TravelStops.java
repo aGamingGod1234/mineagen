@@ -35,7 +35,7 @@ public final class TravelStops {
 	static final int REACH_RECHECK_TICKS = 20;
 	private static final java.util.Map<net.minecraft.world.entity.Mob, long[]> REACH = new java.util.WeakHashMap<>();
 	static final int LINE_MEMORY_TICKS = 200;
-	private static final java.util.Map<net.minecraft.world.entity.Mob, Long> LINE = new java.util.WeakHashMap<>();
+	private static final java.util.Map<net.minecraft.world.entity.Mob, java.util.Map<java.util.UUID, Long>> LINE = new java.util.WeakHashMap<>();
 
 	/**
 	 * A melee mob at least 2 blocks above or below the body whose own pathfinder ends short of it: a zombie in the cave
@@ -57,8 +57,8 @@ public final class TravelStops {
 		// straight back into the line (practice room with the edge open: 39 damage against main's 19 with a 3 s memory).
 		if (ARCHERS.contains(type) && mob.isHolding(stack -> stack.getItem() instanceof net.minecraft.world.item.ProjectileWeaponItem)) {
 			long now = player.level().getGameTime();
-			if (mob.getSensing().hasLineOfSight(player) || mob.getTarget() == player) { LINE.put(mob, now); return false; }
-			Long had = LINE.get(mob);
+			if (mob.getSensing().hasLineOfSight(player) || mob.getTarget() == player) { LINE.computeIfAbsent(mob, key -> new java.util.HashMap<>()).put(player.getUUID(), now); return false; }
+			Long had = LINE.getOrDefault(mob, java.util.Map.of()).get(player.getUUID());
 			if (had != null && now - had < LINE_MEMORY_TICKS) return false;
 			return Math.abs(mob.getY() - player.getY()) >= 2.0D && mob.distanceTo(player) > 2.0D;
 		}
