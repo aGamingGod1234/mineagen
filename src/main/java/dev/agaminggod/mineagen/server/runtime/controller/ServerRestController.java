@@ -293,7 +293,8 @@ public final class ServerRestController implements ServerController {
 			if (!solid(player, foot.below()) || refusedSpots.contains(foot) || refusedSpots.contains(head)) continue;
 			List<BlockPos> digs = new ArrayList<>();
 			boolean fits = true;
-			for (BlockPos cell : List.of(head.above(), foot.above(), head, foot)) {
+			// Near before far, upper before lower: a block is broken only while its outline shows, and the nearer one hides it.
+			for (BlockPos cell : List.of(foot.above(), head.above(), foot, head)) {
 				if (open(player, cell)) continue;
 				if (!diggable(player, cell)) { fits = false; break; }
 				digs.add(cell);
