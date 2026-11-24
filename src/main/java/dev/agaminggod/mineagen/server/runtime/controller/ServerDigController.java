@@ -118,7 +118,8 @@ public final class ServerDigController implements ServerController {
 	static final int WATER_SPREAD_TICKS = 8;
 	/**
 	 * Ticks flowing water left in the cut by such a seal gets to drain before it counts as more water: a flowing cell
-	 * cut off from its source empties one level every 5 ticks, so water still there after this is fed from another face.
+	 * cut off from its source empties on its next 5-tick update, one cell of spill after another, so water still there after
+	 * this (6 updates) is fed from another face.
 	 */
 	static final int DRAIN_TICKS = 30;
 	/** Steps a sideways turn holds before an x/z goal pulls the heading back. */
