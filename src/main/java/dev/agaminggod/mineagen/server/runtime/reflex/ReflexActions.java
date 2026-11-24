@@ -1120,6 +1120,8 @@ final class ReflexActions {
 		private Float lastHeading;
 		private int steps;
 		private int hits;
+		private Answer runFor;
+		private int runSide;
 
 		/** Minecraft yaw of the heading square across the line from {@code body} to {@code shooter}: side +1 or -1. */
 		static float sideYaw(Vec3 body, Vec3 shooter, int side) {
@@ -1243,24 +1245,49 @@ final class ReflexActions {
 			if (betweenShots) {
 				input.accept(aim);
 				lastHeading = null;
+				runFor = null;
 				return Step.running("watching " + type(shooter) + " between shots" + swung);
 			}
 			Vec3 body = player.position();
 			Vec3 at = shooter.position();
+			Answer draw = ANSWERED.get(player.getUUID());
+			boolean sameDraw = draw != null && runFor != null && draw.shooterId() == runFor.shooterId() && draw.drawStart() == runFor.drawStart()
+					&& runSide != 0;
+			int running = sameDraw ? runSide : side;
 			Float[] headings = new Float[3];
 			for (int candidate : new int[]{side, -side}) {
-				headings[candidate + 1] = SafeStep.heading(player, sideYaw(body, at, candidate), OFFSETS, candidate == side ? lastHeading : null, List.of(), MAX_DROP, true);
+				headings[candidate + 1] = SafeStep.heading(player, sideYaw(body, at, candidate), OFFSETS, candidate == running ? lastHeading : null,
+						List.of(yaw -> SafeStep.edgeWithin(player, yaw, RUN_CELLS)), MAX_DROP, true);
 			}
 			// SafeStep tries the knockback margin first: a heading that passes canStep kept it. The shot it steps from knocks
 			// the body back from any range, so the margin holds however far the archer stands.
-			int chosen = chooseSide(side, candidate -> headings[candidate + 1] != null && SafeStep.canStep(player, headings[candidate + 1], true),
-					candidate -> headings[candidate + 1] != null);
-			if (chosen == 0) {
+			java.util.function.IntPredicate marginSafe = candidate -> headings[candidate + 1] != null && SafeStep.canStep(player, headings[candidate + 1], true);
+			// A sprint runs 4 to 5 blocks a draw: a side whose run keeps clear of an edge goes first, so the body is not carried
+			// onto a rim where the next hit knocks it off (archers-zombie: every death today, 4 of 4, a fall off a platform edge).
+			java.util.function.IntPredicate clearRun = candidate -> marginSafe.test(candidate) && !SafeStep.edgeWithin(player, headings[candidate + 1], RUN_CELLS);
+			// The side picked for a draw holds for that draw while it keeps the margin and is no worse than the other: chosen
+			// afresh each tick, the run away from one side's edge clears that side once the edge is 5 cells off and turns the
+			// body back toward it. A held side whose run now meets an edge gives way to a clear one.
+			boolean hold = sameDraw && marginSafe.test(runSide) && (clearRun.test(runSide) || !clearRun.test(-runSide));
+			int chosen = hold ? runSide
+					: clearRun.test(side) ? side : clearRun.test(-side) ? -side
+					: chooseSide(side, marginSafe, candidate -> headings[candidate + 1] != null);
+			runFor = draw;
+			runSide = chosen;
+			Float heading = chosen == 0 ? null : headings[chosen + 1];
+			// On a rim with the shooter inland, neither side keeps the knockback margin and the step ran along the rim, where
+			// the next hit knocked the body off (archers-zombie: the last deaths, a fall off the west rim after an arrow). A
+			// heading angled inland toward the shooter that keeps the margin gets it off the rim, still moving across the shot.
+			// Only off a rim: with no step at all (a 1-wide tunnel along the shot) the body still stands facing the shooter.
+			if (heading != null && !SafeStep.canStep(player, heading, true)) {
+				Float inland = offRim(player, body, at, chosen);
+				if (inland != null) heading = inland;
+			}
+			if (heading == null) {
 				input.accept(aim);
 				lastHeading = null;
 				return Step.running("no safe footing to either side of " + type(shooter) + "'s shot, facing it" + swung);
 			}
-			Float heading = headings[chosen + 1];
 			if (lastHeading == null) steps++;
 			lastHeading = heading;
 			// A one-block rise on the step is jumped, as a running player does; walked into, it would stop the body on the line.
@@ -1286,6 +1313,25 @@ final class ReflexActions {
 			float strafe = cleanAxis(-(float) Math.sin(relative));
 			input.accept(new AgentInputState(forward, strafe, jump, false, false, false, false, aim.yaw(), aim.pitch(), aim.selectedSlot(), aim.hand()));
 			return Step.running("stepping " + SafeStep.compass(heading) + " across " + type(shooter) + "'s shot" + swung);
+		}
+
+		/** Cells ahead a dodge run is kept clear of an edge: about one sprinted step across a shot. */
+		static final int RUN_CELLS = 4;
+
+		/** How far a step off a rim turns from square toward the shooter: 30 degrees off its line, still across it. */
+		static final float RIM_TURN = 60.0F;
+
+		/**
+		 * A heading off a rim, turned from square toward the shooter (inland when the drop is behind the body), that keeps
+		 * the knockback margin and safe footing, tried on the given side first; or null.
+		 */
+		private static Float offRim(ServerPlayer player, Vec3 body, Vec3 at, int side) {
+			for (int candidate : new int[]{side, -side}) {
+				float yaw = Mth.wrapDegrees(sideYaw(body, at, candidate) - RIM_TURN * candidate);
+				Float safe = SafeStep.heading(player, yaw, new float[]{0.0F}, null, List.of(), MAX_DROP, true);
+				if (safe != null && SafeStep.canStep(player, safe, true)) return safe;
+			}
+			return null;
 		}
 
 		/** The nearest hostile a swing of {@code weapon} reaches now (defend's reach test), or null. */

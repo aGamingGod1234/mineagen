@@ -229,6 +229,11 @@ public final class SafeStep {
 	 * run d19-iron-b, a zombie in a dug staircase, "no safe heading away: wall E, SE, NE, S, N, SW, NW" with the stairs
 	 * down free behind the body, and no known-ground path either (the search started from a cell with no floor).
 	 */
+	/** Whether lava or a damaging drop lies within {@code cells} along {@code yaw}, on the line or beside it (seen terrain). */
+	public static boolean edgeWithin(ServerPlayer player, float yaw, int cells) {
+		return CombatPlanning.edgeWithin(ObservedTerrain.of(player), standing(player), yaw, cells);
+	}
+
 	public static GridPosition standing(ServerPlayer player) {
 		return standing(ObservedTerrain.of(player), CombatMoveText.feet(player), player.onGround() || player.isInWater() || player.onClimbable());
 	}
