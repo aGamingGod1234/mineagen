@@ -108,20 +108,6 @@ public final class ServerDigController implements ServerController {
 	/** Blocks placed into water at one step, and in one call, before the water counts as a lake or aquifer. */
 	static final int MAX_SEALS_PER_STEP = 6;
 	static final int MAX_SEALS = 40;
-	/**
-	 * Water sealed below sea level marks an aquifer or flooded cave: within this many blocks of the seal, the next water is
-	 * a body of water, not another trickle. In seed 6006's iron run a steep stair plugged one face of a flooded cave at y40,
-	 * dug on, and the cave's other faces drowned the body at y39 (14 of 50 runs).
-	 */
-	static final int AQUIFER_MARK_REACH = 3;
-	/** Ticks a fresh step waits after such a seal before the body steps in: water behind a wall spreads every 5 ticks. */
-	static final int WATER_SPREAD_TICKS = 8;
-	/**
-	 * Ticks flowing water left in the cut by such a seal gets to drain before it counts as more water: a flowing cell
-	 * cut off from its source empties on its next 5-tick update, one cell of spill after another, so water still there after
-	 * this (6 updates) is fed from another face.
-	 */
-	static final int DRAIN_TICKS = 30;
 	/** Steps a sideways turn holds before an x/z goal pulls the heading back. */
 	static final int DETOUR_STEPS = 4;
 	static final int MAX_TURNS = 24;
@@ -263,12 +249,6 @@ public final class ServerDigController implements ServerController {
 	private int seals;
 	private int sealsThisStep;
 	private boolean sealing;
-	/** The water the seal being placed goes into or walls off. */
-	private BlockPos sealingWater;
-	/** Water this call sealed below sea level: where an aquifer or flooded cave is known to be. */
-	private final List<BlockPos> wetMarks = new ArrayList<>();
-	private int spreadTicks;
-	private int drainTicks;
 	/** The seal walled off the opened cell rather than the water: the dig turns once it is placed. */
 	private boolean turnAfterSeal;
 	/** The block placed is the support under a stairs_up step: back to the floor check, which places the step. */
@@ -569,8 +549,6 @@ public final class ServerDigController implements ServerController {
 		if (twoColumn && lastStepHeading != null && detourSteps <= 0 && !crossNext) heading = lastStepHeading.getOpposite();
 		if (plannedFall > 0.0F && steps > dropStep + 1) plannedFall = 0.0F;
 		sealsThisStep = 0;
-		spreadTicks = 0;
-		drainTicks = 0;
 		if (active == Pattern.SHAFT && feet.getY() <= maxShaftY) {
 			// Down here lava lakes and aquifer lava are common: the rest of the way is steep_down, which sees each step's
 			// floor before it stands on it.
@@ -950,12 +928,6 @@ public final class ServerDigController implements ServerController {
 				return TickResult.running(progress(player));
 			}
 		}
-		// After water was sealed below sea level, a player pauses on a fresh step to see whether more comes through its walls.
-		if (active.down() && spreadTicks < WATER_SPREAD_TICKS && cells.stream().anyMatch(cell -> wetMarkNear(cell, AQUIFER_MARK_REACH) != null)) {
-			spreadTicks++;
-			hold(player, 0.0F, false, false, player.getYRot(), player.getXRot());
-			return TickResult.running(progress(player));
-		}
 		TickResult revealed = revealed(player);
 		if (revealed != null) return revealed;
 		phase = Phase.FLOOR;
@@ -1284,9 +1256,6 @@ public final class ServerDigController implements ServerController {
 			if (!placed) return stop(player, sealingCode, afterPlace + "; sealing it with " + what + " failed");
 			seals++;
 			sealsThisStep++;
-			if (sealingWater != null && sealingWater.getY() < player.level().getSeaLevel()) wetMarks.add(sealingWater);
-			sealingWater = null;
-			drainTicks = 0;
 			if (turn) return turnFromWater(player);
 			cellIndex = 0;
 			mining = null;
@@ -1863,17 +1832,6 @@ public final class ServerDigController implements ServerController {
 				}
 			}
 		}
-		// Water still filling the cut beside water already sealed below sea level, with no feeder the eye sees to plug: it
-		// comes through a face it cannot see, as from an aquifer or flooded cave behind the seal. Flowing water the seal cut
-		// off drains in a few spread ticks, so it gets those first; water that keeps coming stops the dig. A shaft landing
-		// judges its walls once, so it stops at once rather than re-running the landing while it waits.
-		BlockPos mark = target.equals(fluid) && (cells.contains(fluid) || cut.contains(fluid) || isBody(player, fluid)) ? wetMarkNear(fluid, AQUIFER_MARK_REACH) : null;
-		if (mark != null && phase != Phase.SHAFT_FALL && !player.level().getFluidState(fluid).isSource() && drainTicks++ < DRAIN_TICKS) {
-			hold(player, 0.0F, false, false, player.getYRot(), player.getXRot());
-			return TickResult.running(progress(player));
-		}
-		if (mark != null) return stop(player, "WATER_AHEAD", what + "; it keeps coming after sealing water at " + cell(mark)
-				+ " below sea level, from no face in sight: an aquifer or flooded cave behind the seal; not going further");
 		if (isBody(player, target) || target.distToCenterSqr(player.getEyePosition()) > 20.0D) return null;
 		// Water on three or more sides of the cell is a body of water (an aquifer, a lake), not a trickle: the model's call.
 		SeenTerrain.Reader<BlockState> around = SeenTerrain.of(player);
@@ -1890,7 +1848,6 @@ public final class ServerDigController implements ServerController {
 		if (face != null) {
 			sealing = true;
 			sealingCode = "WATER_AHEAD";
-			sealingWater = target.immutable();
 			return startPlace(player, target, face, filler, null, what);
 		}
 		// No face into the water shows from here (it sits round a corner of the cut): a player walls off the opened cell
@@ -1906,16 +1863,8 @@ public final class ServerDigController implements ServerController {
 		if (wall == null) return null;
 		sealing = true;
 		sealingCode = "WATER_AHEAD";
-		sealingWater = target.immutable();
 		turnAfterSeal = true;
 		return startPlace(player, opening, wall, filler, null, what + "; walled off the opened cell");
-	}
-
-	/** Water this call sealed below sea level within {@code reach} blocks of {@code at} on every axis, or null. */
-	private BlockPos wetMarkNear(BlockPos at, int reach) {
-		for (BlockPos mark : wetMarks)
-			if (Math.abs(mark.getX() - at.getX()) <= reach && Math.abs(mark.getY() - at.getY()) <= reach && Math.abs(mark.getZ() - at.getZ()) <= reach) return mark;
-		return null;
 	}
 
 	/** After walling off a cell that let water in: dig on along another heading (never back up the cut), else stop. */
