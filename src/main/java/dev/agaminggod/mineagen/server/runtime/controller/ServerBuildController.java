@@ -876,6 +876,7 @@ public final class ServerBuildController implements ServerController {
 			return why[k] + ": " + (slowState == null ? "unseen " : BuiltInRegistries.BLOCK.getKey(slowState.getBlock()).getPath() + " ") + xyz(slowCell)
 					+ " (frame cell " + (slowCell.getY() - p.origin().getY()) + " up)";
 		}
+		if (rejects[11] > 0) return "the pool lies behind the mould with no seen way round to it";
 		if (digRefusedByLava(player, siteClears(player, p, wall)) != null) return "lava heard right behind a block to clear";
 		return "passed, but another site cost less";
 	}
@@ -3140,10 +3141,24 @@ public final class ServerBuildController implements ServerController {
 	static boolean scoopsFrom(java.util.function.Predicate<BlockPos> open, BlockPos at, BlockPos source) {
 		int dx = source.getX() - at.getX(), dz = source.getZ() - at.getZ(), drop = at.getY() - source.getY();
 		if (Math.abs(dx) > 2 || Math.abs(dz) > 2 || drop < 0 || drop > 2 || !open.test(source.above())) return false;
-		if (Math.max(Math.abs(dx), Math.abs(dz)) < 2) return true;
-		BlockPos between = source.offset(-Integer.signum(dx), 0, -Integer.signum(dz));
-		for (int y = source.getY() + 1; y <= at.getY() + 1; y++) if (!open.test(new BlockPos(between.getX(), y, between.getZ()))) return false;
-		return true;
+		return reachesColumn(open, at.getX(), at.getZ(), source, at.getY() + 1);
+	}
+
+	/**
+	 * A step at a time along x or z toward the source, through columns open from its top to the eyes: a diagonal look past
+	 * a corner needs one of the two side columns open, as a bucket's sightline never slips between two solid corners.
+	 */
+	private static boolean reachesColumn(java.util.function.Predicate<BlockPos> open, int x, int z, BlockPos source, int eyes) {
+		if (x == source.getX() && z == source.getZ()) return true;
+		for (int axis = 0; axis < 2; axis++) {
+			int nx = x + (axis == 0 ? Integer.signum(source.getX() - x) : 0), nz = z + (axis == 1 ? Integer.signum(source.getZ() - z) : 0);
+			if (nx == x && nz == z) continue;
+			boolean clear = true;
+			if (nx != source.getX() || nz != source.getZ())
+				for (int y = source.getY() + 1; clear && y <= eyes; y++) clear = open.test(new BlockPos(nx, y, nz));
+			if (clear && reachesColumn(open, nx, nz, source, eyes)) return true;
+		}
+		return false;
 	}
 
 	/** MINEAGEN_BUILD_WALK_DIAGNOSTICS=on logs what sight, the build's memory and the world hold round a walk's frontier. */

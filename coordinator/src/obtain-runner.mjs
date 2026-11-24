@@ -261,9 +261,14 @@ function slotOf(o, members, skip = null) {
  * stop the whole obtain for. Cobblestone gathered beside the cast's pool hit this in 14 of 312 start-at-lava rooms. Lava
  * that flowed into an opened cell, or a stop with no fresh sample, stays danger.
  */
+export function lavaRefusal(result) {
+	return LAVA_REFUSAL && result?.reasonCode === 'LAVA_AHEAD' && /; not breaking /.test(String(result?.message ?? ''));
+}
+
 export function lavaRefusalOnly(result, observation) {
-	return LAVA_REFUSAL && result?.reasonCode === 'LAVA_AHEAD' && /; not breaking /.test(String(result?.message ?? ''))
-		&& observation != null && bodyDanger(observation) === null;
+	const player = observation?.player;
+	return lavaRefusal(result) && observation?.ready === true && player != null && player.dead !== true
+		&& Number.isFinite(player.health) && player.health > 0 && bodyDanger(observation) === null;
 }
 
 export function isDanger(result, observation) {
@@ -563,7 +568,7 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		const result = await promise;
 		if (result?.state === 'RUNNING' && typeof result.actionId === 'string') running = result;
 		if (danger === null && forkStop() === null && isDanger(result, result?.reasonCode === 'HOSTILE_NEAR' ? withoutQuarry(await rawBody.observe().catch(() => null), quarry) : null)
-			&& !(result?.reasonCode === 'LAVA_AHEAD' && lavaRefusalOnly(result, await rawBody.observe().catch(() => null)))) {
+			&& !(lavaRefusal(result) && lavaRefusalOnly(result, await rawBody.observe().catch(() => null)))) {
 			danger = `${result.reasonCode}: ${String(result.message ?? '').slice(0, 160)}`;
 			lowLeg = result.reasonCode === 'LOW_HEALTH';
 		}

@@ -148,6 +148,16 @@ public final class BuildPlanVerification {
 	 */
 	private static int verifyWayRound() {
 		int checks = 0;
+		// A bucket looking past a corner: blocked when both side columns are solid, clear when one is open.
+		BlockPos feet = new BlockPos(0, 64, 0);
+		for (BlockPos source : new BlockPos[] { new BlockPos(1, 63, 1), new BlockPos(2, 62, 2), new BlockPos(2, 63, 1) }) {
+			Set<BlockPos> sides = new HashSet<>();
+			for (int x = 0; x <= source.getX(); x++) for (int z = 0; z <= source.getZ(); z++)
+				if (!(x == source.getX() && z == source.getZ()) && ((x == 0) != (z == 0) || x != z && (x == source.getX() || z == source.getZ()))) for (int y = 60; y <= 66; y++) sides.add(new BlockPos(x, y, z));
+			if (ServerBuildController.scoopsFrom(cell -> !sides.contains(cell), feet, source)) throw new AssertionError("A bucket reaches " + source + " past two solid corners");
+			if (!ServerBuildController.scoopsFrom(cell -> true, feet, source)) throw new AssertionError("A bucket reaches " + source + " in the open");
+			checks += 2;
+		}
 		for (Direction.Axis axis : new Direction.Axis[] { Direction.Axis.X, Direction.Axis.Z }) {
 			var portal = new ServerBuildController.Portal(new BlockPos(10, 64, -5), axis);
 			Direction wall = portal.normal();
