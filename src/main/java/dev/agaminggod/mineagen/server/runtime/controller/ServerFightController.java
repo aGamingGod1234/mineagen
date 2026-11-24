@@ -420,10 +420,11 @@ public final class ServerFightController implements ServerController {
 				return result.state() == State.RUNNING ? result : finish(player, bailoutReport(player, result));
 			}
 		}
-		if (CombatPlanning.shouldBailOut(player.getHealth(), fleeAtHealth)) {
+		Float flee = lootFlee(player);
+		if (CombatPlanning.shouldBailOut(player.getHealth(), flee)) {
 			BrinkGuard.keepLevel(player, this, false);
 			input.release();
-			bailout = CombatBailout.start(player, target, fleeAtHealth, pursue, timeoutMs - elapsed, nowEpochMs);
+			bailout = CombatBailout.start(player, target, flee, pursue, timeoutMs - elapsed, nowEpochMs);
 			TickResult result = bailout.tick(player, nowEpochMs);
 			return result.state() == State.RUNNING ? result : finish(player, bailoutReport(player, result));
 		}
@@ -1555,4 +1556,15 @@ public final class ServerFightController implements ServerController {
 			HANDOFFS.put(player.getUUID(), new Handoff(weaponSlot, backoffTicks, player.level().getGameTime()));
 		}
 	}
+
+	/** Blaze rods are only kept by a body that lives: holding one against a blaze, the fight backs out at half health. */
+	static final float ROD_FLEE_HEALTH = 10.0F;
+
+	private Float lootFlee(ServerPlayer player) {
+		if (!(target instanceof net.minecraft.world.entity.monster.Blaze) || fleeAtHealth != null && fleeAtHealth >= ROD_FLEE_HEALTH) return fleeAtHealth;
+		for (int slot = 0; slot < player.getInventory().getContainerSize(); slot++)
+			if (player.getInventory().getItem(slot).is(net.minecraft.world.item.Items.BLAZE_ROD)) return ROD_FLEE_HEALTH;
+		return fleeAtHealth;
+	}
+
 }
