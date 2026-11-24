@@ -701,7 +701,7 @@ public final class ServerBuildController implements ServerController {
 
 	private TickResult chooseSite(ServerPlayer player, long now) {
 		ServerLevel level = (ServerLevel) player.level();
-		int[] rejects = new int[11];
+		int[] rejects = new int[12];
 		rejects[10] = Integer.MAX_VALUE;
 		Portal best = null;
 		Direction bestBack = null;
@@ -745,8 +745,8 @@ public final class ServerBuildController implements ServerController {
 				+ "%d had water or lava in or beside the footprint, %d had a block too slow to clear or unseen cells, %d had no standing spot in front, "
 				+ "%d had unseen ground, %d had lava heard right behind a block to clear, %d were checked%s", rejects[0], rejects[1], rejects[2], rejects[3],
 				rejects[5], lavaRefused, rejects[0] + rejects[1] + rejects[2] + rejects[3] + rejects[4] + rejects[5] + lavaRefused,
-				casting ? String.format(Locale.ROOT, "; for casting, %d had no seen open or solid cells behind for the mould or before the frame, %d stood over %.0f blocks from, or %.0f above or below, the %d lava sources seen, %d would let the poured water run into the lava",
-						rejects[6], rejects[7], CAST_POOL_REACH, CAST_RISE, pool.size(), rejects[8]) : "");
+				casting ? String.format(Locale.ROOT, "; for casting, %d had no seen open or solid cells behind for the mould or before the frame, %d stood over %.0f blocks from, or %.0f above or below, the %d lava sources seen, %d would let the poured water run into the lava, %d had the pool behind the mould with no seen way round to it",
+						rejects[6], rejects[7], CAST_POOL_REACH, CAST_RISE, pool.size(), rejects[8], rejects[11]) : "");
 		// After a carve, an open site only the quick bound admits is the dug rock beside the refused carve (away-pair-1: 10
 		// of 10 runs lost the way to its spots mid-cast, where main carved a second site and lit it 10 of 10): the next carve first.
 		boolean loose = best != null && !bestSure && !(best.equals(carved) && bestBack == carvedBack);
@@ -871,7 +871,7 @@ public final class ServerBuildController implements ServerController {
 
 	/** Why one cast site fails the usual rules, in words: the first reject count it raises. */
 	private String refusal(ServerPlayer player, ServerLevel level, Portal p, Direction wall, List<BlockPos> pool, int plain) {
-		int[] rejects = new int[11];
+		int[] rejects = new int[12];
 		rejects[10] = Integer.MAX_VALUE;
 		slowCell = null;
 		if (siteCost(player, level, p, rejects) != Double.MAX_VALUE) castCost(player, level, p, wall, pool, plain, rejects);
@@ -1618,6 +1618,10 @@ public final class ServerBuildController implements ServerController {
 		// the frame, and the frame's growing columns hide the way.
 		double round = nearest != null && Vec3.atCenterOf(nearest).distanceTo(Vec3.atCenterOf(p.at(1, 1).relative(wall, 2)))
 				< Vec3.atCenterOf(nearest).distanceTo(Vec3.atCenterOf(p.at(1, 1).relative(front, 2))) ? 3.0D : 0.0D;
+		// Once the mould is up it closes the back of the whole plane: a pool behind it is reached only round the frame's ends.
+		// With no seen way round, each fetch after the first pours finds itself walled off from the pool (cast-gate-5c: 3 of
+		// 10 cells cast, then every walk to the pool ended at the new mould).
+		if (WAY_ROUND && round > 0.0D && !wayRound(player, level, p, wall, pool)) { rejects[11]++; return Double.MAX_VALUE; }
 		return 0.6D * blocks + 0.4D * near + 0.8D * rise + clearing + round;
 	}
 
@@ -3106,6 +3110,51 @@ public final class ServerBuildController implements ServerController {
 		// Out of sight, the tunnel the fetch dug and the rock round it read as unseen, and travel stops at their edge.
 		if (WALK_MEMORY) walk.withWalkedGround(walkMemory());
 		return running();
+	}
+
+	/** Off (MINEAGEN_BUILD_WAY_ROUND=off) only for a same-batch A/B against casting with the pool walled off behind the mould. */
+	static final boolean WAY_ROUND = !"off".equalsIgnoreCase(System.getenv("MINEAGEN_BUILD_WAY_ROUND"));
+
+	/**
+	 * Whether seen standing cells join a spot in front of the frame to a dry spot beside a pool source without crossing the
+	 * frame's plane, the mould behind it or the cell behind the opening (all closed once the mould is up).
+	 */
+	private boolean wayRound(ServerPlayer player, ServerLevel level, Portal p, Direction wall, List<BlockPos> pool) {
+		Direction front = wall.getOpposite();
+		Set<BlockPos> closed = new HashSet<>();
+		for (int i = 0; i <= 3; i++) for (int y = 0; y <= 4; y++) {
+			closed.add(p.at(i, y).immutable());
+			closed.add(p.at(i, y).relative(wall).immutable());
+		}
+		java.util.ArrayDeque<BlockPos> queue = new java.util.ArrayDeque<>();
+		Set<BlockPos> seen = new HashSet<>();
+		for (int dy : new int[] { 0, 1, -1 }) for (int k = 1; k <= 3; k++) for (int i = 0; i <= 3; i++) {
+			BlockPos at = p.at(i, 1 + dy).relative(front, k).immutable();
+			if (!closed.contains(at) && !closed.contains(at.above()) && standable(player, level, at) && seen.add(at)) queue.add(at);
+		}
+		BlockPos origin = p.at(1, 1);
+		while (!queue.isEmpty() && seen.size() < 3000) {
+			BlockPos at = queue.poll();
+			for (BlockPos source : pool)
+				if (Math.abs(source.getX() - at.getX()) <= 2 && Math.abs(source.getZ() - at.getZ()) <= 2 && at.getY() - source.getY() >= 0 && at.getY() - source.getY() <= 2) return true;
+			for (Direction side : Direction.Plane.HORIZONTAL) for (int dy = -1; dy <= 1; dy++) {
+				BlockPos next = at.relative(side).above(dy).immutable();
+				if (seen.contains(next) || next.distManhattan(origin) > 40) continue;
+				if (closed.contains(next) || closed.contains(next.above()) || dy > 0 && closed.contains(at.above(2))) continue;
+				if (!standable(player, level, next)) continue;
+				// A step up needs the cell over the head open; a step down the cell over the lower one's head.
+				if (dy > 0 && !open(player, level, at.above(2))) continue;
+				if (dy < 0 && !open(player, level, next.above(2))) continue;
+				seen.add(next);
+				queue.add(next);
+			}
+		}
+		return false;
+	}
+
+	private boolean open(ServerPlayer player, ServerLevel level, BlockPos cell) {
+		BlockState state = known(player, cell);
+		return state != null && state.getCollisionShape(level, cell).isEmpty() && state.getFluidState().isEmpty();
 	}
 
 	/** MINEAGEN_BUILD_WALK_DIAGNOSTICS=on logs what sight, the build's memory and the world hold round a walk's frontier. */
