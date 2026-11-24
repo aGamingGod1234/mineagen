@@ -1295,7 +1295,7 @@ public final class FarSight {
 		return scanAround(level, null, index, eye, loaded, dimensionClass, built, lava, notable, ore, poi, placed, structureBoxes);
 	}
 
-	/** As above, reading neighbouring chunks through {@code grid} when given (one lookup per chunk per gather). */
+	/** As above, reading neighbouring chunks through {@code grid} when given, so each loaded neighbour is asked once per gather. */
 	static boolean scanAround(ServerLevel level, ChunkGrid grid, LevelIndex index, Vec3 eye, List<LevelChunk> loaded, int dimensionClass,
 			List<Found> built, List<Found> lava, List<Found> notable, List<Found> ore, List<Found> poi, List<Found> placed,
 			Map<Long, List<BoundingBox>> structureBoxes) {
