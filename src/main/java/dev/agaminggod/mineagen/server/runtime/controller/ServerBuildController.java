@@ -489,6 +489,7 @@ public final class ServerBuildController implements ServerController {
 				lastWalkFailure = moved.reasonCode() + " " + moved.message();
 				if (casting && phase == Phase.CAST && ("REACHED_FRONTIER".equals(moved.reasonCode()) || "NO_SEEN_ROUTE".equals(moved.reasonCode()))) frontierFetches++;
 				LOGGER.info("[build] {} walk {} failed at {}: {}", player.getGameProfile().name(), walks, xyz(player.blockPosition()), lastWalkFailure);
+				if (WALK_DIAGNOSTICS && moved.message() != null) frontierNote(player, moved.message());
 				if (wasFollowingWalkedWay && phase == Phase.CAST && inFrontOfMould(player.blockPosition())
 						&& inFrontOfMould(walkTarget) && switch (moved.reasonCode()) {
 					case "NO_STANDABLE_PATH", "PATH_BLOCKED", "REACHED_FRONTIER", "NO_PATH" -> true;
@@ -3105,6 +3106,30 @@ public final class ServerBuildController implements ServerController {
 		// Out of sight, the tunnel the fetch dug and the rock round it read as unseen, and travel stops at their edge.
 		if (WALK_MEMORY) walk.withWalkedGround(walkMemory());
 		return running();
+	}
+
+	/** MINEAGEN_BUILD_WALK_DIAGNOSTICS=on logs what sight, the build's memory and the world hold round a walk's frontier. */
+	static final boolean WALK_DIAGNOSTICS = "on".equalsIgnoreCase(System.getenv("MINEAGEN_BUILD_WALK_DIAGNOSTICS"));
+
+	private void frontierNote(ServerPlayer player, String message) {
+		java.util.regex.Matcher m = java.util.regex.Pattern.compile("path ends at (-?\\d+),(-?\\d+),(-?\\d+)").matcher(message);
+		if (!m.find()) return;
+		BlockPos edge = new BlockPos(Integer.parseInt(m.group(1)), Integer.parseInt(m.group(2)), Integer.parseInt(m.group(3)));
+		var seen = SeenTerrain.of(player);
+		Map<BlockPos, BlockState> memory = walkMemory();
+		StringBuilder note = new StringBuilder();
+		for (Direction side : Direction.Plane.HORIZONTAL) for (int dy = -1; dy <= 1; dy++) {
+			BlockPos cell = edge.relative(side).above(dy);
+			BlockState sight = seen.known(cell.getX(), cell.getY(), cell.getZ()), held = memory.get(cell), real = player.level().getBlockState(cell);
+			note.append(String.format(Locale.ROOT, " %s:%s/%s/%s", xyz(cell), brief(sight), brief(held), brief(real)));
+		}
+		LOGGER.info("[build] {} frontier {} sight/memory/world:{}", player.getGameProfile().name(), xyz(edge), note);
+	}
+
+	private static String brief(BlockState state) {
+		if (state == null) return "?";
+		String name = net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(state.getBlock()).getPath();
+		return state.getFluidState().isEmpty() || state.getFluidState().isSource() ? name : name + "~";
 	}
 
 	/** What the build remembers of the ground, for travel: rock and opened cells, then the cells stood in (newest wins). */
