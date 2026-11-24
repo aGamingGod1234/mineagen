@@ -16,6 +16,8 @@ final class CombatBailout implements ServerController {
 	/** The receipt's reason code: LOW_HEALTH_BAILOUT, or DRAGON_TOOK_OFF for a dragon that lifted off its perch. */
 	private final String code;
 	private TickResult finished;
+	/** The retreat ended FLEE_BLOCKED: no tested heading led away. */
+	private boolean blocked;
 
 	CombatBailout(ServerController retreat, String trigger) {
 		this(retreat, trigger, "LOW_HEALTH_BAILOUT");
@@ -66,6 +68,7 @@ final class CombatBailout implements ServerController {
 		TickResult result = retreat.tick(player, now);
 		if (result.state() == State.RUNNING) return TickResult.running(0.0D);
 		retreat.cancel(player);
+		blocked = "FLEE_BLOCKED".equals(result.reasonCode()) && "LOW_HEALTH_BAILOUT".equals(code);
 		return finished = receipt(code, trigger, result);
 	}
 
@@ -78,6 +81,11 @@ final class CombatBailout implements ServerController {
 		if (retreat.reasonCode().equals("AGENT_DEAD")) return retreat;
 		return TickResult.failed(code, trigger + "; retreat attempted: " + retreat.reasonCode()
 				+ "; " + retreat.message() + "; combat stopped; reassess before fighting again", 0.0D);
+	}
+
+	/** A low-health retreat that found no way out; the fight may stand and swing instead (see ServerFightController). */
+	boolean blocked() {
+		return blocked;
 	}
 
 	@Override
