@@ -52,6 +52,8 @@ const OLD_PERCH = cli.includes('--old-perch');
 const OLD_AIM = cli.includes('--old-aim');
 // --old-recover: the first hurt rule, which backed off only below 11 (a step-out at 12 then walked straight back to the fountain).
 const OLD_RECOVER = cli.includes('--old-recover');
+// --old-cage: a caged crystal is left whenever no water bucket is in the hotbar, even when only caged ones stand.
+const OLD_CAGE = cli.includes('--old-cage');
 const [outArg, jarArg] = cli.filter(arg => !arg.startsWith('--'));
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port = Number(process.env.SLOT_PORT_BASE);
 if (!outArg || !template || !port || !process.env.JAVA_HOME) { console.error('Usage: OUT_DIR [JAR] [--no-bow] [--survive] under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME'); process.exit(2); }
@@ -445,7 +447,13 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 					// The facts' descent needs a water bucket in the hotbar: without one, the method is not used at all.
 					if (!hotbarBucket(await view().catch(() => null))) await fetchWater();
 					const gate = await view().catch(() => null);
-					if (!hotbarBucket(gate)) {
+					// No water left anywhere and only caged crystals standing: a player opens the cage anyway and comes down by
+					// breaking the column under the feet a block at a time (comeDown's dry descent), since a cage left standing means no
+					// kill. Round 1's fix arm: 4 of 10 runs ended alive with the two caged crystals up and the bucket empty.
+					// --old-cage: the cage is left whenever the bucket is empty.
+					const onlyCaged = !OLD_CAGE && [...seenCrystals.values()].every(k => k.gone || k.caged);
+					if (!hotbarBucket(gate) && onlyCaged) note(`no water bucket: caged crystal ${where(c)} opened with the dry descent`, null);
+					else if (!hotbarBucket(gate)) {
 						const buckets = (gate?.inventory?.items ?? []).filter(i => /bucket/.test(i.itemId)).map(i => `${i.itemId.replace('minecraft:', '')}@${i.slot}`).join(' ') || 'none';
 						note(`no water bucket in the hotbar (${buckets}): caged crystal ${where(c)} left for now`, null); c.gaveUp = true; return;
 					}
