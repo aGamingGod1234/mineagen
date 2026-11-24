@@ -113,6 +113,9 @@ public final class ServerDigController implements ServerController {
 	static final int MAX_TURNS = 24;
 	/** Level steps across the top of a cave (a placed floor where needed) before the descent is handed back. */
 	static final int MAX_CROSS = 12;
+	/** Most ticks a crouch to the edge before a placed floor lasts, and how near the edge (blocks) it ends sooner. */
+	static final int LEAN_TICKS = 40;
+	static final double LEAN_EDGE = 0.35D;
 	/** Landing blocks that hurt or give way: a drop never chooses them. */
 	private static final Set<String> BAD_LANDINGS = Set.of("minecraft:magma_block", "minecraft:campfire", "minecraft:soul_campfire",
 			"minecraft:pointed_dripstone", "minecraft:powder_snow", "minecraft:cactus", "minecraft:sweet_berry_bush", "minecraft:scaffolding");
@@ -1240,11 +1243,17 @@ public final class ServerDigController implements ServerController {
 		float pitch = AgentInputStates.turnPitch(player.getXRot(), look.pitch());
 		// A floor placed out over a cave goes on the side face of the block underfoot: crouch to its edge first, as a
 		// player bridging does, so the eye sees that face.
-		if ((crossNext || floorAfterPlace) && leanTicks < 12) {
+		if ((crossNext || floorAfterPlace) && leanTicks < LEAN_TICKS) {
 			// Face the heading first: forward follows the view, and a lean sideways leaves the face out of sight.
 			float toward = AgentInputStates.turnYaw(player.getYRot(), heading.toYRot());
 			boolean facing = Math.abs(AgentInputStates.shortestAngleDelta(toward, heading.toYRot())) < 10.0F;
 			if (facing || ++phaseTicks > AIM_TICKS) leanTicks++;
+			// The lean ends at the support's edge, not after a set time: a body that has only just stepped onto the last
+			// placed block starts a block back and saw no face after 12 ticks (2 blocks bridged, then NO_FLOOR, 9 of 10).
+			Vec3 body = player.position();
+			double gap = (support.getX() + 0.5D + heading.getStepX() * 0.5D - body.x) * heading.getStepX()
+					+ (support.getZ() + 0.5D + heading.getStepZ() * 0.5D - body.z) * heading.getStepZ();
+			if (facing && leanTicks >= 12 && gap <= LEAN_EDGE) leanTicks = LEAN_TICKS;
 			applyInput(player, facing ? 1.0F : 0.0F, false, true, false, toward, pitch, player.getInventory().getSelectedSlot());
 			return TickResult.running(progress(player));
 		}

@@ -67,7 +67,7 @@
   "time": 6000,
   "budgetMs": 120000,
   "name": "tunnel-cave-gap-lava",
-  "note": "The same cave with lava filling its bottom 2 blocks. A bridge still crosses at the tunnel's height. Pass: the dig reaches its goal without burning.",
+  "note": "Guard: the same cave with lava filling its bottom 2 blocks. The tunnel stops at the edge for the lava below it, as before, without burning. Pass: LAVA_AHEAD.",
   "setup": [
    "forceload add {x-20} {z-20} {x+20} {z+30}",
    "fill {x-4} -63 {z-2} {x+4} -44 {z+16} minecraft:stone",
@@ -94,6 +94,6 @@
     }
    }
   ],
-  "expectCode": "DIG_GOAL_REACHED"
+  "expectCode": "LAVA_AHEAD"
  }
 ]
