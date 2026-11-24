@@ -22,8 +22,8 @@ export function serverJvmArgs(value = process.env.ARENA_HEADLESS_SERVER_JVM_ARGS
 }
 
 // A server template that carries the ServerReplay mod records every player for the showcase video. The agent is a
-// Carpet fake player, which ServerReplay's automatic recording skips, so the launcher asks for it on the console
-// (repeats are refused while a recording runs). Shutdown saves the open recording and the world, which takes longer
+// Carpet fake player, which ServerReplay's automatic recording skips, so the launcher asks for it on the console when
+// a player joins and again on a timer (repeats are refused while a recording runs). Shutdown saves the open recording and the world, which takes longer
 // than an unrecorded stop, so the launcher waits longer before it kills a recording server.
 export const REPLAY_START_COMMAND = 'replay start players @a';
 export const REPLAY_START_EVERY_MS = 20000;
@@ -157,6 +157,14 @@ export async function runMatrix(options) {
 				await json(worldFile, world);
 				// The Watcher is off by default; quality reports (stage-score, watch-report, watch-time) read its arena-watch files.
 				server = start(process.env.ARENA_HEADLESS_JAVA ?? 'java', [`-Dmineagen.bridgePort=${ports.bridge}`, '-Dmineagen.coordinatorAutoStart=false', `-Dmineagen.bridgeSecretFile=${passwordFile}`, '-Dmineagen.watch=true', '-Xms1G', '-Xmx2G', ...serverJvmArgs(), '-jar', path.join(serverDirectory, 'fabric-server-launch.jar'), 'nogui'], serverDirectory, path.join(directory, 'logs/fabric'));
+				if (recording) {
+					// Start the moment the agent joins, so the recording holds its first steps; the timer covers a join line
+					// split across two output chunks.
+					server.stdin.on('error', () => {});
+					const startRecording = () => { if (!exited(server)) server.stdin.write(REPLAY_START_COMMAND + '\n'); };
+					server.stdout.on('data', chunk => { if (String(chunk).includes(' joined the game')) startRecording(); });
+					recorder = setInterval(startRecording, REPLAY_START_EVERY_MS);
+				}
 				const startupMs = Number(process.env.ARENA_HEADLESS_STARTUP_TIMEOUT_SECONDS ?? 300) * 1000;
 				await waitFor(async () => (await text(path.join(serverDirectory, 'logs/latest.log'))).includes('Done ('), startupMs, 'Fabric readiness', server);
 				const env = { ARENA_AGENT_BRIDGE_SECRET: secret, ARENA_HEADLESS_RUN_ID: runId, ARENA_HEADLESS_SCENARIO_ID: scenario.id, ARENA_PROTOCOL_AUDIT_PATH: protocol, ARENA_PROVIDER_TURNS_PATH: turns, ARENA_HEADLESS_TRACE_PATH: path.join(directory, 'coordinator.jsonl'), ARENA_HEADLESS_PRIVATE_TRACE_PATH: path.join(directory, 'coordinator-private.jsonl'), ARENA_CAPTURE_SHUTDOWN_PATH: capture, ARENA_QUALITY_CAPTURE: scenario.qualitySetup ? '1' : '0', ARENA_HEADLESS_BRIDGE_PORT: String(ports.bridge), ARENA_HEADLESS_RCON_PORT: String(ports.rcon), ARENA_HEADLESS_MINECRAFT_PORT: String(ports.minecraft) };
@@ -168,11 +176,6 @@ export async function runMatrix(options) {
 				await json(worldFile, world);
 				const runner = start(process.execPath, [path.join(root, 'coordinator/src/headless-matrix.mjs'), '--config', matrixFile, '--scenario', scenario.id, '--run-directory', directory, '--rcon-host', '127.0.0.1', '--rcon-port', String(ports.rcon), '--rcon-password-file', passwordFile, '--protocol-audit', protocol, '--provider-turns', turns, '--world-manifest', worldFile, ...(options.RequireAll ? ['--require-all'] : [])], path.join(root, 'coordinator'), path.join(directory, 'traces/runner'), env);
 				console.log(`Running ${scenario.id}: ${directory}`);
-				if (recording) {
-					server.stdin.on('error', () => {});
-					const startRecording = () => { if (!exited(server)) server.stdin.write(REPLAY_START_COMMAND + '\n'); };
-					startRecording(); recorder = setInterval(startRecording, REPLAY_START_EVERY_MS);
-				}
 				await waitFor(() => exited(runner), scenario.timeoutMs + 30000, 'Scenario runner', runner);
 				runnerReport = await readArtifactReport(path.join(directory, 'report.json'));
 			} catch (error) { failure = error.message; console.error(`${scenario.id}: ${failure}`); }
