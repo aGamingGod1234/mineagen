@@ -1318,6 +1318,64 @@ test('room water-8-y-54: a walk to the far bank of a lake goes in legs and fills
 	assert.deepEqual(aims(body), ['42.5,62.5,0.5']);
 });
 
+// Review of #227: the legs keep the walker's stuck check, carry on through nightfall, and drop the far sighting when the
+// near bank they stopped at does not fill.
+function lakeWalk({ start = 0.5, step = 20, nearFrom = 40, night = null, fills = true } = {}) {
+	const body = simulatedBody({ start: { bucket: 1 } });
+	const search = body.search, observe = body.observe;
+	const state = { x: start, legs: 0, t: 0, missed: [] };
+	body.search = async (target, options) => {
+		if (!/water/.test(target.block ?? '')) return search(target, options);
+		return { state: 'SUCCEEDED', reasonCode: 'FIND_SEEN', message: 'Found: water', find: { seen: { x: 80, y: 62, z: 0, id: 'minecraft:water' } } };
+	};
+	body.observe = async () => {
+		const o = await observe();
+		return { ...o, player: { ...o.player, x: state.x, y: 63, z: 0.5, skyOpen: true, armor: 0 },
+			world: { ...o.world, dimension: 'minecraft:overworld', dayTime: night !== null && state.legs >= night ? 14_000 : 1_000 } };
+	};
+	body.blocksNear = async () => state.x < nearFrom ? [] : [{ blockId: 'minecraft:water', x: 42, y: 62, z: 0, state: { level: '0' } }];
+	body.missPlace = (place, why) => state.missed.push({ ...place, why });
+	body.act = async (type, args) => {
+		body.calls.push([type, args]);
+		if (type === 'select_item' || type === 'select_tool') return { state: 'SUCCEEDED' };
+		if (type === 'travel_to') { state.legs += 1; state.x += step; state.t += args.timeoutMs; return { state: 'TIMED_OUT', reasonCode: 'TRAVEL_TIMEOUT', message: 'The trip\'s timeoutMs ran out before arrival' }; }
+		if (type === 'use_item') {
+			if (!fills) return { state: 'FAILED', reasonCode: 'USE_NOT_ACCEPTED', message: 'The bucket did not take the water' };
+			body.inv.set('bucket', 0); body.inv.set('water_bucket', 1); return { state: 'SUCCEEDED', reasonCode: 'USE_INPUT_CONFIRMED' };
+		}
+		return { state: 'SUCCEEDED' };
+	};
+	const now = () => (state.t += 10);
+	return { body, state, now };
+}
+
+test('review of #227: a walk to water that gets no closer ends after 60 s of legs as no route, not at 90 s', async () => {
+	const { body, state, now } = lakeWalk({ step: 0 });
+	const result = await runObtain({ item: 'water_bucket', count: 1, timeoutMs: 400_000 }, body, { index, now });
+	assert.notEqual(result.state, 'SUCCEEDED');
+	// One walk: six 10 s legs, then the spot is out of reach for good and no further walk goes to it.
+	assert.equal(state.legs, 6);
+	assert.ok(state.missed.some((row) => row.x === 80 && row.y === 62 && row.z === 0), JSON.stringify(state.missed));
+	assert.match(JSON.stringify(result), /NO_ROUTE/);
+});
+
+test('review of #227: night falling during a walk to water does not stop the walk or the fill', async () => {
+	const { body, state, now } = lakeWalk({ night: 1 });
+	const result = await runObtain({ item: 'water_bucket', count: 1, timeoutMs: 120_000 }, body, { index, now });
+	assert.equal(result.state, 'SUCCEEDED', result.message);
+	assert.equal(state.legs, 2);
+	assert.deepEqual(aims(body), ['42.5,62.5,0.5']);
+});
+
+test('review of #227: a near-bank fill that fails marks the far sighting the walk was going to', async () => {
+	const { body, state, now } = lakeWalk({ fills: false });
+	const result = await runObtain({ item: 'water_bucket', count: 1, timeoutMs: 120_000 }, body, { index, now });
+	assert.notEqual(result.state, 'SUCCEEDED');
+	assert.ok(state.missed.some((row) => row.x === 80 && row.y === 62 && row.z === 0), JSON.stringify(state.missed));
+	// The far sighting is not walked to again after the near bank failed.
+	assert.equal(state.legs, 2);
+});
+
 // Batch 4 water step: fills aimed at flowing water (a find sighting, or the cells of a body standing in a stream) met the
 // rock behind it, and find kept stopping at the same cell. A body ARRIVED 3 above a lake was never in reach.
 function waterSighting(seen, { flowing = [], wet = false, arrivedAbove = 0, miss = false } = {}) {

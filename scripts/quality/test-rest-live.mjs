@@ -101,7 +101,12 @@ async function session(seed, index) {
 				const onTrunk = await s.command(`execute at ${AGENT} if block ~ ~-1 ~ #minecraft:logs`);
 				const inLeaves = await s.command(`execute at ${AGENT} if block ~ ~1 ~ #minecraft:leaves`);
 				const feetInLeaves = await s.command(`execute at ${AGENT} if block ~ ~ ~ #minecraft:leaves`);
-				if (!/passed/i.test(`${onTrunk} ${inLeaves} ${feetInLeaves}`)) break;
+				// Dropped under a canopy, the body can land on water the leaves hid from spreadplayers: put on a lake's surface,
+				// it sank and drowned before the night began (rest-wool-3: once in 30 nights, a shelter room that never tested
+				// shelter). Spread again off water.
+				const onWater = await s.command(`execute at ${AGENT} if block ~ ~-1 ~ minecraft:water`);
+				const feetInWater = await s.command(`execute at ${AGENT} if block ~ ~ ~ minecraft:water`);
+				if (!/passed/i.test(`${onTrunk} ${inLeaves} ${feetInLeaves} ${onWater} ${feetInWater}`)) break;
 			}
 		};
 		const prepare = async (kit, at) => {
