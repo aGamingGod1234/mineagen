@@ -33,6 +33,7 @@ const FOODS = new Set(['beef', 'porkchop', 'mutton', 'chicken', 'rabbit', 'cod',
 	'sweet_berries', 'glow_berries', 'melon_slice', 'beetroot']);
 // MINEAGEN_OBTAIN_COSTS=off plans as before chests, the seen-source cost model and the one-trip kit iron (A/B rooms).
 const OBTAIN_COSTS = getSwitch('obtain.costs').value;
+const FILL_LEGS = getSwitch('obtain.fillLegs').value;
 // Food a trip below ground is stocked with, in hunger points: one full bar (20), about a quarter hour's eating. Food the
 // trip lacks is counted in bread-sized items (5 points) for a chest's value; 4 bread held is a full bar and none is short.
 const TRIP_HUNGER = 20;
@@ -104,6 +105,9 @@ const SCOOPS = 8;
 // Plain blocks a cast frame's mould and its crossings take: a walk to water builds only with more than these carried.
 const PLAIN_BLOCKS = /^(cobblestone|cobbled_deepslate|dirt|stone|deepslate|andesite|diorite|granite|tuff|blackstone|basalt)$/;
 const SPARE_BLOCKS = 24;
+// A walk to water goes in legs of FILL_LEG_MS, up to FILL_WALK_MS in all, and checks for water in reach after each
+// (obtain.fillLegs off: one leg of the whole FILL_WALK_MS, as before).
+const FILL_WALK_MS = 90_000, FILL_LEG_MS = FILL_LEGS ? 10_000 : FILL_WALK_MS, FILL_LEG_MIN_MS = 3_000;
 // After a fill, a walk back out of the water to a dry spot from before a find search goes only this many blocks.
 const DRY_WALK = 32;
 const KEEP_COBBLE = 16;
@@ -1813,18 +1817,26 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		if (at !== null && eyeDistance(at, source) > REACH) {
 			step(`walk to the ${fluid} at ${cell(source)}`);
 			const plain = (o.inventory?.items ?? []).filter((row) => PLAIN_BLOCKS.test(bare(row.itemId))).reduce((sum, row) => sum + row.count, 0);
-			const walked = await act('travel_to', { x: source.x + 0.5, y: source.y + 1, z: source.z + 0.5, tolerance: 2, build: plain > SPARE_BLOCKS, timeoutMs: 90_000 });
-			if (body.interrupted() || body.stopped()) return 'stopped';
-			o = await body.observe();
-			// Tool exhaustion says nothing about the source's reachability. Leave recovery to the model;
-			// the next loop still checks cancellation, danger and fresh inventory before handing back.
-			if (TOOL_STOPS.has(walked?.reasonCode)) { fillToolStop = walked; return 'stopped'; }
-			let after = bodyAt(o);
+			let walked = null, after = null;
 			// Any source in reach now will do (the walk ends at the bank, beside others of the same water).
 			const reaches = async () => {
 				const rows = await seenRows(o);
 				return (await sources(o, rows)).some((row) => row.d <= REACH + 0.5) || ownCells(o, rows).length > 0 || eyeDistance(after, source) <= REACH + 0.5;
 			};
+			// In legs, with a look for water in reach after each: a player walking to water seen far off scoops the first that
+			// comes within reach. Room water-8-y-54 (3 of 3 misses): the far bank of a lake was seen from 80 blocks, and the
+			// walk reached the near bank, then bridged across the lake toward that one block until the 180 s ran out.
+			const walkEnds = now() + FILL_WALK_MS;
+			for (;;) {
+				walked = await act('travel_to', { x: source.x + 0.5, y: source.y + 1, z: source.z + 0.5, tolerance: 2, build: plain > SPARE_BLOCKS, timeoutMs: Math.max(1_000, Math.min(FILL_LEG_MS, walkEnds - now())) });
+				if (body.interrupted() || body.stopped()) return 'stopped';
+				o = await body.observe();
+				after = bodyAt(o);
+				if (walked?.reasonCode !== 'TRAVEL_TIMEOUT' || after === null || walkEnds - now() < FILL_LEG_MIN_MS || left() < FILL_LEG_MIN_MS || await reaches()) break;
+			}
+			// Tool exhaustion says nothing about the source's reachability. Leave recovery to the model;
+			// the next loop still checks cancellation, danger and fresh inventory before handing back.
+			if (TOOL_STOPS.has(walked?.reasonCode)) { fillToolStop = walked; return 'stopped'; }
 			if (after !== null && Math.floor(after.y) - source.y >= 3 && flatDistance(after, source) <= REACH && !(await reaches())) {
 				step(`dig down to the ${fluid} at ${cell(source)}`);
 				await act('dig_to', { pattern: 'shaft', y: source.y + 2, maxBlocks: 8, throughCaves: 'small', timeoutMs: 20_000 });
