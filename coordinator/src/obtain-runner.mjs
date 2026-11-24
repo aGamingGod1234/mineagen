@@ -7,6 +7,7 @@
 //
 // Finding a source is one function, locate(): what is in view or remembered, then a survey search, then exploring
 // (walking out for trees and animals, digging toward the ore's depth). A future find verb can replace it.
+import { appendFileSync } from 'node:fs';
 import { howtoIndex } from './howto.mjs';
 import { DAMAGE_STOPS, FIGHT_STOPS, DISCARD, LIFE_SAFETY_STOPS, MAX_FIND_TIMEOUT_MS, UNREACHED, UNREACHED_SPOT, caveLog, hostileIsDanger, sameVein } from './find-search.mjs';
 import { threatRows, blazeBlocksErrand } from './search-danger.mjs';
@@ -34,6 +35,8 @@ const FOODS = new Set(['beef', 'porkchop', 'mutton', 'chicken', 'rabbit', 'cod',
 // MINEAGEN_OBTAIN_COSTS=off plans as before chests, the seen-source cost model and the one-trip kit iron (A/B rooms).
 const OBTAIN_COSTS = getSwitch('obtain.costs').value;
 const FILL_LEGS = getSwitch('obtain.fillLegs').value;
+const FILL_EDGE = getSwitch('obtain.fillEdge').value;
+const EDGE_REDO = 'dug down beside a drop to water; fill again from here';
 // Food a trip below ground is stocked with, in hunger points: one full bar (20), about a quarter hour's eating. Food the
 // trip lacks is counted in bread-sized items (5 points) for a chest's value; 4 bread held is a full bar and none is short.
 const TRIP_HUNGER = 20;
@@ -123,6 +126,30 @@ function bodyAt(o) {
 }
 const eyeDistance = (body, b) => Math.hypot(b.x + 0.5 - body.x, b.y + 0.5 - (body.y + 1.62), b.z + 0.5 - body.z);
 const flatDistance = (body, b) => Math.hypot(b.x + 0.5 - body.x, b.z + 0.5 - body.z);
+
+// The water a step or two off an edge the body stands on, 3-8 blocks below its feet (the mod's edges fact), or null.
+export function waterBelowEdge(o) {
+	const at = bodyAt(o);
+	const drops = o?.player?.edges?.drops;
+	if (at === null || !Array.isArray(drops)) return null;
+	const steps = { E: [1, 0], S: [0, 1], W: [-1, 0], N: [0, -1] };
+	const drop = drops.filter((row) => row?.into === 'water' && row.atLeast !== true && steps[row.dir] && Number.isSafeInteger(row.at) && row.at <= 1
+		&& Number.isSafeInteger(row.drop) && row.drop >= 3 && row.drop <= 8).sort((a, b) => a.at - b.at || a.drop - b.drop)[0];
+	if (!drop) return null;
+	const [dx, dz] = steps[drop.dir];
+	// Away from the drop: without a water bucket a shaft goes down as two-column stairs, and these cut into the wall behind.
+	const away = { E: 'west', S: 'north', W: 'east', N: 'south' }[drop.dir];
+	// drop is ceil(feet - water surface); a source's surface stands 0.89 above its cell, a flow's lower. Feet on a block top
+	// (67.0) or a part block (farmland 67.94, a slab 67.5) both name the cell the surface is in.
+	return { x: Math.floor(at.x) + dx * (drop.at + 1), y: Math.floor(at.y - drop.drop + 0.11), z: Math.floor(at.z) + dz * (drop.at + 1), away };
+}
+
+// MINEAGEN_FILL_TRACE names a file: each bucket fill that fails to reach its water appends one JSON line (diagnosis only).
+function fillTrace(row) {
+	const file = process.env.MINEAGEN_FILL_TRACE;
+	if (!file) return;
+	try { appendFileSync(file, `${JSON.stringify({ t: Date.now(), ...row })}\n`); } catch { /* diagnosis only */ }
+}
 
 function knownBlocks(o) {
 	// seenResources (seen-resources.mjs): placed blocks seen so far (a village's cobblestone, a house's planks), nearest
@@ -1858,6 +1885,32 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 				o = await body.observe();
 				after = bodyAt(o);
 			}
+			// A walk that ends at an edge over water below (room kit-gate-6: a ledge 5 blocks above a pool, beyond the 7-high
+			// block sample, so no row lists it): a player digs down beside the drop until the water is in reach.
+			// Once per obtain, and not after a walk a mob or damage stopped. Without a water bucket on the hotbar the shaft goes
+			// down as two-column stairs that see each floor; with one it is the 1x1 bucket shaft beside a drop already known to
+			// end in water, which stops where it opens into more than a small cave.
+			const stoppedBy = ['HOSTILE_NEAR', ...DAMAGE_STOPS].includes(walked?.reasonCode);
+			const edge = FILL_EDGE && !budget.edgeDug && !stoppedBy && after !== null && fluid === 'water' && !(await reaches()) ? waterBelowEdge(o) : null;
+			if (process.env.MINEAGEN_FILL_TRACE) fillTrace({ at: after, walked: walked?.reasonCode ?? walked?.state ?? null, source, edges: o.player?.edges ?? null, edge,
+				rows: (await seenRows(o)).filter((row) => row.blockId === id(fluid)).length });
+			if (edge !== null) {
+				budget.edgeDug = true;
+				step(`dig down beside the drop to the ${fluid} at ${cell(edge)}`);
+				// 'small': a drop of at most 4 on the way down, so the stairs never land the body below the pool it came for.
+				const dug = await act('dig_to', { pattern: 'shaft', y: edge.y + 2, heading: edge.away, maxBlocks: 2 * (Math.floor(after.y) - edge.y), throughCaves: 'small', timeoutMs: 20_000 });
+				if (body.interrupted() || body.stopped()) return 'stopped';
+				if (TOOL_STOPS.has(dug?.reasonCode)) { fillToolStop = dug; return 'stopped'; }
+				o = await body.observe();
+				after = bodyAt(o);
+				const filled = after === null ? null : await scoop(o, { x: edge.x, y: edge.y, z: edge.z });
+				fillTrace({ dug: dug?.reasonCode ?? dug?.state ?? null, at: after, scooped: filled });
+				if (filled === true) return null;
+				if (filled === 'stopped' || filled === 'no empty bucket held') return filled;
+				// The pool's own rows are in the block sample from down here: the next round picks a source among them, and the
+				// far sighting this walk aimed at is not marked out by a dig that changed where the body stands.
+				return EDGE_REDO;
+			}
 			if (after === null || !(await reaches())) {
 				budget.failed.add(cell(source));
 				// Out of find's sightings too, else the next search stops at the same spot; only that spot, not the water joined
@@ -1994,7 +2047,7 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		if (goal === null) {
 			if (placed.length > 0) await cleanup();
 			const why = await fillAt();
-			if (why !== null && why !== 'stopped') {
+			if (why !== null && why !== 'stopped' && why !== EDGE_REDO) {
 				failures.set('why:fill', why);
 				step(why);
 				if (fail('fill') >= FILL_TRIES) return end('FAILED', 'NO_SOURCE', `Stuck on ${fluid} to fill a bucket at: ${why}`);
