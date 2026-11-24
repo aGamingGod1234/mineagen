@@ -1,0 +1,105 @@
+[
+ {
+  "seed": 20261107,
+  "inventory": [
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:torch",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "monsters": false,
+  "time": 6000,
+  "budgetMs": 120000,
+  "probe": [
+   "execute positioned {x} -58 {z} as @e[type=minecraft:skeleton,distance=..20] run data get entity @s Pos"
+  ],
+  "name": "skeleton-pit-below",
+  "note": "A walk along a 3-wide lit tunnel passes a 1-wide trench beside it, its floor 3 below the walk, with a skeleton in it. The tunnel's floor column next to the trench is glass, so the walk sees the skeleton, but the skeleton's eye line to the body's eye always crosses that column below the walk's floor, so it has no shot (as a skeleton on a cave floor under a ledge). A player walks on past it. Pass: the walk arrives (on main it stops HOSTILE_NEAR for the skeleton within 6 blocks).",
+  "setup": [
+   "forceload add {x-20} {z-20} {x+20} {z+30}",
+   "fill {x-6} -63 {z-4} {x+8} -53 {z+24} minecraft:stone",
+   "fill {x-1} -58 {z-1} {x+1} -56 {z+20} minecraft:air",
+   "fill {x-1} -55 {z-1} {x+1} -55 {z+20} minecraft:glowstone",
+   "fill {x+2} -61 {z+4} {x+2} -56 {z+16} minecraft:air",
+   "fill {x+1} -62 {z+4} {x+1} -59 {z+16} minecraft:glass",
+   "tp Probe {x+0.5} -58 {z+0.5} 0 0",
+   "kill @e[type=minecraft:item,distance=..40]",
+   "summon minecraft:skeleton {x+2.5} -61 {z+12.5} {PersistenceRequired:1b,CanPickUpLoot:0b,HandItems:[{id:\"minecraft:bow\",count:1},{}]}"
+  ],
+  "calls": [
+   {
+    "name": "act",
+    "arguments": {
+     "actionType": "travel_to",
+     "arguments": {
+      "x": "{x+0.5}",
+      "y": -58,
+      "z": "{z+18.5}",
+      "tolerance": 1,
+      "timeoutMs": 60000
+     }
+    }
+   }
+  ],
+  "expectCode": "ARRIVED"
+ },
+ {
+  "seed": 20261107,
+  "inventory": [
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:torch",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "monsters": false,
+  "time": 6000,
+  "budgetMs": 120000,
+  "probe": [
+   "execute positioned {x} -58 {z} as @e[type=minecraft:skeleton,distance=..20] run data get entity @s Pos"
+  ],
+  "name": "skeleton-pit-open",
+  "note": "Guard for skeleton-pit-below: a pit 4 wide beside the walk, floor 3 below, with the skeleton at its far side, so its eye line to the body clears the walk's edge and it can shoot. The walk must still stop for it (HOSTILE_NEAR); arriving fails.",
+  "setup": [
+   "forceload add {x-20} {z-20} {x+20} {z+30}",
+   "fill {x-6} -63 {z-4} {x+8} -53 {z+24} minecraft:stone",
+   "fill {x-1} -58 {z-1} {x+1} -56 {z+20} minecraft:air",
+   "fill {x-1} -55 {z-1} {x+1} -55 {z+20} minecraft:glowstone",
+   "fill {x+2} -61 {z+4} {x+5} -56 {z+16} minecraft:air",
+   "tp Probe {x+0.5} -58 {z+0.5} 0 0",
+   "kill @e[type=minecraft:item,distance=..40]",
+   "summon minecraft:skeleton {x+4.5} -61 {z+12.5} {PersistenceRequired:1b,CanPickUpLoot:0b,HandItems:[{id:\"minecraft:bow\",count:1},{}]}"
+  ],
+  "calls": [
+   {
+    "name": "act",
+    "arguments": {
+     "actionType": "travel_to",
+     "arguments": {
+      "x": "{x+0.5}",
+      "y": -58,
+      "z": "{z+18.5}",
+      "tolerance": 1,
+      "timeoutMs": 60000
+     }
+    }
+   }
+  ],
+  "expectCode": "HOSTILE_NEAR"
+ }
+]

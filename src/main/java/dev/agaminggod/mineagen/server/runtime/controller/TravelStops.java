@@ -28,6 +28,9 @@ public final class TravelStops {
 			"minecraft:blaze", "minecraft:ghast", "minecraft:witch", "minecraft:shulker", "minecraft:breeze", "minecraft:evoker",
 			"minecraft:illusioner", "minecraft:drowned", "minecraft:piglin");
 
+	/** Bow mobs: they shoot only along a clear line from their eye to the target's (RangedBowAttackGoal). */
+	static final Set<String> ARCHERS = Set.of("minecraft:skeleton", "minecraft:stray", "minecraft:bogged");
+
 	/** Ticks a mob's {@link #cannotReach} answer is kept, while neither it nor the body changes block, before it is worked out again. */
 	static final int REACH_RECHECK_TICKS = 20;
 	private static final java.util.Map<net.minecraft.world.entity.Mob, long[]> REACH = new java.util.WeakHashMap<>();
@@ -37,12 +40,19 @@ public final class TravelStops {
 	 * floor under a ledge, still targeting the body, that cannot climb up. A player walks and digs on past it (seed 6006
 	 * iron cave: two zombies 3-4 below stopped every walk at 5 blocks, 124 and 142 stops in a row, until the run ran out).
 	 * Only a found path that does not reach counts; no path worked out (mid-fall, out of range) is no answer and stops
-	 * as before, as do creepers (a blast reaches through), ranged mobs (they hit from where they stand) and wall
+	 * as before, as do creepers (a blast reaches through), ranged mobs other than archers (an archer is passed only
+	 * while it has no eye line to the body) and wall
 	 * climbers and swimmers, whose ways up a ground path does not show. The path is worked out on a navigation of its
 	 * own, so the mob's own path and target are left as they were.
 	 */
 	public static boolean cannotReach(net.minecraft.server.level.ServerPlayer player, net.minecraft.world.entity.Mob mob) {
 		String type = net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.getKey(mob.getType()).toString();
+		// An archer reaches the body only along its eye line, so one at least 2 above or below whose eye line to the body
+		// is cut has no shot (seed 6006 iron cave: a skeleton on the cave floor 5 below the ledge, its head in the body's
+		// sight but the ledge edge between its eye and the body's, stopped every walk at 4-6 blocks, 148 stops in a row,
+		// landing 2 hits in 130 s). The bow goal shoots only with that line, so the trip stops again once it has one.
+		if (ARCHERS.contains(type)) return Math.abs(mob.getY() - player.getY()) >= 2.0D && mob.distanceTo(player) > 2.0D
+				&& !mob.getSensing().hasLineOfSight(player);
 		if (RANGED.contains(type) || type.equals("minecraft:creeper") || type.endsWith("guardian")
 				|| dev.agaminggod.mineagen.server.perception.ThreatPerception.isRanged(mob)) return false;
 		net.minecraft.world.entity.ai.navigation.PathNavigation own = mob.getNavigation();
