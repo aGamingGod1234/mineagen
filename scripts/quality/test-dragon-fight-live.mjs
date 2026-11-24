@@ -42,6 +42,9 @@ if (NO_ENDERMEN && strict) { console.error('--no-endermen is for bring-up: add -
 // idle passes), kept so a script change is judged against it on the same jar. --caged-first (bring-up): open the caged
 // crystals before the open ones.
 const OLD_CRYSTALS = cli.includes('--old-crystal-phase'), CAGED_FIRST = cli.includes('--caged-first');
+// --old-refill: main's stand-in bucket handling, before the walk back to a remembered pour and the held bucket counted as
+// in the hotbar (kept so both are judged on the same jar).
+const OLD_REFILL = cli.includes('--old-refill');
 const [outArg, jarArg] = cli.filter(arg => !arg.startsWith('--'));
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port = Number(process.env.SLOT_PORT_BASE);
 if (!outArg || !template || !port || !process.env.JAVA_HOME) { console.error('Usage: OUT_DIR [JAR] [--no-bow] [--survive] under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME'); process.exit(2); }
@@ -236,7 +239,7 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 				let lastDealt = null;
 				const firedStart = firedAt(latest?.reflexes?.rules);
 				firedMost = { ...firedStart };
-				const note = (what, r) => { const entry = [Math.round((now() - t0) / 1000), what, r?.state, r?.reasonCode, r?.message?.slice(0, 160)]; log.push(entry); console.log(`[dragon-fight] ${JSON.stringify(entry)}`); };
+				const note = (what, r) => { const entry = [Math.round((now() - t0) / 1000), what, r?.state, r?.reasonCode, /^melee/.test(what) ? r?.full?.slice(0, 1500) : r?.message?.slice(0, 160)]; log.push(entry); console.log(`[dragon-fight] ${JSON.stringify(entry)}`); };
 				// Judging: crystals left (all and caged) as they fall, arrows spent, and each big hit the body takes.
 				const crystalTimeline = [], hurtLog = [];
 				let clearedAt = null, lastLeft = null, lastCaged = null, arrowsStart = null, arrowsNow = null, lastHp = null;
@@ -346,7 +349,9 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 				let refillMissNoted = false;
 				// A cage takes minutes of back-to-back steps: none starts once the judged window is over.
 				const over = async what => { if (await inWindow()) return false; note(`${what}: the window is over`, null); return true; };
-				const hotbarBucket = o => (o?.inventory?.items ?? []).some(i => i.itemId === 'minecraft:water_bucket' && (Number.isInteger(i.slot) ? i.slot < 9 : /hotbar|offhand/.test(String(i.slot))));
+				// The view lists the held stack as slot 'mainhand', and the main hand is a hotbar slot: main's stand-in (--old-refill)
+				// missed it and left the cage with the bucket in hand.
+				const hotbarBucket = o => (o?.inventory?.items ?? []).some(i => i.itemId === 'minecraft:water_bucket' && (Number.isInteger(i.slot) ? i.slot < 9 : (OLD_REFILL ? /hotbar|offhand/ : /hotbar|offhand|mainhand/).test(String(i.slot))));
 				const refill = async () => {
 					const v = await view().catch(() => null);
 					const items = v?.inventory?.items ?? [];
@@ -383,6 +388,31 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 					}
 					return f;
 				};
+				// An empty bucket before a cage: back to the water the body's own reflex poured, which the End fact names
+				// ("Water source you poured at X (remembered; aim the empty bucket there)"), and fill it there. --old-refill
+				// skips the walk, as main's stand-in did (a cage was left whenever no water was in reach).
+				const dryPours = new Set();
+				const fetchWater = async () => {
+					if (OLD_REFILL) return;
+					const v = await view().catch(() => null);
+					const items = v?.inventory?.items ?? [];
+					if (!v?.player || items.some(i => i.itemId === 'minecraft:water_bucket') || !items.some(i => i.itemId === 'minecraft:bucket')) return;
+					const pour = runtime.reflexPours(record, v).map(p => ({ ...p, d: Math.hypot(p.x + 0.5 - v.player.x, p.z + 0.5 - v.player.z) }))
+						.filter(p => p.d <= 96 && !dryPours.has(`${p.x},${p.y},${p.z}`)).sort((a, b) => a.d - b.d)[0];
+					if (!pour) { note('no water bucket and no remembered pour', null); return; }
+					let reached = true;
+					if (pour.d > 3) {
+						const r = await act('travel_to', { x: pour.x + 0.5, y: pour.y, z: pour.z + 0.5, tolerance: 2, build: true, timeoutMs: 60000 });
+						note(`to the remembered pour at ${pour.x},${pour.y},${pour.z}`, r);
+						reached = r?.state === 'SUCCEEDED';
+					}
+					await act('select_item', { itemId: 'minecraft:bucket' });
+					const r = await act('use_item', { expectedItemId: 'minecraft:bucket', aimX: pour.x + 0.5, aimY: pour.y + 0.5, aimZ: pour.z + 0.5, durationMs: 100 });
+					note(`refill the bucket at the remembered pour ${pour.x},${pour.y},${pour.z}`, r);
+					// The bucket met another block there: the source is gone (seen in 2 of 15 runs: the walk was made again and again), as the
+					// player reads from the failed fill, so that pour is not walked to again.
+					if (reached && r?.state !== 'SUCCEEDED') dryPours.add(`${pour.x},${pour.y},${pour.z}`);
+				};
 				const openCage = async c => {
 					c.cageTries += 1;
 					await refill();
@@ -405,7 +435,12 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 					if (!Number.isFinite(base) || base < 40 || base >= S.y) { note(`no ground beside caged crystal ${where(c)} (y ${base})`, null); c.cageTries = 99; return; }
 					// 2. Onto the cell beside the wall, feet centred, and pillar a whole column to the crystal's feet height.
 					// The facts' descent needs a water bucket in the hotbar: without one, the method is not used at all.
-					if (!hotbarBucket(await view().catch(() => null))) { note(`no water bucket in the hotbar: caged crystal ${where(c)} left for now`, null); c.gaveUp = true; return; }
+					if (!hotbarBucket(await view().catch(() => null))) await fetchWater();
+					const gate = await view().catch(() => null);
+					if (!hotbarBucket(gate)) {
+						const buckets = (gate?.inventory?.items ?? []).filter(i => /bucket/.test(i.itemId)).map(i => `${i.itemId.replace('minecraft:', '')}@${i.slot}`).join(' ') || 'none';
+						note(`no water bucket in the hotbar (${buckets}): caged crystal ${where(c)} left for now`, null); c.gaveUp = true; return;
+					}
 					if (await over('to the cage')) return;
 					r = await act('travel_to', { x: S.x + 0.5, y: base, z: S.z + 0.5, tolerance: 1, build: true, timeoutMs: 60000 }); note('to the spot beside the cage', r);
 					let f = await feetNow();
@@ -453,15 +488,23 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 						if (c.gone) return;
 					}
 				};
-				let huntedSince = null;
+				let huntedSince = null, lastFetch = -Infinity;
 				const crystalStep = async (o, me) => {
 					remember(o.entities ?? [], o);
 					// An enderman that has turned on the body: a player stays in the water it stands in (the End enderman default pours
 					// it) instead of walking out to a shooting spot or scooping that water back up. The judged A/B lost 3 of 10 runs in
 					// 82-204 s to exactly that walk. Held at most 30 s at a time: an angry enderman can keep its target while it
 					// teleports about, and the crystals still have to come down.
-					const hunted = (o.entities ?? []).some(e => e?.type === 'minecraft:enderman' && e.alive !== false && e.targetingAgent === true && (e.distance ?? Infinity) <= 24);
-					if (!hunted) huntedSince = null;
+					const hunters = (o.entities ?? []).filter(e => e?.type === 'minecraft:enderman' && e.alive !== false && e.targetingAgent === true && (e.distance ?? Infinity) <= 24);
+					const hunted = hunters.length > 0;
+					// Holding still is only safe in water. On dry ground a player swings at the enderman that has closed in instead
+					// of standing to take its hits: round 3 lost 5 runs that stood here, out of water, while one to four endermen hit
+					// it (both sides ran this hold, so the fix applies to both).
+					const close = hunters.filter(e => (e.distance ?? Infinity) <= 5 && e.stableId).sort((a, b) => a.distance - b.distance)[0];
+					if (hunted && me.inWater !== true) {
+						huntedSince = null;
+						if (close) { const r = await act('fight_target', { targetId: close.stableId, timeoutMs: 8000, fleeAtHealth: 6 }); note('an enderman is after the body out of water: fight it', r); return true; }
+					} else if (!hunted) huntedSince = null;
 					else if (huntedSince === null || now() - huntedSince < 30000) {
 						if (huntedSince === null) { huntedSince = now(); note('an enderman is after the body: holding still in the water', null); }
 						await s.clock.sleep(1000);
@@ -469,7 +512,12 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 					}
 					// Armed with the first crystal step: a fling on open ground can kill too (dragonFact).
 					if (!clutchArmed) { const armed = await act('look_at', { x: me.x + 10, y: me.y + 30, z: me.z }, CLUTCH); clutchArmed = armed.state === 'SUCCEEDED'; note('arm the water clutch', armed); }
-					else if ((o.inventory?.items ?? []).some(i => i.itemId === 'minecraft:bucket')) await refill();
+					else if ((o.inventory?.items ?? []).some(i => i.itemId === 'minecraft:bucket')) {
+						await refill();
+						// Still empty and no enderman after the body: back to the water it poured (the End fact names it), as a player
+						// fills the bucket again before the next enderman (main: the bucket was empty in 8 of 9 enderman deaths).
+						if (now() - lastFetch > 45000) { lastFetch = now(); await fetchWater(); }
+					}
 					let standing = [...seenCrystals.values()].filter(c => !c.gone && !c.gaveUp);
 					// Given up on every one left: try them again after a while (the body and the dragon have moved).
 					if (standing.length === 0 && passes % 30 === 29) for (const c of seenCrystals.values()) if (!c.gone) Object.assign(c, { gaveUp: false, tries: 0, spot: 0, cageTries: 0 });
@@ -526,9 +574,21 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 					}
 					// 2. Perched: melee its head, as a player who ran in does.
 					const perch = perchedDragon(o);
-					if (perch?.head?.id) {
+					// Not below 10 health: a player heals before walking under it, and steps out at 8 (fleeAtHealth); at 3 health
+					// one hit of its head (10, about 6 through iron) kills.
+					if (perch?.head?.id && (OLD_REFILL || !(me.health < 10))) {
+						// From the far side of the island fight_target refuses (its chase reach is 32 blocks to the head) and a short
+						// perch ends during the walk: a player sprints in first, to 8 blocks short of the head on their own side, as
+						// the facts say (a sprint covers about 5.6 blocks a second). Main's stand-in swung from where it stood.
+						const flat = Math.hypot(perch.head.x - me.x, perch.head.z - me.z);
+						if (!OLD_REFILL && flat > 20 && Number.isFinite(flat)) {
+							const k = (flat - 8) / flat, tx = me.x + (perch.head.x - me.x) * k, tz = me.z + (perch.head.z - me.z) * k;
+							const gy = await groundY(tx, tz).catch(() => NaN);
+							const r = await act('travel_to', { x: tx, y: Number.isFinite(gy) && gy > 40 ? gy + 1 : Math.floor(me.y), z: tz, tolerance: 3, build: false, timeoutMs: 10000 });
+							note(`run in to the perched head (${Math.round(flat)} blocks)`, r);
+						}
 						const before = await dragonHealth();
-						const r = await act('fight_target', { targetId: perch.head.id, timeoutMs: 12000 });
+						const r = await act('fight_target', { targetId: perch.head.id, timeoutMs: 12000, ...(OLD_REFILL ? {} : { fleeAtHealth: 8 }) });
 						const after = await dragonHealth();
 						if (Number.isFinite(before) && Number.isFinite(after) && after < before) meleeLanded += 1;
 						meleeHits += 1; note(`melee perched head (dragon ${before} -> ${after})`, r); continue;

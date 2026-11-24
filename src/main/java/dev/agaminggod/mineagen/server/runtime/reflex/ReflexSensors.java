@@ -739,11 +739,15 @@ public final class ReflexSensors {
 		}
 		Vec3 from = player.position();
 		int feetY = SafeStep.feet(player).y();
+		// One seen-terrain view for every probe (up to 48 with "any"): probes overlap on the same cells. Built at the
+		// first probe, where each probe used to build its own, so the bot's terrain memory is first read at the same point.
+		dev.agaminggod.mineagen.client.navigation.WalkabilityView terrain = null;
 		for (Vec3 heading : headings) {
 			for (double distance = 0.4D; distance <= within + 1.0E-6D; distance += 0.3D) {
 				Vec3 at = from.add(heading.scale(distance));
 				GridPosition cell = new GridPosition(Mth.floor(at.x), feetY, Mth.floor(at.z));
-				if (SafeStep.dropDepth(player, cell) >= drop) {
+				if (terrain == null) terrain = SafeStep.knownTerrain(player);
+				if (SafeStep.dropDepth(player, terrain, cell) >= drop) {
 					return new Reading(true, null, new Vec3(cell.x() + 0.5D, feetY, cell.z() + 0.5D));
 				}
 			}
@@ -796,11 +800,12 @@ public final class ReflexSensors {
 	 */
 	/**
 	 * defend's plain "attacked" before the first melee hit: a melee mob after the idle body about to reach it
-	 * ({@link ReflexActions#closingMelee}). Any other condition, or a negated one, reads false here.
+	 * ({@link ReflexActions#closingMelee}) and coming at it ({@link ReflexActions#comingAt}). Any other condition, or a
+	 * negated one, reads false here.
 	 */
 	static Reading meleeAboutToLand(ServerPlayer player, ReflexSpec.Condition condition) {
 		if (!"attacked".equals(condition.type()) || condition.negated()) return Reading.FALSE;
-		Mob mob = ReflexActions.closingMelee(player);
+		Mob mob = ReflexActions.closingMelee(player, true);
 		return mob == null ? Reading.FALSE : new Reading(true, mob);
 	}
 

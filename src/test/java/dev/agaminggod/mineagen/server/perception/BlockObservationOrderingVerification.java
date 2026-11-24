@@ -43,7 +43,25 @@ public final class BlockObservationOrderingVerification {
 				BlockObservationOrdering.select(candidates.reversed(), 6, 2),
 				"selection is deterministic regardless of scan order"
 		);
-		return 6;
+		// The local scan orders by a precomputed rank instead of a sort: same list for any subset of distinct cells.
+		int[] ranks = BlockObservationOrdering.scanRanks(6, 3);
+		java.util.Random random = new java.util.Random(7);
+		String[] ids = {"minecraft:stone", "minecraft:dirt", "minecraft:oak_log", "minecraft:water"};
+		for (int trial = 0; trial < 200; trial++) {
+			ArrayList<BlockObservationOrdering.Candidate> scan = new ArrayList<>();
+			for (int y = -3; y <= 3; y++) for (int x = -6; x <= 6; x++) for (int z = -6; z <= 6; z++) {
+				if (random.nextInt(4) != 0) scan.add(candidate(x, y, z, ids[random.nextInt(ids.length)]));
+			}
+			if (!BlockObservationOrdering.ordered(scan).equals(BlockObservationOrdering.orderedByRank(scan, ranks, 6, 3))) {
+				throw new AssertionError("ranked scan order matches the sorted order (trial " + trial + ")");
+			}
+		}
+		// Two candidates in one cell, or one outside the box, fall back to the full sort.
+		List<BlockObservationOrdering.Candidate> twice = List.of(candidate(1, 0, 0, "minecraft:stone"), candidate(1, 0, 0, "minecraft:dirt"), candidate(0, 0, 0, "minecraft:dirt"));
+		assertEquals(BlockObservationOrdering.ordered(twice), BlockObservationOrdering.orderedByRank(twice, ranks, 6, 3), "a shared cell keeps both candidates in sorted order");
+		List<BlockObservationOrdering.Candidate> outside = List.of(candidate(7, 0, 0, "minecraft:stone"), candidate(-6, 0, 1, "minecraft:dirt"), candidate(0, 4, 0, "minecraft:dirt"), candidate(0, 0, 0, "minecraft:dirt"));
+		assertEquals(BlockObservationOrdering.ordered(outside), BlockObservationOrdering.orderedByRank(outside, ranks, 6, 3), "a cell outside the box gets the sorted order");
+		return 9;
 	}
 
 	private static BlockObservationOrdering.Candidate candidate(int x, int y, int z, String blockId) {

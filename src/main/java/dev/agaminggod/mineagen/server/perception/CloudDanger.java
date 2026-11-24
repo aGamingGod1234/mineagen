@@ -117,6 +117,36 @@ public final class CloudDanger {
 		return nearest;
 	}
 
+	/**
+	 * A harmful cloud (dragon breath, or one whose magic hurt this player) the body is in now: its feet inside the radius
+	 * and its body box through the cloud's box, the contact vanilla's cloud tick applies its effect to. Null when none.
+	 */
+	public static AreaEffectCloud touching(ServerPlayer player) {
+		var known = KNOWN_HARM.get(player);
+		for (AreaEffectCloud cloud : player.level().getEntitiesOfClass(AreaEffectCloud.class, player.getBoundingBox().inflate(1.0D), AreaEffectCloud::isAlive)) {
+			if (!dragon(cloud) && !(known != null && known.contains(cloud))) continue;
+			if (inside(cloud.position(), cloud.getRadius(), cloud.getBoundingBox(), player.position(), player.getBoundingBox())) return cloud;
+		}
+		return null;
+	}
+
+	/**
+	 * A harmful cloud right under the feet: inside its radius (with the growth a moment brings), its box top at or below the
+	 * feet and less than a block under them, so a step down or off a placed block puts the body back in it. A cloud's box is
+	 * half a block high (vanilla AreaEffectCloud dimensions), so a body standing one block over its base is out of reach.
+	 */
+	public static AreaEffectCloud beneath(ServerPlayer player) {
+		var known = KNOWN_HARM.get(player);
+		Vec3 feet = player.position();
+		for (AreaEffectCloud cloud : player.level().getEntitiesOfClass(AreaEffectCloud.class, player.getBoundingBox().inflate(8.0D, 2.0D, 8.0D), AreaEffectCloud::isAlive)) {
+			if (!dragon(cloud) && !(known != null && known.contains(cloud))) continue;
+			double top = cloud.getBoundingBox().maxY, radius = cloud.getRadius() + Math.max(0.0D, cloud.getRadiusPerTick()) * 20.0D + 0.3D;
+			if (top > feet.y + 1.0E-3D || feet.y - top >= 1.0D) continue;
+			if (Math.pow(feet.x - cloud.getX(), 2) + Math.pow(feet.z - cloud.getZ(), 2) <= radius * radius) return cloud;
+		}
+		return null;
+	}
+
 	/** Ticks of growth a reflex run allows for: the run itself and a moment after it. */
 	static final int RUN_LEAD_TICKS = 60;
 

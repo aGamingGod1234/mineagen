@@ -407,8 +407,11 @@ test('the book remembers the cells its water reflex poured, per dimension, and f
 	book.apply('a', normalizeReflexEntries([SWAP]));
 	const pour = (seq, cell, outcome = 'done') => ({ revision: 1, rules: [], events: [{ seq, id: 'default-ender-water', outcome, ms: 50, detail: `placed minecraft:water_bucket at feet ${cell}; the source stays until scooped` }] });
 	book.observe('a', pour(1, '2,62,13'));
-	book.observe('a', pour(2, '9,62,13', 'failed'));
+	// A firing that never poured names no cell; one that ended otherwise after pouring (failed, preempted) still left it.
+	book.observe('a', { revision: 1, rules: [], events: [{ seq: 2, id: 'default-ender-water', outcome: 'failed', ms: 50, detail: 'the click on the feet face was refused' }] });
 	book.observe('a', pour(3, '-4,62,0'));
+	assert.deepEqual(book.pours('a', end), [{ x: -4, y: 62, z: 0 }, { x: 2, y: 62, z: 13 }]);
+	book.observe('a', pour(9, '-4,62,0', 'failed'));
 	assert.deepEqual(book.pours('a', end), [{ x: -4, y: 62, z: 0 }, { x: 2, y: 62, z: 13 }]);
 	assert.deepEqual(book.pours('a', { ...end, world: { dimension: 'minecraft:overworld' } }), [], 'another dimension names none');
 	// A row at the cell that is no water source (a block, or only flow) forgets that pour; an unlisted cell keeps it.
@@ -440,5 +443,28 @@ test('the book remembers the cells its water reflex poured, per dimension, and f
 	book.observeContext('a', { ...at(3.5, 0), blocks: [shown] });
 	book.observeContext('a', { ...at(3.5, 1), blocks: [shown] });
 	assert.deepEqual(book.pours('a', { ...at(3.5, 1), blocks: [shown] }), [{ x: 3, y: 62, z: 13 }, { x: 40, y: 62, z: 13 }]);
+	book.clear('a');
+});
+
+test('a pour held against an angry enderman is remembered from its running report, whether its firing ends done or preempted', () => {
+	const book = new ReflexBook({ now: () => 0 });
+	const end = { ready: true, world: { dimension: 'minecraft:the_end' }, player: { health: 20 }, inventory: { items: [] }, blocks: [] };
+	book.observeContext('a', end);
+	book.apply('a', normalizeReflexEntries([SWAP]));
+	// Holding: the firing's report names the cell; then the breath rule preempts it, and its end report names only that rule.
+	book.observe('a', { revision: 1, rules: [], events: [], firing: { id: 'default-ender-water', ms: 400, detail: 'placed minecraft:water_bucket at feet 5,60,-3; standing in it while an angry enderman is near' } });
+	book.observe('a', { revision: 1, rules: [], events: [{ seq: 1, id: 'default-ender-water', outcome: 'preempted', ms: 900, detail: 'by default-breath' }] });
+	assert.deepEqual(book.pours('a', end), [{ x: 5, y: 60, z: -3 }], 'the water left by the preempted hold is remembered');
+	// Scooped back by the hold itself: its done report names no cell, and the bucket count forgets the pour.
+	const at = (buckets) => ({ ...end, position: { x: 5.5, y: 60, z: -2.5 }, inventory: { items: [{ itemId: buckets ? 'minecraft:water_bucket' : 'minecraft:bucket', count: 1 }] } });
+	book.observeContext('a', at(0));
+	book.observe('a', { revision: 1, rules: [], events: [{ seq: 2, id: 'default-ender-water', outcome: 'done', ms: 2000, detail: 'poured water at feet 5,60,-3, stood in it until no angry enderman was near, and scooped it back' }] });
+	book.observeContext('a', at(1));
+	assert.deepEqual(book.pours('a', at(1)), [], 'the scooped pour is forgotten');
+	// Held, then the source vanished under the body: the end report says so and the pour is forgotten with no scoop.
+	book.observe('a', { revision: 1, rules: [], events: [], firing: { id: 'default-ender-water', ms: 400, detail: 'placed minecraft:water_bucket at feet 7,60,-3; standing in it while an angry enderman is near' } });
+	assert.deepEqual(book.pours('a', end), [{ x: 7, y: 60, z: -3 }]);
+	book.observe('a', { revision: 1, rules: [], events: [{ seq: 3, id: 'default-ender-water', outcome: 'done', ms: 1500, detail: 'poured water at feet 7,60,-3; the source is gone' }] });
+	assert.deepEqual(book.pours('a', end), [], 'a pour whose source is gone is forgotten');
 	book.clear('a');
 });

@@ -212,6 +212,8 @@ const WET_WALK_STOPS = new Set(['WATER_AHEAD', 'TUNNEL_FLOODED', 'BREATH_LOW', '
  * walks fired, iron was found in 9 of 30 runs with it on against 18 of 30 off.
  */
 export const caveFirst = (environment = process.env) => getSwitch('find.caveFirst', environment).value;
+/** Off only for the A/B off arm (MINEAGEN_FIND_DRY_START=off): no walk off seen water before the first dig down. */
+export const dryStart = (environment = process.env) => getSwitch('find.dryStart', environment).value;
 // Blocks a dig_to may be given (schema.mjs maxBlocks) and the cells one step cuts per pattern.
 const MAX_DIG_BLOCKS = 4_096;
 const STEP_CELLS = Object.freeze({ tunnel: 2, stairs_down: 3, stairs_up: 3, steep_down: 4 });
@@ -231,6 +233,10 @@ const WET_SAME = 12;
 const SKY_CLIMB = 6;
 const WET_REGION = 64;
 const WET_SPOT = 'water under a dig down';
+// Seen water this close (across) to the start of a dig down from the surface, at or below the feet: a lake shore or a
+// river bank, where the ground under the body is usually the lake's own aquifer. The search walks off it first.
+const DRY_START_NEAR = 8;
+const DRY_START_BELOW = 8;
 const MAX_SWIMS = 6;
 // Air still at this share of full after the swims up: breathing between bobs, so one swim out to a bank before handing
 // back; the leg's length.
@@ -1428,6 +1434,10 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 				maxBlocks: Math.min(MAX_DIG_BLOCKS, STEP_CELLS.stairs_up * (SKY_CLIMB + 4)), stopWhenSeen: profile.stopId, discard: DISCARD }));
 		};
 		const wetHeadings = new Set();
+		// Headings and walks the walk off seen water before the first dig down spent (dryStart): given back to the wet digs
+		// once a dig down has begun, so a later dig that meets water still has its ways off.
+		const dryHeadings = new Set();
+		let dryWalks = 0;
 		let depthEscapes = 0;
 		let wetStuck = false;
 		// Where each dig stopped and why: the same stop again on the same spot moves the body off it.
@@ -1465,6 +1475,10 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 		// or below the body and not far under the band, not where the body stands, and with no hostile seen near it.
 		const waterCells = () => [observation, observation?.sighted, lastSurvey].flatMap((source) => ['blocks', 'veins'].flatMap((section) => Array.isArray(source?.[section]) ? source[section] : []))
 			.filter((row) => row?.blockId === 'minecraft:water').map(cellOf).filter((cell) => cell !== null);
+		// The nearest seen water beside a start on the surface (see DRY_START_NEAR), or undefined.
+		const waterBeside = (at) => waterCells().filter((cell) => cell.y <= at.y + 1 && cell.y >= at.y - DRY_START_BELOW
+			&& Math.hypot(cell.x + 0.5 - at.x, cell.z + 0.5 - at.z) <= DRY_START_NEAR)
+			.sort((a, b) => Math.hypot(a.x + 0.5 - at.x, a.z + 0.5 - at.z) - Math.hypot(b.x + 0.5 - at.x, b.z + 0.5 - at.z))[0];
 		const caveChoices = (here) => {
 			const wet = waterCells();
 			const hostiles = [...(observation?.entities ?? []).filter((row) => row?.hostile === true && row.alive !== false), ...sweepHostiles].filter((row) => [row?.x, row?.y, row?.z].every(Number.isFinite));
@@ -1540,9 +1554,24 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 			// try the same few headings again.
 			// Only digs count: walling off or a fight in place is not a dig going nowhere.
 			const lastLeg = legs.at(-1), lastHow = lastLeg?.how ?? '';
-			// The start, near a spot where an earlier search's dig down met water: off it first, not down into it again.
-			const nearWet = legs.length === 0 && profile.depth !== null && at.y > profile.depth + CAVE_BAND
-				? wetSpots().find((place) => Math.hypot(place.x + 0.5 - at.x, place.z + 0.5 - at.z) <= 12) : undefined;
+			// The start, near a spot where an earlier search's dig down met water, or (for lava) beside water in sight (the lake
+			// a water bucket was just filled at): off it first, as a player walks away from a lake before digging down, not down into
+			// its aquifer. Gate rooms on main (8f309b76): the first dig down met water in 55 of 79 kit-gate runs, which start
+			// at the lake shore after the water fetch; 3 of those 55 lit a portal.
+			// Seen water is checked again after each walk off it, until the first dig (a walk can end by another lake, or
+			// stop short on the shore: round 1, 2 of the first 4 runs with this on).
+			const surfaceStart = at !== null && profile.depth !== null && at.y > profile.depth + CAVE_BAND;
+			const dug = legs.some((entry) => DESCENTS.test(entry.how) || /^tunnel/.test(entry.how));
+			if (dug && dryWalks > 0) {
+				for (const name of dryHeadings) wetHeadings.delete(name);
+				wetTunnels = Math.max(0, wetTunnels - dryWalks);
+				dryHeadings.clear();
+				dryWalks = 0;
+			}
+			// Under open sky only: a start in a cave or tunnel above the band keeps the depth it has.
+			const besideWater = surfaceStart && dryStart() && profile.ids.has('minecraft:lava') && !dug && observation?.player?.skyOpen === true
+				? waterBeside(at) : undefined;
+			const nearWet = (legs.length === 0 && surfaceStart ? wetSpots().find((place) => Math.hypot(place.x + 0.5 - at.x, place.z + 0.5 - at.z) <= 12) : undefined) ?? besideWater;
 			const wetDig = counted < legs.length && DESCENTS.test(lastHow) && lastLeg?.reasonCode === 'WATER_AHEAD';
 			const wet = lastLeg?.underWater === true || observation?.player?.underWater === true;
 			if (wetDig) miss({ x: Math.floor(at.x), y: Math.floor(at.y + 1e-3), z: Math.floor(at.z) }, WET_SPOT);
@@ -1578,6 +1607,14 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 				if (away !== null) {
 					wetTunnels += 1;
 					wetHeadings.add(away.name);
+					if (!wetDig && besideWater !== undefined && nearWet === besideWater) {
+						// Not back the way it came: that is toward the water it walked off.
+						const back = CARDINALS[(CARDINALS.indexOf(away) + 2) % 4].name;
+						dryHeadings.add(away.name);
+						if (!wetHeadings.has(back)) dryHeadings.add(back);
+						wetHeadings.add(back);
+						dryWalks += 1;
+					}
 					heading = away; base = heading; turns = 0;
 					const here = bodyAt(observation);
 					const top = skyAbove(here, SKY_REACH) ?? origin;

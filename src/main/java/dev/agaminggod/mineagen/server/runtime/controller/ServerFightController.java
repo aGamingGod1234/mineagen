@@ -171,6 +171,8 @@ public final class ServerFightController implements ServerController {
 	/** The longest a swing waits for a calm mob to step out of its sweep before it swings anyway (3 s). */
 	static final int MAX_SWEEP_HOLD_TICKS = 60;
 	private int ticksOnTarget;
+	/** The struck dragon part's dragon was seen perching during this fight (its lift-off then ends the melee). */
+	private boolean dragonSat;
 	private int policyCountdown = CombatPlanning.POLICY_INTERVAL_TICKS;
 	private int policySwitches;
 	private boolean handoffChecked;
@@ -401,6 +403,18 @@ public final class ServerFightController implements ServerController {
 		if (!engineTargets) applyTargetPolicy(player);
 		if (blazeFight && !engineTargets) strikeAttackerInReach(player);
 		ticksOnTarget++;
+		if (strike instanceof net.minecraft.world.entity.boss.enderdragon.EnderDragonPart dragonPart) {
+			var phase = dragonPart.parentMob.getPhaseManager().getCurrentPhase();
+			if (phase.isSitting()) dragonSat = true;
+			// A fight started as it lifts off (it still looks perched for a moment) steps clear too.
+			else if (dragonSat || phase.getPhase() == net.minecraft.world.entity.boss.enderdragon.phases.EnderDragonPhase.TAKEOFF) {
+				BrinkGuard.keepLevel(player, this, false);
+				input.release();
+				bailout = CombatBailout.dragonTakeoff(player, dragonPart.parentMob, pursue, timeoutMs - elapsed, nowEpochMs);
+				TickResult result = bailout.tick(player, nowEpochMs);
+				return result.state() == State.RUNNING ? result : finish(player, bailoutReport(player, result));
+			}
+		}
 		if (CombatPlanning.shouldBailOut(player.getHealth(), fleeAtHealth)) {
 			BrinkGuard.keepLevel(player, this, false);
 			input.release();

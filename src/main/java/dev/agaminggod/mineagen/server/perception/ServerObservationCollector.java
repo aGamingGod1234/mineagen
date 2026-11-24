@@ -19,6 +19,7 @@ import dev.agaminggod.mineagen.server.runtime.menu.MenuCapabilityRegistry;
 import dev.agaminggod.mineagen.server.runtime.menu.MenuInspection;
 import dev.agaminggod.mineagen.server.runtime.menu.MenuStackIdentity;
 import dev.agaminggod.mineagen.world.WorldMutationRevisionAccess;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import java.util.Comparator;
 import java.util.ArrayList;
@@ -66,6 +67,8 @@ public final class ServerObservationCollector {
 	public static final int MAX_BLOCKS = 128;
 	public static final int BLOCK_RADIUS = 6;
 	static final int BLOCK_VERTICAL_RADIUS = 3;
+	/** Each local-scan cell's place in BlockObservationOrdering's order, so a scan is ordered without a sort. */
+	private static final int[] BLOCK_SCAN_RANKS = BlockObservationOrdering.scanRanks(BLOCK_RADIUS, BLOCK_VERTICAL_RADIUS);
 	public static final int MAX_BLOCKS_PER_TYPE = 8;
 	/** Sparse first-surface hits let the agent see structures and resources at player-like distances. */
 	public static final int MAX_LANDMARKS = 32;
@@ -1310,7 +1313,7 @@ public final class ServerObservationCollector {
 					if (!level.hasChunkAt(position)) continue;
 					BlockState state = level.getBlockState(position);
 					if (state.isAir()) continue;
-					String blockId = BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();
+					String blockId = blockId(state.getBlock());
 					candidates.add(new BlockObservationOrdering.Candidate(
 							x, y, z, blockId
 					));
@@ -1324,7 +1327,9 @@ public final class ServerObservationCollector {
 				}
 			}
 		}
-		List<BlockObservationOrdering.Candidate> blocks = BlockObservationOrdering.ordered(candidates);
+		// The loop visits each cell once, so the candidates sit at distinct cells of the scan box.
+		List<BlockObservationOrdering.Candidate> blocks = BlockObservationOrdering.orderedByRank(
+				candidates, BLOCK_SCAN_RANKS, BLOCK_RADIUS, BLOCK_VERTICAL_RADIUS);
 		containers.sort(Comparator.comparingDouble(RawSpatialObservation.ContainerCandidate::distanceSquared)
 				.thenComparingInt(RawSpatialObservation.ContainerCandidate::y)
 				.thenComparingInt(RawSpatialObservation.ContainerCandidate::x)
@@ -1603,12 +1608,15 @@ public final class ServerObservationCollector {
 			ServerPlayer agent,
 			BlockPos center
 	) {
-		Map<Long, VisibleSurfaceCandidate> candidates = new HashMap<>();
+		// Primitive-keyed maps: a boxed Long hashes a chunk key to chunkX ^ chunkZ, so a view's chunks pile into a few
+		// HashMap bins. Lookup-only, except candidates, whose values are sorted on a total order below.
+		Long2ObjectOpenHashMap<VisibleSurfaceCandidate> candidates = new Long2ObjectOpenHashMap<>();
 		java.util.LinkedHashSet<BlockPos> hits = new java.util.LinkedHashSet<>();
 		java.util.LinkedHashSet<BlockPos> openings = new java.util.LinkedHashSet<>();
-		Map<Long, Boolean> loadedChunks = new HashMap<>();
-		Map<Long, LevelChunk> sightChunks = new HashMap<>();
-		Map<Long, Boolean> nonAirSightSections = new HashMap<>();
+		Long2ObjectOpenHashMap<Boolean> loadedChunks = new Long2ObjectOpenHashMap<>();
+		Long2ObjectOpenHashMap<LevelChunk> sightChunks = new Long2ObjectOpenHashMap<>();
+		Long2ObjectOpenHashMap<Boolean> nonAirSightSections = new Long2ObjectOpenHashMap<>();
+		SightSectionMemo lastSection = new SightSectionMemo();
 		Vec3 eye = agent.getEyePosition();
 		for (int pitchOffset : SIGHT_PITCH_OFFSETS) {
 			float pitch = net.minecraft.util.Mth.clamp(agent.getXRot() + pitchOffset, -90.0F, 90.0F);
@@ -1626,7 +1634,7 @@ public final class ServerObservationCollector {
 					agent
 				);
 				if (!rayContainsNonAir(eye, endpoint, clip,
-						position -> hasNonAirSightState(level, position, loadedChunks, sightChunks, nonAirSightSections))) continue;
+						position -> hasNonAirSightState(level, position, loadedChunks, sightChunks, nonAirSightSections, lastSection))) continue;
 				BlockHitResult hit = level.clip(clip);
 				if (hit.getType() != HitResult.Type.BLOCK) continue;
 				BlockPos position = hit.getBlockPos();
@@ -1643,7 +1651,7 @@ public final class ServerObservationCollector {
 				if (distanceSquared <= (double) BLOCK_RADIUS * BLOCK_RADIUS
 						&& withinLocalBlockScan(center, position)) continue;
 				String blockId = BuiltInRegistries.BLOCK.getKey(level.getBlockState(position).getBlock()).toString();
-				candidates.putIfAbsent(position.asLong(), new VisibleSurfaceCandidate(
+				if (!candidates.containsKey(position.asLong())) candidates.put(position.asLong(), new VisibleSurfaceCandidate(
 						position.getX() - center.getX(),
 						position.getY() - center.getY(),
 						position.getZ() - center.getZ(),
@@ -1672,32 +1680,64 @@ public final class ServerObservationCollector {
 				context -> false);
 	}
 
+	/**
+	 * The section the previous sight cell resolved to, set only once its chunk was found loaded and present. The three
+	 * maps it stands in front of are write-once within one sightRays call, so a repeat lookup returns the same answer.
+	 */
+	private static final class SightSectionMemo {
+		private boolean valid;
+		private int chunkX;
+		private int sectionY;
+		private int chunkZ;
+		private LevelChunk chunk;
+		private int sectionIndex;
+		private boolean nonAir;
+	}
+
 	private static boolean hasNonAirSightState(
 			ServerLevel level,
 			BlockPos position,
-			Map<Long, Boolean> loadedChunks,
-			Map<Long, LevelChunk> sightChunks,
-			Map<Long, Boolean> nonAirSightSections
+			Long2ObjectOpenHashMap<Boolean> loadedChunks,
+			Long2ObjectOpenHashMap<LevelChunk> sightChunks,
+			Long2ObjectOpenHashMap<Boolean> nonAirSightSections,
+			SightSectionMemo last
 	) {
 		if (level.getChunkSource() == null) return !level.getBlockState(position).isAir();
-		if (!hasLoadedChunk(level, position, loadedChunks)) return true;
 		int chunkX = position.getX() >> 4;
 		int chunkZ = position.getZ() >> 4;
-		long chunkKey = ChunkPos.pack(chunkX, chunkZ);
-		LevelChunk chunk = sightChunks.computeIfAbsent(chunkKey,
-				ignored -> level.getChunkSource().getChunkNow(chunkX, chunkZ));
-		if (chunk == null) return true;
 		int sectionY = position.getY() >> 4;
-		int sectionIndex = level.getSectionIndexFromSectionY(sectionY);
-		LevelChunkSection[] sections = chunk.getSections();
-		if (sectionIndex < 0 || sectionIndex >= sections.length) return false;
-		long sectionKey = BlockPos.asLong(chunkX, sectionY, chunkZ);
-		boolean hasNonAir = nonAirSightSections.computeIfAbsent(sectionKey, ignored -> {
-			LevelChunkSection section = sections[sectionIndex];
-			return !section.hasOnlyAir();
-		});
-		if (!hasNonAir) return false;
-		return !sections[sectionIndex].getBlockState(
+		if (!last.valid || last.chunkX != chunkX || last.sectionY != sectionY || last.chunkZ != chunkZ) {
+			if (!hasLoadedChunk(level, position, loadedChunks)) return true;
+			long chunkKey = ChunkPos.pack(chunkX, chunkZ);
+			LevelChunk chunk = sightChunks.get(chunkKey);
+			if (chunk == null) {
+				// A chunk not yet present is asked again on the next cell, as HashMap.computeIfAbsent did.
+				chunk = level.getChunkSource().getChunkNow(chunkX, chunkZ);
+				if (chunk == null) return true;
+				sightChunks.put(chunkKey, chunk);
+			}
+			int sectionIndex = level.getSectionIndexFromSectionY(sectionY);
+			LevelChunkSection[] sections = chunk.getSections();
+			boolean nonAir = false;
+			if (sectionIndex >= 0 && sectionIndex < sections.length) {
+				long sectionKey = BlockPos.asLong(chunkX, sectionY, chunkZ);
+				Boolean cachedNonAir = nonAirSightSections.get(sectionKey);
+				if (cachedNonAir == null) {
+					cachedNonAir = !sections[sectionIndex].hasOnlyAir();
+					nonAirSightSections.put(sectionKey, cachedNonAir);
+				}
+				nonAir = cachedNonAir;
+			}
+			last.valid = true;
+			last.chunkX = chunkX;
+			last.sectionY = sectionY;
+			last.chunkZ = chunkZ;
+			last.chunk = chunk;
+			last.sectionIndex = sectionIndex;
+			last.nonAir = nonAir;
+		}
+		if (!last.nonAir) return false;
+		return !last.chunk.getSections()[last.sectionIndex].getBlockState(
 				position.getX() & 15, position.getY() & 15, position.getZ() & 15).isAir();
 	}
 
@@ -1763,7 +1803,7 @@ public final class ServerObservationCollector {
 		}
 	}
 
-	private static boolean hasLoadedChunk(ServerLevel level, BlockPos position, Map<Long, Boolean> loadedChunks) {
+	private static boolean hasLoadedChunk(ServerLevel level, BlockPos position, Long2ObjectOpenHashMap<Boolean> loadedChunks) {
 		long chunkKey = (((long) (position.getX() >> 4)) << 32)
 				^ ((long) (position.getZ() >> 4) & 0xffffffffL);
 		Boolean loaded = loadedChunks.get(chunkKey);
@@ -1808,8 +1848,23 @@ public final class ServerObservationCollector {
 		BlockPos position = center.offset(candidate.x(), candidate.y(), candidate.z());
 		BlockState state = Objects.requireNonNull(stateAt.apply(position), "stateAt must not return null");
 		if (state.isAir()) return null;
-		String blockId = BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();
+		String blockId = blockId(state.getBlock());
 		return new BlockObservationOrdering.Candidate(candidate.x(), candidate.y(), candidate.z(), blockId);
+	}
+
+	private static final java.util.concurrent.ConcurrentHashMap<net.minecraft.world.level.block.Block, String> BLOCK_IDS =
+			new java.util.concurrent.ConcurrentHashMap<>();
+
+	/**
+	 * The block's registry id as one shared String per block: equal to {@code BLOCK.getKey(block).toString()} (a frozen
+	 * registry never re-keys a block), without a new String per cell, so per-type counters match keys by identity.
+	 */
+	static String blockId(net.minecraft.world.level.block.Block block) {
+		String id = BLOCK_IDS.get(block);
+		if (id != null) return id;
+		id = BuiltInRegistries.BLOCK.getKey(block).toString();
+		String prior = BLOCK_IDS.putIfAbsent(block, id);
+		return prior != null ? prior : id;
 	}
 
 	static JsonArray nearbyTransactionTargets(

@@ -252,6 +252,9 @@ export const FAILURE_CODES = Object.freeze({
 	FALLING_BLOCKS: ['threat', null],
 	// A bailout latches the threshold before retreat; its terminal receipt need not reflect the current health.
 	LOW_HEALTH_BAILOUT: ['threat', null],
+	// A melee on a perched dragon's part ended because it stopped perching (CombatBailout.dragonTakeoff): the dragon's own
+	// phase, not a request the model can change.
+	DRAGON_TOOK_OFF: ['entity', null],
 	ON_FIRE: ['threat', 'no new damaging fire contact during the action', ['inFire && !fire', 'HazardExits.fireResistant(player)', 'if (player.isOnFire())']],
 	SHIELD_USE_INTERRUPTED: ['threat', null],
 	VOID_EDGE: ['threat', 'sneak or jump held, or ground stays beneath you', ['VoidEdge.ahead(']],
