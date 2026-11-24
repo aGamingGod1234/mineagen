@@ -46,7 +46,7 @@ public final class BuildPlanVerification {
 			if (ServerBuildController.order(portal.frame(), List.of(), cell -> false) != null) throw new AssertionError("A frame in the air has no order");
 			checks++;
 		}
-		return checks + verifyCastPlan() + verifySpill() + verifyCrossPour() + verifyCastTiming() + verifyCastBlocks() + verifyMaterials() + verifyHoleLanding() + verifyLineCells() + verifyStepCrouch() + verifyCarve();
+		return checks + verifyCastPlan() + verifySpill() + verifyCrossPour() + verifyCastTiming() + verifyCastBlocks() + verifyMaterials() + verifyHoleLanding() + verifyLineCells() + verifyStepCrouch() + verifyCarve() + verifyWayRound();
 	}
 
 	/**
@@ -138,6 +138,37 @@ public final class BuildPlanVerification {
 			if (ServerBuildController.spillMeetsLava(world, portal, wall, ServerBuildController.QUICK_SPILL_CELLS))
 				throw new AssertionError("Water scooped the tick after it lands, down a sloping floor toward a pool " + pool + " cells out, frame axis " + portal.axis() + ", met lava");
 			checks += 2;
+		}
+		return checks;
+	}
+
+	/**
+	 * A pool behind the mould on flat stone: reached round the frame's ends while they are open, not once walls close both
+	 * ends (each fetch would be walled off by the mould), nor when the pool lies sealed under rock beside an open shore.
+	 */
+	private static int verifyWayRound() {
+		int checks = 0;
+		for (Direction.Axis axis : new Direction.Axis[] { Direction.Axis.X, Direction.Axis.Z }) {
+			var portal = new ServerBuildController.Portal(new BlockPos(10, 64, -5), axis);
+			Direction wall = portal.normal();
+			BlockPos source = portal.at(1, 0).relative(wall, 4);
+			BlockPos along = portal.at(1, 0).subtract(portal.at(0, 0));
+			for (int shape = 0; shape < 3; shape++) {
+				final int walled = shape;
+				java.util.function.Function<BlockPos, BlockState> world = cell -> {
+					if (cell.equals(source)) return Blocks.LAVA.defaultBlockState();
+					if (cell.getY() <= 64) return Blocks.STONE.defaultBlockState();
+					BlockPos d = cell.subtract(portal.origin());
+					int i = d.getX() * along.getX() + d.getZ() * along.getZ();
+					if (walled == 1 && (i == -1 || i == 4)) return Blocks.STONE.defaultBlockState();
+					if (walled == 2 && cell.equals(source.above())) return Blocks.STONE.defaultBlockState();
+					return Blocks.AIR.defaultBlockState();
+				};
+				boolean way = ServerBuildController.wayRound(cell -> world.apply(cell).isAir(), cell -> world.apply(cell).is(Blocks.STONE),
+						cell -> world.apply(cell).is(Blocks.LAVA), portal, wall, List.of(source));
+				if (way != (walled == 0)) throw new AssertionError("Way round to a pool behind the mould, axis " + axis + ", shape " + walled + ": " + way);
+				checks++;
+			}
 		}
 		return checks;
 	}

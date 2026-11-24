@@ -190,12 +190,7 @@ public final class ServerBuildController implements ServerController {
 	/** Walks during a build plan over what the build remembers (cells it dug, rock it saw), not only what is in sight now. */
 	static final boolean WALK_MEMORY = !"off".equalsIgnoreCase(System.getenv("MINEAGEN_BUILD_WALK_MEMORY"));
 	static final int CARVE_RADIUS = 10;
-	/** How near the pool a carved frame's middle may sit; MINEAGEN_BUILD_CARVE_MARGIN sets it for a same-batch A/B. */
-	static final double CARVE_POOL_MARGIN = carveMargin(System.getenv("MINEAGEN_BUILD_CARVE_MARGIN"));
-
-	static double carveMargin(String text) {
-		try { return text == null || text.isBlank() ? 6.0D : Math.max(3.0D, Double.parseDouble(text.trim())); } catch (NumberFormatException bad) { return 6.0D; }
-	}
+	static final double CARVE_POOL_MARGIN = 6.0D;
 	/**
 	 * Open pool sources a cast wants in view before it starts: one bucket per frame cell and two spare. A pool met from the
 	 * side or through one opened block shows one source (sight stops at the first lava), and a scooped source refills as
@@ -759,7 +754,6 @@ public final class ServerBuildController implements ServerController {
 				carved = null;
 			}
 			if (carve(player, pool, plain)) return running();
-			if (carveToolStop != null) return fail(player, "TOOL_WORN", carveToolStop);
 			best = kept;
 		}
 		if (best == null && carved != null) {
@@ -770,7 +764,6 @@ public final class ServerBuildController implements ServerController {
 		// Nothing seen by the lava is open floor (find's own tunnel, a closed cave): dig a site into the rock beside a spot
 		// the body can stand on, as a player does, before walking off to look for level ground.
 		if (best == null && casting && carves < MAX_CARVES && !pool.isEmpty() && carve(player, pool, plain)) return running();
-		if (carveToolStop != null) return fail(player, "TOOL_WORN", carveToolStop);
 		if (best == null && relocations < MAX_RELOCATIONS && requested == null) return relocate(player, now);
 		if (best == null)
 			return fail(player, "BUILD_NO_SITE", "No flat, dry 4-wide site within " + SITE_RADIUS + " blocks of " + xyz(center) + ": " + siteRejects + nextSite());
@@ -1611,17 +1604,17 @@ public final class ServerBuildController implements ServerController {
 		// The poured water must not run into the pool: lava it meets is cast where it lies, out of a bucket's use. Scooped
 		// the tick after it lands, it stays in its cell.
 		if (spillMeetsLava(cell -> known(player, cell), p, wall, QUICK_SPILL_CELLS)) { rejects[8]++; return Double.MAX_VALUE; }
+		// The pours are made from in front: with the mould between the frame and the pool, each of the ten trips goes round
+		// the frame, and the frame's growing columns hide the way. Once the mould is up it closes the back of the whole plane,
+		// so with no seen way round, each fetch after the first pours is walled off from the pool (cast-gate-5c: 3 of 10
+		// cells cast, then every walk to the pool ended at the new mould).
+		boolean behind = nearest != null && Vec3.atCenterOf(nearest).distanceTo(Vec3.atCenterOf(p.at(1, 1).relative(wall, 2)))
+				< Vec3.atCenterOf(nearest).distanceTo(Vec3.atCenterOf(p.at(1, 1).relative(front, 2)));
+		if (WAY_ROUND && behind && !wayRound(player, level, p, wall, pool)) { rejects[11]++; return Double.MAX_VALUE; }
 		// Last, so a site refused here lacks only blocks.
 		int need = castBlocks(blocks);
 		if (need > plain) { rejects[9]++; rejects[10] = Math.min(rejects[10], need); return Double.MAX_VALUE; }
-		// The pours are made from in front: with the mould between the frame and the pool, each of the ten trips goes round
-		// the frame, and the frame's growing columns hide the way.
-		double round = nearest != null && Vec3.atCenterOf(nearest).distanceTo(Vec3.atCenterOf(p.at(1, 1).relative(wall, 2)))
-				< Vec3.atCenterOf(nearest).distanceTo(Vec3.atCenterOf(p.at(1, 1).relative(front, 2))) ? 3.0D : 0.0D;
-		// Once the mould is up it closes the back of the whole plane: a pool behind it is reached only round the frame's ends.
-		// With no seen way round, each fetch after the first pours finds itself walled off from the pool (cast-gate-5c: 3 of
-		// 10 cells cast, then every walk to the pool ended at the new mould).
-		if (WAY_ROUND && round > 0.0D && !wayRound(player, level, p, wall, pool)) { rejects[11]++; return Double.MAX_VALUE; }
+		double round = behind ? 3.0D : 0.0D;
 		return 0.6D * blocks + 0.4D * near + 0.8D * rise + clearing + round;
 	}
 
@@ -1953,30 +1946,7 @@ public final class ServerBuildController implements ServerController {
 	 * center, the frame two cells from the spot (the row between dug too), within reach of the pool, fewest cells to dig
 	 * and nearest first. True when the dig starts; false (with the reasons added to the site rejects) when none fits.
 	 */
-	/** Uses a cast may take beyond its carves' own cells: the frame's foot, the site clearing and the fetch's digs. */
-	static final int CARVE_USE_MARGIN = 40;
-	/**
-	 * On only with MINEAGEN_BUILD_PICK_CHECK=on: stopping for a fresh pickaxe lost 8 of 104 start-at-lava rooms in a same-batch
-	 * A/B, because making one beside the pool stops on lava heard nearby.
-	 */
-	static final boolean PICK_CHECK = "on".equalsIgnoreCase(System.getenv("MINEAGEN_BUILD_PICK_CHECK"));
-	/** Set when a carve was ruled out only by the pickaxes carried: the build stops with TOOL_WORN so a fresh one is made first. */
-	private String carveToolStop;
-
-	/** Uses left on every carried item that mines deepslate faster than the hand and harvests it, not counting worn ones. */
-	private static int pickUses(ServerPlayer player) {
-		BlockState rock = Blocks.DEEPSLATE.defaultBlockState();
-		int uses = 0;
-		for (int slot = 0; slot < 36; slot++) {
-			ItemStack stack = player.getInventory().getItem(slot);
-			if (stack.isEmpty() || !stack.isDamageableItem() || stack.getDestroySpeed(rock) <= 1.0F || !stack.isCorrectToolForDrops(rock)) continue;
-			uses += Math.max(0, stack.getMaxDamage() - stack.getDamageValue() - ServerDigController.WORN_USES);
-		}
-		return uses;
-	}
-
 	private boolean carve(ServerPlayer player, List<BlockPos> pool, int plain) {
-		carveToolStop = null;
 		ServerLevel level = (ServerLevel) player.level();
 		java.util.function.BiPredicate<BlockPos, BlockState> rock = (cell, state) -> state.isCollisionShapeFullBlock(level, cell)
 				&& state.getFluidState().isEmpty() && !(state.getBlock() instanceof EntityBlock);
@@ -2023,16 +1993,6 @@ public final class ServerBuildController implements ServerController {
 					+ "or %.0f above or below, or within %.0f of, the lava, %d with water or lava seen in or beside the dig or the ground not rock, %d short of plain blocks for the mould, "
 					+ "%d with lava heard right behind a cell the dig would break)",
 					stands, CARVE_RADIUS, far, CAST_POOL_REACH, CAST_RISE, CARVE_POOL_MARGIN, ruled, blocks, heard);
-			return false;
-		}
-		// A player checks the pick before a big dig: the carve, the frame's foot and the fetch's digs after it take about
-		// this many uses, and a pick that breaks partway leaves deepslate too slow to clear by hand (kit-gate-6: 4 of 4 casts
-		// carved with a stone pick at 49 uses, then refused the site on its ground row and ran out of time). The first carve
-		// budgets for a second one: a refused site and a second carve took about 101 uses against 71 carried.
-		int uses = pickUses(player), need = (carves == 0 ? 2 : 1) * bestDig + CARVE_USE_MARGIN;
-		if (PICK_CHECK && uses < need) {
-			carveToolStop = String.format(Locale.ROOT, "the pickaxes carried have %d uses left and the cast site at %s needs about %d (%d cells to dig, then the frame's foot and the fetch); "
-					+ "make a fresh pickaxe, then build again", uses, xyz(best.origin()), need, bestDig);
 			return false;
 		}
 		carves++;
@@ -3119,35 +3079,53 @@ public final class ServerBuildController implements ServerController {
 	static final boolean WAY_ROUND = !"off".equalsIgnoreCase(System.getenv("MINEAGEN_BUILD_WAY_ROUND"));
 
 	/**
-	 * Whether seen standing cells join a spot in front of the frame to a dry spot beside a pool source without crossing the
-	 * frame's plane, the mould behind it or the cell behind the opening (all closed once the mould is up).
+	 * Whether seen standing cells join a spot in front of the frame to a spot a bucket reaches a pool source from, without
+	 * crossing the frame's plane or the mould behind it (both closed once the mould is up). The row in front of the frame
+	 * counts as open: the site clearing mines it first.
 	 */
 	private boolean wayRound(ServerPlayer player, ServerLevel level, Portal p, Direction wall, List<BlockPos> pool) {
+		java.util.function.Predicate<BlockPos> open = cell -> {
+			BlockState state = known(player, cell);
+			return state != null && state.getCollisionShape(level, cell).isEmpty() && state.getFluidState().isEmpty() && !TravelBuilder.fire(state);
+		};
+		java.util.function.Predicate<BlockPos> floor = cell -> {
+			BlockState state = known(player, cell);
+			return state != null && state.isFaceSturdy(level, cell, Direction.UP) && state.getFluidState().isEmpty();
+		};
+		return wayRound(open, floor, cell -> TravelBuilder.lava(known(player, cell)), p, wall, pool);
+	}
+
+	static boolean wayRound(java.util.function.Predicate<BlockPos> seenOpen, java.util.function.Predicate<BlockPos> floor,
+			java.util.function.Predicate<BlockPos> lava, Portal p, Direction wall, List<BlockPos> pool) {
 		Direction front = wall.getOpposite();
-		Set<BlockPos> closed = new HashSet<>();
+		Set<BlockPos> closed = new HashSet<>(), cleared = new HashSet<>();
 		for (int i = 0; i <= 3; i++) for (int y = 0; y <= 4; y++) {
 			closed.add(p.at(i, y).immutable());
 			closed.add(p.at(i, y).relative(wall).immutable());
+			if (y >= 1) cleared.add(p.at(i, y).relative(front).immutable());
 		}
+		java.util.function.Predicate<BlockPos> open = cell -> !closed.contains(cell) && (cleared.contains(cell) || seenOpen.test(cell));
+		java.util.function.Predicate<BlockPos> stand = at -> {
+			if (closed.contains(at.below()) || cleared.contains(at.below()) || !floor.test(at.below()) || !open.test(at) || !open.test(at.above())) return false;
+			for (Direction side : Direction.Plane.HORIZONTAL) if (lava.test(at.relative(side))) return false;
+			return true;
+		};
 		java.util.ArrayDeque<BlockPos> queue = new java.util.ArrayDeque<>();
 		Set<BlockPos> seen = new HashSet<>();
 		for (int dy : new int[] { 0, 1, -1 }) for (int k = 1; k <= 3; k++) for (int i = 0; i <= 3; i++) {
 			BlockPos at = p.at(i, 1 + dy).relative(front, k).immutable();
-			if (!closed.contains(at) && !closed.contains(at.above()) && standable(player, level, at) && seen.add(at)) queue.add(at);
+			if (stand.test(at) && seen.add(at)) queue.add(at);
 		}
 		BlockPos origin = p.at(1, 1);
 		while (!queue.isEmpty() && seen.size() < 3000) {
 			BlockPos at = queue.poll();
-			for (BlockPos source : pool)
-				if (Math.abs(source.getX() - at.getX()) <= 2 && Math.abs(source.getZ() - at.getZ()) <= 2 && at.getY() - source.getY() >= 0 && at.getY() - source.getY() <= 2) return true;
+			for (BlockPos source : pool) if (scoopsFrom(open, at, source)) return true;
 			for (Direction side : Direction.Plane.HORIZONTAL) for (int dy = -1; dy <= 1; dy++) {
 				BlockPos next = at.relative(side).above(dy).immutable();
-				if (seen.contains(next) || next.distManhattan(origin) > 40) continue;
-				if (closed.contains(next) || closed.contains(next.above()) || dy > 0 && closed.contains(at.above(2))) continue;
-				if (!standable(player, level, next)) continue;
+				if (seen.contains(next) || next.distManhattan(origin) > 40 || !stand.test(next)) continue;
 				// A step up needs the cell over the head open; a step down the cell over the lower one's head.
-				if (dy > 0 && !open(player, level, at.above(2))) continue;
-				if (dy < 0 && !open(player, level, next.above(2))) continue;
+				if (dy > 0 && !open.test(at.above(2))) continue;
+				if (dy < 0 && !open.test(next.above(2))) continue;
 				seen.add(next);
 				queue.add(next);
 			}
@@ -3155,9 +3133,17 @@ public final class ServerBuildController implements ServerController {
 		return false;
 	}
 
-	private boolean open(ServerPlayer player, ServerLevel level, BlockPos cell) {
-		BlockState state = known(player, cell);
-		return state != null && state.getCollisionShape(level, cell).isEmpty() && state.getFluidState().isEmpty();
+	/**
+	 * Whether a body standing at {@code at} reaches the source with a bucket: the source open on top, at most 2 blocks below
+	 * the feet and 2 across, with the column between (when 2 across) open from the source's top up to the eyes.
+	 */
+	static boolean scoopsFrom(java.util.function.Predicate<BlockPos> open, BlockPos at, BlockPos source) {
+		int dx = source.getX() - at.getX(), dz = source.getZ() - at.getZ(), drop = at.getY() - source.getY();
+		if (Math.abs(dx) > 2 || Math.abs(dz) > 2 || drop < 0 || drop > 2 || !open.test(source.above())) return false;
+		if (Math.max(Math.abs(dx), Math.abs(dz)) < 2) return true;
+		BlockPos between = source.offset(-Integer.signum(dx), 0, -Integer.signum(dz));
+		for (int y = source.getY() + 1; y <= at.getY() + 1; y++) if (!open.test(new BlockPos(between.getX(), y, between.getZ()))) return false;
+		return true;
 	}
 
 	/** MINEAGEN_BUILD_WALK_DIAGNOSTICS=on logs what sight, the build's memory and the world hold round a walk's frontier. */
@@ -3184,10 +3170,10 @@ public final class ServerBuildController implements ServerController {
 		return state.getFluidState().isEmpty() || state.getFluidState().isSource() ? name : name + "~";
 	}
 
-	/** What the build remembers of the ground, for travel: rock and opened cells, then the cells stood in (newest wins). */
+	/** What the build remembers of the ground, for travel: the cells stood in, then rock seen and cells it opened (kept current, so they win). */
 	private Map<BlockPos, BlockState> walkMemory() {
-		Map<BlockPos, BlockState> memory = new HashMap<>(rockSeen);
-		memory.putAll(walkedGround);
+		Map<BlockPos, BlockState> memory = new HashMap<>(walkedGround);
+		memory.putAll(rockSeen);
 		return memory;
 	}
 
