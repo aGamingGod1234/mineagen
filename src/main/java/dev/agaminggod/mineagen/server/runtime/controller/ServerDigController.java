@@ -1846,16 +1846,6 @@ public final class ServerDigController implements ServerController {
 
 	private TickResult sealWater(ServerPlayer player, BlockPos opening, BlockPos fluid, String what) {
 		if (!sealFluids) return null;
-		// More water beside water already sealed below sea level: the seal plugged one face of an aquifer or flooded cave.
-		BlockPos mark = wetMarkNear(fluid, AQUIFER_MARK_REACH);
-		// Flowing water the seal cut off drains in a few spread ticks; only water that keeps coming is a second sign. A shaft
-		// landing judges its walls once, so it stops at once rather than re-running the landing while it waits.
-		if (mark != null && phase != Phase.SHAFT_FALL && !player.level().getFluidState(fluid).isSource() && drainTicks++ < DRAIN_TICKS) {
-			hold(player, 0.0F, false, false, player.getYRot(), player.getXRot());
-			return TickResult.running(progress(player));
-		}
-		if (mark != null) return stop(player, "WATER_AHEAD", what + "; more water after sealing water at " + cell(mark)
-				+ " below sea level: an aquifer or flooded cave, not a trickle; not going further");
 		if (sealsThisStep >= MAX_SEALS_PER_STEP || seals >= MAX_SEALS)
 			return stop(player, "WATER_AHEAD", what + "; water keeps coming after " + seals + " blocks placed into it (a lake or aquifer); not going further");
 		BlockPos target = fluid;
@@ -1872,6 +1862,17 @@ public final class ServerDigController implements ServerController {
 				}
 			}
 		}
+		// Water still filling the cut beside water already sealed below sea level, with no feeder the eye sees to plug: it
+		// comes through a face it cannot see, as from an aquifer or flooded cave behind the seal. Flowing water the seal cut
+		// off drains in a few spread ticks, so it gets those first; water that keeps coming stops the dig. A shaft landing
+		// judges its walls once, so it stops at once rather than re-running the landing while it waits.
+		BlockPos mark = target.equals(fluid) && (cells.contains(fluid) || cut.contains(fluid) || isBody(player, fluid)) ? wetMarkNear(fluid, AQUIFER_MARK_REACH) : null;
+		if (mark != null && phase != Phase.SHAFT_FALL && !player.level().getFluidState(fluid).isSource() && drainTicks++ < DRAIN_TICKS) {
+			hold(player, 0.0F, false, false, player.getYRot(), player.getXRot());
+			return TickResult.running(progress(player));
+		}
+		if (mark != null) return stop(player, "WATER_AHEAD", what + "; it keeps coming after sealing water at " + cell(mark)
+				+ " below sea level, from no face in sight: an aquifer or flooded cave behind the seal; not going further");
 		if (isBody(player, target) || target.distToCenterSqr(player.getEyePosition()) > 20.0D) return null;
 		// Water on three or more sides of the cell is a body of water (an aquifer, a lake), not a trickle: the model's call.
 		SeenTerrain.Reader<BlockState> around = SeenTerrain.of(player);
