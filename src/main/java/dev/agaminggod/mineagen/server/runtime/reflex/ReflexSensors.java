@@ -832,7 +832,8 @@ public final class ReflexSensors {
 	 */
 	static Reading drewAt(ServerPlayer player, ReflexSpec.Condition condition, Memory memory) {
 		if (!"attacked".equals(condition.type()) || condition.negated() || memory == null) return Reading.FALSE;
-		if (ReflexActions.Defend.shootingBeyondReach(player, player.getMainHandItem()) instanceof Mob drawing) {
+		// Drawing at this body: a skeleton shooting a golem or another player while it sees this one is not a shot at it.
+		if (ReflexActions.Defend.shootingBeyondReach(player, player.getMainHandItem()) instanceof Mob drawing && drawing.getTarget() == player) {
 			memory.noteDraw(drawing, player.tickCount);
 		}
 		Mob drew = memory.drewWithin(player, (int) Math.round(condition.number("withinS", 4.0D) * 20.0D));
