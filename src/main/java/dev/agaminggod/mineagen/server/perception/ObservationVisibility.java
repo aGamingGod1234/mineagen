@@ -225,8 +225,8 @@ public final class ObservationVisibility {
 
 	private static boolean seesPoint(BlockGetter level, CollisionContext context, Vec3 eye, BlockPos position, Vec3 target, Blockers blockers) {
 		// A ray through the inside of a full block already found in the way stops there, so the trace would only repeat it.
-		// Only for a point inside the target's own cell: the trace then reaches that cell last, after the block. A point on
-		// a shape reaching out of the cell (a piston rod) can meet the target first, which counts as seen.
+		// Only for a point inside the target's own cell: the trace then visits the block before the target. A point on a
+		// shape reaching out of the cell (a piston rod) can meet the target first, which counts as seen.
 		if (insideCell(target, position) && blockers.crosses(eye, target)) return false;
 		BlockHitResult hit = level.clip(new CellSightClip(eye, target, context, position));
 		if (hit.getType() != HitResult.Type.MISS && !hit.getBlockPos().equals(position)) {
@@ -279,16 +279,15 @@ public final class ObservationVisibility {
 	 * inside of one (kept a margin clear of its faces, so edge and
 	 * corner grazes never count) is stopped by it or by a block before it: the trace visits every cell whose inside
 	 * the ray crosses, and a full block's shape reports a ray that enters it from outside. A cell ray is only skipped
-	 * when it ends inside the target's own cell, which the trace then reaches last, after that block, so the ray would
-	 * fail; skipping its trace gives the same answer. A ray ending on a shape that reaches out of its cell (a piston
+	 * when it ends inside the target's own (closed) cell: the trace steps monotonically along each axis, so a block whose
+	 * inside the ray crosses is visited before the target, and the ray would fail; skipping its trace gives the same answer. A ray ending on a shape that reaches out of its cell (a piston
 	 * rod) can meet the target before the block and is traced in full. Entity rays fail on any block.
 	 *
 	 * <p>Not kept: a block the eye is in or touches, since a ray that starts inside a block can leave it unreported.
 	 * Not skipped: a ray shorter than about 1e-3 blocks, since vanilla's shape test misses every ray under its minimum
 	 * length (squared 1e-7); and a ray longer than {@link #MAX_SKIP_DISTANCE}, since the trace's grid stepping drifts with each cell
 	 * and over millions of cells can step past a block corner by more than the margin. At this length the drift stays
-	 * below a millionth of the margin. The margin must also stay well above 7.6e-5: a shorter crossing than the shape
-	 * clip's minimum ray length would go unreported.
+	 * below a millionth of the margin.
 	 */
 	static final class Blockers {
 		private static final double MARGIN = 1.0E-4D;
