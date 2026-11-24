@@ -160,7 +160,10 @@ for (let run = 0; run < runs; run++) {
 		row.tick = { rate: s.tickRate, held: await s.tickReport() };
 		row.escaped = actions.some((a) => a.actionType === 'escape' && a.reasonCode === 'ESCAPED');
 		// A dig that stops before its hole floods needs no escape: the escape bar is met by getting out, or by never going in.
-		row.neverFlooded = !actions.some((a) => a.actionType === 'escape') && row.wetDigsAtSpot > 0 && row.result.state !== 'ERROR';
+		// Kept dry, shown: a dig down from the spot stopped at the water, no action ran or ended with the body in water, and the
+		// find went on to its sighting.
+		row.neverFlooded = !actions.some((a) => a.actionType === 'escape' || /under water|in the water|afloat|swim/i.test(a.message ?? ''))
+			&& row.wetDigsAtSpot > 0 && row.result.state === 'SUCCEEDED' && row.result.reasonCode === 'FIND_SEEN';
 		row.pass = (fixture.bar === 'escape' ? row.escaped || row.neverFlooded : row.result.state === 'SUCCEEDED' && row.result.reasonCode === 'FIND_SEEN')
 			&& row.deaths === 0 && row.damageTaken === 0;
 		row.end = latest?.position ? [Math.round(latest.position.x), Math.round(latest.position.y), Math.round(latest.position.z)] : null;
