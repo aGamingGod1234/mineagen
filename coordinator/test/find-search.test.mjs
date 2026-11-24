@@ -212,6 +212,41 @@ test('lava heard behind a block the dig will not break is opened from two cells 
 	assert.equal(body.calls.find((call) => call.actionType === 'move_to').args.timeoutMs, undefined, 'move_to takes no timeoutMs');
 });
 
+test('lava heard below a tunnel at depth: the peek opens the floor under the opened block, steps up beside the hole and looks down into it', async () => {
+	const heardBelow = { result: { state: 'FAILED', reasonCode: 'LAVA_AHEAD', message: 'Stopped: Lava is heard below this block, about 2 block(s) away; not breaking minecraft:deepslate at 0,-53,1; pool coordinates not seen' } };
+	const run = (env, extra = {}) => {
+		const body = fakeBody({
+			start: sample({ player: { x: 0.5, y: -54, z: 0.5, yaw: 0, health: 20 } }),
+			frontier: { candidates: [], coverage: { headings: {} } },
+			acts: {
+				dig_to: [heardBelow],
+				move_to: [1, 2, 3].map(() => ({ move: (player, args) => ({ x: args.x, z: args.z }), result: { state: 'SUCCEEDED' } })),
+				break_block: [{ result: { state: 'SUCCEEDED' } }, { result: { state: 'SUCCEEDED' } }, { result: { state: 'SUCCEEDED' } }],
+				look_at: [{ result: { state: 'SUCCEEDED' } }, { result: { state: 'SUCCEEDED' }, then: { blocks: [{ blockId: 'minecraft:lava', x: 0, y: -56, z: 1 }] } }],
+				...extra,
+			},
+		});
+		const before = process.env.MINEAGEN_FIND_PEEK_DOWN;
+		if (env !== undefined) process.env.MINEAGEN_FIND_PEEK_DOWN = env;
+		return searchFor({ block: 'minecraft:lava' }, body, { timeoutMs: 200_000 }).then((result) => ({ result, body }), (error) => { throw error; })
+			.finally(() => { if (before === undefined) delete process.env.MINEAGEN_FIND_PEEK_DOWN; else process.env.MINEAGEN_FIND_PEEK_DOWN = before; });
+	};
+	const { result, body } = await run(undefined);
+	assert.equal(result.reasonCode, 'FIND_SEEN', result.message);
+	const breaks = body.calls.filter((call) => call.actionType === 'break_block').map((call) => `${call.args.x},${call.args.y},${call.args.z}`);
+	// The refused upper block, the block under it at the feet' height, then the tunnel floor under that: never a cell under the body.
+	assert.deepEqual(breaks, ['0,-53,1', '0,-54,1', '0,-55,1']);
+	assert.ok(body.calls.filter((call) => call.actionType === 'break_block').every((call) => call.args.acceptLavaRisk === true));
+	const moves = body.calls.filter((call) => call.actionType === 'move_to').map((call) => call.args.z);
+	assert.deepEqual(moves, [-1.5, 0.5], 'two cells back to open it, then up beside the hole');
+	const looks = body.calls.filter((call) => call.actionType === 'look_at').map((call) => call.args.y);
+	assert.equal(looks.at(-1), -55.5, 'looks down into the opened floor');
+	// The A/B off arm: the side peek only, no floor opened.
+	const off = await run('off');
+	assert.deepEqual(off.body.calls.filter((call) => call.actionType === 'break_block').map((call) => call.args.y).slice(0, 1), [-53]);
+	assert.equal(off.body.calls.some((call) => call.actionType === 'break_block' && call.args.y === -55), false);
+});
+
 test('a lava search below its tunnel level (steep_down lands a block low) climbs one stair before the tunnel, so pools are met from above', async () => {
 	const body = fakeBody({
 		start: sample({ player: { x: 0.5, y: -55, z: 0.5, yaw: 0, health: 20 } }),
