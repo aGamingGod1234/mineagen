@@ -146,6 +146,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 	private int meleeHeldTicks;
 	/** The running open part had a wall-in held back for a blaze in melee: its own retreat at the flee line finishes, not cut short by a wall-in once the blaze is out of reach. */
 	private boolean meleeHeldPart;
+	private long meleeHeldTick = Long.MIN_VALUE / 2;
 	private KillDropCollector collector;
 	/**
 	 * A rod that landed on a ledge above the feet (the platform round a fortress spawner, over the cell's floor) is
@@ -413,7 +414,8 @@ public final class ServerSpawnerHoldController implements ServerController {
 				try {
 					// While a wall-in is left the open fight's floor stays under TURTLE_HEALTH: the wall-in answers low health.
 					openPart = openTarget.apply(wallInLeft(player) ? SpawnerHold.TURTLE_HEALTH - 1.0F : null);
-					meleeHeldPart = false;
+					// A hold-back this tick (the fight starting with a blaze already in reach) carries into the new part.
+					meleeHeldPart = meleeHeldTick == player.level().getGameTime();
 				} catch (dev.agaminggod.mineagen.agent.AgentDomainException lost) {
 					// The named blaze went out of sight while the body healed walled in: the call ends as fight_target does for
 					// a target it cannot see (the model picks the next blaze), not with an exception.
@@ -1012,7 +1014,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 				e -> e.getType() == McEntityTypes.BLAZE && e instanceof net.minecraft.world.entity.Mob m && m.getTarget() == player
 						&& e.isAlive() && !e.isDeadOrDying())) {
 			if (mob.distanceToSqr(player) > reach || !mob.hasLineOfSight(player)) continue;
-			if (marginGone(player, 0.0D) && canWallIn(player)) { meleeHeldTicks++; meleeHeldPart = openPart != null; }
+			if (marginGone(player, 0.0D) && canWallIn(player)) { meleeHeldTicks++; meleeHeldPart = true; meleeHeldTick = player.level().getGameTime(); }
 			return true;
 		}
 		return false;
