@@ -1965,17 +1965,11 @@ final class ReflexActions {
 			}).isEmpty();
 		}
 
-		/** An angry enderman within {@link #HOLD_CLOSE_RANGE}: near enough to be on the body in a second. */
-		private static boolean angryEndermanClose(ServerPlayer player) {
-			return !player.level().getEntitiesOfClass(McCompat.ENDERMAN, player.getBoundingBox().inflate(HOLD_CLOSE_RANGE),
-					enderman -> enderman.isAlive() && McCompat.endermanCreepy(enderman) && player.distanceTo(enderman) <= HOLD_CLOSE_RANGE).isEmpty();
-		}
-
 		/**
 		 * Standing in water poured against an angry enderman: still, looking down at the water (never at an enderman's eyes),
-		 * until none has been near ({@link #angryEndermanNear}) for half a second, then the emptied bucket takes the source back. With
-		 * the dragon within 24 blocks (its swoop and breath want the body free) the scoop comes as soon as no angry enderman is
-		 * close. The hold ends with the water left after 10 s, or when the body has left the source.
+		 * until none has been near ({@link #angryEndermanNear}) for half a second, then the emptied bucket takes the source back. The
+		 * hold ends with the water left (as before) after 10 s, when the dragon comes within 24 blocks (its swoop and breath
+		 * want the body free), or when the body has left the source.
 		 */
 		private Step holdInWater(ServerPlayer player, Consumer<AgentInputState> input) {
 			Level level = player.level();
@@ -1994,10 +1988,7 @@ final class ReflexActions {
 			// (the full fight: 389 of 474 pours left with the dragon near; 17 of 37 deaths endermen, 10 dragon hits on those walks).
 			if (!dragonNear && calmTicks < CALM_TICKS && !level.getEntitiesOfClass(net.minecraft.world.entity.boss.enderdragon.EnderDragon.class,
 					player.getBoundingBox().inflate(HOLD_DRAGON_RANGE), Entity::isAlive).isEmpty()) dragonNear = true;
-			// An angry enderman still close keeps the body in the water even then: scooped with one on it, the next hits came
-			// with no cover and the pour waited out its cooldown (7 of 123 such scoops, 80 health and 2 deaths).
-			boolean hold = calmTicks < CALM_TICKS && (!dragonNear || angryEndermanClose(player));
-			if (hold) {
+			if (calmTicks < CALM_TICKS && !dragonNear) {
 				// Knocked onto dry ground within reach of the source, standing still would hold the body exposed: the hold ends
 				// (a few ticks first, for the body's water state to catch up with the pour).
 				if (holdTicks > HOLD_SETTLE_TICKS && !player.isInWater()) return Step.done(left + " (the body was pushed out of it)");
