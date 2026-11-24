@@ -21,6 +21,34 @@ export function serverJvmArgs(value = process.env.ARENA_HEADLESS_SERVER_JVM_ARGS
 	return args;
 }
 
+// A server template that carries the ServerReplay mod records every player for the showcase video. The agent is a
+// Carpet fake player, which ServerReplay's automatic recording skips, so the launcher asks for it on the console when
+// a player joins and again on a timer (repeats are refused while a recording runs). At the end the launcher stops the
+// recording, waits until the server log says the replay is saved, and only then stops the server, which it gives
+// longer than an unrecorded one before killing it. A replay cut off by a kill keeps only what was flushed to disk.
+export const REPLAY_START_COMMAND = 'replay start players @a';
+export const REPLAY_STOP_COMMAND = 'replay stop players @a';
+export const REPLAY_START_EVERY_MS = 20000;
+export const RECORDING_SAVE_MS = 60000;
+export const RECORDING_STOP_MS = 120000;
+// The longest a recording launcher takes to finish after SIGTERM: capture shutdown, the save wait and the stop wait.
+export const RECORDING_SHUTDOWN_MS = 15000 + RECORDING_SAVE_MS + RECORDING_STOP_MS;
+// Reads the whole server log and the offset where the stop-recording command was sent. The recording is settled once a
+// replay closed after the command, or the command found nothing to stop (the agent already left, which closes its
+// recording) and no save is still running; it is saved when it settled with a replay closed.
+export function replayState(log, from) {
+	const count = (text, pattern) => (text.match(pattern) ?? []).length;
+	const after = log.slice(from), closed = count(log, /Successfully closed replay /g);
+	const closedAfter = count(after, /Successfully closed replay /g) > 0;
+	const nothingToStop = /No player was found|Failed to stop any recordings|Successfully stopped 0 recordings/.test(after);
+	const saving = count(log, /Starting to save replay /g) > closed;
+	const settled = closedAfter || (nothingToStop && !saving);
+	return { settled, saved: settled && closed > 0, files: [...log.matchAll(/Successfully saved replay \S+ to (.+?), compressed to /g)].map(match => match[1]) };
+}
+export async function replayRecorderInstalled(modsDirectory) {
+	return (await readdir(modsDirectory).catch(() => [])).some(name => /^server-?replay.*\.jar$/i.test(name));
+}
+
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const text = file => readFile(file, 'utf8').catch(e => { if (e.code === 'ENOENT') return ''; throw e; });
 const json = (file, value) => writeFile(file, JSON.stringify(value, null, 2));
@@ -120,11 +148,12 @@ export async function runMatrix(options) {
 				}
 				throw new Error(`${label}: timed out after ${timeout} ms`);
 			};
-			let server, coordinator, failure = null, cleanupFailure = null, runnerReport = null;
+			let server, coordinator, failure = null, cleanupFailure = null, runnerReport = null, recording = false, recorder = null, recordingReport = null;
 			try {
 				await cp(template, serverDirectory, { recursive: true, filter: entry => !/^mineagen-.*\.jar$/i.test(path.basename(entry)) });
 				await mkdir(path.join(serverDirectory, 'mods'), { recursive: true });
 				await copyFile(jar, path.join(serverDirectory, 'mods', path.basename(jar)));
+				recording = await replayRecorderInstalled(path.join(serverDirectory, 'mods'));
 				const ports = {};
 				for (const [key, name] of [['bridge', 'BRIDGE'], ['rcon', 'RCON'], ['minecraft', 'MINECRAFT']]) ports[key] = await freePort(Number(process.env[`ARENA_HEADLESS_${name}_PORT`] ?? 0), Object.values(ports));
 				const secret = randomBytes(32).toString('hex');
@@ -145,6 +174,14 @@ export async function runMatrix(options) {
 				await json(worldFile, world);
 				// The Watcher is off by default; quality reports (stage-score, watch-report, watch-time) read its arena-watch files.
 				server = start(process.env.ARENA_HEADLESS_JAVA ?? 'java', [`-Dmineagen.bridgePort=${ports.bridge}`, '-Dmineagen.coordinatorAutoStart=false', `-Dmineagen.bridgeSecretFile=${passwordFile}`, '-Dmineagen.watch=true', '-Xms1G', '-Xmx2G', ...serverJvmArgs(), '-jar', path.join(serverDirectory, 'fabric-server-launch.jar'), 'nogui'], serverDirectory, path.join(directory, 'logs/fabric'));
+				if (recording) {
+					// Start the moment the agent joins, so the recording holds its first steps; the timer covers a join line
+					// split across two output chunks.
+					server.stdin.on('error', () => {});
+					const startRecording = () => { if (!exited(server)) server.stdin.write(REPLAY_START_COMMAND + '\n'); };
+					server.stdout.on('data', chunk => { if (String(chunk).includes(' joined the game')) startRecording(); });
+					recorder = setInterval(startRecording, REPLAY_START_EVERY_MS);
+				}
 				const startupMs = Number(process.env.ARENA_HEADLESS_STARTUP_TIMEOUT_SECONDS ?? 300) * 1000;
 				await waitFor(async () => (await text(path.join(serverDirectory, 'logs/latest.log'))).includes('Done ('), startupMs, 'Fabric readiness', server);
 				const env = { ARENA_AGENT_BRIDGE_SECRET: secret, ARENA_HEADLESS_RUN_ID: runId, ARENA_HEADLESS_SCENARIO_ID: scenario.id, ARENA_PROTOCOL_AUDIT_PATH: protocol, ARENA_PROVIDER_TURNS_PATH: turns, ARENA_HEADLESS_TRACE_PATH: path.join(directory, 'coordinator.jsonl'), ARENA_HEADLESS_PRIVATE_TRACE_PATH: path.join(directory, 'coordinator-private.jsonl'), ARENA_CAPTURE_SHUTDOWN_PATH: capture, ARENA_QUALITY_CAPTURE: scenario.qualitySetup ? '1' : '0', ARENA_HEADLESS_BRIDGE_PORT: String(ports.bridge), ARENA_HEADLESS_RCON_PORT: String(ports.rcon), ARENA_HEADLESS_MINECRAFT_PORT: String(ports.minecraft) };
@@ -160,19 +197,45 @@ export async function runMatrix(options) {
 				runnerReport = await readArtifactReport(path.join(directory, 'report.json'));
 			} catch (error) { failure = error.message; console.error(`${scenario.id}: ${failure}`); }
 			finally {
-				if (coordinator && !exited(coordinator)) try { await requestCaptureShutdown(capture); } catch (e) { cleanupFailure = e.message; }
-				if (server && !exited(server)) {
-					server.stdin.on('error', () => {}); server.stdin.end('stop\n');
-					const deadline = Date.now() + 10000; while (!exited(server) && Date.now() < deadline) await sleep(100);
+				if (recorder) clearInterval(recorder);
+				const serverLog = path.join(serverDirectory, 'logs/latest.log');
+				let replayFrom = null, replayStarted = false;
+				if (recording && server && !exited(server)) {
+					const log = await text(serverLog); replayFrom = log.length; replayStarted = log.includes('Starting replay for ');
+					// Stopped first, so the replay saves while the coordinator shuts down. A server told to stop before the
+					// save finishes drops ServerReplay's save event, so the server's stop waits for the saved line below.
+					server.stdin.on('error', () => {}); server.stdin.write(REPLAY_STOP_COMMAND + '\n');
 				}
+				if (coordinator && !exited(coordinator)) try { await requestCaptureShutdown(capture); } catch (e) { cleanupFailure = e.message; }
 				// Each child leads a separate POSIX group. Kill that owned group, including provider descendants.
-				for (const signal of ['SIGTERM', 'SIGKILL']) {
-					for (const child of children) if (child.pid) try { process.kill(-child.pid, signal); } catch (e) { if (e.code !== 'ESRCH') cleanupFailure = e.message; }
-					await sleep(signal === 'SIGTERM' ? 1000 : 100);
+				const killGroups = async group => {
+					for (const signal of ['SIGTERM', 'SIGKILL']) {
+						for (const child of group) if (child.pid) try { process.kill(-child.pid, signal); } catch (e) { if (e.code !== 'ESRCH') cleanupFailure = e.message; }
+						await sleep(signal === 'SIGTERM' ? 1000 : 100);
+					}
+				};
+				let stopping = children;
+				if (server && !exited(server)) {
+					server.stdin.on('error', () => {});
+					if (recording) {
+						// The coordinator and runner go first, so a caller that kills this launcher during the waits below
+						// orphans no process but the server, which finishes its save and stop on its own.
+						await killGroups(children.filter(child => child !== server)); stopping = [server];
+						const saveDeadline = Date.now() + RECORDING_SAVE_MS;
+						while (replayStarted && !exited(server) && Date.now() < saveDeadline && !replayState(await text(serverLog), replayFrom).settled) await sleep(250);
+					}
+					if (!server.stdin.writableEnded) server.stdin.end('stop\n');
+					const deadline = Date.now() + (recording ? RECORDING_STOP_MS : 10000); while (!exited(server) && Date.now() < deadline) await sleep(100);
+				}
+				await killGroups(stopping);
+				if (recording) {
+					const replays = replayState(await text(serverLog), replayFrom ?? 0);
+					recordingReport = { started: replayStarted, saved: replayStarted ? replays.saved : null, files: replays.files };
+					if (replayStarted && !replays.saved) console.error(`${scenario.id}: the replay was not confirmed saved before the server stopped`);
 				}
 				for (const stream of streams) if (!stream.writableFinished) await new Promise(resolve => stream.end(resolve));
 			}
-			const report = { ...(runnerReport ?? {}), status: failure || cleanupFailure ? 'FAILED' : runnerReport?.status ?? 'FAILED', diagnostics: failure ?? runnerReport?.diagnostics ?? null, cleanup: { status: cleanupFailure ? 'FAILED' : 'CLEAN', error: cleanupFailure } };
+			const report = { ...(runnerReport ?? {}), status: failure || cleanupFailure ? 'FAILED' : runnerReport?.status ?? 'FAILED', diagnostics: failure ?? runnerReport?.diagnostics ?? null, cleanup: { status: cleanupFailure ? 'FAILED' : 'CLEAN', error: cleanupFailure }, ...(recordingReport ? { recording: recordingReport } : {}) };
 			await writeArtifactReport(path.join(directory, 'report.json'), report); reports.push(report);
 		}
 		await writeArtifactReport(path.join(runDirectory, 'matrix-report.json'), { runId, scenarios: reports });

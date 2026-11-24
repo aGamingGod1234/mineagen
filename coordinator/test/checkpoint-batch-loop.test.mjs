@@ -42,6 +42,12 @@ case $cmd in
     case $2 in *:.codex/auth.json) h=$F/\${2%%:*}; [ -f "$h/NOAUTH" ] && [ -f "$h/ck/game.sh" ] && { echo "scp failed" >&2; exit 1; };; esac
     # A BLOCKSCP file makes every upload of an arm package hang for minutes, as a slow transfer does.
     case $2 in *:ck/arms/*.tar.gz) [ -f "$F/BLOCKSCP" ] && { echo "blocked $2" >> "$F/blocked.log"; sleep 300; };; esac
+    # A NOSALVAGE file makes every copy home of a game's salvaged replays and world fail.
+    case $1 in *.salvage.tgz) [ -f "$F/NOSALVAGE" ] && { echo "scp failed" >&2; exit 1; };; esac
+    # A STALLFETCH file makes the normal copy home of a finished game hang, after the machine packed it, until a signal cuts it.
+    case $1 in *.salvage.tgz) ;; *:ck/games/*.tgz) [ -f "$F/STALLFETCH" ] && { touch "$F/fetch-stalled"; sleep 299; };; esac
+    # A STALLSALVAGE file makes that copy hang, as a slow transfer does, until a signal cuts it.
+    case $1 in *.salvage.tgz) [ -f "$F/STALLSALVAGE" ] && { touch "$F/salvage-stalled"; sleep 299; };; esac
     case $2 in *:ck/game.sh) cp "$F/fake-game.sh" "$d";; *) cp "$s" "$d";; esac;;
   info) [ -f "$F/$1.deleted" ] && echo '{"sandbox":{"state":"deleted"}}' || printf '{"sandbox":{"state":"running","name":"%s"}}\\n' "$(cat "$F/$1.name" 2>/dev/null)";;
   delete) touch "$F/$1.deleted"; echo "$1" >> "$F/deleted.log"; echo '{}';;
@@ -54,6 +60,8 @@ esac
 // game.sh ID ARM SP MINUTES SALT MODEL EFFORT; the run folder sits under ~/ck like a real one. A REFRESH file in the fake root makes the game's own sign-in copy change.
 const FAKE_GAME = `#!/bin/bash
 id=$1; dir=$HOME/ck/games/$id; raw=$HOME/ck/arms/runs/$id; mkdir -p "$raw/.codex-home" "$raw/server" "$dir/report"; echo world > "$raw/server/level.dat"
+# A RECORD file gives the game a replay and a world the way a recording server leaves them, and names the run folder at once.
+[ -f "$FAKE_BOAT_ROOT/RECORD" ] && { mkdir -p "$raw/server/recordings/players/agent" "$raw/server/headless-w"; echo replay > "$raw/server/recordings/players/agent/r.zip"; echo world > "$raw/server/headless-w/level.dat"; echo secret > "$raw/server/server.properties"; echo "Running q: $raw" > "$dir/run.log"; }
 # A NODONE file makes each game's first launch end without a done file, as when the launch ssh dropped first.
 # A LEFTOVER file also leaves a detached process of that launch running (the launcher's server and coordinator).
 [ -f "$FAKE_BOAT_ROOT/NODONE" ] && [ ! -f "$FAKE_BOAT_ROOT/nodone-$id" ] && { touch "$FAKE_BOAT_ROOT/nodone-$id"; if [ -f "$FAKE_BOAT_ROOT/LEFTOVER" ]; then setsid bash -c "sleep 300; : $HOME/ck/arms/leftover-$id" > /dev/null 2>&1 < /dev/null & fi; exit 0; }
@@ -72,7 +80,7 @@ echo '{"measurementStatus":"INCOMPLETE","timeline":{"startedAt":1795290758148,"p
 echo "exit 0 $(date -Is)" > "$dir/done"
 `;
 
-function setup({ refresh = false, plan: overrides = {} } = {}) {
+function setup({ refresh = false, record = false, plan: overrides = {} } = {}) {
 	const root = mkdtempSync(path.join(tmpdir(), 'ckpt-loop-'));
 	const bin = path.join(root, 'bin'); mkdirSync(bin);
 	writeFileSync(path.join(bin, 'boat'), FAKE_BOAT); chmodSync(path.join(bin, 'boat'), 0o755);
@@ -89,7 +97,9 @@ function setup({ refresh = false, plan: overrides = {} } = {}) {
 	// A tiny arm checkout (the batch packs git archive REF plus coordinator/node_modules).
 	const arm = path.join(root, 'arm'); mkdirSync(path.join(arm, 'coordinator/node_modules'), { recursive: true });
 	writeFileSync(path.join(arm, 'README'), 'arm\n'); writeFileSync(path.join(arm, 'coordinator/node_modules/x.js'), '');
-	execFileSync('git', ['init', '-q', arm]); execFileSync('git', ['-C', arm, 'add', 'README']);
+	// A recording arm carries a launcher that records the agent; the batch checks for it.
+	if (record) { mkdirSync(path.join(arm, 'scripts')); writeFileSync(path.join(arm, 'scripts/run-headless-provider-matrix.mjs'), "export const REPLAY_STOP_COMMAND = 'replay stop players @a';\n"); }
+	execFileSync('git', ['init', '-q', arm]); execFileSync('git', ['-C', arm, 'add', 'README', ...(record ? ['scripts'] : [])]);
 	execFileSync('git', ['-C', arm, '-c', 'user.email=t@example.invalid', '-c', 'user.name=t', 'commit', '-qm', 'arm']);
 	writeFileSync(path.join(root, 'mod.jar'), 'jar'); writeFileSync(path.join(root, 'sp.json'), '{}');
 	writeFileSync(path.join(root, 'lithium-fabric-0.1+mc26.3.jar'), 'lithium');
@@ -98,7 +108,9 @@ function setup({ refresh = false, plan: overrides = {} } = {}) {
 		vms: ['bx_aaaaaaaa', 'bx_bbbbbbbb'], drain: 'delete', copyConcurrency: 2, lithium: path.join(root, 'lithium-fabric-0.1+mc26.3.jar'),
 		arms: { main: { root: arm, ref: 'HEAD', jar: path.join(root, 'mod.jar') }, other: { root: arm, ref: 'HEAD', jar: path.join(root, 'mod.jar'), env: { A_SWITCH: 'on', B_SWITCH: '2' } } },
 		savepoints: { nether: { file: path.join(root, 'sp.json'), repeats: 2, targets: ['fortress'] } } };
-	writeFileSync(path.join(root, 'plan.json'), JSON.stringify({ ...plan, ...overrides }));
+	const kit = path.join(root, 'kit'); mkdirSync(kit);
+	for (const name of ['ServerReplay-1.0+26.3.jar', 'fabric-language-kotlin-1.0.jar', 'server-replay-config.json']) writeFileSync(path.join(kit, name), name);
+	writeFileSync(path.join(root, 'plan.json'), JSON.stringify({ ...plan, ...(record ? { recording: kit } : {}), ...overrides }));
 	return root;
 }
 const run = (root, env = {}) => execFileSync('node', [script, '--plan', path.join(root, 'plan.json'), '--out', path.join(root, 'out')], {
@@ -129,6 +141,71 @@ test('checkpoint batch copies every game home, writes each env switch on its own
 		}
 		assert.deepEqual(readFileSync(path.join(root, 'deleted.log'), 'utf8').trim().split('\n').sort(), ['bx_aaaaaaaa', 'bx_bbbbbbbb']);
 		assert.equal(leftSignIns(root), '0');
+	} finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('checkpoint batch records each game: the recorder goes into the template and game.tgz brings the replays and world home', posixOnly, () => {
+	const root = setup({ record: true });
+	writeFileSync(path.join(root, 'RECORD'), '');
+	try {
+		run(root);
+		const state = JSON.parse(readFileSync(path.join(root, 'out/state.json'), 'utf8'));
+		assert.deepEqual(state.games.map(g => g.state), ['done', 'done', 'done', 'done']);
+		for (const id of ['bx_aaaaaaaa', 'bx_bbbbbbbb']) {
+			const copy = readFileSync(path.join(root, id, 'ck/server-template'), 'utf8').trim();
+			assert.match(copy, /\+lithium-[0-9a-f]{12}\+rec$/);
+			assert.deepEqual(readdirSync(path.join(copy, 'mods')).sort(), ['ServerReplay-1.0+26.3.jar', 'fabric-language-kotlin-1.0.jar', 'lithium-fabric-0.1+mc26.3.jar']);
+			assert.equal(readFileSync(path.join(copy, 'config/server-replay/config.json'), 'utf8'), 'server-replay-config.json');
+		}
+		for (const g of state.games) {
+			const dest = path.join(root, 'out/games', g.id);
+			const listing = execFileSync('tar', ['-tzf', path.join(dest, 'game.tgz')], { encoding: 'utf8' });
+			assert.match(listing, /^\.\/recordings\.tar$/m); assert.match(listing, /^\.\/world-headless-w\.tgz$/m); assert.doesNotMatch(listing, /server\.properties/);
+			execFileSync('tar', ['-xzf', path.join(dest, 'game.tgz'), '-C', dest, './recordings.tar']);
+			assert.match(execFileSync('tar', ['-tf', path.join(dest, 'recordings.tar')], { encoding: 'utf8' }), /recordings\/players\/agent\/r\.zip/);
+		}
+	} finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('checkpoint batch refuses to record with an arm whose launcher does not record the agent', posixOnly, () => {
+	const root = setup();
+	try {
+		const plan = JSON.parse(readFileSync(path.join(root, 'plan.json'), 'utf8'));
+		writeFileSync(path.join(root, 'plan.json'), JSON.stringify({ ...plan, recording: path.join(root, 'kit') }));
+		assert.throws(() => run(root, {}), /does not record the agent/);
+		assert.equal(existsSync(path.join(root, 'out/state.json')), false);
+	} finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('checkpoint batch copies the replay and world of a game that ended without a done file before it plays it again', posixOnly, () => {
+	const root = setup({ record: true });
+	writeFileSync(path.join(root, 'RECORD'), ''); writeFileSync(path.join(root, 'NODONE'), '');
+	try {
+		run(root);
+		const state = JSON.parse(readFileSync(path.join(root, 'out/state.json'), 'utf8'));
+		assert.deepEqual(state.games.map(g => g.state), ['done', 'done', 'done', 'done']);
+		const salvaged = readdirSync(path.join(root, 'out/salvage'));
+		assert.equal(salvaged.length, 4);
+		for (const file of salvaged) {
+			const listing = execFileSync('tar', ['-tzf', path.join(root, 'out/salvage', file)], { encoding: 'utf8' });
+			assert.match(listing, /recordings\/players\/agent\/r\.zip/); assert.match(listing, /headless-w\/level\.dat/); assert.doesNotMatch(listing, /server\.properties/);
+		}
+	} finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('checkpoint batch keeps every machine whose copy of a vanished game\'s replay and world failed, instead of deleting it', posixOnly, () => {
+	const root = setup({ record: true });
+	writeFileSync(path.join(root, 'RECORD'), ''); writeFileSync(path.join(root, 'NODONE'), ''); writeFileSync(path.join(root, 'NOSALVAGE'), '');
+	try {
+		run(root);
+		const state = JSON.parse(readFileSync(path.join(root, 'out/state.json'), 'utf8'));
+		assert.deepEqual(state.games.map(g => g.state), ['done', 'done', 'done', 'done']);
+		assert.equal(existsSync(path.join(root, 'deleted.log')), false, 'no machine holding an uncopied replay is deleted');
+		assert.equal(leftSignIns(root), '0');
+		const log = readFileSync(path.join(root, 'out/batch.log'), 'utf8');
+		// Each vanished game's copy is tried once when it vanishes, and again at retirement, up to 3 failed tries a machine.
+		assert.ok((log.match(/could not copy the recordings and world of .* so the machine is kept/g) ?? []).length > 4, log);
+		for (const id of ['bx_aaaaaaaa', 'bx_bbbbbbbb']) assert.match(log, new RegExp(`batch ended; machines not deleted: .*${id}.*\\(kept: copy the recordings and world from`));
 	} finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -290,6 +367,52 @@ test('checkpoint batch ends its running games and cleans up at once on SIGTERM',
 		assert.equal(leftSignIns(root), '0');
 		// pgrep exits 1 when nothing matches.
 		assert.throws(() => execFileSync('pgrep', ['-f', `${root}/bx_.*/ck/game.sh`], { encoding: 'utf8' }), 'no game process is left');
+	} finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('checkpoint batch copies the replay and world of a running game before it deletes the machine on SIGTERM', posixOnly, async () => {
+	const root = setup({ record: true });
+	writeFileSync(path.join(root, 'RECORD'), '');
+	for (const id of ['bx_aaaaaaaa', 'bx_bbbbbbbb']) writeFileSync(path.join(root, id, 'HANG'), '');
+	try {
+		const child = spawn('node', [script, '--plan', path.join(root, 'plan.json'), '--out', path.join(root, 'out')], {
+			env: { ...process.env, PATH: `${path.join(root, 'bin')}:${process.env.PATH}`, BOAT_BIN: path.join(root, 'bin/boat'), FAKE_BOAT_ROOT: root, CHECKPOINT_POLL_MS: '200' }, stdio: ['ignore', 'pipe', 'pipe'] });
+		const exited = new Promise(resolve => child.on('exit', resolve));
+		let out = '';
+		await new Promise((resolve, reject) => {
+			const timer = setTimeout(() => reject(new Error(`no game started: ${out}`)), 60_000);
+			child.stdout.on('data', chunk => { out += chunk; if ((out.match(/started nether/g) ?? []).length >= 2) { clearTimeout(timer); resolve(); } });
+		});
+		child.kill('SIGTERM');
+		await exited;
+		assert.equal(readdirSync(path.join(root, 'out/salvage')).length, 2);
+		const log = readFileSync(path.join(root, 'out/batch.log'), 'utf8');
+		for (const id of ['bx_aaaaaaaa', 'bx_bbbbbbbb']) assert.ok(log.indexOf(`from ${id} to salvage/`) >= 0 && log.indexOf(`from ${id} to salvage/`) < log.indexOf(`deleted ${id}`), `${id} was copied before it was deleted`);
+		assert.deepEqual(readFileSync(path.join(root, 'deleted.log'), 'utf8').trim().split('\n').sort(), ['bx_aaaaaaaa', 'bx_bbbbbbbb']);
+		assert.equal(leftSignIns(root), '0');
+	} finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('checkpoint batch keeps a machine whose running game\'s replays could not be copied on SIGTERM, with its sign-in off', posixOnly, async () => {
+	const root = setup({ record: true });
+	writeFileSync(path.join(root, 'RECORD'), ''); writeFileSync(path.join(root, 'NOSALVAGE'), '');
+	for (const id of ['bx_aaaaaaaa', 'bx_bbbbbbbb']) writeFileSync(path.join(root, id, 'HANG'), '');
+	try {
+		const child = spawn('node', [script, '--plan', path.join(root, 'plan.json'), '--out', path.join(root, 'out')], {
+			env: { ...process.env, PATH: `${path.join(root, 'bin')}:${process.env.PATH}`, BOAT_BIN: path.join(root, 'bin/boat'), FAKE_BOAT_ROOT: root, CHECKPOINT_POLL_MS: '200' }, stdio: ['ignore', 'pipe', 'pipe'] });
+		const exited = new Promise(resolve => child.on('exit', resolve));
+		let out = '';
+		await new Promise((resolve, reject) => {
+			const timer = setTimeout(() => reject(new Error(`no game started: ${out}`)), 60_000);
+			child.stdout.on('data', chunk => { out += chunk; if ((out.match(/started nether/g) ?? []).length >= 2) { clearTimeout(timer); resolve(); } });
+		});
+		const signalledAt = Date.now();
+		child.kill('SIGTERM');
+		await exited;
+		assert.ok(Date.now() - signalledAt < 60_000, 'the cleanup still ends inside the signal budget');
+		assert.equal(existsSync(path.join(root, 'deleted.log')), false, 'no machine holding an uncopied replay is deleted');
+		assert.equal(leftSignIns(root), '0');
+		assert.match(readFileSync(path.join(root, 'out/batch.log'), 'utf8'), /batch ended; machines not deleted: .*bx_aaaaaaaa.*\(kept: copy the recordings and world from/);
 	} finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -501,6 +624,76 @@ test('checkpoint batch cuts a stalled drop of a lost machine on SIGTERM and stil
 	} finally {
 		child.kill('SIGKILL');
 		for (const pattern of [`${root}/bin/boat`, '^sleep 300[.]5$', `${root}/bx_`]) { try { execFileSync('pkill', ['-f', pattern]); } catch {} }
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test('checkpoint batch copies the replay and world again at the end when SIGTERM cuts the first copy, before it deletes the machine', posixOnly, async () => {
+	const root = setup({ record: true });
+	// bx_bbbbbbbb's launches end without a done file, so its replay and world are copied off; that copy hangs until SIGTERM.
+	writeFileSync(path.join(root, 'RECORD'), ''); writeFileSync(path.join(root, 'bx_bbbbbbbb/BROKEN'), ''); writeFileSync(path.join(root, 'bx_aaaaaaaa/HANG'), '');
+	writeFileSync(path.join(root, 'STALLSALVAGE'), '');
+	const child = spawn('node', [script, '--plan', path.join(root, 'plan.json'), '--out', path.join(root, 'out')], {
+		env: { ...process.env, PATH: `${path.join(root, 'bin')}:${process.env.PATH}`, BOAT_BIN: path.join(root, 'bin/boat'), FAKE_BOAT_ROOT: root, CHECKPOINT_POLL_MS: '200', CHECKPOINT_SIGNAL_BUDGET_MS: '20000' }, stdio: ['ignore', 'pipe', 'pipe'] });
+	try {
+		const exited = new Promise(resolve => child.on('exit', resolve));
+		const stalled = path.join(root, 'salvage-stalled');
+		for (let i = 0; i < 600 && !existsSync(stalled); i++) await new Promise(r => setTimeout(r, 100));
+		assert.ok(existsSync(stalled), 'the copy of the vanished game stalled');
+		rmSync(path.join(root, 'STALLSALVAGE'));
+		child.kill('SIGTERM');
+		await exited;
+		const log = readFileSync(path.join(root, 'out/batch.log'), 'utf8');
+		assert.match(log, /from bx_bbbbbbbb to salvage\//, 'the cut copy was made again in the cleanup');
+		assert.ok(log.indexOf('from bx_bbbbbbbb to salvage/') < log.indexOf('deleted bx_bbbbbbbb'), 'copied before it was deleted');
+		assert.ok(readdirSync(path.join(root, 'out/salvage')).length >= 1);
+		assert.equal(leftSignIns(root), '0');
+	} finally {
+		child.kill('SIGKILL');
+		for (const pattern of [`${root}/bin/boat`, '^sleep 299$', `${root}/bx_`]) { try { execFileSync('pkill', ['-f', pattern]); } catch {} }
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test('checkpoint batch with one machine plays a vanished game again after its copy keeps failing, and keeps the machine', posixOnly, () => {
+	const root = setup({ record: true, plan: { vms: ['bx_aaaaaaaa'] } });
+	writeFileSync(path.join(root, 'RECORD'), ''); writeFileSync(path.join(root, 'NODONE'), ''); writeFileSync(path.join(root, 'NOSALVAGE'), '');
+	try {
+		run(root);
+		const state = JSON.parse(readFileSync(path.join(root, 'out/state.json'), 'utf8'));
+		assert.deepEqual(state.games.map(g => g.state), ['done', 'done', 'done', 'done']);
+		const log = readFileSync(path.join(root, 'out/batch.log'), 'utf8');
+		assert.match(log, /kept the uncopied run folder of .* on bx_aaaaaaaa as ~\/ck\/games\/.*\.held-/);
+		assert.equal(existsSync(path.join(root, 'deleted.log')), false, 'the machine holding uncopied replays is kept');
+		assert.match(log, /batch ended; machines not deleted: bx_aaaaaaaa .*\(kept: /);
+		assert.ok(readdirSync(path.join(root, 'bx_aaaaaaaa/ck/games')).some(name => /\.held-\d+$/.test(name)), 'the old run folder is still on the machine');
+	} finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('checkpoint batch copies what a finished game already packed when SIGTERM cuts its normal copy, before it deletes the machine', posixOnly, async () => {
+	const root = setup({ record: true });
+	writeFileSync(path.join(root, 'RECORD'), ''); writeFileSync(path.join(root, 'bx_bbbbbbbb/HANG'), ''); writeFileSync(path.join(root, 'STALLFETCH'), '');
+	// bx_aaaaaaaa's game finishes and its normal copy hangs; bx_bbbbbbbb's game runs on.
+	const child = spawn('node', [script, '--plan', path.join(root, 'plan.json'), '--out', path.join(root, 'out')], {
+		env: { ...process.env, PATH: `${path.join(root, 'bin')}:${process.env.PATH}`, BOAT_BIN: path.join(root, 'bin/boat'), FAKE_BOAT_ROOT: root, CHECKPOINT_POLL_MS: '200', CHECKPOINT_SIGNAL_BUDGET_MS: '20000' }, stdio: ['ignore', 'pipe', 'pipe'] });
+	try {
+		const exited = new Promise(resolve => child.on('exit', resolve));
+		const stalled = path.join(root, 'fetch-stalled');
+		for (let i = 0; i < 600 && !existsSync(stalled); i++) await new Promise(r => setTimeout(r, 100));
+		assert.ok(existsSync(stalled), 'the normal copy of a finished game stalled');
+		rmSync(path.join(root, 'STALLFETCH'));
+		child.kill('SIGTERM');
+		await exited;
+		const log = readFileSync(path.join(root, 'out/batch.log'), 'utf8');
+		const copied = log.match(/from (bx_aaaaaaaa) to salvage\/(\S+\.tgz)/);
+		assert.ok(copied, log);
+		const listing = execFileSync('tar', ['-tzf', path.join(root, 'out/salvage', copied[2])], { encoding: 'utf8' });
+		assert.match(listing, /recordings\.tar/); assert.match(listing, /world-headless-w\.tgz/);
+		assert.ok(log.indexOf(copied[0]) < log.indexOf(`deleted ${copied[1]}`), 'copied before it was deleted');
+		assert.equal(leftSignIns(root), '0');
+	} finally {
+		child.kill('SIGKILL');
+		for (const pattern of [`${root}/bin/boat`, '^sleep 299$', `${root}/bx_`]) { try { execFileSync('pkill', ['-f', pattern]); } catch {} }
 		rmSync(root, { recursive: true, force: true });
 	}
 });
