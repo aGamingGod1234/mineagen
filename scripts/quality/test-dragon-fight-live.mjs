@@ -45,6 +45,9 @@ const OLD_CRYSTALS = cli.includes('--old-crystal-phase'), CAGED_FIRST = cli.incl
 // --old-refill: main's stand-in bucket handling, before the walk back to a remembered pour and the held bucket counted as
 // in the hotbar (kept so both are judged on the same jar).
 const OLD_REFILL = cli.includes('--old-refill');
+// --old-perch: main's stand-in before the hurt rules (kept so both are judged on the same jar): it swung at a perched head
+// with crystals still standing and at 10 health, stepped out at 8, and went straight back to work however hurt.
+const OLD_PERCH = cli.includes('--old-perch');
 const [outArg, jarArg] = cli.filter(arg => !arg.startsWith('--'));
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port = Number(process.env.SLOT_PORT_BASE);
 if (!outArg || !template || !port || !process.env.JAVA_HOME) { console.error('Usage: OUT_DIR [JAR] [--no-bow] [--survive] under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME'); process.exit(2); }
@@ -239,7 +242,8 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 				let lastDealt = null;
 				const firedStart = firedAt(latest?.reflexes?.rules);
 				firedMost = { ...firedStart };
-				const note = (what, r) => { const entry = [Math.round((now() - t0) / 1000), what, r?.state, r?.reasonCode, /^melee/.test(what) ? r?.full?.slice(0, 1500) : r?.message?.slice(0, 160)]; log.push(entry); console.log(`[dragon-fight] ${JSON.stringify(entry)}`); };
+				// The whole action message is kept (a bow shot's hit or miss is named late in it), up to 1500 characters.
+				const note = (what, r) => { const entry = [Math.round((now() - t0) / 1000), what, r?.state, r?.reasonCode, r?.full?.slice(0, 1500)]; log.push(entry); console.log(`[dragon-fight] ${JSON.stringify(entry)}`); };
 				// Judging: crystals left (all and caged) as they fall, arrows spent, and each big hit the body takes.
 				const crystalTimeline = [], hurtLog = [];
 				let clearedAt = null, lastLeft = null, lastCaged = null, arrowsStart = null, arrowsNow = null, lastHp = null;
@@ -489,6 +493,45 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 					}
 				};
 				let huntedSince = null, lastFetch = -Infinity;
+				// Hurt (PERCH_FACTS: head 10 on contact, breath 6 a second through armour; an enderman hits for 7): a player backs off
+				// before another hit can kill, away from the fountain (the perch and its breath) and any enderman close by, eats when
+				// not full (saturation heals fast), and goes back only near full health. Round 4's fix arm: the deaths before the
+				// crystals were down came at 5-8 health, 4 of 6 right after a perch swing, and the bot went straight back to work.
+				let recovering = false, lastEat = -Infinity, lastHoldNote = -Infinity;
+				const recover = async (o, me) => {
+					if (OLD_PERCH || !Number.isFinite(me.health)) return false;
+					if (me.health >= 16) { if (recovering) note(`healed to ${Math.round(me.health)}: back to work`, null); recovering = false; return false; }
+					if (!recovering && me.health >= 11) return false;
+					if (!recovering) note(`hurt to ${Math.round(me.health)}: back off and heal`, null);
+					recovering = true;
+					if ((me.hunger ?? 20) < 20 && now() - lastEat > 5000 && (o.inventory?.items ?? []).some(i => i.itemId === 'minecraft:cooked_beef')) {
+						lastEat = now();
+						await act('select_item', { itemId: 'minecraft:cooked_beef' });
+						note('eat while hurt', await act('use_item', { expectedItemId: 'minecraft:cooked_beef', durationMs: 1800 }));
+						return true;
+					}
+					const fountain = Math.hypot(me.x - 0.5, me.z - 0.5);
+					const ender = (o.entities ?? []).filter(e => e?.type === 'minecraft:enderman' && e.alive !== false && Number.isFinite(e.x) && (e.distance ?? Infinity) <= 8)
+						.sort((a, b) => a.distance - b.distance)[0];
+					if (fountain < 22 || ender) {
+						// Out along the line from the fountain, turned away from the closest enderman.
+						let a = Math.atan2(me.z - 0.5, me.x - 0.5);
+						if (!Number.isFinite(a) || fountain < 1) a = 0;
+						if (ender) { const away = Math.atan2(me.z - ender.z, me.x - ender.x); a = Math.atan2(Math.sin(a) + Math.sin(away), Math.cos(a) + Math.cos(away)); }
+						const R = Math.max(26, fountain + (ender ? 8 : 0));
+						for (const turn of [0, 0.5, -0.5, 1, -1]) {
+							const x = 0.5 + Math.cos(a + turn) * R, z = 0.5 + Math.sin(a + turn) * R;
+							const y = await groundY(Math.floor(x), Math.floor(z)).catch(() => NaN);
+							if (!Number.isFinite(y) || y < 50 || y > 75) continue;
+							note(`back off to heal (${Math.round(fountain)} from the fountain${ender ? ', an enderman close' : ''})`, await act('travel_to', { x, y, z, tolerance: 3, build: false, timeoutMs: 15000 }));
+							return true;
+						}
+					}
+					// Waiting: eyes on the sky, off the endermen.
+					await act('look_at', { x: me.x, y: me.y + 40, z: me.z + 5 });
+					await s.clock.sleep(1000);
+					return true;
+				};
 				const crystalStep = async (o, me) => {
 					remember(o.entities ?? [], o);
 					// An enderman that has turned on the body: a player stays in the water it stands in (the End enderman default pours
@@ -518,9 +561,11 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 						// fills the bucket again before the next enderman (main: the bucket was empty in 8 of 9 enderman deaths).
 						if (now() - lastFetch > 45000) { lastFetch = now(); await fetchWater(); }
 					}
+					if (await recover(o, me)) return true;
 					let standing = [...seenCrystals.values()].filter(c => !c.gone && !c.gaveUp);
-					// Given up on every one left: try them again after a while (the body and the dragon have moved).
-					if (standing.length === 0 && passes % 30 === 29) for (const c of seenCrystals.values()) if (!c.gone) Object.assign(c, { gaveUp: false, tries: 0, spot: 0, cageTries: 0 });
+					// Given up on every one left: try them again after a while (the body and the dragon have moved). With no swing at
+					// a perch while one stands (it heals the dragon), the wait is a third as long.
+					if (standing.length === 0 && passes % (OLD_PERCH ? 30 : 10) === (OLD_PERCH ? 29 : 9)) for (const c of seenCrystals.values()) if (!c.gone) Object.assign(c, { gaveUp: false, tries: 0, spot: 0, cageTries: 0 });
 					standing = [...seenCrystals.values()].filter(c => !c.gone && !c.gaveUp);
 					if (standing.length === 0) return false;
 					const d = c => Math.hypot(c.x - me.x, c.z - me.z);
@@ -560,7 +605,7 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 					const ranged = (o.inventory?.items ?? []).some(i => i.itemId === 'minecraft:bow') && arrows > 0;
 					const dist = row => Math.hypot(row.x - me.x, row.y - me.y, row.z - me.z);
 					arrowsNow = arrows; arrowsStart ??= arrows;
-					if (Number.isFinite(me.health)) { if (Number.isFinite(lastHp) && lastHp - me.health >= 4 && hurtLog.length < 30) hurtLog.push({ t: Math.round((now() - t0) / 1000), from: lastHp, to: me.health, y: Math.round(me.y), cmd: lastCommand?.actionType ?? null }); lastHp = me.health; }
+					if (Number.isFinite(me.health)) { if (Number.isFinite(lastHp) && lastHp - me.health >= 4 && hurtLog.length < 30) hurtLog.push({ t: Math.round((now() - t0) / 1000), from: lastHp, to: me.health, y: Math.round(me.y), cmd: lastCommand?.actionType ?? null, hunger: me.hunger ?? null, fountain: Math.round(Math.hypot(me.x - 0.5, me.z - 0.5)) }); lastHp = me.health; }
 					await trackCrystals();
 					// 1. The crystals: positioned shots and opened cages; the old step shoots each once from where the body stands.
 					if (ranged && !OLD_CRYSTALS && await crystalStep(o, me)) continue;
@@ -576,7 +621,20 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 					const perch = perchedDragon(o);
 					// Not below 10 health: a player heals before walking under it, and steps out at 8 (fleeAtHealth); at 3 health
 					// one hit of its head (10, about 6 through iron) kills.
-					if (perch?.head?.id && (OLD_REFILL || !(me.health < 10))) {
+					// With a crystal still standing (one seen and not broken), it heals the damage back: a player keeps off the perch.
+					// Not hurt either (16 or more, PERCH_FACTS: one head hit is 10 before armour and the breath 6 a second), with no
+					// angry enderman near, and only once the head is down within reach height (round 4: 'perched' 7-11 blocks up).
+					const crystalUp = !OLD_PERCH && [...seenCrystals.values()].some(c => !c.gone);
+					const headHigh = !OLD_PERCH && perch?.head && perch.head.y - me.y > 6 && Math.hypot(perch.head.x - me.x, perch.head.z - me.z) <= 20;
+					const angryNear = !OLD_PERCH && entities.some(e => e?.type === 'minecraft:enderman' && e.alive !== false && e.targetingAgent === true && (e.distance ?? Infinity) <= 16);
+					const holdOff = perch?.head?.id && !OLD_PERCH && (crystalUp || me.health < 16 || angryNear || headHigh);
+					if (holdOff && now() - lastHoldNote > 10000) {
+						lastHoldNote = now();
+						note(crystalUp ? 'perched, not swinging: a crystal still stands' : `perched, not swinging: ${me.health < 16 ? `health ${Math.round(me.health)}` : angryNear ? 'an angry enderman near' : `head ${Math.round(perch.head.y - me.y)} up`}`, null);
+					}
+					// Arrows bounce off a perched dragon (PERCH_FACTS): held off, the body waits with its eyes on the sky.
+					if (holdOff) { await act('look_at', { x: me.x, y: me.y + 40, z: me.z + 5 }); await s.clock.sleep(1000); continue; }
+					if (perch?.head?.id && (OLD_REFILL || !(me.health < 10)) && (OLD_PERCH || !(crystalUp || me.health < 16 || angryNear || headHigh))) {
 						// From the far side of the island fight_target refuses (its chase reach is 32 blocks to the head) and a short
 						// perch ends during the walk: a player sprints in first, to 8 blocks short of the head on their own side, as
 						// the facts say (a sprint covers about 5.6 blocks a second). Main's stand-in swung from where it stood.
@@ -588,7 +646,7 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 							note(`run in to the perched head (${Math.round(flat)} blocks)`, r);
 						}
 						const before = await dragonHealth();
-						const r = await act('fight_target', { targetId: perch.head.id, timeoutMs: 12000, ...(OLD_REFILL ? {} : { fleeAtHealth: 8 }) });
+						const r = await act('fight_target', { targetId: perch.head.id, timeoutMs: 12000, ...(OLD_REFILL ? {} : { fleeAtHealth: OLD_PERCH ? 8 : 12 }) });
 						const after = await dragonHealth();
 						if (Number.isFinite(before) && Number.isFinite(after) && after < before) meleeLanded += 1;
 						meleeHits += 1; note(`melee perched head (dragon ${before} -> ${after})`, r); continue;
@@ -640,7 +698,7 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 				Object.assign(row, { shots, crystalBreaks, meleeTries: meleeHits, meleeLanded, flyingShots, crystalsLeft: await crystalsLeft(), dragonHealthEnd: await dragonHealth(),
 					dragonLowest: lowestDragon, dragonDrops: Math.round(dragonDrops * 10) / 10,
 					damageDealt: Number.isFinite(dealtBefore) && Number.isFinite(dealtAfter) ? (dealtAfter - dealtBefore) / 10 : null, angerLog,
-					reflexFired: Object.fromEntries(Object.entries(firedMost).map(([id, n]) => [id, n - (firedStart[id] ?? 0)]).filter(([, n]) => n > 0)), log: log.slice(-200) });
+					reflexFired: Object.fromEntries(Object.entries(firedMost).map(([id, n]) => [id, n - (firedStart[id] ?? 0)]).filter(([, n]) => n > 0)), log: log.slice(-400) });
 				// The crystal phase's judged counts: caged and open crystals broken (from the server, not the shot receipts),
 				// arrows spent, game seconds to clear all ten, and how the body died (the server's death message).
 				await trackCrystals();
