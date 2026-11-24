@@ -24,6 +24,7 @@ import { defaultModel } from '../../coordinator/src/default-models.mjs';
 import { startAnthropicGateway, PREPARATION_ALLOWANCE_USD } from '../../coordinator/src/benchmark/spend-gate.mjs';
 import { LadderEvaluator, checkAdvancements, evaluateSamples, parseSuccessCheck } from './ladder-evaluator.mjs';
 import { spawnOwnedProcess, terminateChildProcess } from '../../coordinator/src/child-process-lifecycle.mjs';
+import { RECORDING_SHUTDOWN_MS, replayRecorderInstalled } from '../run-headless-provider-matrix.mjs';
 import { collectWatchFiles } from './watch-files.mjs';
 import { leanInputEnabled } from '../../coordinator/src/lean-input.mjs';
 
@@ -552,6 +553,7 @@ export async function runScenarios(options, { spawnLauncher = spawnOwnedProcess,
 	const work = path.join(ROOT, 'runtime/quality', token), template = path.join(work, 'server-template');
 	await mkdir(options.out, { recursive: true }); await mkdir(work, { recursive: true });
 	await cp(options.template, template, { recursive: true, filter: entry => !['world', 'logs'].includes(path.basename(entry)) && !/^mineagen-.*\.jar$/i.test(path.basename(entry)) });
+	const recordingTemplate = await replayRecorderInstalled(path.join(template, 'mods'));
 	const definitions = new Map();
 	const scenarios = [];
 	for (let index = 1; index <= options.runs; index++) for (const s of selected) {
@@ -575,7 +577,8 @@ export async function runScenarios(options, { spawnLauncher = spawnOwnedProcess,
 			try { await requestCaptureShutdown(path.join(observer.directory, 'capture-shutdown.json')); }
 			catch (error) { observer.errors.push(`Capture before hard stop: ${error.message}`); }
 		}));
-		await terminateChildProcess(launcher, { timeoutMs: 15000 }); hardStopped = { reason, at: Date.now() };
+		// A recording launcher needs the time to save the replay before the server stops (SIGKILL comes at half the timeout).
+		await terminateChildProcess(launcher, { timeoutMs: recordingTemplate ? 2 * RECORDING_SHUTDOWN_MS : 15000 }); hardStopped = { reason, at: Date.now() };
 	};
 	const observers = new Map(), scanErrors = [];
 	let scanning = false, finished = false, matrixDirectory = null;

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { scenarioConfig, coordinatorReady, replayRecorderInstalled } from '../../scripts/run-headless-provider-matrix.mjs';
+import { scenarioConfig, coordinatorReady, replayRecorderInstalled, savedReplays } from '../../scripts/run-headless-provider-matrix.mjs';
 
 const scenario = { provider: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'low', serviceTier: 'priority' };
 test('POSIX launcher isolates workspaces and seeds the exact requested Codex profile', () => {
@@ -39,4 +39,14 @@ test('POSIX launcher records only when the server template carries the ServerRep
 		await writeFile(path.join(mods, 'ServerReplay-3.6.0+26.3.jar'), '');
 		assert.equal(await replayRecorderInstalled(mods), true);
 	} finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('POSIX launcher reads a saved replay from the ServerReplay log lines', () => {
+	assert.deepEqual(savedReplays('[01:36:06] [Server thread/INFO]: System chat: Failed to start any recordings\n'), { closed: 0, files: [] });
+	const log = [
+		'[01:36:16] [Server thread/INFO]: Starting to save replay ha_rec_e2e_z4hqc, please do not stop the server!',
+		'[01:36:16] [Server thread/INFO]: Successfully saved replay ha_rec_e2e_z4hqc to ./recordings/players/ha_rec_e2e_z4hqc/2026-11-25--01-34-06.zip, compressed to 3.7 MiB',
+		'[01:36:16] [Server thread/INFO]: Successfully closed replay ha_rec_e2e_z4hqc',
+	].join('\n');
+	assert.deepEqual(savedReplays(log), { closed: 1, files: ['./recordings/players/ha_rec_e2e_z4hqc/2026-11-25--01-34-06.zip'] });
 });
