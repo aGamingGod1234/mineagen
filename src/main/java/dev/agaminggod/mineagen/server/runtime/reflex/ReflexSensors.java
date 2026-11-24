@@ -832,9 +832,14 @@ public final class ReflexSensors {
 	 */
 	static Reading drewAt(ServerPlayer player, ReflexSpec.Condition condition, Memory memory) {
 		if (!"attacked".equals(condition.type()) || condition.negated() || memory == null) return Reading.FALSE;
-		// Drawing at this body: a skeleton shooting a golem or another player while it sees this one is not a shot at it.
-		if (ReflexActions.Defend.shootingBeyondReach(player, player.getMainHandItem()) instanceof Mob drawing && drawing.getTarget() == player) {
-			memory.noteDraw(drawing, player.tickCount);
+		// The nearest drawing at this body: a skeleton shooting a golem or another player while it sees this one is not a
+		// shot at it, and a nearer one doing so must not hide a farther one drawing here.
+		var range = player.getAttackRangeWith(player.getMainHandItem());
+		for (Mob mob : ReflexActions.watchers(player)) {
+			if (mob.getTarget() != player || !ThreatPerception.isRanged(mob) || !shotComing(mob, player)) continue;
+			if (range.isInRange(player, mob.getBoundingBox(), 0.0D)) continue;
+			memory.noteDraw(mob, player.tickCount);
+			break;
 		}
 		Mob drew = memory.drewWithin(player, (int) Math.round(condition.number("withinS", 4.0D) * 20.0D));
 		return drew == null ? Reading.FALSE : new Reading(true, drew);
