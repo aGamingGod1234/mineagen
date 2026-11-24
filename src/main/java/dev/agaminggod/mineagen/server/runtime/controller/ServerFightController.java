@@ -1492,7 +1492,10 @@ public final class ServerFightController implements ServerController {
 	}
 
 	private TickResult bailoutReport(ServerPlayer player, TickResult result) {
-		return new TickResult(result.state(), result.reasonCode(), result.message() + kills() + remainingThreats(player), progress(player));
+		Float flee = lootFlee(player);
+		String raised = flee != null && !flee.equals(fleeAtHealth)
+				? String.format(java.util.Locale.ROOT, "; backed out at half health (fleeAtHealth %.1f raised to %.1f while holding a blaze rod; 0 fights on)", fleeAtHealth, flee) : "";
+		return new TickResult(result.state(), result.reasonCode(), result.message() + raised + kills() + remainingThreats(player), progress(player));
 	}
 
 	private TickResult finish(ServerPlayer player, TickResult result) {
@@ -1557,11 +1560,14 @@ public final class ServerFightController implements ServerController {
 		}
 	}
 
-	/** Blaze rods are only kept by a body that lives: holding one against a blaze, the fight backs out at half health. */
+	/**
+	 * Blaze rods are only kept by a body that lives: holding one against a blaze, a fight with a flee line under half health
+	 * backs out at half health instead. No flee line (a cornered stand's fight) or 0 (the model's "fight on") stays as given.
+	 */
 	static final float ROD_FLEE_HEALTH = 10.0F;
 
 	private Float lootFlee(ServerPlayer player) {
-		if (!(target instanceof net.minecraft.world.entity.monster.Blaze) || fleeAtHealth != null && fleeAtHealth >= ROD_FLEE_HEALTH) return fleeAtHealth;
+		if (!(target instanceof net.minecraft.world.entity.monster.Blaze) || fleeAtHealth == null || fleeAtHealth <= 0.0F || fleeAtHealth >= ROD_FLEE_HEALTH) return fleeAtHealth;
 		for (int slot = 0; slot < player.getInventory().getContainerSize(); slot++)
 			if (player.getInventory().getItem(slot).is(net.minecraft.world.item.Items.BLAZE_ROD)) return ROD_FLEE_HEALTH;
 		return fleeAtHealth;
