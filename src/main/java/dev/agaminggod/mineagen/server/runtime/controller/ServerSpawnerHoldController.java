@@ -1114,11 +1114,15 @@ public final class ServerSpawnerHoldController implements ServerController {
 
 	/**
 	 * The doorway for a cell: toward the spawner, or for a cell right beside it (the spawner in the doorway) the side
-	 * with a seen way out, two blocks of air over seen solid ground one step past the doorway.
+	 * with a seen way out: seen solid ground under the doorway, and two blocks of air over seen solid ground one step past it.
 	 */
 	private Direction doorwayAt(ServerPlayer player, BlockPos at) {
 		var seen = dev.agaminggod.mineagen.server.perception.SeenTerrain.of(player);
 		return SpawnerHold.doorway(at.getX(), at.getZ(), spawner.getX(), spawner.getZ(), SpawnerHold.spawnerInDoorway(at.getY(), spawner.getY()), side -> {
+			// The floor under the doorway too: the step out is over it.
+			BlockPos sill = at.relative(side).below();
+			var under = seen.known(sill.getX(), sill.getY(), sill.getZ());
+			if (under == null || !under.getFluidState().isEmpty() || under.getCollisionShape(player.level(), sill).isEmpty()) return false;
 			BlockPos past = at.relative(side, 2);
 			var feet = seen.known(past.getX(), past.getY(), past.getZ());
 			var head = seen.known(past.getX(), past.getY() + 1, past.getZ());
