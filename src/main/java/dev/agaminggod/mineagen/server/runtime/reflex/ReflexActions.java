@@ -2386,6 +2386,13 @@ final class ReflexActions {
 		 * A cell within the next few that seen lava has flowed into since the walk began, or null; checked every
 		 * {@link #LAVA_RECHECK_TICKS} ticks. A player turns away from a flow coming at its path instead of walking on into it.
 		 */
+		/** Whether any of the next few cells fails {@code unsafe} (checked as the walk goes, for dangers that move). */
+		boolean unsafeAhead(ServerPlayer player, java.util.function.Predicate<GridPosition> unsafe) {
+			advance(player);
+			for (GridPosition cell : path.subList(index, Math.min(path.size(), index + LAVA_LOOKAHEAD_CELLS))) if (unsafe.test(cell)) return true;
+			return false;
+		}
+
 		GridPosition lavaAhead(ServerPlayer player) {
 			if (acceptedFlows == null) {
 				acceptedFlows = SafeStep.lavaFlows(player, path);
@@ -2596,6 +2603,11 @@ final class ReflexActions {
 			}
 			// Lava flowing toward the way back: drop it and pick a heading (the probe refuses the flow's cells).
 			if (walk != null && walk.lavaAhead(player) != null) walk = null;
+			// A perched dragon turned its head or wings across the way back: dropped, and a heading or another way chosen.
+			if (walk != null) {
+				var perch = perchZones(player);
+				if (perch != null && walk.unsafeAhead(player, perch::unsafeCell)) walk = null;
+			}
 			// A pack member stepped onto the way back (one coming up the entry tunnel): a player turns off rather than run into it.
 			if (walk != null && keepClearOfPack && walk.packAhead(player) != null) {
 				walk = null;
