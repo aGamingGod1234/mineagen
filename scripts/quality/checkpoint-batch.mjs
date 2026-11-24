@@ -10,6 +10,9 @@
 //     "meter": { "command": "prints the percent of the Codex allowance left", "floorPercent": 10 },
 //     "copyConcurrency": 8 (games copied home at once), "drain": "delete" (delete every machine, listed ones too, once it has no further game),
 //     "savepoints": { "nether": { "file": "/sp/9-nether-entry-123456789-v2.json", "repeats": 4, "targets": ["fortress", "blaze_rod"], "arms": ["main", "int"] } } }  (arms optional: default all)
+//   A save point { "fresh": true } in place of "file" plays a new random world with an empty inventory (no save point,
+//   no salt). "minutes" goes up to 355 (6 hours with setup, the headless launcher's limit). "keepWorld": true packs each game's final world save as
+//   world-NAME.tgz inside game.tgz instead of dropping it.
 // Each arm is `git archive REF` of its root plus that root's coordinator/node_modules, and its jar. Every repeat of a
 // save point draws one loot salt that all arms share (lib/checkpoint-batch-core.mjs). A game runs scripts/quality/run-long.mjs
 // --checkpoint under eatmydata (boat disks sync slowly; see lib/boat-pool.mjs) with the Codex provider, the observer cap in
@@ -71,7 +74,7 @@ const games = expandPlan(plan);
 const authFiles = codexHomes(plan).map(home => path.join(home, 'auth.json'));
 for (const file of authFiles) if (!existsSync(file)) throw new Error(`no Codex sign-in at ${file}`);
 const authFile = authFiles[0];
-for (const [name, point] of Object.entries(plan.savepoints)) if (!existsSync(point.file)) throw new Error(`save point ${name}: no file ${point.file}`);
+for (const [name, point] of Object.entries(plan.savepoints)) if (!point.fresh && !existsSync(point.file)) throw new Error(`save point ${name}: no file ${point.file}`);
 for (const [name, arm] of Object.entries(plan.arms)) {
 	if (!existsSync(arm.jar)) throw new Error(`arm ${name}: no jar ${arm.jar}`);
 	if (!existsSync(path.join(arm.root, 'coordinator/node_modules'))) throw new Error(`arm ${name}: ${arm.root} has no coordinator/node_modules`);
@@ -106,6 +109,8 @@ for (const [name, arm] of Object.entries(plan.arms)) {
 // The template every game plays on: the machine's own, or a copy of it with Lithium (prepare() writes its path to
 // ~/ck/server-template).
 const lithium = plan.lithium === false ? null : typeof plan.lithium === 'string' ? plan.lithium : await lithiumJar(targetProperties(fileURLToPath(new URL('../..', import.meta.url))));
+const freshFile = path.join(out, 'pkg', 'fresh.json');
+await writeFile(freshFile, 'FRESH\n');
 const gameScript = path.join(out, 'pkg', 'game.sh');
 await writeFile(gameScript, `#!/bin/bash
 # game.sh ID ARM SAVEPOINT_FILE MINUTES SALT MODEL EFFORT: one game on this machine; writes ~/ck/games/ID/done when it ends.
@@ -116,8 +121,11 @@ while IFS='=' read -r key value; do [ -n "$key" ] && export "$key=$value"; done 
 template=$(cat "$HOME/ck/server-template" 2>/dev/null || echo "$HOME/rooms/template-26.3")
 export PATH=$HOME/.local/bin:$PATH JAVA_HOME=$HOME/rooms/jdk ARENA_HEADLESS_SERVER_TEMPLATE="$template"
 cd "$HOME/ck/arms/$arm/$arm" || exit 1
+# A fresh save point's file holds only FRESH: a new world with an empty inventory, no save point. The repeat's salt is
+# its world seed, so every arm of a repeat plays the same world.
+start=(--checkpoint "$sp" --random-salt "$salt"); grep -qx FRESH "$sp" && start=(--seed "$salt")
 eatmydata node scripts/quality/run-long.mjs --provider codex --model "$model" --effort "$effort" --service-tier default \\
-  --codex-observer-cap yes --spend-cap-mode log --checkpoint "$sp" --random-salt "$salt" --budget-minutes "$mins" --max-total-cost-usd 100 \\
+  --codex-observer-cap yes --spend-cap-mode log "\${start[@]}" --budget-minutes "$mins" --max-total-cost-usd 100 \\
   --ledger "$dir/ledger.json" --port-base 26900 --jar "$HOME/ck/arms/$arm/mod.jar" --coordinator-root "$HOME/ck/arms/$arm/$arm" \\
   --java "$HOME/rooms/jdk/bin/java" --server-template "$template" --out "$dir/report" > "$dir/run.log" 2>&1 < /dev/null
 echo "exit $? $(date -Is)" > "$dir/done"
@@ -213,7 +221,7 @@ fp=$( (cd "$t" && find . -type f -printf '%p %s %T@\\n' | sort; sha256sum < "$j"
 if [ ! -f "$c/.mineagen-server-mods" ]; then rm -rf "$c.tmp"; cp -r "$t" "$c.tmp"; rm -f "$c.tmp"/mods/lithium-*.jar; mkdir -p "$c.tmp/mods"; cp "$j" "$c.tmp/mods/"; echo ${quote(name)} > "$c.tmp/.mineagen-server-mods"; rm -rf "$c"; mv "$c.tmp" "$c"; fi
 echo "$c" > ~/ck/server-template`, live);
 	} else await remote(vm.id, 'echo ~/rooms/template-26.3 > ~/ck/server-template', live);
-	for (const [name, point] of Object.entries(plan.savepoints)) await upload(vm.id, point.file, `ck/sp/${name}.json`, live);
+	for (const [name, point] of Object.entries(plan.savepoints)) await upload(vm.id, point.fresh ? freshFile : point.file, `ck/sp/${name}.json`, live);
 	await upload(vm.id, gameScript, 'ck/game.sh', live);
 	await remote(vm.id, 'chmod +x ~/ck/game.sh', live);
 	vm.prepared = true;
@@ -287,7 +295,7 @@ async function fetch(vm, game) {
 	// could free enough space for an archive with partial journals to pass its check.
 	const text = await remote(vm.id, `cd ~/ck/games/${game.id}; raw=$(sed -n 's/^Running [^:]*: //p' run.log | tail -1); staged=yes
 if [ -n "$raw" ] && [ -d "$raw" ]; then rm -rf raw; mkdir raw
-  if (set -o pipefail; tar -C "$raw" --exclude=server --exclude=.codex-home --exclude=auth.json --exclude=rcon-password.txt --exclude=secret.txt -cf - . | tar -C raw -xf -); then rm -rf "$raw/server"; else staged=no; rm -rf raw; echo stage-failed; fi; fi
+  if (set -o pipefail; tar -C "$raw" --exclude=server --exclude=.codex-home --exclude=auth.json --exclude=rcon-password.txt --exclude=secret.txt -cf - . | tar -C raw -xf -); then ${plan.keepWorld ? 'worlds=yes; for w in $(find "$raw/server" -maxdepth 2 -name level.dat -printf \'%h\\n\'); do tar -C "$(dirname "$w")" -czf "world-$(basename "$w").tgz" "$(basename "$w")" || worlds=no; done; ' : 'worlds=yes; '}if [ $worlds = yes ]; then rm -rf "$raw/server"; else staged=no; echo world-failed; fi; else staged=no; rm -rf raw; echo stage-failed; fi; fi
 [ -n "$raw" ] && find "$raw" -path '*.codex-home/auth.json' -exec sha256sum {} + 2>/dev/null | cut -c1-64 | sed 's/^/run=/'
 [ $staged = yes ] && tar --exclude=auth.json --exclude=.codex-home -czf ../${game.id}.tgz . && echo ok; echo tgz=$(sha256sum ../${game.id}.tgz | cut -c1-64); sha256sum ~/.codex/auth.json | cut -c1-64`, { timeoutMs: 15 * 60_000, ...live });
 	const lines = text.trim().split('\n'), remoteSha = lines.pop();
@@ -298,7 +306,7 @@ if [ -n "$raw" ] && [ -d "$raw" ]; then rm -rf raw; mkdir raw
 	if (changed) { signInChanged = true; await log(`SIGN-IN CHANGED on ${vm.id}${runShas.some(h => h !== authShas[game.account]) ? ' (the game\'s own copy)' : ''}: Codex refreshed it there; no new game starts`); }
 	// No "ok" means tar failed on the machine (its disk full, say): a machine-side failure, not a local one, so it counts
 	// against the machine instead of being copied again forever. The sign-in hashes above were already compared.
-	if (!lines.includes('ok')) throw new Error(`could not pack ${game.id} on ${vm.id}${lines.includes('stage-failed') ? ' (copying its raw journals failed)' : ''}`);
+	if (!lines.includes('ok')) throw new Error(`could not pack ${game.id} on ${vm.id}${lines.includes('stage-failed') ? ' (copying its raw journals failed)' : lines.includes('world-failed') ? ' (packing its world failed; the world stays on the machine)' : ''}`);
 	const tgzSha = lines.find(l => l.startsWith('tgz='))?.slice(4);
 	const dest = path.join(out, 'games', game.id);
 	// The raw journals stay packed in game.tgz (about 1 GB unpacked per 90-minute game); only the report and logs unpack.
@@ -330,7 +338,8 @@ async function scoreFrom(dir, game, p) {
 	const file = path.join(dir, 'games', game.id, 'report', 'long-run.json');
 	// Large report fields live in report-artifacts/ beside it; the reader restores them and checks their hashes.
 	const report = await readArtifactReport(file).catch(() => null);
-	return scoreGame(report, p.savepoints[game.savepoint].targets);
+	// A fresh world inherits nothing, so a target earned in its first 30 s counts.
+	return scoreGame(report, p.savepoints[game.savepoint].targets, p.savepoints[game.savepoint].fresh ? { inheritedMs: -1 } : undefined);
 }
 
 async function writeSummary(dir, s) {
