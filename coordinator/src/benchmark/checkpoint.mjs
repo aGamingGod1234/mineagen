@@ -13,11 +13,38 @@ export const NAMED_MILESTONES = {
 	end: 'dim:end',
 };
 
+// Item compounds in any key order: older drops print `{components: {...}, count, Slot, id}`, 26.3 prints `{Slot, id, count, components: {...}}`.
+// Each entry is read with its components block cut out, so an id or count nested inside components is never taken for the item's own.
+function compounds(text) {
+	const out = [];
+	for (let i = 0, depth = 0, from = -1; i < text.length; i++) {
+		if (text[i] === '"') { i = text.indexOf('"', i + 1); if (i < 0) break; continue; }
+		if (text[i] === '{') { if (depth++ === 0) from = i; }
+		else if (text[i] === '}' && --depth === 0) out.push(text.slice(from + 1, i));
+	}
+	return out;
+}
+
+function readItem(body) {
+	const at = body.search(/\bcomponents: \{/);
+	let components = '', rest = body;
+	if (at >= 0) {
+		const open = body.indexOf('{', at);
+		const [inner] = compounds(body.slice(open));
+		components = inner ?? '';
+		rest = body.slice(0, at) + body.slice(open + components.length + 2);
+	}
+	const id = rest.match(/\bid: "([^"]+)"/)?.[1];
+	if (!id) return null;
+	const damage = components.match(/"minecraft:damage": (\d+)/)?.[1];
+	return { id, count: Number(rest.match(/\bcount: (\d+)/)?.[1] ?? 1), slot: rest.match(/\bSlot: (\d+)b/)?.[1], damage: damage === undefined ? null : Number(damage) };
+}
+
 export function parseInventory(nbt) {
 	const items = [];
-	for (const m of String(nbt ?? '').matchAll(/\{(?:components: \{(.*?)\}, )?count: (\d+), Slot: (\d+)b, id: "([^"]+)"\}/g)) {
-		const damage = m[1]?.match(/"minecraft:damage": (\d+)/)?.[1];
-		items.push({ id: m[4], count: Number(m[2]), slot: Number(m[3]), damage: damage === undefined ? null : Number(damage) });
+	for (const body of compounds(String(nbt ?? ''))) {
+		const item = readItem(body);
+		if (item && item.slot !== undefined) items.push({ id: item.id, count: item.count, slot: Number(item.slot), damage: item.damage });
 	}
 	return items;
 }
@@ -25,16 +52,21 @@ export function parseInventory(nbt) {
 // Slot names live in the player record (`equipment: {head: ..., offhand: ...}`); the sampled equipment list has neither names nor the offhand.
 export function parseEquipment(entityNbt, equipmentNbt = '') {
 	const out = {};
-	const map = String(entityNbt ?? '').match(/\bequipment: \{(.*?\})\}(?:, [A-Za-z_]+:|\}$)/)?.[1] ?? '';
-	for (const m of map.matchAll(/(head|chest|legs|feet|offhand): \{(?:components: \{(.*?)\}, )?count: \d+, id: "([^"]+)"\}/g)) {
-		const damage = m[2]?.match(/"minecraft:damage": (\d+)/)?.[1];
-		out[m[1]] = { id: m[3], damage: damage === undefined ? null : Number(damage) };
+	const text = String(entityNbt ?? '');
+	const at = text.search(/\bequipment: \{/);
+	if (at >= 0) {
+		const [map = ''] = compounds(text.slice(text.indexOf('{', at)));
+		for (const m of map.matchAll(/\b(head|chest|legs|feet|offhand): \{/g)) {
+			const [body] = compounds(map.slice(m.index + m[0].length - 1));
+			const item = body === undefined ? null : readItem(body);
+			if (item) out[m[1]] = { id: item.id, damage: item.damage };
+		}
 	}
 	if (Object.keys(out).length) return out;
-	for (const m of String(equipmentNbt ?? '').matchAll(/\{(?:components: \{(.*?)\}, )?count: \d+, id: "([^"]+)"\}/g)) {
-		const slot = { helmet: 'head', chestplate: 'chest', leggings: 'legs', boots: 'feet' }[m[2].match(/_(helmet|chestplate|leggings|boots)$/)?.[1]];
-		const damage = m[1]?.match(/"minecraft:damage": (\d+)/)?.[1];
-		if (slot) out[slot] = { id: m[2], damage: damage === undefined ? null : Number(damage) };
+	for (const body of compounds(String(equipmentNbt ?? '').replace(/^\s*\[/, ''))) {
+		const item = readItem(body);
+		const slot = item && { helmet: 'head', chestplate: 'chest', leggings: 'legs', boots: 'feet' }[item.id.match(/_(helmet|chestplate|leggings|boots)$/)?.[1]];
+		if (slot) out[slot] = { id: item.id, damage: item.damage };
 	}
 	return out;
 }
