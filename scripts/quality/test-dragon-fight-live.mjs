@@ -64,6 +64,17 @@ const OLD_CAGE = !cli.includes('--dry-cage');
 // 20 runs a side in one batch: 1 kill against 0, 36% of arrows struck against 26%, but half as many arrows landed (52 against
 // 103) and the dragon ended no lower, so it stays off.
 const OLD_RANGE = !cli.includes('--range-cap');
+// --perch (practice room, judged with --descriptive off): the perch alone, with no crystals and no endermen. PERCHES landings
+// (default 1), the body PERCH_RADIUS blocks (default 16) out from the fountain at PERCH_ANGLE degrees (default from the run's
+// seed spot). Pass: every perch sat and ended, with at least PERCH_DEALT (40) damage dealt and under PERCH_LOST (4) taken.
+const PERCH = cli.includes('--perch');
+const PERCHES = Math.max(1, Number(process.env.PERCHES ?? 1)), PERCH_RADIUS = Number(process.env.PERCH_RADIUS ?? 16);
+const PERCH_ANGLE = Number(process.env.PERCH_ANGLE ?? (Number(process.env.ROOM_INDEX ?? Math.floor(Math.random() * 1000)) * 137.5) % 360);
+const PERCH_DEALT = 40, PERCH_LOST = 4;
+const SKY_WAIT = cli.includes('--sky-wait');
+// --crystal (practice room): the fight up to the last crystal down, endermen about. Pass: alive with a full water bucket
+// when the tenth crystal breaks, within CRYSTAL_MS (wave 5: 42 of 122 runs died before then, 19 of them to endermen).
+const CRYSTAL = cli.includes('--crystal');
 const [outArg, jarArg] = cli.filter(arg => !arg.startsWith('--'));
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port = Number(process.env.SLOT_PORT_BASE);
 if (!outArg || !template || !port || !process.env.JAVA_HOME) { console.error('Usage: OUT_DIR [JAR] [--no-bow] [--survive] under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME'); process.exit(2); }
@@ -72,7 +83,7 @@ await mkdir(out, { recursive: true });
 if ((await readdir(out)).length) { console.error('Use a fresh output directory'); process.exit(2); }
 const sleep = ms => new Promise(done => setTimeout(done, ms));
 const AGENT = 'Slayer';
-const FIGHT_MS = 20 * 60_000, SURVIVE_MS = 10 * 60_000;
+const FIGHT_MS = 20 * 60_000, SURVIVE_MS = 10 * 60_000, PERCH_MS = 5 * 60_000, CRYSTAL_MS = 12 * 60_000;
 // The vanilla arrival platform: 5x5 obsidian at y48 centred on 100,0, feet at y49.
 const PLATFORM = { x: 100.5, y: 49, z: 0.5 };
 // Open ground a player waits on for the perch: 10-15 blocks from the fountain (DRAGON_FINISH_FACTS).
@@ -80,9 +91,9 @@ const WAIT_SPOT = { x: 12.5, z: 0.5 };
 const SURVIVE_SPOT = { x: 20.5, z: 20.5 };
 const end = (s, text) => s.command(`execute in minecraft:the_end run ${text}`);
 const number = text => Number((/(-?\d+(?:\.\d+)?)[fdb]?\s*$/.exec(String(text).trim()) ?? [])[1]);
-const results = { arm: `${SURVIVE ? 'survive' : 'fight'}-${BOW ? 'bow' : 'no-bow'}${NO_ENDERMEN ? '-no-endermen' : ''}${OLD_CRYSTALS ? '-old-crystals' : ''}${CAGED_FIRST ? '-caged-first' : ''}`, noEndermen: NO_ENDERMEN,
+const results = { arm: `${SURVIVE ? 'survive' : PERCH ? 'perch' : CRYSTAL ? 'crystal' : 'fight'}-${BOW ? 'bow' : 'no-bow'}${NO_ENDERMEN ? '-no-endermen' : ''}${OLD_CRYSTALS ? '-old-crystals' : ''}${CAGED_FIRST ? '-caged-first' : ''}`, noEndermen: NO_ENDERMEN,
 	crystalPhase: OLD_CRYSTALS ? 'old' : 'positioned', mode: SURVIVE ? 'survive' : 'fight', bow: BOW,
-	bar: SURVIVE ? 'alive after 10 game min, no void fall' : 'dragon killed and body alive within 20 game min of arrival',
+	bar: SURVIVE ? 'alive after 10 game min, no void fall' : CRYSTAL ? 'alive with a water bucket when the last crystal breaks, within 12 game min' : 'dragon killed and body alive within 20 game min of arrival',
 	jar: path.resolve(jarArg ?? path.join(root, MOD_JAR)), runs: [] };
 const repeats = Math.max(1, Number(process.env.REPEATS ?? 1));
 
@@ -230,7 +241,7 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 				// A world clock that stops while RCON still answers would hold the loop forever: three windows of wall time end it,
 				// and the run is invalid ('world clock unreadable').
 				const inWindow = async () => (played = Date.now() - wall0 > 3 * limit ? Infinity : await timer.elapsed().catch(() => Infinity)) < limit;
-				const limit = SURVIVE ? SURVIVE_MS : FIGHT_MS;
+				const limit = SURVIVE ? SURVIVE_MS : PERCH ? PERCH_MS : CRYSTAL ? CRYSTAL_MS : FIGHT_MS;
 				const log = [], tried = new Set();
 				let dead = false, killed = false, minY = place.y, shots = 0, crystalBreaks = 0, meleeHits = 0, flyingShots = 0, passes = 0;
 				// The dragon's lowest health and the drops between samples: crystals heal damage back, so the end health hides it.
@@ -598,7 +609,149 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 					if (c.caged) await openCage(c); else await openShot(c, me);
 					return true;
 				};
-				while (await inWindow()) {
+				// Waiting. While crystals may still be unseen or standing, it looks round for them and the dragon, at the sky: a level
+				// gaze would meet endermen and provoke them, which a player avoids (the first baseline lost both kits to endermen while
+				// the script swept the horizon). With every crystal down it watches the fountain, raised over the ground (endermen),
+				// as a player waiting for the landing does: a perch out of view is never seen (the --perch watch, 3 of 3 perches with
+				// the eyes on the sky: no head seen, no swing). --sky-wait keeps the sky sweep throughout.
+				const waitLook = async me => {
+					const crystalsOpen = seenCrystals.size < 10 && !PERCH || [...seenCrystals.values()].some(c => !c.gone);
+					if (SKY_WAIT || crystalsOpen) {
+						const turn = ((now() - t0) / 4000) % (2 * Math.PI);
+						return act('look_at', { x: me.x + Math.cos(turn) * 20, y: me.y + 40, z: me.z + Math.sin(turn) * 20 });
+					}
+					return act('look_at', { x: 0.5, y: Math.max(me.y + 3, 66), z: 0.5 });
+				};
+				// 2. Perched: melee its head, as a player who ran in does (the fight and --perch rooms share it). True when it acted.
+				const perchStep = async (o, me, entities) => {
+					const perch = perchedDragon(o);
+					// Not below 10 health: a player heals before walking under it, and steps out at 8 (fleeAtHealth); at 3 health
+					// one hit of its head (10, about 6 through iron) kills.
+					// With a crystal still standing (one seen and not broken), it heals the damage back: a player keeps off the perch.
+					// Not hurt either (16 or more, PERCH_FACTS: one head hit is 10 before armour and the breath 6 a second), with no
+					// angry enderman near, and only once the head is down within reach height (round 4: 'perched' 7-11 blocks up).
+					const crystalUp = !OLD_PERCH && [...seenCrystals.values()].some(c => !c.gone);
+					const headHigh = !OLD_PERCH && perch?.head && perch.head.y - me.y > 6 && Math.hypot(perch.head.x - me.x, perch.head.z - me.z) <= 20;
+					const angryNear = !OLD_PERCH && entities.some(e => e?.type === 'minecraft:enderman' && e.alive !== false && e.targetingAgent === true && (e.distance ?? Infinity) <= 16);
+					const holdOff = perch?.head?.id && !OLD_PERCH && (crystalUp || me.health < 16 || angryNear || headHigh);
+					if (holdOff && now() - lastHoldNote > 10000) {
+						lastHoldNote = now();
+						note(crystalUp ? 'perched, not swinging: a crystal still stands' : `perched, not swinging: ${me.health < 16 ? `health ${Math.round(me.health)}` : angryNear ? 'an angry enderman near' : `head ${Math.round(perch.head.y - me.y)} up`}`, null);
+					}
+					// Arrows bounce off a perched dragon (PERCH_FACTS): held off, the body waits with its eyes on the sky.
+					if (holdOff) { await act('look_at', { x: me.x, y: me.y + 40, z: me.z + 5 }); await s.clock.sleep(1000); return true; }
+					if (perch?.head?.id && (OLD_REFILL || !(me.health < 10)) && (OLD_PERCH || !(crystalUp || me.health < 16 || angryNear || headHigh))) {
+						// From the far side of the island fight_target refuses (its chase reach is 32 blocks to the head) and a short
+						// perch ends during the walk: a player sprints in first, to 8 blocks short of the head on their own side, as
+						// the facts say (a sprint covers about 5.6 blocks a second). Main's stand-in swung from where it stood.
+						const flat = Math.hypot(perch.head.x - me.x, perch.head.z - me.z);
+						if (!OLD_REFILL && flat > 20 && Number.isFinite(flat)) {
+							const k = (flat - 8) / flat, tx = me.x + (perch.head.x - me.x) * k, tz = me.z + (perch.head.z - me.z) * k;
+							const gy = await groundY(tx, tz).catch(() => NaN);
+							const r = await act('travel_to', { x: tx, y: Number.isFinite(gy) && gy > 40 ? gy + 1 : Math.floor(me.y), z: tz, tolerance: 3, build: false, timeoutMs: 10000 });
+							note(`run in to the perched head (${Math.round(flat)} blocks)`, r);
+						}
+						const before = await dragonHealth();
+						const r = await act('fight_target', { targetId: perch.head.id, timeoutMs: 12000, ...(OLD_REFILL ? {} : { fleeAtHealth: OLD_PERCH ? 8 : 12 }) });
+						const after = await dragonHealth();
+						if (Number.isFinite(before) && Number.isFinite(after) && after < before) meleeLanded += 1;
+						meleeHits += 1; note(`melee perched head (dragon ${before} -> ${after})`, r);
+						// No spot to hit from (the breath covers the ground in front of the head): a player does not wait beside a
+						// perched head, which swings round to face them (the perch watch: a 10 hit on a body left standing 1.7 from it).
+						if (/TARGET_UNREACHABLE|NO_SEEN_ROUTE/.test(r.reasonCode ?? "")) {
+							const v = await view().catch(() => null), p2 = v && perchedDragon(v), at = v?.player;
+							const near = p2?.head && at ? Math.hypot(p2.head.x - at.x, p2.head.z - at.z) : Infinity;
+							if (near < 6) {
+								const ux = (at.x - p2.head.x) / near, uz = (at.z - p2.head.z) / near, tx = p2.head.x + ux * 9, tz = p2.head.z + uz * 9;
+								const gy = await groundY(tx, tz).catch(() => NaN);
+								note('step back from the perched head', await act('travel_to', { x: tx, y: Number.isFinite(gy) && gy > 40 ? gy + 1 : Math.floor(at.y), z: tz, tolerance: 2, build: false, timeoutMs: 5000 }));
+							}
+						}
+						return true;
+					}
+					return false;
+				};
+				// --perch: the perch alone. Crystals and endermen are removed, the body stands on open ground PERCH_RADIUS blocks out
+				// from the fountain, and the dragon is sent to land (DragonPhase 3) PERCHES times; the shared perch step plays each
+				// perch. Judged per perch, from the landing order to the lift-off: the dragon's health drop (it cannot heal) and the
+				// body's damage taken (the vanilla counter).
+				const dragonPhase = async () => number(await end(s, 'data get entity @e[type=minecraft:ender_dragon,limit=1] DragonPhase'));
+				const SITTING = [5, 6, 7];
+				// The fine trace (judging only): every observation while a perch is played, so a hit taken mid-command is placed.
+				let tracing = null, lastFine = -Infinity;
+				s.bridge.on('observation', ev => {
+					if (!tracing || ev.agentId !== record.agentId || !ev.payload?.ready || tracing.fine.length >= 600) return;
+					try {
+						const o = adaptObservation(ev.payload), me = o.player, t = now();
+						if (!me || t - lastFine < 200) return;
+						lastFine = t;
+						const head = perchedDragon(o)?.head;
+						tracing.fine.push([Math.round((t - t0) / 100) / 10, +me.health.toFixed(1), +me.x.toFixed(2), +me.y.toFixed(2), +me.z.toFixed(2), me.onGround === false ? 0 : 1, o.currentAction?.actionType ?? null, head ? [head.x, head.y, head.z] : null]);
+					} catch { /* a trace never fails the run */ }
+				});
+				const perchRoom = async () => {
+					row.perches = [];
+					await end(s, 'kill @e[type=minecraft:end_crystal]');
+					seenCrystals.clear();
+					const angle = PERCH_ANGLE * Math.PI / 180;
+					const sx = 0.5 + Math.cos(angle) * PERCH_RADIUS, sz = 0.5 + Math.sin(angle) * PERCH_RADIUS;
+					const sy = await groundY(Math.floor(sx), Math.floor(sz));
+					await end(s, `tp ${AGENT} ${sx} ${sy} ${sz}`);
+					await s.clock.sleep(1500);
+					for (let p = 0; p < PERCHES && await inWindow(); p++) {
+						await end(s, 'kill @e[type=minecraft:enderman]').catch(() => {});
+						const pr = { perch: p + 1, orderedAt: Math.round((now() - t0) / 100) / 10, sat: null, ended: null, phases: [], clouds: [], track: [], melee: [], fine: [] };
+						tracing = pr;
+						row.perches.push(pr);
+						const damage0 = await readDamage(), dragon0 = await dragonHealth(), hp0 = (await view().catch(() => null))?.player?.health ?? null;
+						await end(s, 'data merge entity @e[type=minecraft:ender_dragon,limit=1] {DragonPhase:3}');
+						let lastPhase = null, lastTrack = -Infinity, ordered = now();
+						const cloudsSeen = new Set();
+						while (await inWindow()) {
+							await end(s, 'kill @e[type=minecraft:enderman]').catch(() => {});
+							const raw = await s.observe().catch(() => null);
+							if (raw === null) { observeMisses += 1; continue; }
+							if (raw.player?.dead === true || raw.status === 'PLAYER_DEAD' || (raw.world?.dimension && raw.world.dimension !== 'minecraft:the_end')) { dead = true; break; }
+							const t = Math.round((now() - t0) / 100) / 10;
+							const phase = await dragonPhase();
+							if (phase !== lastPhase) { pr.phases.push([t, phase]); lastPhase = phase; }
+							if (pr.sat === null && SITTING.includes(phase)) pr.sat = t;
+							if (pr.sat !== null && !SITTING.includes(phase)) { pr.ended = t; break; }
+							// Never sat within 40 s of the order (it lands from wherever it flies): ordered again, at most twice.
+							if (pr.sat === null && now() - ordered > 40000) {
+								if ((pr.reorders = (pr.reorders ?? 0) + 1) > 2) break;
+								await end(s, 'data merge entity @e[type=minecraft:ender_dragon,limit=1] {DragonPhase:3}'); ordered = now();
+							}
+							// The breath clouds (judging only): where each lands, against where the body stands.
+							const cloud = String(await end(s, 'data get entity @e[type=minecraft:area_effect_cloud,limit=1] Pos').catch(() => ''));
+							const c = /\[(-?[\d.]+)d, (-?[\d.]+)d, (-?[\d.]+)d\]/.exec(cloud);
+							if (c && !cloudsSeen.has(c.slice(1).join())) { cloudsSeen.add(c.slice(1).join()); pr.clouds.push({ t, x: +(+c[1]).toFixed(1), y: +(+c[2]).toFixed(1), z: +(+c[3]).toFixed(1), body: raw.player ? [raw.player.x, raw.player.y, raw.player.z].map(v => +(+v).toFixed(1)) : null }); }
+							let o = null;
+							try { o = adaptObservation(raw); } catch { o = null; }
+							if (!o?.player) { await s.clock.sleep(500); continue; }
+							const me = o.player, perch = perchedDragon(o);
+							if (now() - lastTrack >= 1000 && pr.track.length < 120) {
+								lastTrack = now();
+								pr.track.push({ t, phase, hp: me.health, me: [me.x, me.y, me.z].map(v => +v.toFixed(1)), head: perch?.head ? [perch.head.x, perch.head.y, perch.head.z] : null });
+							}
+							if (await perchStep(o, me, o.entities ?? [])) continue;
+							await waitLook(me);
+							await s.clock.sleep(500);
+						}
+						tracing = null;
+						const damage1 = await readDamage(), dragon1 = await dragonHealth();
+						pr.dealt = Number.isFinite(dragon0) && Number.isFinite(dragon1) ? Math.round((dragon0 - dragon1) * 10) / 10 : Number.isFinite(dragon0) && !Number.isFinite(dragon1) ? dragon0 : null;
+						pr.lost = damageEvidence(damage0, damage1).damageTaken;
+						pr.hpStart = hp0;
+						pr.pass = pr.sat !== null && pr.ended !== null && !dead && pr.dealt >= PERCH_DEALT && Number.isFinite(pr.lost) && pr.lost < PERCH_LOST;
+						console.log(`[dragon-fight] perch ${p + 1}: sat=${pr.sat} ended=${pr.ended} dealt=${pr.dealt} lost=${pr.lost} clouds=${pr.clouds.length} pass=${pr.pass}`);
+						if (dead || !Number.isFinite(dragon1)) break;
+						// Back to its holding pattern before the next order.
+						await s.clock.sleep(8000);
+					}
+				};
+				if (PERCH) await perchRoom();
+				while (!PERCH && await inWindow()) {
 					// The raw sample decides death: a dead body's sample may not adapt, and it respawns in the Overworld.
 					if (NO_ENDERMEN) await end(s, 'kill @e[type=minecraft:enderman]').catch(() => {});
 					const raw = await s.observe().catch(() => null);
@@ -632,6 +785,7 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 					arrowsNow = arrows; arrowsStart ??= arrows;
 					if (Number.isFinite(me.health)) { if (Number.isFinite(lastHp) && lastHp - me.health >= 4 && hurtLog.length < 30) hurtLog.push({ t: Math.round((now() - t0) / 1000), from: lastHp, to: me.health, y: Math.round(me.y), cmd: lastCommand?.actionType ?? null, hunger: me.hunger ?? null, fountain: Math.round(Math.hypot(me.x - 0.5, me.z - 0.5)) }); lastHp = me.health; }
 					await trackCrystals();
+					if (CRYSTAL && clearedAt !== null) { row.bucketAtClear = (o.inventory?.items ?? []).some(i => i.itemId === 'minecraft:water_bucket'); row.healthAtClear = me.health; break; }
 					// 1. The crystals: positioned shots and opened cages; the old step shoots each once from where the body stands.
 					if (ranged && !OLD_CRYSTALS && await crystalStep(o, me)) continue;
 					const crystal = ranged && OLD_CRYSTALS ? entities.filter(row => row.type === 'minecraft:end_crystal' && !tried.has(row.stableId) && dist(row) <= 64)
@@ -642,40 +796,7 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 						shots += 1; if (r.state === 'SUCCEEDED' && /broke/.test(r.message) && !/something else/.test(r.message)) crystalBreaks += 1;
 						note('shoot crystal', r); continue;
 					}
-					// 2. Perched: melee its head, as a player who ran in does.
-					const perch = perchedDragon(o);
-					// Not below 10 health: a player heals before walking under it, and steps out at 8 (fleeAtHealth); at 3 health
-					// one hit of its head (10, about 6 through iron) kills.
-					// With a crystal still standing (one seen and not broken), it heals the damage back: a player keeps off the perch.
-					// Not hurt either (16 or more, PERCH_FACTS: one head hit is 10 before armour and the breath 6 a second), with no
-					// angry enderman near, and only once the head is down within reach height (round 4: 'perched' 7-11 blocks up).
-					const crystalUp = !OLD_PERCH && [...seenCrystals.values()].some(c => !c.gone);
-					const headHigh = !OLD_PERCH && perch?.head && perch.head.y - me.y > 6 && Math.hypot(perch.head.x - me.x, perch.head.z - me.z) <= 20;
-					const angryNear = !OLD_PERCH && entities.some(e => e?.type === 'minecraft:enderman' && e.alive !== false && e.targetingAgent === true && (e.distance ?? Infinity) <= 16);
-					const holdOff = perch?.head?.id && !OLD_PERCH && (crystalUp || me.health < 16 || angryNear || headHigh);
-					if (holdOff && now() - lastHoldNote > 10000) {
-						lastHoldNote = now();
-						note(crystalUp ? 'perched, not swinging: a crystal still stands' : `perched, not swinging: ${me.health < 16 ? `health ${Math.round(me.health)}` : angryNear ? 'an angry enderman near' : `head ${Math.round(perch.head.y - me.y)} up`}`, null);
-					}
-					// Arrows bounce off a perched dragon (PERCH_FACTS): held off, the body waits with its eyes on the sky.
-					if (holdOff) { await act('look_at', { x: me.x, y: me.y + 40, z: me.z + 5 }); await s.clock.sleep(1000); continue; }
-					if (perch?.head?.id && (OLD_REFILL || !(me.health < 10)) && (OLD_PERCH || !(crystalUp || me.health < 16 || angryNear || headHigh))) {
-						// From the far side of the island fight_target refuses (its chase reach is 32 blocks to the head) and a short
-						// perch ends during the walk: a player sprints in first, to 8 blocks short of the head on their own side, as
-						// the facts say (a sprint covers about 5.6 blocks a second). Main's stand-in swung from where it stood.
-						const flat = Math.hypot(perch.head.x - me.x, perch.head.z - me.z);
-						if (!OLD_REFILL && flat > 20 && Number.isFinite(flat)) {
-							const k = (flat - 8) / flat, tx = me.x + (perch.head.x - me.x) * k, tz = me.z + (perch.head.z - me.z) * k;
-							const gy = await groundY(tx, tz).catch(() => NaN);
-							const r = await act('travel_to', { x: tx, y: Number.isFinite(gy) && gy > 40 ? gy + 1 : Math.floor(me.y), z: tz, tolerance: 3, build: false, timeoutMs: 10000 });
-							note(`run in to the perched head (${Math.round(flat)} blocks)`, r);
-						}
-						const before = await dragonHealth();
-						const r = await act('fight_target', { targetId: perch.head.id, timeoutMs: 12000, ...(OLD_REFILL ? {} : { fleeAtHealth: OLD_PERCH ? 8 : 12 }) });
-						const after = await dragonHealth();
-						if (Number.isFinite(before) && Number.isFinite(after) && after < before) meleeLanded += 1;
-						meleeHits += 1; note(`melee perched head (dragon ${before} -> ${after})`, r); continue;
-					}
+					if (await perchStep(o, me, entities)) continue;
 					// 3. In flight and close: shoot the nearest of its body and head (--head-aim: the head first, which takes an arrow's
 					// full damage, every other part about a quarter). Only within 48 blocks (--range-cap: 26).
 					const part = ranged ? entities.filter(row => row.type === 'minecraft:ender_dragon' && /^(body|head)$/.test(row.partName ?? '') && dist(row) <= (OLD_RANGE ? 48 : 26))
@@ -692,10 +813,7 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 					}
 					// A crystal missed from one spot is tried again later (the body and its line of sight move).
 					if (++passes % 20 === 0) tried.clear();
-					// Looking round for crystals and the dragon, at the sky: a level gaze would meet endermen and provoke them, which
-					// a player avoids (the first baseline lost both kits to endermen while the script swept the horizon).
-					const turn = ((now() - t0) / 4000) % (2 * Math.PI);
-					await act('look_at', { x: me.x + Math.cos(turn) * 20, y: me.y + 40, z: me.z + Math.sin(turn) * 20 });
+					await waitLook(me);
 					await s.clock.sleep(1000);
 				}
 				// One last sample after the window: a fall during the final wait is judged too.
@@ -745,8 +863,9 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 					!row.armed.includes('default-breath') && 'the End reflexes never armed', row.harnessErrors > 0 && `${row.harnessErrors} harness error(s) sending commands`, observeMisses > 2 && `${observeMisses} live samples lost`,
 					!Number.isFinite(played) && 'world clock unreadable'].filter(Boolean);
 				if (missing.length) row.error = `not exercised: ${missing.join('; ')}`;
-				row.pass = SURVIVE ? !row.died && !row.voidFall : row.killed && !row.died;
-				row.failReason = row.pass ? null : row.died ? 'died' : row.voidFall ? 'void fall' : SURVIVE ? null : Number.isFinite(row.killSeenLateMs) ? 'dragon killed after the window' : 'dragon alive at the window end';
+				row.pass = SURVIVE ? !row.died && !row.voidFall : CRYSTAL ? !row.died && !row.voidFall && clearedAt !== null && row.bucketAtClear === true : PERCH ? !row.died && row.perches.length === PERCHES && row.perches.every(p => p.pass) : row.killed && !row.died;
+					if (PERCH && !row.error && !row.died && row.perches.some(p => p.sat === null)) row.error = 'not exercised: the dragon never perched';
+				row.failReason = row.pass ? null : row.died ? 'died' : row.voidFall ? 'void fall' : SURVIVE ? null : CRYSTAL ? (clearedAt === null ? 'crystals still up at the window end' : 'no water bucket when the last crystal broke') : PERCH ? 'a perch dealt under 40 or cost 4 or more' : Number.isFinite(row.killSeenLateMs) ? 'dragon killed after the window' : 'dragon alive at the window end';
 				row.finishedAt = Date.now();
 				console.log(`[dragon-fight] ${results.arm} run ${run}: ${row.error ? 'INVALID' : row.pass ? 'PASS' : 'FAIL'} killed=${killed} died=${row.died} dragon=${row.dragonHealthEnd} crystals=${row.crystalsLeft} cagedBroken=${row.cagedBroken} openBroken=${row.openBroken} arrows=${row.arrowsUsed} cleared=${row.crystalsClearedAt} shots=${shots} broke=${crystalBreaks} melee=${meleeHits} landed=${meleeLanded} flying=${flyingShots} lowest=${lowestDragon} dealt=${row.damageDealt} angered=${angerLog.length} damage=${row.damageTaken} game=${row.gameSeconds}s`);
 				// After a kill the End has no dragon: a further repeat on this server measures nothing.
