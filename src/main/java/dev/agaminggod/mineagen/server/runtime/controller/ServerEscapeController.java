@@ -230,16 +230,11 @@ public final class ServerEscapeController implements ServerController {
 		int tries = bank == null ? 0 : bankTries.merge(bank, 1, Integer::sum);
 		boolean bankAbove = bank != null && bank.getY() > player.getBlockY();
 		String block = plainBlock(player);
-		// A bank seen at the top of the body's own flooded shaft that walks keep failing to reach (afloat, the rim a dry climb
-		// over the water): a player fills the water under them and climbs out of the dry hole. kit-gate-4 on main: four
-		// tries at the bank 7 blocks up, then no way out, the search handing back from the same shaft 5 times.
-		boolean bankOutOfReach = FILL_PAST_BANK && bank != null && tries > 2 && !player.onGround();
-		Column column = (bank == null || bankOutOfReach) && block != null && fills < MAX_TRIES ? fillColumn(player.level(), player.blockPosition()) : null;
+		Column column = bank == null && block != null && fills < MAX_TRIES ? fillColumn(player.level(), player.blockPosition()) : null;
 		boolean canFill = column != null && ServerBuildController.carried(player, block) >= column.depth();
 		BlockPos step = bank == null && !canFill && block != null && steps < MAX_TRIES
 				? stepCell(player.level(), player.blockPosition(), connectedWater(player.level(), player.blockPosition()), waterTopAt(player.level(), player.blockPosition())) : null;
-		WaterMove next = bankOutOfReach && canFill && player.getAirSupply() >= SWIM_FIRST_AIR ? WaterMove.FILL
-				: waterMove(player.isUnderWater(), player.getAirSupply(), bank != null, tries, player.onGround(), bankAbove,
+		WaterMove next = waterMove(player.isUnderWater(), player.getAirSupply(), bank != null, tries, player.onGround(), bankAbove,
 				bank != null && stairedBanks.contains(bank), swims, canFill, step != null);
 		return switch (next) {
 			case SWIM -> {
@@ -506,8 +501,6 @@ public final class ServerEscapeController implements ServerController {
 
 	/** How deep a water column under the body is filled at most. */
 	static final int FILL_DEPTH = 10;
-	/** MINEAGEN_ESCAPE_FILL_PAST_BANK=off keeps a bank the walks cannot reach from ever leading to the fill (the A/B off arm). */
-	static final boolean FILL_PAST_BANK = !"off".equalsIgnoreCase(System.getenv("MINEAGEN_ESCAPE_FILL_PAST_BANK"));
 
 	/** The water cells under the body: the lowest one (resting on a block that holds a placement) and the top one. */
 	record Column(BlockPos lowest, BlockPos top) {
