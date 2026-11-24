@@ -387,9 +387,9 @@ public final class ServerSpawnerHoldController implements ServerController {
 			// A lull in the open fight: health regrows slowly, and the default eat waits for no hostile within 8 blocks, which
 			// a spawner room never has (blaze spawner rooms: bodies sat at 10 health for minutes, then died to the next crowd).
 			// A player eats then: no blaze in reach, nothing hit for 2 s, no volley charging, the blaze in sight. A hit ends
-			// the bite (it is no longer a lull) and the fight resumes.
+			// the bite (it is no longer a lull), as does a blaze closing to melee reach, and the fight resumes.
 			if (lullBite) {
-				if (eatTicks >= 0 && lastLossTick <= lullStartTick) return eat(player);
+				if (eatTicks >= 0 && lastLossTick <= lullStartTick && !blazeNear(player)) return eat(player);
 				if (eatTicks >= 0) { eatTicks = -1; eatInput.release(); bitesStopped++; }
 				lullBite = false;
 			}
