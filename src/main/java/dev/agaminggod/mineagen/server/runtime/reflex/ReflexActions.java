@@ -1117,55 +1117,19 @@ final class ReflexActions {
 			return Mth.wrapDegrees(toward + 90.0F * (side >= 0 ? 1 : -1));
 		}
 
-		/** Minecraft yaw from {@code body} toward {@code at}. */
-		static float towardYaw(Vec3 body, Vec3 at) {
-			return (float) Math.toDegrees(Math.atan2(-(at.x - body.x), at.z - body.z));
-		}
-
-		/** Range within which another archer that sees the body is stepped across too. */
-		static final double OTHER_SHOOTER_RANGE = 16.0D;
-		/** How far off the square step a dodge turns to cross a second archer's line as well. */
-		static final float CROSSING_TURN = 45.0F;
+		/** Ground speed (blocks a tick, after friction) past which the body counts as already running a step. */
+		static final double RUNNING_SPEED = 0.05D;
 
 		/**
-		 * Yaws from the body toward every other living ranged mob within {@link #OTHER_SHOOTER_RANGE} that targets it and
-		 * sees it, nearest first: the archers whose next shot the square step across {@code answering}'s line ignores.
+		 * The side for a new draw by the archer at {@code shooter}: the side whose step runs closest to the body's current
+		 * {@code velocity} when it is already running, so it keeps crossing the shot before; else {@code fallback}.
 		 */
-		private static float[] otherShooters(ServerPlayer player, Entity answering) {
-			List<Mob> found = new ArrayList<>(player.level().getEntitiesOfClass(Mob.class, player.getBoundingBox().inflate(OTHER_SHOOTER_RANGE),
-					mob -> mob != answering && mob.isAlive() && ThreatPerception.isRanged(mob) && mob.getTarget() == player
-							&& player.distanceTo(mob) <= OTHER_SHOOTER_RANGE && mob.getSensing().hasLineOfSight(player)));
-			found.sort(java.util.Comparator.comparingDouble(player::distanceTo));
-			float[] yaws = new float[found.size()];
-			for (int i = 0; i < yaws.length; i++) yaws[i] = towardYaw(player.position(), found.get(i).position());
-			return yaws;
-		}
-
-		/**
-		 * The step heading that crosses every archer's line: {@code square} (square across the answered archer's line, at
-		 * {@code answered}) or that turned {@link #CROSSING_TURN} either way, whichever moves the body most across the worst
-		 * crossed of all the lines, ties going away from the answered and the nearest other archer, then to the heading
-		 * already run. With
-		 * no other archer it is {@code square}. Two skeletons at right angles: the square step across one runs straight
-		 * along the other's line (archers-zombie on main: 82 of 114 arrows that hit landed more than 30 degrees off the
-		 * body's facing).
-		 */
-		static float crossingYaw(float square, float answered, float[] others, Float previous) {
-			if (others.length == 0) return square;
-			float best = square;
-			double bestScore = Double.NEGATIVE_INFINITY;
-			for (float turn : new float[]{0.0F, CROSSING_TURN, -CROSSING_TURN}) {
-				float yaw = Mth.wrapDegrees(square + turn);
-				double across = Math.abs(Math.sin(Math.toRadians(yaw - answered)));
-				for (float other : others) across = Math.min(across, Math.abs(Math.sin(Math.toRadians(yaw - other))));
-				double score = across - 0.05D * (Math.cos(Math.toRadians(yaw - others[0])) + Math.cos(Math.toRadians(yaw - answered)))
-						+ (previous != null && Math.abs(Mth.wrapDegrees(previous - yaw)) <= OFFSETS[1] ? 0.03D : 0.0D);
-				if (score > bestScore + 1.0E-6D) {
-					bestScore = score;
-					best = yaw;
-				}
-			}
-			return best;
+		static int continuingSide(Vec3 body, Vec3 shooter, Vec3 velocity, int fallback) {
+			if (Math.hypot(velocity.x, velocity.z) < RUNNING_SPEED) return fallback;
+			float running = (float) Math.toDegrees(Math.atan2(-velocity.x, velocity.z));
+			float plus = Math.abs(AgentInputStates.shortestAngleDelta(running, sideYaw(body, shooter, 1)));
+			float minus = Math.abs(AgentInputStates.shortestAngleDelta(running, sideYaw(body, shooter, -1)));
+			return plus <= minus ? 1 : -1;
 		}
 
 		/** The side after {@code previous}: the other one, or +1 the first time. */
@@ -1236,6 +1200,13 @@ final class ReflexActions {
 				Answer now = drawer != null && drawer.isUsingItem() ? answer(last, drawer.getId(), gameTime - drawer.getTicksUsingItem())
 						: drawer != null ? held(last, drawer.getId(), gameTime, seen == null ? Long.MIN_VALUE / 2 : seen)
 						: last != null ? last : answer(null, from == null ? -1 : from.getId(), Long.MIN_VALUE);
+				// A new draw keeps the body running the way it already runs when that also crosses the new line: turning back
+				// stalls it while the last arrow is still in flight (archers-zombie trace: 61% of shots hit the body when it
+				// moved under half a block across the line during the flight, 3% at 1.5 blocks or more).
+				if (now != last && from != null) {
+					int keep = continuingSide(player.position(), from.position(), player.getDeltaMovement(), now.side());
+					if (keep != now.side()) now = new Answer(now.shooterId(), now.drawStart(), keep);
+				}
 				if (now != last) ANSWERED.put(player.getUUID(), now);
 				if (now.side() != side) lastHeading = null;
 				side = now.side();
@@ -1265,11 +1236,9 @@ final class ReflexActions {
 			}
 			Vec3 body = player.position();
 			Vec3 at = shooter.position();
-			float[] others = otherShooters(player, shooter);
 			Float[] headings = new Float[3];
 			for (int candidate : new int[]{side, -side}) {
-				float across = crossingYaw(sideYaw(body, at, candidate), towardYaw(body, at), others, candidate == side ? lastHeading : null);
-				headings[candidate + 1] = SafeStep.heading(player, across, OFFSETS, candidate == side ? lastHeading : null, List.of(), MAX_DROP, true);
+				headings[candidate + 1] = SafeStep.heading(player, sideYaw(body, at, candidate), OFFSETS, candidate == side ? lastHeading : null, List.of(), MAX_DROP, true);
 			}
 			// SafeStep tries the knockback margin first: a heading that passes canStep kept it. The shot it steps from knocks
 			// the body back from any range, so the margin holds however far the archer stands.
@@ -1283,11 +1252,21 @@ final class ReflexActions {
 			Float heading = headings[chosen + 1];
 			if (lastHeading == null) steps++;
 			lastHeading = heading;
+			// A one-block rise on the step is jumped, as a running player does; walked into, it would stop the body on the line.
+			boolean jump = player.onGround() && SafeStep.jumpAhead(player, heading);
+			if (melee == null && canSprint(player)) {
+				// Nothing to swing at: the body turns along the step and sprints it, as a player runs across a shot, 1.3 times
+				// as far in the arrow's flight as a strafe facing the archer (walking pace: 41% of shots that flew under a
+				// second hit the body, at 1-1.5 blocks across 11%).
+				float yaw = AgentInputStates.turnYaw(player.getYRot(), heading);
+				float error = AgentInputStates.shortestAngleDelta(yaw, heading);
+				float forward = CombatPlanning.alignedForward(1.0F, error);
+				input.accept(new AgentInputState(forward, 0.0F, jump, false, Math.abs(error) < 30.0F, false, false, yaw, aim.pitch(), aim.selectedSlot(), aim.hand()));
+				return Step.running("sprinting " + SafeStep.compass(heading) + " across " + type(shooter) + "'s shot" + swung);
+			}
 			float relative = (float) Math.toRadians(AgentInputStates.shortestAngleDelta(aim.yaw(), heading));
 			float forward = cleanAxis((float) Math.cos(relative));
 			float strafe = cleanAxis(-(float) Math.sin(relative));
-			// A one-block rise on the step is jumped, as a running player does; walked into, it would stop the body on the line.
-			boolean jump = player.onGround() && SafeStep.jumpAhead(player, heading);
 			input.accept(new AgentInputState(forward, strafe, jump, false, false, false, false, aim.yaw(), aim.pitch(), aim.selectedSlot(), aim.hand()));
 			return Step.running("stepping " + SafeStep.compass(heading) + " across " + type(shooter) + "'s shot" + swung);
 		}

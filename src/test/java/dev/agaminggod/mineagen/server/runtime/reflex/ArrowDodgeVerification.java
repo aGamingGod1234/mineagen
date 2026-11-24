@@ -23,7 +23,7 @@ public final class ArrowDodgeVerification {
 	public static int verify() {
 		assertions = 0;
 		headingIsSquareAcrossTheShotLine();
-		stepCrossesASecondArchersLine();
+		newDrawKeepsTheRunningSide();
 		sidesAlternatePerDraw();
 		unsafeFootingIsRefused();
 		sleepsWithAShieldInHand();
@@ -49,23 +49,13 @@ public final class ArrowDodgeVerification {
 		}
 	}
 
-	private static void stepCrossesASecondArchersLine() {
-		// One archer: the square step, unchanged.
-		check(near(ReflexActions.Dodge.crossingYaw(90.0F, 0.0F, new float[0], null), 90.0F), "one archer: the square step");
-		// Archer A due south (toward yaw 0), archer B due east (toward yaw -90). The square step west (90) runs straight
-		// away along B's line; turned 45 it crosses both lines at 0.71, away from both.
-		float west = ReflexActions.Dodge.crossingYaw(90.0F, 0.0F, new float[]{-90.0F}, null);
-		check(near(west, 135.0F), "two archers at right angles: the step turns to cross both lines, away from both: " + west);
-		float east = ReflexActions.Dodge.crossingYaw(-90.0F, 0.0F, new float[]{-90.0F}, null);
-		check(Math.abs(Math.abs(east) - 135.0F) < 0.01F || near(east, -45.0F), "the other side also crosses both lines: " + east);
-		check(!near(east, west), "the two sides still step different ways");
-		// B straight behind A, on the same line: the square step already crosses both.
-		check(near(ReflexActions.Dodge.crossingYaw(90.0F, 0.0F, new float[]{180.0F}, null), 90.0F), "archers on one line: the square step");
-		for (float b = -180.0F; b < 180.0F; b += 23.0F) {
-			float yaw = ReflexActions.Dodge.crossingYaw(90.0F, 0.0F, new float[]{b}, null);
-			double worst = Math.min(Math.abs(Math.sin(Math.toRadians(yaw))), Math.abs(Math.sin(Math.toRadians(yaw - b))));
-			check(worst >= 0.38D, "a second archer at " + b + ": the step crosses both lines by at least 0.38, got " + worst);
-		}
+	private static void newDrawKeepsTheRunningSide() {
+		Vec3 body = Vec3.ZERO, south = new Vec3(0.0D, 0.0D, 10.0D);
+		// Shooter due south: side +1 steps west (-x), side -1 east (+x).
+		check(ReflexActions.Dodge.continuingSide(body, south, new Vec3(-0.12D, 0.0D, 0.0D), -1) == 1, "running west: the new draw keeps west");
+		check(ReflexActions.Dodge.continuingSide(body, south, new Vec3(0.12D, 0.0D, 0.0D), 1) == -1, "running east: the new draw keeps east");
+		check(ReflexActions.Dodge.continuingSide(body, south, new Vec3(-0.09D, 0.0D, 0.09D), -1) == 1, "running south-west: the side nearer that run");
+		check(ReflexActions.Dodge.continuingSide(body, south, new Vec3(0.01D, 0.0D, 0.0D), -1) == -1, "standing: the alternating side");
 	}
 
 	private static void sidesAlternatePerDraw() {
