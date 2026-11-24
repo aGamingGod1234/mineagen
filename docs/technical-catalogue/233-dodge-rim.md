@@ -1,0 +1,5 @@
+# #233 Keep the arrow dodge off platform edges
+
+- **Problem:** The bot dodges a skeleton's arrow by sprinting across the shot, 4 to 5 blocks per draw. On a raised platform that sprint carried it onto the rim, where the next arrow's knockback threw it off. Every remaining death in the two-skeleton room was this fall. The footing check only looked 2 cells ahead, so it saw the edge too late.
+- **Solution:** The dodge now prefers the side whose whole sprint stays at least a block clear of a drop. It keeps that side for the rest of the draw so it does not turn back and forth, and switches only when the kept side's run meets an edge and the other side is clear. On a rim with nowhere safe along it, the dodge steps inland toward the archer.
+- **Result (measured, same-batch A/B on test machines, 40 runs of the two-skeleton room per side):** survival 38/40 on main → 39/40, damage 403 → 269 over the batch. In an earlier batch of the side-keeping version: 38/40 → 39/40, damage 389 → 335. One death is within noise, so survival alone is not proven; damage fell in both batches. The two guard rooms (cover and wall-in) stayed 10/10 on both sides.
