@@ -115,6 +115,69 @@
   "monsters": false,
   "time": 6000,
   "budgetMs": 120000,
+  "name": "tunnel-cave-gap-gravel-water",
+  "note": "tunnel-cave-gap-gravel with water under the gravel lip, the gravel left floating (setblock strict, as worldgen leaves it): gravel falls through water, so it is no lip to step onto. A player bridges from the stone before it. Pass: the dig reaches its goal and the body is still at the tunnel level, not down in the cave.",
+  "setup": [
+   "forceload add {x-20} {z-20} {x+20} {z+30}",
+   "fill {x-4} -63 {z-2} {x+4} -44 {z+16} minecraft:stone",
+   "fill {x} -50 {z} {x} -49 {z+3} minecraft:air",
+   "fill {x-3} -62 {z+4} {x+3} -45 {z+7} minecraft:air",
+   "setblock {x} -63 {z+5} minecraft:glowstone",
+   "setblock {x} -52 {z+3} minecraft:water strict",
+   "setblock {x} -51 {z+3} minecraft:gravel strict",
+   "tp Probe {x+0.5} -50 {z+0.5} 0 0",
+   "kill @e[type=minecraft:item,distance=..40]"
+  ],
+  "calls": [
+   {
+    "name": "act",
+    "arguments": {
+     "actionType": "dig_to",
+     "arguments": {
+      "pattern": "tunnel",
+      "x": "{x}",
+      "z": "{z+12}",
+      "maxBlocks": 32,
+      "throughCaves": "small",
+      "timeoutMs": 90000
+     }
+    }
+   }
+  ],
+  "expectCode": "DIG_GOAL_REACHED",
+  "probe": [
+   "execute if block {x} -51 {z+3} minecraft:gravel",
+   "execute if block {x} -52 {z+3} minecraft:water"
+  ],
+  "finalProbe": [
+   "execute as Probe at @s if entity @s[y=-51,dy=4]"
+  ],
+  "expectFinalProbe": [
+   {
+    "index": 0,
+    "match": "Test passed"
+   }
+  ]
+ },
+ {
+  "seed": 20261107,
+  "inventory": [
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:cobblestone",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "monsters": false,
+  "time": 6000,
+  "budgetMs": 120000,
   "name": "tunnel-cave-gap-goal-below",
   "note": "The same 4-wide gap, with the tunnel goal over the middle of the cave (an ore on its floor would be there). A player goes down into the cave to it, not across over it. Pass: the dig stops at the edge CAVE_OPENING, as on main.",
   "setup": [
