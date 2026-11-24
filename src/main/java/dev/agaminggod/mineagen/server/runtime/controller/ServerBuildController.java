@@ -410,6 +410,8 @@ public final class ServerBuildController implements ServerController {
 	/** This cell has no spot whose water line misses the lava's cell: pour it from a spot where it crosses (main's way). */
 	private boolean crossAllowed;
 	private int lavaTakes, fetchRetries, fetchWindows, fetchDigs;
+	/** Walks of this cell's fetch that stopped where the seen way ends: the spot they were for lies past rock. */
+	private int frontierFetches;
 	/** Unknown cells the dig toward lava has turned to look at; one look each, so two unknown cells never take turns. */
 	private final Set<BlockPos> fetchDigLooked = new HashSet<>();
 	/** The running UNCOVER child opens a way for a lava fetch, not the pool's surface: kept out of the pool's counts. */
@@ -468,6 +470,7 @@ public final class ServerBuildController implements ServerController {
 			followingWalkedWay = false;
 			if (moved.state() != State.SUCCEEDED) {
 				lastWalkFailure = moved.reasonCode() + " " + moved.message();
+				if (casting && phase == Phase.CAST && ("REACHED_FRONTIER".equals(moved.reasonCode()) || "NO_SEEN_ROUTE".equals(moved.reasonCode()))) frontierFetches++;
 				LOGGER.info("[build] {} walk {} failed at {}: {}", player.getGameProfile().name(), walks, xyz(player.blockPosition()), lastWalkFailure);
 				if (wasFollowingWalkedWay && phase == Phase.CAST && inFrontOfMould(player.blockPosition())
 						&& inFrontOfMould(walkTarget) && switch (moved.reasonCode()) {
@@ -2236,6 +2239,7 @@ public final class ServerBuildController implements ServerController {
 		standRetries = 0;
 		LOGGER.info("[build] {} {} at {} from {} (cell {} of 10)", player.getGameProfile().name(), kind, xyz(target), xyz(player.blockPosition()), castIndex + 1);
 		walks = 0;
+		frontierFetches = 0;
 		triedSpots.clear();
 		fetchDigLooked.clear();
 		switch (kind) {
@@ -2426,6 +2430,9 @@ public final class ServerBuildController implements ServerController {
 					uncoverDead.add(window);
 				}
 			}
+			// Two walks toward the shore stopped where the seen way ends, so the spots lie past rock: tunnel toward the lava while
+			// walks are left (lava-gate-2: 16 walks to four spots behind the same rock, NO_STAND_SPOT before the dig was tried).
+			if (frontierFetches >= 2) { TickResult dug = digTowardLava(player, sources, now); if (dug != null) return dug; }
 			// Back to where a scoop last landed while lava it reaches is left: a dry spot it has stood on, by the way it
 			// walked (sight of the shore fades while the body works at the frame, and the frame hides it).
 			for (int k = scoopSpots.size() - 1; k >= 0 && walks < MAX_WALKS - 1; k--) {
