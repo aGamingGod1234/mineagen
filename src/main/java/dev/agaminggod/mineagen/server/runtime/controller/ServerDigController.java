@@ -1847,7 +1847,10 @@ public final class ServerDigController implements ServerController {
 			// Still the model's call, but the one cell joining the cut to the lake is plugged first, as a player does at once:
 			// left open, the lake pours into a 1x1 shaft and the body floats in its own hole with no way up (room lava-gate-1,
 			// 6 of 6 runs on main afloat at y56 for the rest of the search).
-			Direction plug = filler == null ? null : supportFace(player, target);
+			// Only once the cut is open to it: an unmined opening still holds the lake back by itself. Any sturdy neighbour will
+			// do as the face, since a lake cell rarely shows one to the eye (lava-gate-1: 0 of 3 plugs with a seen face).
+			boolean joined = opening == null || isBody(player, opening) || player.level().getBlockState(opening).canBeReplaced();
+			Direction plug = filler == null || !joined ? null : seenOrAnySupportFace(player, target);
 			if (plug != null) return startPlace(player, target, plug, filler, "WATER_AHEAD", lake);
 			return stop(player, "WATER_AHEAD", lake);
 		}

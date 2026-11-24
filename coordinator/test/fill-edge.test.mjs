@@ -15,6 +15,13 @@ test('the nearer of two water drops wins; a drop two cells off counts', () => {
 	assert.deepEqual(waterBelowEdge(at([{ dir: 'S', at: 1, drop: 4, into: 'water' }])), { x: -311, y: 63, z: 693, away: 'north' });
 });
 
+test('feet on a part block (farmland, a slab) still name the cell the water surface is in', () => {
+	const on = (y, drop) => waterBelowEdge({ player: { x: 0.5, y, z: 0.5, edges: { drops: [{ dir: 'E', at: 0, drop, into: 'water' }] } } }).y;
+	assert.equal(on(67.9375, 5), 63); // source surface 63.89
+	assert.equal(on(67.5, 4), 63);
+	assert.equal(on(67, 5), 62); // a flow at 62.5
+});
+
 test('no dig for dry drops, lava, unmeasured or out-of-range depths, far edges or no edges fact', () => {
 	assert.equal(waterBelowEdge(at(undefined)), null);
 	assert.equal(waterBelowEdge(at([{ dir: 'E', at: 0, drop: 6 }])), null);

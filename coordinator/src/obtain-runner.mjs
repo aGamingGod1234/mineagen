@@ -139,7 +139,9 @@ export function waterBelowEdge(o) {
 	const [dx, dz] = steps[drop.dir];
 	// Away from the drop: without a water bucket a shaft goes down as two-column stairs, and these cut into the wall behind.
 	const away = { E: 'west', S: 'north', W: 'east', N: 'south' }[drop.dir];
-	return { x: Math.floor(at.x) + dx * (drop.at + 1), y: Math.floor(at.y) - drop.drop, z: Math.floor(at.z) + dz * (drop.at + 1), away };
+	// drop is ceil(feet - water surface); a source's surface stands 0.89 above its cell, a flow's lower. Feet on a block top
+	// (67.0) or a part block (farmland 67.94, a slab 67.5) both name the cell the surface is in.
+	return { x: Math.floor(at.x) + dx * (drop.at + 1), y: Math.floor(at.y - drop.drop + 0.11), z: Math.floor(at.z) + dz * (drop.at + 1), away };
 }
 
 // MINEAGEN_FILL_TRACE names a file: each bucket fill that fails to reach its water appends one JSON line (diagnosis only).
@@ -1886,8 +1888,8 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			// A walk that ends at an edge over water below (room kit-gate-6: a ledge 5 blocks above a pool, beyond the 7-high
 			// block sample, so no row lists it): a player digs down beside the drop until the water is in reach.
 			// Once per obtain, and not after a walk a mob or damage stopped. Without a water bucket on the hotbar the shaft goes
-			// down as two-column stairs that see each floor; with one it is the 1x1 bucket shaft, at most 6 blocks beside a drop
-			// already known to end in water.
+			// down as two-column stairs that see each floor; with one it is the 1x1 bucket shaft beside a drop already known to
+			// end in water, which stops where it opens into more than a small cave.
 			const stoppedBy = ['HOSTILE_NEAR', ...DAMAGE_STOPS].includes(walked?.reasonCode);
 			const edge = FILL_EDGE && !budget.edgeDug && !stoppedBy && after !== null && fluid === 'water' && !(await reaches()) ? waterBelowEdge(o) : null;
 			if (process.env.MINEAGEN_FILL_TRACE) fillTrace({ at: after, walked: walked?.reasonCode ?? walked?.state ?? null, source, edges: o.player?.edges ?? null, edge,
@@ -1895,8 +1897,10 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			if (edge !== null) {
 				budget.edgeDug = true;
 				step(`dig down beside the drop to the ${fluid} at ${cell(edge)}`);
-				const dug = await act('dig_to', { pattern: 'shaft', y: edge.y + 2, heading: edge.away, maxBlocks: 2 * (Math.floor(after.y) - edge.y), throughCaves: true, timeoutMs: 20_000 });
+				// 'small': a drop of at most 4 on the way down, so the stairs never land the body below the pool it came for.
+				const dug = await act('dig_to', { pattern: 'shaft', y: edge.y + 2, heading: edge.away, maxBlocks: 2 * (Math.floor(after.y) - edge.y), throughCaves: 'small', timeoutMs: 20_000 });
 				if (body.interrupted() || body.stopped()) return 'stopped';
+				if (TOOL_STOPS.has(dug?.reasonCode)) { fillToolStop = dug; return 'stopped'; }
 				o = await body.observe();
 				after = bodyAt(o);
 				const filled = after === null ? null : await scoop(o, { x: edge.x, y: edge.y, z: edge.z });
