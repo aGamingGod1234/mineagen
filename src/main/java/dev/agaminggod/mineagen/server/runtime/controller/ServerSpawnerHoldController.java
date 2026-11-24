@@ -143,6 +143,10 @@ public final class ServerSpawnerHoldController implements ServerController {
 	/** Outside the finished cell (site walk, build, lintel, rod trips): an attacker in reach is fought before the work goes on. */
 	private ServerFightController defend;
 	private int defends;
+	private int meleeHeldTicks;
+	/** The running open part had a wall-in held back for a blaze in melee: its own retreat at the flee line finishes, not cut short by a wall-in once the blaze is out of reach. */
+	private boolean meleeHeldPart;
+	private long meleeHeldTick = Long.MIN_VALUE / 2;
 	private KillDropCollector collector;
 	/**
 	 * A rod that landed on a ledge above the feet (the platform round a fortress spawner, over the cell's floor) is
@@ -383,7 +387,8 @@ public final class ServerSpawnerHoldController implements ServerController {
 			if (resumeCell(player)) return TickResult.running(progress(player));
 		}
 		if (target != null && SpawnerHold.OPEN_FIGHT && phase != Phase.HOLD && emergency == null
-				&& (!marginGone(player, 0.0D) || !canWallIn(player) || openPart != null && target.isDeadOrDying() && afterOpenKill)) {
+				&& (!marginGone(player, 0.0D) || !canWallIn(player) || openPart != null && target.isDeadOrDying() && afterOpenKill
+						|| blazeInMelee(player) || openPart != null && meleeHeldPart && atFleeLine(player))) {
 			// A lull in the open fight: health regrows slowly, and the default eat waits for no hostile within 8 blocks, which
 			// a spawner room never has (blaze spawner rooms: bodies sat at 10 health for minutes, then died to the next crowd).
 			// A player eats then: no blaze in reach, nothing hit for 2 s, no volley charging, the blaze in sight. A hit ends
@@ -409,6 +414,8 @@ public final class ServerSpawnerHoldController implements ServerController {
 				try {
 					// While a wall-in is left the open fight's floor stays under TURTLE_HEALTH: the wall-in answers low health.
 					openPart = openTarget.apply(wallInLeft(player) ? SpawnerHold.TURTLE_HEALTH - 1.0F : null);
+					// A hold-back this tick (the fight starting with a blaze already in reach) carries into the new part.
+					meleeHeldPart = meleeHeldTick == player.level().getGameTime();
 				} catch (dev.agaminggod.mineagen.agent.AgentDomainException lost) {
 					// The named blaze went out of sight while the body healed walled in: the call ends as fight_target does for
 					// a target it cannot see (the model picks the next blaze), not with an exception.
@@ -1000,6 +1007,19 @@ public final class ServerSpawnerHoldController implements ServerController {
 				player.getInventory().getSelectedSlot(), InteractionHand.OFF_HAND));
 	}
 
+	/** A blaze targeting the body can hit it in melee now ({@link SpawnerHold#MELEE_BLAZE}): no wall-in starts. Counted once per tick it holds one back. */
+	private boolean blazeInMelee(ServerPlayer player) {
+		double reach = SpawnerHold.MELEE_BLAZE * SpawnerHold.MELEE_BLAZE;
+		for (LivingEntity mob : player.level().getEntitiesOfClass(LivingEntity.class, player.getBoundingBox().inflate(SpawnerHold.MELEE_BLAZE),
+				e -> e.getType() == McEntityTypes.BLAZE && e instanceof net.minecraft.world.entity.Mob m && m.getTarget() == player
+						&& e.isAlive() && !e.isDeadOrDying())) {
+			if (mob.distanceToSqr(player) > reach || !mob.hasLineOfSight(player)) continue;
+			if (marginGone(player, 0.0D) && canWallIn(player)) { meleeHeldTicks++; meleeHeldPart = true; meleeHeldTick = player.level().getGameTime(); }
+			return true;
+		}
+		return false;
+	}
+
 	/** A wall-in is still possible this call (blocks and tries left), whatever the footing this tick. */
 	private boolean wallInLeft(ServerPlayer player) {
 		if (spawner == null || emergencyFails >= EMERGENCY_TRIES) return false;
@@ -1476,10 +1496,10 @@ public final class ServerSpawnerHoldController implements ServerController {
 
 	private String summary(ServerPlayer player, long elapsed) {
 		int held = ServerFightUntilController.count(player, untilItem);
-		return String.format(Locale.ROOT, "spawner hold at %s: cell %s, %d site%s failed, %d build%s; %+d %s in %.0f s; %d engine run%s %s; %d rod trip%s (%d up a ledge, %d rods from them); %d meal%s (%d in open-fight lulls); %d defend%s; %d heal%s (%d walled in, %d reopened; shield up %d of %d ticks, asked %d, using %d %s, keys %s, %d bite%s stopped for a volley); %d fire%s punched out; hurts %s; health lost %s; %d margin turn-back%s; heals began at %s%s",
+		return String.format(Locale.ROOT, "spawner hold at %s: cell %s, %d site%s failed, %d build%s; %+d %s in %.0f s; %d engine run%s %s; %d rod trip%s (%d up a ledge, %d rods from them); %d meal%s (%d in open-fight lulls); %d defend%s; wall-in held back %d ticks for a blaze in melee reach; %d heal%s (%d walled in, %d reopened; shield up %d of %d ticks, asked %d, using %d %s, keys %s, %d bite%s stopped for a volley); %d fire%s punched out; hurts %s; health lost %s; %d margin turn-back%s; heals began at %s%s",
 				spawner == null ? "none seen" : spawner.toShortString(), cell == null ? "none" : cell.toShortString(), sitesFailed, sitesFailed == 1 ? "" : "s", builds, builds == 1 ? "" : "s",
 				held - Math.max(0, startHeld), untilItemId, elapsed / 1000.0D, engineRuns, engineRuns == 1 ? "" : "s", engineEnds, trips, trips == 1 ? "" : "s", ledgeTrips, ledgeRods,
-				meals, meals == 1 ? "" : "s", lullMeals, defends, defends == 1 ? "" : "s", turtles, turtles == 1 ? "" : "s", seals, reopens, blockingTicks, turtleTicks, shieldAsks, usingTicks, usedInHeal, healWinners, bitesStopped, bitesStopped == 1 ? "" : "s", firesPunched, firesPunched == 1 ? "" : "s", hurts, lostText(), marginTurns, marginTurns == 1 ? "" : "s", healStarts.isEmpty() ? "none" : String.join(", ", healStarts), log.isEmpty() ? "" : "; log: " + String.join(" | ", log.subList(Math.max(0, log.size() - 6), log.size())));
+				meals, meals == 1 ? "" : "s", lullMeals, defends, defends == 1 ? "" : "s", meleeHeldTicks, turtles, turtles == 1 ? "" : "s", seals, reopens, blockingTicks, turtleTicks, shieldAsks, usingTicks, usedInHeal, healWinners, bitesStopped, bitesStopped == 1 ? "" : "s", firesPunched, firesPunched == 1 ? "" : "s", hurts, lostText(), marginTurns, marginTurns == 1 ? "" : "s", healStarts.isEmpty() ? "none" : String.join(", ", healStarts), log.isEmpty() ? "" : "; log: " + String.join(" | ", log.subList(Math.max(0, log.size() - 6), log.size())));
 	}
 
 	private String lostText() {
