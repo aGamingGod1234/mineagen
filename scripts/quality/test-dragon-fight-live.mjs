@@ -45,9 +45,11 @@ const OLD_CRYSTALS = cli.includes('--old-crystal-phase'), CAGED_FIRST = cli.incl
 // --old-refill: main's stand-in bucket handling, before the walk back to a remembered pour and the held bucket counted as
 // in the hotbar (kept so both are judged on the same jar).
 const OLD_REFILL = cli.includes('--old-refill');
-// --old-perch: main's stand-in before the hurt rules (kept so both are judged on the same jar): it swung at a perched head
-// with crystals still standing and at 10 health, stepped out at 8, and went straight back to work however hurt.
-const OLD_PERCH = cli.includes('--old-perch');
+// --hurt-rules (trial, off by default): no swing at a perch while a crystal stands, swings only from 16 health with no angry
+// enderman near and the head within 6 blocks up, a step-out at 12 (not 8), and below 13 a walk out from the fountain to eat
+// and heal to 16. Judged in one batch against main's stand-in, 20 runs a side: kills 4 and 4, deaths 9 and 9, all crystals
+// down 8 against main's 12, so it stays off. --old-recover backs off only below 11.
+const OLD_PERCH = !cli.includes('--hurt-rules');
 // --old-aim: main's flying shot, at the nearest of the dragon's body and head (kept to judge the head-first aim on the same jar).
 const OLD_AIM = cli.includes('--old-aim');
 // --old-recover: the first hurt rule, which backed off only below 11 (a step-out at 12 then walked straight back to the fountain).
