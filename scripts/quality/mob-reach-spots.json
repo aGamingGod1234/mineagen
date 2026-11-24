@@ -1,0 +1,107 @@
+[
+ {
+  "seed": 20261107,
+  "inventory": [
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:torch",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "monsters": false,
+  "time": 6000,
+  "budgetMs": 120000,
+  "probe": [
+   "execute positioned {x} -58 {z} as @e[type=minecraft:zombie,distance=..20] run data get entity @s Pos"
+  ],
+  "name": "zombie-pit-below",
+  "note": "A walk along a 3-wide lit tunnel passes a pit beside it whose floor is 3 below the walk, with a zombie in it that cannot climb out. A player walks on past it. Pass: the walk arrives (on main it stops HOSTILE_NEAR for the zombie within 6 blocks).",
+  "setup": [
+   "forceload add {x-20} {z-20} {x+20} {z+30}",
+   "fill {x-6} -63 {z-4} {x+8} -53 {z+24} minecraft:stone",
+   "fill {x-1} -58 {z-1} {x+1} -56 {z+20} minecraft:air",
+   "fill {x-1} -55 {z-1} {x+1} -55 {z+20} minecraft:glowstone",
+   "fill {x+2} -61 {z+3} {x+4} -56 {z+10} minecraft:air",
+   "tp Probe {x+0.5} -58 {z+0.5} 0 0",
+   "kill @e[type=minecraft:item,distance=..40]",
+   "summon minecraft:zombie {x+3.5} -61 {z+7.5} {PersistenceRequired:1b,IsBaby:0b,CanPickUpLoot:0b}"
+  ],
+  "calls": [
+   {
+    "name": "act",
+    "arguments": {
+     "actionType": "travel_to",
+     "arguments": {
+      "x": "{x+0.5}",
+      "y": -58,
+      "z": "{z+18.5}",
+      "tolerance": 1,
+      "timeoutMs": 60000
+     }
+    }
+   }
+  ],
+  "expectCode": "ARRIVED"
+ },
+ {
+  "seed": 20261107,
+  "inventory": [
+   {
+    "item": "minecraft:stone_pickaxe",
+    "count": 1
+   },
+   {
+    "item": "minecraft:torch",
+    "count": 16
+   },
+   {
+    "item": "minecraft:bread",
+    "count": 8
+   }
+  ],
+  "monsters": false,
+  "time": 6000,
+  "budgetMs": 120000,
+  "probe": [
+   "execute positioned {x} -58 {z} as @e[type=minecraft:zombie,distance=..20] run data get entity @s Pos"
+  ],
+  "name": "zombie-pit-ramp",
+  "note": "Guard for zombie-pit-below: the same pit with a stair of blocks up to the walk, so the zombie can reach the body. The walk must still stop for it (HOSTILE_NEAR) or fight it; arriving with damage taken fails.",
+  "setup": [
+   "forceload add {x-20} {z-20} {x+20} {z+30}",
+   "fill {x-6} -63 {z-4} {x+8} -53 {z+24} minecraft:stone",
+   "fill {x-1} -58 {z-1} {x+1} -56 {z+20} minecraft:air",
+   "fill {x-1} -55 {z-1} {x+1} -55 {z+20} minecraft:glowstone",
+   "fill {x+2} -61 {z+3} {x+4} -56 {z+10} minecraft:air",
+   "fill {x+2} -61 {z+4} {x+2} -59 {z+4} minecraft:stone",
+   "fill {x+3} -61 {z+4} {x+3} -60 {z+4} minecraft:stone",
+   "setblock {x+4} -61 {z+4} minecraft:stone",
+   "tp Probe {x+0.5} -58 {z+0.5} 0 0",
+   "kill @e[type=minecraft:item,distance=..40]",
+   "summon minecraft:zombie {x+3.5} -61 {z+7.5} {PersistenceRequired:1b,IsBaby:0b,CanPickUpLoot:0b}"
+  ],
+  "calls": [
+   {
+    "name": "act",
+    "arguments": {
+     "actionType": "travel_to",
+     "arguments": {
+      "x": "{x+0.5}",
+      "y": -58,
+      "z": "{z+18.5}",
+      "tolerance": 1,
+      "timeoutMs": 60000
+     }
+    }
+   }
+  ],
+  "expectCode": "HOSTILE_NEAR"
+ }
+]

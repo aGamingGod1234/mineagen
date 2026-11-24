@@ -513,6 +513,8 @@ public final class ServerDigController implements ServerController {
 	}
 
 	static boolean stopsDig(ServerPlayer player, Mob mob, java.util.Map<java.util.UUID, double[]> seen, boolean vein, boolean climbing) {
+		// One that cannot get to the body digs on past it, as for a walk (TravelStops.cannotReach).
+		if (TravelStops.cannotReach(player, mob)) return false;
 		double distance = player.distanceTo(mob);
 		double[] row = seen.get(mob.getUUID());
 		Double first = row == null ? null : row[0], previous = row == null ? null : row[1];

@@ -585,6 +585,8 @@ public final class ServerTravelController implements ServerController {
 				Double previous = hostileDistances.put(mob.getUUID(), distance);
 				// One the model already had in view when it chose to travel stops the trip only up close (or by a hit).
 				if (known && distance > HOSTILE_CLOSE) continue;
+				// One that cannot get to the body (a zombie on the cave floor under the ledge) is passed, as a player walks on.
+				if (!fightThrough && TravelStops.cannotReach(player, mob)) { passedHostiles.add(mob.getUUID()); continue; }
 				// A new one stops it only when it is coming for the body: close, targeting and closing in, or a ranged
 				// mob targeting it. One that is not after the body, or falls behind the sprint, is passed.
 				if (!fightThrough && !TravelStops.stopsFor(false, distance, previous, targeting,
