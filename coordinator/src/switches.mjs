@@ -114,6 +114,10 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'find.dryFlood', env: 'MINEAGEN_FIND_DRY_FLOOD', side: 'coordinator', default: true, parser: OFF_EXACT, status: 'default-on',
 		reason: 'Water that ran into an opened tunnel and stopped short of the body is a shut way the search turns from, not danger that ends it; off is the A/B off arm.',
 		readers: ['coordinator/src/find-search.mjs dryFlood (per call)'] }),
+	// coordinator/src/find-search.mjs depthTunnel(environment): per call.
+	entry({ name: 'find.depthTunnel', env: 'MINEAGEN_FIND_DEPTH_TUNNEL', side: 'coordinator', default: false, parser: ON_EXACT, status: 'default-off',
+		reason: 'Once the lava stair budget is spent inside the lava band, search by tunnel at that depth instead of more stairs with no cap (kit and lava gates on main: 51 of 128 runs dug such stairs; lava reached 43% against 61%, worn tools 21/51 against 9/77). Prototype, no rooms played.',
+		readers: ['coordinator/src/find-search.mjs depthTunnel (per call)'] }),
 	// coordinator/src/obtain-runner.mjs OBTAIN_COSTS: read once at module load.
 	entry({ name: 'obtain.costs', env: 'MINEAGEN_OBTAIN_COSTS', side: 'coordinator', default: true, parser: OFF_EXACT, status: 'default-on',
 		reason: 'Off plans as before chest looting, the seen-source cost model and the one-trip kit iron, for A/B rooms (#115).',

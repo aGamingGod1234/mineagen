@@ -217,6 +217,24 @@ export const caveFirst = (environment = process.env) => getSwitch('find.caveFirs
 /** Off only for the A/B off arm (MINEAGEN_FIND_DRY_START=off): no walk off seen water before the first dig down. */
 export const dryStart = (environment = process.env) => getSwitch('find.dryStart', environment).value;
 export const dryFlood = (environment = process.env) => getSwitch('find.dryFlood', environment).value;
+/**
+ * On only with MINEAGEN_FIND_DEPTH_TUNNEL=on (prototype). A lava find whose stair budget is spent digs no more stairs:
+ * it searches by tunnel at the depth it has reached. On main a later descent with the budget spent dug stairs with no
+ * block cap (about 2000): kit and lava gates, 51 of 128 runs; those reached lava 43% of the time against 61% without and
+ * wore out their tools 21 of 51 times against 9 of 77.
+ */
+export const depthTunnel = (environment = process.env) => getSwitch('find.depthTunnel', environment).value;
+/**
+ * Whether a lava find stops descending and tunnels where it is: the switch is on, the body is already in the lava's band
+ * (`top`, the search's own inBand rule: at most 20 above the lava level), the stairs the next descent would dig are past
+ * their budget (see {@link stairBudget}), and that descent would be stairs, not the first bucket shaft. Not higher: on
+ * main every lava sighting after spent-budget stairs from y0 or below was at y-50 or lower (18 of 18), so a tunnel at
+ * y-20 would pass over them.
+ */
+export function spentStairsTunnel({ enabled, lava, y, top, stairs, shaft }) {
+	return enabled === true && lava === true && shaft !== true && Number.isFinite(y) && Number.isFinite(top) && y <= top
+		&& Number.isFinite(stairs) && stairs < STEP_CELLS.steep_down * 2;
+}
 // Blocks a dig_to may be given (schema.mjs maxBlocks) and the cells one step cuts per pattern.
 const MAX_DIG_BLOCKS = 4_096;
 const STEP_CELLS = Object.freeze({ tunnel: 2, stairs_down: 3, stairs_up: 3, steep_down: 4 });
@@ -1783,6 +1801,11 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 					continue;
 				}
 			}
+			// Stair budget spent (MINEAGEN_FIND_DEPTH_TUNNEL=on): the search stays at this depth and tunnels, as a player
+			// short of pickaxes does, instead of stairs with no cap.
+			if (profile.depth !== null && !level && at.y > profile.depth + 3 && descentStops < MAX_DESCENT_STOPS && profile.ids.has('minecraft:lava')
+				&& spentStairsTunnel({ enabled: depthTunnel(), lava: true, y: at.y, top: profile.depth + 20, stairs: stairBudget(pickaxeUses(observation), Math.floor(at.y + 1e-3) - profile.depth),
+					shaft: lavaShaft() && water && descentStops === 0 && !wetSpots().some((spot) => Math.hypot(spot.x + 0.5 - at.x, spot.z + 0.5 - at.z) <= WET_REGION) })) level = true;
 			if (profile.depth !== null && !level && at.y > profile.depth + 3 && descentStops < MAX_DESCENT_STOPS) {
 				const wetGround = wetSpots().some((spot) => Math.hypot(spot.x + 0.5 - at.x, spot.z + 0.5 - at.z) <= WET_REGION);
 				// A lava find takes the bucket shaft by default (see lavaStairs). With MINEAGEN_LAVA_STAIRS=on it digs stairs, as a

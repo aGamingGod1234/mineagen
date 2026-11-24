@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DESCENT_RESERVE, stepRow, UNREACHED, UNREACHED_SPOT, chooseHeading, pickaxeUses, stairBudget, findProfile, oreRockShare, rememberedPlaces, sameVein, seenAtOf, sightingOf } from '../src/find-search.mjs';
+import { DESCENT_RESERVE, spentStairsTunnel, stepRow, UNREACHED, UNREACHED_SPOT, chooseHeading, pickaxeUses, stairBudget, findProfile, oreRockShare, rememberedPlaces, sameVein, seenAtOf, sightingOf } from '../src/find-search.mjs';
 import { normalizeMinecraftToolCall } from '../src/native-minecraft-tools.mjs';
 import { isNativeBodyTool } from '../src/codex-service.mjs';
 import { checkedSearchBody, searchFor } from './helpers/checked-body.mjs';
@@ -2216,3 +2216,32 @@ test('kit gates: a lava find starting on the lake shore it filled its bucket at 
 	process.env.MINEAGEN_FIND_DRY_START = 'off';
 	try { assert.deepEqual(await run([{ blockId: 'minecraft:water', x: 334, y: 62, z: -9 }]), ['shaft']); } finally { delete process.env.MINEAGEN_FIND_DRY_START; }
 });
+
+test('spent stair budget: the decision to tunnel at the depth reached instead of stairs with no cap', () => {
+	const at = { enabled: true, lava: true, y: -40, top: -34, stairs: 0, shaft: false };
+	assert.equal(spentStairsTunnel(at), true);
+	assert.equal(spentStairsTunnel({ ...at, enabled: false }), false, 'switch off: main as it was');
+	assert.equal(spentStairsTunnel({ ...at, lava: false }), false, 'ore finds keep their own band rule');
+	assert.equal(spentStairsTunnel({ ...at, shaft: true }), false, 'the first bucket shaft is cheap and still goes down');
+	assert.equal(spentStairsTunnel({ ...at, stairs: 8 }), false, 'budget left: capped stairs as before');
+	assert.equal(spentStairsTunnel({ ...at, stairs: Infinity }), false, 'no wear reported: unknown, not spent');
+	assert.equal(spentStairsTunnel({ ...at, y: -20 }), false, 'above the lava band a tunnel passes over the pools');
+	assert.equal(spentStairsTunnel({ ...at, y: -34 }), true, 'the band edge counts');
+});
+
+for (const [y, on, want] of [[-40, false, 'steep_down'], [-40, true, 'tunnel'], [-20, true, 'steep_down']]) {
+	test(`spent stair budget at y${y} with the depth tunnel ${on ? 'on' : 'off'}: ${want === 'tunnel' ? 'a tunnel leg here' : 'stairs with no cap'}`, async (t) => {
+		if (on) process.env.MINEAGEN_FIND_DEPTH_TUNNEL = 'on';
+		t.after(() => { delete process.env.MINEAGEN_FIND_DEPTH_TUNNEL; });
+		// A worn iron pickaxe (48 uses) and no water bucket: no stairs budget, no shaft.
+		const start = sample({ player: { x: 0.5, y, z: 0.5, yaw: 0, health: 20, skyOpen: false },
+			inventory: { items: [{ itemId: 'minecraft:iron_pickaxe', count: 1, maxDamage: 250, damage: 200 }, { itemId: 'minecraft:cobblestone', count: 16 }] } });
+		const body = fakeBody({ start, frontier: { candidates: [], coverage: { headings: {} } },
+			acts: { dig_to: [{ result: { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', message: `minecraft:lava seen at 4,${y},0, 4 blocks away` } }] } });
+		const result = await searchFor({ block: 'minecraft:lava' }, body);
+		assert.equal(result.reasonCode, 'FIND_SEEN', result.message);
+		const first = body.calls.find((call) => call.actionType === 'dig_to').args;
+		assert.equal(first.pattern, want, JSON.stringify(first));
+		if (want === 'steep_down') assert.ok(first.maxBlocks > 500, `spent-budget stairs have no cap: ${first.maxBlocks}`);
+	});
+}
