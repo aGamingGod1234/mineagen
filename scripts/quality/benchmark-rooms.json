@@ -1033,7 +1033,7 @@
    "line": "node scripts/quality/test-find-spot-live.mjs $OUT $JAR 1 b1-aquifer-escape --descriptive",
    "estMinutes": 4,
    "tickRate": 20,
-   "reads": "OUT/result.json row pass: the escape step got the body out of its flooded hole (ESCAPED), no death, no damage"
+   "reads": "OUT/result.json row pass: the escape step got the body out of its flooded hole (ESCAPED) or the dig stopped before it flooded (no escape needed), no death, no damage"
   },
   {
    "room": "dig-d41-dig",
