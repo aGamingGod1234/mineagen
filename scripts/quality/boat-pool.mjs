@@ -19,7 +19,8 @@
 // With --every it repeats until stopped. drain
 // deletes every idle machine (or those of one image and size); a busy one is left to its batch. prune deletes machines
 // that are not running, idle machines of an image that was rebuilt or deleted, and machines a batch set aside after a
-// failed cleaning check, and clears lease files of batches that are gone. Only drain, prune and keepalive --warm delete.
+// failed cleaning check, clears lease files of batches that are gone, and forgets the idle records of machines that no
+// longer exist (keepalive does too, each round). Only drain, prune and keepalive --warm delete.
 // --snapshot defaults to ROOM_BATCH_SNAPSHOT and --type to ROOM_BATCH_TYPE or "default".
 import { LIVE, busyScript, extraStartsWanted, imageHash, listSandboxes, minutesLeft, poolMember, warmBoatPool } from './lib/boat-warm.mjs';
 import { boat, destroyMachine, execRemote, extendMachine } from './lib/boat-pool.mjs';
@@ -49,8 +50,12 @@ const sleep = ms => new Promise(done => setTimeout(done, ms));
 // process names, not command lines, keeps this script from finding itself.
 const WORK_SCRIPT = `if pgrep -x 'java|node|gradle|cc1|cc1plus|make|cargo|rustc|go' >/dev/null || awk '{ exit !($1 >= 1) }' /proc/loadavg; then echo busy; else echo idle; fi`;
 
-/** The pool's machines with their lease and image state. */
-async function inventory({ all = true } = {}) {
+/**
+ * The pool's machines with their lease and image state. onListing({ names, at }), when given, gets every machine name the
+ * listing showed (any pool or tool) and the time just before it was read, for forgetting the idle records of gone ones.
+ */
+async function inventory({ all = true, onListing = null } = {}) {
+	const listedAt = Date.now();
 	const [sandboxes, leases, named, aside] = await Promise.all([
 		listSandboxes({ all }),
 		store.list(),
@@ -61,6 +66,7 @@ async function inventory({ all = true } = {}) {
 	const byName = new Map(leases.map(item => [item.name, item]));
 	// Names are shortened in machine names, so two images can share a slug; the hash (full name and snapshot id) decides.
 	const slugOf = name => name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 24) || 'none';
+	onListing?.({ names: sandboxes.map(item => item.name).filter(Boolean), at: listedAt });
 	return sandboxes.map(item => poolMember(item, poolId)).filter(Boolean).map(member => {
 		const lease = byName.get(member.name);
 		const sameSlug = named ? named.filter(item => slugOf(item.name) === member.snapshotSlug) : null;
@@ -138,14 +144,24 @@ if (command === 'status') {
 	const prefixes = String(flags.keep ?? flags.include ?? '').split(',').map(item => item.trim()).filter(Boolean);
 	do {
 		try {
-		const members = (await inventory({ all: false })).filter(item => item.live);
+		let listing = null;
+		const members = (await inventory({ all: false, onListing: value => { listing = value; } })).filter(item => item.live);
+		// A machine that stopped or was deleted elsewhere never comes back: its idle record goes, so the folder holds only
+		// machines that exist. The listing shows only running machines here, and a stopped pool machine is never reused.
+		const forgotten = await store.forgetGone(listing.names, listing.at);
+		if (forgotten) log(`forgot the idle records of ${forgotten} machines that no longer exist`);
 		const warmCount = atNight() ? nightWarm : dayWarm;
 		const since = await store.idleSince();
-		const idleFor = item => Date.now() - (since[item.name] ?? 0);
-		// Idle pool machines, most recently given back first. A machine with no record (given back before records were
-		// kept) counts as long idle for --grace, and ranks by when it was made, newest first, behind every recorded one.
-		const rank = item => since[item.name] ?? (Date.parse(item.createdAt ?? '') || 0) - 1e12;
-		const idle = members.filter(item => !item.busy && !item.aside).sort((a, b) => rank(b) - rank(a));
+		// When each machine was last in use: its give-back record, or the last heartbeat of a batch that died holding it
+		// (taking that stale lease writes the same time as its record), and never before the machine was made.
+		const recorded = item => {
+			const at = Math.max(since[item.name] ?? -Infinity, item.staleLease && Number.isFinite(item.lease?.heartbeatAt) ? item.lease.heartbeatAt : -Infinity);
+			return Number.isFinite(at) ? at : undefined;
+		};
+		const lastUsed = item => Math.max(recorded(item) ?? -Infinity, Date.parse(item.createdAt ?? '') || -Infinity);
+		const idleFor = item => Number.isFinite(lastUsed(item)) ? Date.now() - lastUsed(item) : Infinity;
+		// Idle pool machines, most recently used first.
+		const idle = members.filter(item => !item.busy && !item.aside).sort((a, b) => lastUsed(b) - lastUsed(a));
 		const warm = warmCount === null ? idle : idle.slice(0, warmCount);
 		// A pool machine matching a --keep prefix is never a deletion candidate.
 		const kept = item => prefixes.some(prefix => String(item.name ?? '').startsWith(prefix));
@@ -158,13 +174,13 @@ if (command === 'status') {
 			let reason = null;
 			const check = async () => {
 				// A batch leased and gave it back since this round looked: it is no longer the longest idle.
-				if ((await store.idleSince())[item.name] !== since[item.name]) return 'a batch used it since this round began';
+				if ((await store.idleSince())[item.name] !== recorded(item)) return 'a batch used it since this round began';
 				// Nothing may be running there: a room or game left by a batch that lost track of it keeps the machine.
 				const running = await execRemote(item.id, busyScript(), { timeoutSeconds: 30 }).catch(() => 'unknown');
 				reason = /free/.test(running) ? null : /busy/.test(running) ? 'a room or game is still running there' : 'it did not answer';
 				return reason;
 			};
-			if (await destroyIdle(item, `beyond the warm ${warmCount}, idle ${since[item.name] ? `${Math.round(idleFor(item) / 60_000)} min` : 'since before idle times were kept'}`, { check })) { deleted++; await store.forgetIdle(item.name); }
+			if (await destroyIdle(item, `beyond the warm ${warmCount}, idle ${Number.isFinite(idleFor(item)) ? `${Math.round(idleFor(item) / 60_000)} min${recorded(item) === undefined ? ' (no idle record: counted from when it was made)' : ''}` : 'for an unknown time'}`, { check })) { deleted++; await store.forgetIdle(item.name); }
 			else { skipped++; if (reason) spared.push(item); }
 		}
 		// Extended: busy pool machines (holdFor only moves a deadline later), the warm ones, and named machines to keep.
@@ -210,7 +226,8 @@ if (command === 'status') {
 	for (const item of members) if (!item.busy && await destroyIdle(item, 'drain')) deleted++;
 	log(`deleted ${deleted} machines; ${members.filter(item => item.busy).length} busy ones left to their batches`);
 } else if (command === 'prune') {
-	const members = await inventory();
+	let listing = null;
+	const members = await inventory({ onListing: value => { listing = value; } });
 	let deleted = 0;
 	for (const item of members) {
 		if (item.busy) continue;
@@ -222,6 +239,8 @@ if (command === 'status') {
 	const present = new Set(members.map(item => item.name));
 	for (const item of await store.asideList()) if (!present.has(item.name)) await store.clearAside(item.name);
 	for (const lease of await store.list()) if (lease.stale && await store.clear(lease.name)) cleared++;
-	log(`deleted ${deleted} machines, cleared ${cleared} stale lease files`);
+	// Every listed machine, stopped ones included (--all), keeps its record; one deleted above lost it already.
+	const forgotten = await store.forgetGone(listing.names, listing.at);
+	log(`deleted ${deleted} machines, cleared ${cleared} stale lease files, forgot ${forgotten} idle records of machines that no longer exist`);
 } else fail(`unknown command ${command}`);
 store.stop();

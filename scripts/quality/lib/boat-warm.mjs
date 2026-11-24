@@ -170,7 +170,7 @@ export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, id
 	// it stays running, no batch leases it, and `boat-pool.mjs status` lists it until `prune` or `drain` deletes it.
 	async function setAside(vm, reason) {
 		if (!vm.adopted) await store.setAside(vm.name, reason);
-		await store.drop(vm.name);
+		await store.drop(vm.name, { idle: false });
 		log(`machine ${vm.id} ${vm.adopted ? 'named with --machines failed its check' : 'set aside'} (${reason}): left running, not deleted`);
 	}
 	const destroy = vm => setAside(vm, 'the batch gave it up');
@@ -222,7 +222,7 @@ export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, id
 				log(`machine ${vm.id} started for the warm pool (${name})`);
 				return fresh;
 			}
-		} catch (error) { await store.drop(name); throw error; }
+		} catch (error) { await store.drop(name, { idle: false }); throw error; }
 	}
 
 	return {
@@ -252,7 +252,7 @@ export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, id
 					const id = byName.get(name);
 					const vm = { id, name, reused: true, adopted: true, ttlSeconds };
 					try { await clean(vm); await holdFor(vm, ttlSeconds); log(`machine ${id} leased (named with --machines)`); return vm; }
-					catch (error) { log(`named machine ${id} is not usable, skipping it: ${error.message}`); await store.drop(name); }
+					catch (error) { log(`named machine ${id} is not usable, skipping it: ${error.message}`); await store.drop(name, { idle: false }); }
 				}
 			}
 			const ident = await init();
@@ -274,8 +274,9 @@ export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, id
 				} catch (error) {
 					// The cleaning's own verdict, or boat saying the machine is gone, sets it aside; a boat call that failed (no
 					// answer, a timeout) leaves it in the pool for a later lease.
-					if (verdictFailure(error) || goneFailure(error)) await setAside(vm, error.message).catch(() => store.drop(name));
-					else { log(`warm machine ${vm.id} did not answer its check, skipping it: ${error.message}`); await store.drop(name); }
+					// No room ran on it, so its idle time stays as it was.
+					if (verdictFailure(error) || goneFailure(error)) await setAside(vm, error.message).catch(() => store.drop(name, { idle: false }));
+					else { log(`warm machine ${vm.id} did not answer its check, skipping it: ${error.message}`); await store.drop(name, { idle: false }); }
 				}
 			}
 			return createNew(signal);
@@ -291,13 +292,15 @@ export function warmBoatPool({ snapshot, type = 'default', ttlSeconds = 7200, id
 			try {
 				await clean(vm, 'check');
 				await holdFor(vm, idleTtlSeconds);
-				await store.drop(vm.name);
+				// Idle records rank pool machines for keepalive; a machine named with --machines is not one, and its name can
+				// come back on a different machine, so it gets none.
+				await store.drop(vm.name, { idle: !vm.adopted });
 				log(vm.adopted ? `machine ${vm.id} given back, still running` : `machine ${vm.id} back in the warm pool for ${Math.round(idleTtlSeconds / 60)} min`);
 			} catch (error) {
 				if (vm.adopted || !(verdictFailure(error) || goneFailure(error))) {
 					// Unknown state is kept: the next lease cleans and checks it again before any room plays there.
 					log(`machine ${vm.id} back in the pool unchecked (${error.message}): the next lease checks it`);
-					await store.drop(vm.name);
+					await store.drop(vm.name, { idle: !vm.adopted });
 					return true;
 				}
 				await setAside(vm, error.message);
