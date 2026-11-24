@@ -1117,6 +1117,57 @@ final class ReflexActions {
 			return Mth.wrapDegrees(toward + 90.0F * (side >= 0 ? 1 : -1));
 		}
 
+		/** Minecraft yaw from {@code body} toward {@code at}. */
+		static float towardYaw(Vec3 body, Vec3 at) {
+			return (float) Math.toDegrees(Math.atan2(-(at.x - body.x), at.z - body.z));
+		}
+
+		/** Range within which another archer that sees the body is stepped across too. */
+		static final double OTHER_SHOOTER_RANGE = 16.0D;
+		/** How far off the square step a dodge turns to cross a second archer's line as well. */
+		static final float CROSSING_TURN = 45.0F;
+
+		/**
+		 * Yaws from the body toward every other living ranged mob within {@link #OTHER_SHOOTER_RANGE} that targets it and
+		 * sees it, nearest first: the archers whose next shot the square step across {@code answering}'s line ignores.
+		 */
+		private static float[] otherShooters(ServerPlayer player, Entity answering) {
+			List<Mob> found = new ArrayList<>(player.level().getEntitiesOfClass(Mob.class, player.getBoundingBox().inflate(OTHER_SHOOTER_RANGE),
+					mob -> mob != answering && mob.isAlive() && ThreatPerception.isRanged(mob) && mob.getTarget() == player
+							&& player.distanceTo(mob) <= OTHER_SHOOTER_RANGE && mob.getSensing().hasLineOfSight(player)));
+			found.sort(java.util.Comparator.comparingDouble(player::distanceTo));
+			float[] yaws = new float[found.size()];
+			for (int i = 0; i < yaws.length; i++) yaws[i] = towardYaw(player.position(), found.get(i).position());
+			return yaws;
+		}
+
+		/**
+		 * The step heading that crosses every archer's line: {@code square} (square across the answered archer's line, at
+		 * {@code answered}) or that turned {@link #CROSSING_TURN} either way, whichever moves the body most across the worst
+		 * crossed of all the lines, ties going away from the answered and the nearest other archer, then to the heading
+		 * already run. With
+		 * no other archer it is {@code square}. Two skeletons at right angles: the square step across one runs straight
+		 * along the other's line (archers-zombie on main: 82 of 114 arrows that hit landed more than 30 degrees off the
+		 * body's facing).
+		 */
+		static float crossingYaw(float square, float answered, float[] others, Float previous) {
+			if (others.length == 0) return square;
+			float best = square;
+			double bestScore = Double.NEGATIVE_INFINITY;
+			for (float turn : new float[]{0.0F, CROSSING_TURN, -CROSSING_TURN}) {
+				float yaw = Mth.wrapDegrees(square + turn);
+				double across = Math.abs(Math.sin(Math.toRadians(yaw - answered)));
+				for (float other : others) across = Math.min(across, Math.abs(Math.sin(Math.toRadians(yaw - other))));
+				double score = across - 0.05D * (Math.cos(Math.toRadians(yaw - others[0])) + Math.cos(Math.toRadians(yaw - answered)))
+						+ (previous != null && Math.abs(Mth.wrapDegrees(previous - yaw)) <= OFFSETS[1] ? 0.03D : 0.0D);
+				if (score > bestScore + 1.0E-6D) {
+					bestScore = score;
+					best = yaw;
+				}
+			}
+			return best;
+		}
+
 		/** The side after {@code previous}: the other one, or +1 the first time. */
 		static int nextSide(int previous) {
 			return previous == 0 ? 1 : -previous;
@@ -1214,9 +1265,11 @@ final class ReflexActions {
 			}
 			Vec3 body = player.position();
 			Vec3 at = shooter.position();
+			float[] others = otherShooters(player, shooter);
 			Float[] headings = new Float[3];
 			for (int candidate : new int[]{side, -side}) {
-				headings[candidate + 1] = SafeStep.heading(player, sideYaw(body, at, candidate), OFFSETS, candidate == side ? lastHeading : null, List.of(), MAX_DROP, true);
+				float across = crossingYaw(sideYaw(body, at, candidate), towardYaw(body, at), others, candidate == side ? lastHeading : null);
+				headings[candidate + 1] = SafeStep.heading(player, across, OFFSETS, candidate == side ? lastHeading : null, List.of(), MAX_DROP, true);
 			}
 			// SafeStep tries the knockback margin first: a heading that passes canStep kept it. The shot it steps from knocks
 			// the body back from any range, so the margin holds however far the archer stands.
