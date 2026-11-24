@@ -28,21 +28,42 @@ public final class TravelStops {
 			"minecraft:blaze", "minecraft:ghast", "minecraft:witch", "minecraft:shulker", "minecraft:breeze", "minecraft:evoker",
 			"minecraft:illusioner", "minecraft:drowned", "minecraft:piglin");
 
+	/** Bow mobs: they shoot only along a clear line from their eye to the target's (RangedBowAttackGoal). */
+	static final Set<String> ARCHERS = Set.of("minecraft:skeleton", "minecraft:stray", "minecraft:bogged");
+
 	/** Ticks a mob's {@link #cannotReach} answer is kept, while neither it nor the body changes block, before it is worked out again. */
 	static final int REACH_RECHECK_TICKS = 20;
 	private static final java.util.Map<net.minecraft.world.entity.Mob, long[]> REACH = new java.util.WeakHashMap<>();
+	static final int LINE_MEMORY_TICKS = 200;
+	private static final java.util.Map<net.minecraft.world.entity.Mob, java.util.Map<java.util.UUID, Long>> LINE = new java.util.WeakHashMap<>();
 
 	/**
 	 * A melee mob at least 2 blocks above or below the body whose own pathfinder ends short of it: a zombie in the cave
 	 * floor under a ledge, still targeting the body, that cannot climb up. A player walks and digs on past it (seed 6006
 	 * iron cave: two zombies 3-4 below stopped every walk at 5 blocks, 124 and 142 stops in a row, until the run ran out).
 	 * Only a found path that does not reach counts; no path worked out (mid-fall, out of range) is no answer and stops
-	 * as before, as do creepers (a blast reaches through), ranged mobs (they hit from where they stand) and wall
+	 * as before, as do creepers (a blast reaches through), ranged mobs other than archers (an archer holding a bow is
+	 * passed only while it has no eye line to the body) and wall
 	 * climbers and swimmers, whose ways up a ground path does not show. The path is worked out on a navigation of its
 	 * own, so the mob's own path and target are left as they were.
 	 */
 	public static boolean cannotReach(net.minecraft.server.level.ServerPlayer player, net.minecraft.world.entity.Mob mob) {
 		String type = net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.getKey(mob.getType()).toString();
+		// An archer reaches the body only along its eye line, so one at least 2 above or below whose eye line to the body
+		// is cut has no shot (seed 6006 iron cave: a skeleton on the cave floor 5 below the ledge, its head in the body's
+		// sight but the ledge edge between its eye and the body's, stopped every walk at 4-6 blocks, 148 stops in a row,
+		// landing 2 hits in 130 s). One that had a line on the body or took it as its target in the last 10 s stops the
+		// trip as before: the arrow dodge ducks the body behind the edge for about 5 s, and a pass in that moment walked it
+		// straight back into the line (practice room with the edge open: 39 damage against main's 19 with a 3 s memory).
+		if (ARCHERS.contains(type) && mob.isHolding(stack -> stack.getItem() instanceof net.minecraft.world.item.ProjectileWeaponItem)) {
+			long now = player.level().getGameTime();
+			if (mob.getSensing().hasLineOfSight(player) || mob.getTarget() == player) { LINE.computeIfAbsent(mob, key -> new java.util.HashMap<>()).put(player.getUUID(), now); return false; }
+			Long had = LINE.getOrDefault(mob, java.util.Map.of()).get(player.getUUID());
+			if (had != null && now - had < LINE_MEMORY_TICKS) return false;
+			// A hit is kept by the game even while a reflex pauses the trip, when no stop check runs to record the line.
+			if (player.getLastHurtByMob() == mob && player.tickCount - player.getLastHurtByMobTimestamp() < LINE_MEMORY_TICKS) return false;
+			return Math.abs(mob.getY() - player.getY()) >= 2.0D && mob.distanceTo(player) > 2.0D;
+		}
 		if (RANGED.contains(type) || type.equals("minecraft:creeper") || type.endsWith("guardian")
 				|| dev.agaminggod.mineagen.server.perception.ThreatPerception.isRanged(mob)) return false;
 		net.minecraft.world.entity.ai.navigation.PathNavigation own = mob.getNavigation();
