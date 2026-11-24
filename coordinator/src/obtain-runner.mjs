@@ -35,6 +35,7 @@ const FOODS = new Set(['beef', 'porkchop', 'mutton', 'chicken', 'rabbit', 'cod',
 const OBTAIN_COSTS = getSwitch('obtain.costs').value;
 const FILL_LEGS = getSwitch('obtain.fillLegs').value;
 const LAVA_REFUSAL = getSwitch('obtain.lavaRefusal').value;
+const NEXT_STATION = getSwitch('obtain.nextStation').value;
 // Food a trip below ground is stocked with, in hunger points: one full bar (20), about a quarter hour's eating. Food the
 // trip lacks is counted in bread-sized items (5 points) for a chest's value; 4 bread held is a full bar and none is short.
 const TRIP_HUNGER = 20;
@@ -849,10 +850,14 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 					await pickUpNear(station, [station.kind], 4, false, room);
 					const fresh = await body.observe();
 					if (cleanupStopped(fresh)) return;
-					if (fresh.continuity?.rememberedSections?.includes('inventory') || !Array.isArray(fresh.inventory?.items)
-						|| (heldCounts(fresh).get(station.kind) ?? 0) <= heldBefore) {
+					const unknown = fresh.continuity?.rememberedSections?.includes('inventory') || !Array.isArray(fresh.inventory?.items);
+					if (unknown || (heldCounts(fresh).get(station.kind) ?? 0) <= heldBefore) {
 						step(`leave the ${station.kind} drop at ${station.x},${station.y},${station.z}: not confirmed in inventory`);
-						return;
+						// A drop not picked up leaves the other stations to fetch: chain gates on main left the crafting table
+						// behind after every furnace drop missed, and with the pickaxe worn underground no table could be made.
+						// The drop stays in the ledger, so a later call can still collect it.
+						if (unknown || !NEXT_STATION) return;
+						continue;
 					}
 				}
 				placed.splice(placed.indexOf(station), 1);

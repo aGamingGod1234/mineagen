@@ -149,3 +149,25 @@ for (const change of ['spare used', 'different table acquired']) test(`resumed s
 		assert.match(result.message, /workstation recovery incomplete/);
 	} else assert.equal(items.filter((row) => row.itemId === 'minecraft:crafting_table').reduce((sum, row) => sum + row.count, 0), 1);
 });
+
+test('chain gates: a furnace drop not picked up still leaves the crafting table to fetch', async () => {
+	// Main left the table behind after every missed furnace drop; underground, with the pickaxe worn, no new one could be made.
+	const furnace = { kind: 'furnace', x: 0, y: 64, z: 2, dimension: 'minecraft:overworld', drop: true };
+	const table = { kind: 'crafting_table', x: 0, y: 64, z: 1, dimension: 'minecraft:overworld' };
+	const placed = [furnace, table];
+	const items = [{ itemId: 'minecraft:stone_pickaxe', slot: 0, count: 1 }];
+	let broken = false;
+	const body = checkedObtainBody({
+		observe: async () => ({ player: { x: 0.5, y: 64, z: 0.5, health: 20, skyOpen: true }, world: { dimension: table.dimension },
+			inventory: { selectedSlot: 0, items: structuredClone(items) }, blocks: broken ? [] : [{ ...table, blockId: 'minecraft:crafting_table' }], items: [] }),
+		stopped: () => false, interrupted: () => false, note: () => {},
+		act: async (type) => {
+			if (type === 'break_block') { broken = true; items.push({ itemId: 'minecraft:crafting_table', slot: 1, count: 1 }); }
+			return { state: 'SUCCEEDED', reasonCode: 'ACTION_COMPLETED' };
+		},
+	});
+	await runObtain({ item: 'stone_pickaxe' }, body, { placed, now: () => 0 });
+	const on = process.env.MINEAGEN_OBTAIN_NEXT_STATION !== 'off';
+	assert.equal(items.some((row) => row.itemId === 'minecraft:crafting_table'), on);
+	assert.deepEqual(placed.map((station) => station.kind), on ? ['furnace'] : ['furnace', 'crafting_table'], 'the missed furnace drop stays in the ledger');
+});

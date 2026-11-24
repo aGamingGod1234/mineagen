@@ -126,6 +126,10 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'find.floodContained', env: 'MINEAGEN_FIND_FLOOD_CONTAINED', side: 'coordinator', default: true, parser: OFF_EXACT, status: 'default-on',
 		reason: 'A flooded tunnel the dig backed out of, with the flow stopped short and the body dry and safe, is a shut way, not danger that ends find or obtain; off is the A/B off arm.',
 		readers: ['coordinator/src/find-search.mjs FLOOD_CONTAINED (module load, process.env only)'] }),
+	// coordinator/src/obtain-runner.mjs NEXT_STATION: read once at module load.
+	entry({ name: 'obtain.nextStation', env: 'MINEAGEN_OBTAIN_NEXT_STATION', side: 'coordinator', default: true, parser: OFF_EXACT, status: 'default-on',
+		reason: 'A station drop not confirmed in the inventory no longer ends the cleanup: the other placed stations (the crafting table) are still picked up; off is the A/B off arm.',
+		readers: ['coordinator/src/obtain-runner.mjs NEXT_STATION (module load, process.env only)'] }),
 	// coordinator/src/kit-habit.mjs kitHabitEnabled(environment): per call.
 	entry({ name: 'kit.habit', env: 'MINEAGEN_KIT_HABIT', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
 		reason: 'Keeps a shield, iron armour and food in reach after each obtain; off is the A/B off arm (#32).',
