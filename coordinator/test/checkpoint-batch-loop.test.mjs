@@ -54,6 +54,8 @@ esac
 // game.sh ID ARM SP MINUTES SALT MODEL EFFORT; the run folder sits under ~/ck like a real one. A REFRESH file in the fake root makes the game's own sign-in copy change.
 const FAKE_GAME = `#!/bin/bash
 id=$1; dir=$HOME/ck/games/$id; raw=$HOME/ck/arms/runs/$id; mkdir -p "$raw/.codex-home" "$raw/server" "$dir/report"; echo world > "$raw/server/level.dat"
+# A RECORD file gives the game a replay and a world the way a recording server leaves them, and names the run folder at once.
+[ -f "$FAKE_BOAT_ROOT/RECORD" ] && { mkdir -p "$raw/server/recordings/players/agent" "$raw/server/headless-w"; echo replay > "$raw/server/recordings/players/agent/r.zip"; echo world > "$raw/server/headless-w/level.dat"; echo secret > "$raw/server/server.properties"; echo "Running q: $raw" > "$dir/run.log"; }
 # A NODONE file makes each game's first launch end without a done file, as when the launch ssh dropped first.
 # A LEFTOVER file also leaves a detached process of that launch running (the launcher's server and coordinator).
 [ -f "$FAKE_BOAT_ROOT/NODONE" ] && [ ! -f "$FAKE_BOAT_ROOT/nodone-$id" ] && { touch "$FAKE_BOAT_ROOT/nodone-$id"; if [ -f "$FAKE_BOAT_ROOT/LEFTOVER" ]; then setsid bash -c "sleep 300; : $HOME/ck/arms/leftover-$id" > /dev/null 2>&1 < /dev/null & fi; exit 0; }
@@ -72,7 +74,7 @@ echo '{"measurementStatus":"INCOMPLETE","timeline":{"startedAt":1795290758148,"p
 echo "exit 0 $(date -Is)" > "$dir/done"
 `;
 
-function setup({ refresh = false, plan: overrides = {} } = {}) {
+function setup({ refresh = false, record = false, plan: overrides = {} } = {}) {
 	const root = mkdtempSync(path.join(tmpdir(), 'ckpt-loop-'));
 	const bin = path.join(root, 'bin'); mkdirSync(bin);
 	writeFileSync(path.join(bin, 'boat'), FAKE_BOAT); chmodSync(path.join(bin, 'boat'), 0o755);
@@ -89,7 +91,9 @@ function setup({ refresh = false, plan: overrides = {} } = {}) {
 	// A tiny arm checkout (the batch packs git archive REF plus coordinator/node_modules).
 	const arm = path.join(root, 'arm'); mkdirSync(path.join(arm, 'coordinator/node_modules'), { recursive: true });
 	writeFileSync(path.join(arm, 'README'), 'arm\n'); writeFileSync(path.join(arm, 'coordinator/node_modules/x.js'), '');
-	execFileSync('git', ['init', '-q', arm]); execFileSync('git', ['-C', arm, 'add', 'README']);
+	// A recording arm carries a launcher that records the agent; the batch checks for it.
+	if (record) { mkdirSync(path.join(arm, 'scripts')); writeFileSync(path.join(arm, 'scripts/run-headless-provider-matrix.mjs'), "export const REPLAY_STOP_COMMAND = 'replay stop players @a';\n"); }
+	execFileSync('git', ['init', '-q', arm]); execFileSync('git', ['-C', arm, 'add', 'README', ...(record ? ['scripts'] : [])]);
 	execFileSync('git', ['-C', arm, '-c', 'user.email=t@example.invalid', '-c', 'user.name=t', 'commit', '-qm', 'arm']);
 	writeFileSync(path.join(root, 'mod.jar'), 'jar'); writeFileSync(path.join(root, 'sp.json'), '{}');
 	writeFileSync(path.join(root, 'lithium-fabric-0.1+mc26.3.jar'), 'lithium');
@@ -98,7 +102,9 @@ function setup({ refresh = false, plan: overrides = {} } = {}) {
 		vms: ['bx_aaaaaaaa', 'bx_bbbbbbbb'], drain: 'delete', copyConcurrency: 2, lithium: path.join(root, 'lithium-fabric-0.1+mc26.3.jar'),
 		arms: { main: { root: arm, ref: 'HEAD', jar: path.join(root, 'mod.jar') }, other: { root: arm, ref: 'HEAD', jar: path.join(root, 'mod.jar'), env: { A_SWITCH: 'on', B_SWITCH: '2' } } },
 		savepoints: { nether: { file: path.join(root, 'sp.json'), repeats: 2, targets: ['fortress'] } } };
-	writeFileSync(path.join(root, 'plan.json'), JSON.stringify({ ...plan, ...overrides }));
+	const kit = path.join(root, 'kit'); mkdirSync(kit);
+	for (const name of ['ServerReplay-1.0+26.3.jar', 'fabric-language-kotlin-1.0.jar', 'server-replay-config.json']) writeFileSync(path.join(kit, name), name);
+	writeFileSync(path.join(root, 'plan.json'), JSON.stringify({ ...plan, ...(record ? { recording: kit } : {}), ...overrides }));
 	return root;
 }
 const run = (root, env = {}) => execFileSync('node', [script, '--plan', path.join(root, 'plan.json'), '--out', path.join(root, 'out')], {
@@ -129,6 +135,55 @@ test('checkpoint batch copies every game home, writes each env switch on its own
 		}
 		assert.deepEqual(readFileSync(path.join(root, 'deleted.log'), 'utf8').trim().split('\n').sort(), ['bx_aaaaaaaa', 'bx_bbbbbbbb']);
 		assert.equal(leftSignIns(root), '0');
+	} finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('checkpoint batch records each game: the recorder goes into the template and game.tgz brings the replays and world home', posixOnly, () => {
+	const root = setup({ record: true });
+	writeFileSync(path.join(root, 'RECORD'), '');
+	try {
+		run(root);
+		const state = JSON.parse(readFileSync(path.join(root, 'out/state.json'), 'utf8'));
+		assert.deepEqual(state.games.map(g => g.state), ['done', 'done', 'done', 'done']);
+		for (const id of ['bx_aaaaaaaa', 'bx_bbbbbbbb']) {
+			const copy = readFileSync(path.join(root, id, 'ck/server-template'), 'utf8').trim();
+			assert.match(copy, /\+lithium-[0-9a-f]{12}\+rec$/);
+			assert.deepEqual(readdirSync(path.join(copy, 'mods')).sort(), ['ServerReplay-1.0+26.3.jar', 'fabric-language-kotlin-1.0.jar', 'lithium-fabric-0.1+mc26.3.jar']);
+			assert.equal(readFileSync(path.join(copy, 'config/server-replay/config.json'), 'utf8'), 'server-replay-config.json');
+		}
+		for (const g of state.games) {
+			const dest = path.join(root, 'out/games', g.id);
+			const listing = execFileSync('tar', ['-tzf', path.join(dest, 'game.tgz')], { encoding: 'utf8' });
+			assert.match(listing, /^\.\/recordings\.tar$/m); assert.match(listing, /^\.\/world-headless-w\.tgz$/m); assert.doesNotMatch(listing, /server\.properties/);
+			execFileSync('tar', ['-xzf', path.join(dest, 'game.tgz'), '-C', dest, './recordings.tar']);
+			assert.match(execFileSync('tar', ['-tf', path.join(dest, 'recordings.tar')], { encoding: 'utf8' }), /recordings\/players\/agent\/r\.zip/);
+		}
+	} finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('checkpoint batch refuses to record with an arm whose launcher does not record the agent', posixOnly, () => {
+	const root = setup();
+	try {
+		const plan = JSON.parse(readFileSync(path.join(root, 'plan.json'), 'utf8'));
+		writeFileSync(path.join(root, 'plan.json'), JSON.stringify({ ...plan, recording: path.join(root, 'kit') }));
+		assert.throws(() => run(root, {}), /does not record the agent/);
+		assert.equal(existsSync(path.join(root, 'out/state.json')), false);
+	} finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('checkpoint batch copies the replay and world of a game that ended without a done file before it plays it again', posixOnly, () => {
+	const root = setup({ record: true });
+	writeFileSync(path.join(root, 'RECORD'), ''); writeFileSync(path.join(root, 'NODONE'), '');
+	try {
+		run(root);
+		const state = JSON.parse(readFileSync(path.join(root, 'out/state.json'), 'utf8'));
+		assert.deepEqual(state.games.map(g => g.state), ['done', 'done', 'done', 'done']);
+		const salvaged = readdirSync(path.join(root, 'out/salvage'));
+		assert.equal(salvaged.length, 4);
+		for (const file of salvaged) {
+			const listing = execFileSync('tar', ['-tzf', path.join(root, 'out/salvage', file)], { encoding: 'utf8' });
+			assert.match(listing, /recordings\/players\/agent\/r\.zip/); assert.match(listing, /headless-w\/level\.dat/); assert.doesNotMatch(listing, /server\.properties/);
+		}
 	} finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -290,6 +345,29 @@ test('checkpoint batch ends its running games and cleans up at once on SIGTERM',
 		assert.equal(leftSignIns(root), '0');
 		// pgrep exits 1 when nothing matches.
 		assert.throws(() => execFileSync('pgrep', ['-f', `${root}/bx_.*/ck/game.sh`], { encoding: 'utf8' }), 'no game process is left');
+	} finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('checkpoint batch copies the replay and world of a running game before it deletes the machine on SIGTERM', posixOnly, async () => {
+	const root = setup({ record: true });
+	writeFileSync(path.join(root, 'RECORD'), '');
+	for (const id of ['bx_aaaaaaaa', 'bx_bbbbbbbb']) writeFileSync(path.join(root, id, 'HANG'), '');
+	try {
+		const child = spawn('node', [script, '--plan', path.join(root, 'plan.json'), '--out', path.join(root, 'out')], {
+			env: { ...process.env, PATH: `${path.join(root, 'bin')}:${process.env.PATH}`, BOAT_BIN: path.join(root, 'bin/boat'), FAKE_BOAT_ROOT: root, CHECKPOINT_POLL_MS: '200' }, stdio: ['ignore', 'pipe', 'pipe'] });
+		const exited = new Promise(resolve => child.on('exit', resolve));
+		let out = '';
+		await new Promise((resolve, reject) => {
+			const timer = setTimeout(() => reject(new Error(`no game started: ${out}`)), 60_000);
+			child.stdout.on('data', chunk => { out += chunk; if ((out.match(/started nether/g) ?? []).length >= 2) { clearTimeout(timer); resolve(); } });
+		});
+		child.kill('SIGTERM');
+		await exited;
+		assert.equal(readdirSync(path.join(root, 'out/salvage')).length, 2);
+		const log = readFileSync(path.join(root, 'out/batch.log'), 'utf8');
+		for (const id of ['bx_aaaaaaaa', 'bx_bbbbbbbb']) assert.ok(log.indexOf(`from ${id} to salvage/`) >= 0 && log.indexOf(`from ${id} to salvage/`) < log.indexOf(`deleted ${id}`), `${id} was copied before it was deleted`);
+		assert.deepEqual(readFileSync(path.join(root, 'deleted.log'), 'utf8').trim().split('\n').sort(), ['bx_aaaaaaaa', 'bx_bbbbbbbb']);
+		assert.equal(leftSignIns(root), '0');
 	} finally { rmSync(root, { recursive: true, force: true }); }
 });
 
