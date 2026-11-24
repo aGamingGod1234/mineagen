@@ -1406,10 +1406,12 @@ public final class ServerNavigationController implements ServerController {
 		double steerHorizontal = Math.sqrt(steerDx * steerDx + steerDz * steerDz);
 		boolean walkingOnGround = !swimming && !climbing && !crouching && !gapJump && player.onGround();
 		// Swimming and climbing move where the view points (no separate walk direction), so they never hold the
-		// heading near a point: a swimmer that held it swam on past the point, looped back and stalled.
+		// heading near a point: a swimmer that held it swam on past the point, looped back and stalled. Nor does a body
+		// at a one-wide step-up: its jump waits for the view to face the notch, and a held view (the yaw a pillar left)
+		// never turned, so it pressed against the step without jumping until the stall replans ran out.
 		Heading heading = heading(motorState.yaw(), steerDx, steerDz, steerIsEndpoint,
 				walkingOnGround && steerIsWaypoint ? gazeYaw(player.position(), plan.nodes(), waypointIndex) : Float.NaN,
-				!swimming && !climbing);
+				!swimming && !climbing && !narrowStepUp(world, plan.nodes(), waypointIndex));
 		float targetYaw = heading.viewYaw();
 		float moveYaw = swimming || climbing ? Float.NaN : heading.moveYaw();
 		float targetPitch;
