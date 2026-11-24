@@ -108,6 +108,9 @@ const SPARE_BLOCKS = 24;
 // A walk to water goes in legs of FILL_LEG_MS, up to FILL_WALK_MS in all, and checks for water in reach after each
 // (obtain.fillLegs off: one leg of the whole FILL_WALK_MS, as before).
 const FILL_WALK_MS = 90_000, FILL_LEG_MS = FILL_LEGS ? 10_000 : FILL_WALK_MS, FILL_LEG_MIN_MS = 3_000;
+// The walker's own stuck check (travel's STALL_MS and PROGRESS_STEP) starts over each leg, so the legs keep it across
+// the whole walk: no closer by this much for this long and the water counts as out of reach (NO_ROUTE).
+const FILL_STALL_MS = 60_000, FILL_PROGRESS = 2;
 // After a fill, a walk back out of the water to a dry spot from before a find search goes only this many blocks.
 const DRY_WALK = 32;
 const KEEP_COBBLE = 16;
@@ -535,7 +538,7 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		return args;
 	};
 	// An action still running when danger interrupted (the runtime keeps it for the model) is handed back with its handle.
-	let running = null, danger = null, fillToolStop = null, capacityStop = null, nightStop = null;
+	let running = null, danger = null, fillToolStop = null, capacityStop = null, nightStop = null, walkingOn = false;
 	// The fork the coordinator stopped this run for ({reasonCode, message}), unless obtain found danger of its own: the
 	// run then ends with the fork's code, and the legs it cut short are not read as danger.
 	const forkStop = () => (danger === null ? rawBody.forkStop?.() ?? null : null);
@@ -596,7 +599,8 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		// A fresh observation yields: preserve cancellation and the deadline before dispatching after it.
 		if (danger !== null || rawBody.interrupted() || rawBody.stopped()) return halted();
 		if (left() <= 0) return expired;
-		const night = type === undefined ? null : nightMoveStop(o, type, args, { openSky: typeof rawBody.openSky === 'function' ? rawBody.openSky() : null });
+		// A walk to water already under way keeps on as its next leg when night falls, as the one long walk did.
+		const night = type === undefined || walkingOn ? null : nightMoveStop(o, type, args, { openSky: typeof rawBody.openSky === 'function' ? rawBody.openSky() : null });
 		if (night !== null) { nightStop = night; step(`not now: ${night}`); return nightRefused; }
 		if (blazeBlocksErrand(o) === null) return null;
 		danger = 'blaze exposure: stay in cover or choose combat before resource travel';
@@ -1827,12 +1831,22 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			// comes within reach. Room water-8-y-54 (3 of 3 misses): the far bank of a lake was seen from 80 blocks, and the
 			// walk reached the near bank, then bridged across the lake toward that one block until the 180 s ran out.
 			const walkEnds = now() + FILL_WALK_MS;
-			for (;;) {
-				walked = await act('travel_to', { x: source.x + 0.5, y: source.y + 1, z: source.z + 0.5, tolerance: 2, build: plain > SPARE_BLOCKS, timeoutMs: Math.max(1_000, Math.min(FILL_LEG_MS, walkEnds - now())) });
+			let closest = eyeDistance(at, source), closerAt = now();
+			for (let leg = 0; ; leg += 1) {
+				walkingOn = leg > 0;
+				try {
+					walked = await act('travel_to', { x: source.x + 0.5, y: source.y + 1, z: source.z + 0.5, tolerance: 2, build: plain > SPARE_BLOCKS, timeoutMs: Math.max(1_000, Math.min(FILL_LEG_MS, walkEnds - now())) });
+				} finally { walkingOn = false; }
 				if (body.interrupted() || body.stopped()) return 'stopped';
 				o = await body.observe();
 				after = bodyAt(o);
 				if (walked?.reasonCode !== 'TRAVEL_TIMEOUT' || after === null || walkEnds - now() < FILL_LEG_MIN_MS || left() < FILL_LEG_MIN_MS || await reaches()) break;
+				const d = eyeDistance(after, source);
+				if (d < closest - FILL_PROGRESS) { closest = d; closerAt = now(); }
+				else if (now() - closerAt >= FILL_STALL_MS) {
+					walked = { state: 'FAILED', reasonCode: 'NO_ROUTE', message: `No closer to the ${fluid} for ${FILL_STALL_MS / 1000} s` };
+					break;
+				}
 			}
 			// Tool exhaustion says nothing about the source's reachability. Leave recovery to the model;
 			// the next loop still checks cancellation, danger and fresh inventory before handing back.
@@ -1855,6 +1869,13 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		// The sighting itself is tried too, though no sample lists it as a source now (seen once, from afar).
 		const filled = await scoop(o, source);
 		if (filled === true) return null;
+		// The walk stopped at other water in reach and none of it filled: the far sighting is the same long walk's end, so it
+		// is out too, or the next search points straight back at it.
+		if (typeof filled === 'string' && filled !== 'stopped' && filled !== 'no empty bucket held' && !budget.failed.has(cell(source))) {
+			budget.failed.add(cell(source));
+			if (fluid === 'water') body.missPlace?.({ x: source.x, y: source.y, z: source.z }, UNREACHED_SPOT);
+			return filled;
+		}
 		if (filled === null && !budget.failed.has(cell(source))) {
 			budget.failed.add(cell(source));
 			if (fluid === 'water') body.missPlace?.({ x: source.x, y: source.y, z: source.z }, UNREACHED_SPOT);
