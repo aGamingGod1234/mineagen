@@ -2651,7 +2651,9 @@ public final class ServerBuildController implements ServerController {
 		if (!above.getCollisionShape(player.level(), head).isEmpty() || !above.getFluidState().isEmpty())
 			return fail(player, "BUILD_BLOCKED", describe(above) + " over the head at " + xyz(head) + " stops the pillar at " + (current.y() - startY) + " of " + size + " blocks");
 		if (moveStage == 0) {
-			String item = pillarReturn != null ? spareItem(player) : material == null ? plainBlock(player, false) : slot(player, material) >= 0 ? material : pillarFill(player);
+			// No block asked: plain fillers first, so the tower never spends ore while cobblestone or dirt is left.
+			String item = pillarReturn != null ? spareItem(player) : material != null && slot(player, material) >= 0 ? material
+					: pillarFill(player) != null || material != null ? pillarFill(player) : plainBlock(player, false);
 			if (item == null || carried(player, item) == 0) return short_(player, pillarReturn != null ? "stepping up needs 1 plain block, none left"
 					: "the pillar ran out of plain blocks at " + (current.y() - startY) + " of " + size + "; " + (size - (current.y() - startY)) + " more");
 			int slot = select(player, slot(player, item), now);
