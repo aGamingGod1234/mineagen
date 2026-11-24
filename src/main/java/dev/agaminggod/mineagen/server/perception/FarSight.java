@@ -416,6 +416,42 @@ public final class FarSight {
 		return new LevelChunk[]{source.getChunkNow(x - 1, z), source.getChunkNow(x + 1, z), source.getChunkNow(x, z - 1), source.getChunkNow(x, z + 1)};
 	}
 
+	/**
+	 * The chunk lookups of one gather, each chunk asked once. Within one look nothing loads or unloads a chunk: getChunkNow
+	 * changes its answer only in the chunk map's distance updates (see ChunkHolderDemotionMixin), and no look runs inside
+	 * them. So a remembered answer is the one a fresh lookup would give. Never kept past the gather.
+	 */
+	private static final class ChunkGrid {
+		private static final int WIDTH = 2 * CHUNK_RADIUS + 1;
+		private final ServerLevel level;
+		private final int centreX, centreZ;
+		private final LevelChunk[] chunks = new LevelChunk[WIDTH * WIDTH];
+		private final boolean[] asked = new boolean[WIDTH * WIDTH];
+
+		ChunkGrid(ServerLevel level, int centreX, int centreZ) {
+			this.level = level;
+			this.centreX = centreX;
+			this.centreZ = centreZ;
+		}
+
+		LevelChunk get(int x, int z) {
+			int column = x - centreX + CHUNK_RADIUS, row = z - centreZ + CHUNK_RADIUS;
+			if (column < 0 || row < 0 || column >= WIDTH || row >= WIDTH) return level.getChunkSource().getChunkNow(x, z);
+			int at = column * WIDTH + row;
+			if (!asked[at]) {
+				chunks[at] = level.getChunkSource().getChunkNow(x, z);
+				asked[at] = true;
+			}
+			return chunks[at];
+		}
+
+		/** As {@link FarSight#beside}: west, east, north and south. */
+		LevelChunk[] beside(LevelChunk chunk) {
+			int x = chunk.getPos().x(), z = chunk.getPos().z();
+			return new LevelChunk[]{get(x - 1, z), get(x + 1, z), get(x, z - 1), get(x, z + 1)};
+		}
+	}
+
 	private static final class ChunkScan {
 		// Weak, so a scan never keeps an unloaded chunk in memory.
 		final java.lang.ref.WeakReference<LevelChunk> chunk;
@@ -1097,9 +1133,13 @@ public final class FarSight {
 			// Over the tick's budget a survey answers only from what is cached; there is nothing cached here.
 			if (request.clips() == 0) return Result.EMPTY;
 			List<LevelChunk> loaded = new ArrayList<>();
+			ChunkGrid grid = new ChunkGrid(level, eyeChunkX, eyeChunkZ);
 			for (int[] offset : CHUNK_OFFSETS) {
-				LevelChunk chunk = level.getChunkSource().getChunkNow(eyeChunkX + offset[0], eyeChunkZ + offset[1]);
-				if (chunk != null && horizontalDistanceToChunk(eye, chunk.getPos()) <= RANGE) loaded.add(chunk);
+				int chunkX = eyeChunkX + offset[0], chunkZ = eyeChunkZ + offset[1];
+				// The distance needs only the chunk's coordinates, so a chunk out of range is never looked up.
+				if (horizontalDistanceToChunk(eye, new ChunkPos(chunkX, chunkZ)) > RANGE) continue;
+				LevelChunk chunk = grid.get(chunkX, chunkZ);
+				if (chunk != null) loaded.add(chunk);
 			}
 			List<StartView> starts = new ArrayList<>();
 			Map<Long, List<BoundingBox>> structureBoxes = new Long2ObjectOpenHashMap<>();
@@ -1108,7 +1148,7 @@ public final class FarSight {
 			synchronized (index) {
 				index.forgetUnloaded(level);
 				int resets = index.sectionResets;
-				complete = scanAround(level, index, eye, loaded, dimensionClass, built, lava, notable, ore, poi, placed, structureBoxes);
+				complete = scanAround(level, grid, index, eye, loaded, dimensionClass, built, lava, notable, ore, poi, placed, structureBoxes);
 				PerceptionTiming.count("far_sight_section_rescans", index.sectionResets - resets);
 			}
 			gathered = new Candidates(starts, built, lava, notable, ore, poi, placed, biomeColumns(level, loaded));
@@ -1244,6 +1284,13 @@ public final class FarSight {
 	static boolean scanAround(ServerLevel level, LevelIndex index, Vec3 eye, List<LevelChunk> loaded, int dimensionClass,
 			List<Found> built, List<Found> lava, List<Found> notable, List<Found> ore, List<Found> poi, List<Found> placed,
 			Map<Long, List<BoundingBox>> structureBoxes) {
+		return scanAround(level, null, index, eye, loaded, dimensionClass, built, lava, notable, ore, poi, placed, structureBoxes);
+	}
+
+	/** As above, reading neighbouring chunks through {@code grid} when given (one lookup per chunk per gather). */
+	private static boolean scanAround(ServerLevel level, ChunkGrid grid, LevelIndex index, Vec3 eye, List<LevelChunk> loaded, int dimensionClass,
+			List<Found> built, List<Found> lava, List<Found> notable, List<Found> ore, List<Found> poi, List<Found> placed,
+			Map<Long, List<BoundingBox>> structureBoxes) {
 		boolean complete = true;
 		int eyeY = Mth.floor(eye.y);
 		for (LevelChunk chunk : loaded) {
@@ -1259,7 +1306,7 @@ public final class FarSight {
 				if (minY + 15 >= eyeY - FAR_VERTICAL_BAND && minY <= eyeY + FAR_VERTICAL_BAND) wanted |= FAR_KINDS;
 				if (near && minY + 15 >= eyeY - ORE_VERTICAL_BAND && minY <= eyeY + ORE_VERTICAL_BAND) wanted |= NEAR_KINDS;
 				if (wanted == 0) continue;
-				if (beside == null) beside = beside(level, chunk);
+				if (beside == null) beside = grid == null ? beside(level, chunk) : grid.beside(chunk);
 				if (!scanSection(level, index, chunk, beside, scan, sectionIndex, wanted, dimensionClass)) complete = false;
 				SectionScan section = scan.sections[sectionIndex];
 				if (section == null) continue;
