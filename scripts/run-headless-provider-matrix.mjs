@@ -21,6 +21,17 @@ export function serverJvmArgs(value = process.env.ARENA_HEADLESS_SERVER_JVM_ARGS
 	return args;
 }
 
+// A server template that carries the ServerReplay mod records every player for the showcase video. The agent is a
+// Carpet fake player, which ServerReplay's automatic recording skips, so the launcher asks for it on the console
+// (repeats are refused while a recording runs). Shutdown saves the open recording and the world, which takes longer
+// than an unrecorded stop, so the launcher waits longer before it kills a recording server.
+export const REPLAY_START_COMMAND = 'replay start players @a';
+export const REPLAY_START_EVERY_MS = 20000;
+export const RECORDING_STOP_MS = 120000;
+export async function replayRecorderInstalled(modsDirectory) {
+	return (await readdir(modsDirectory).catch(() => [])).some(name => /^server-?replay.*\.jar$/i.test(name));
+}
+
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const text = file => readFile(file, 'utf8').catch(e => { if (e.code === 'ENOENT') return ''; throw e; });
 const json = (file, value) => writeFile(file, JSON.stringify(value, null, 2));
@@ -120,11 +131,12 @@ export async function runMatrix(options) {
 				}
 				throw new Error(`${label}: timed out after ${timeout} ms`);
 			};
-			let server, coordinator, failure = null, cleanupFailure = null, runnerReport = null;
+			let server, coordinator, failure = null, cleanupFailure = null, runnerReport = null, recording = false, recorder = null;
 			try {
 				await cp(template, serverDirectory, { recursive: true, filter: entry => !/^mineagen-.*\.jar$/i.test(path.basename(entry)) });
 				await mkdir(path.join(serverDirectory, 'mods'), { recursive: true });
 				await copyFile(jar, path.join(serverDirectory, 'mods', path.basename(jar)));
+				recording = await replayRecorderInstalled(path.join(serverDirectory, 'mods'));
 				const ports = {};
 				for (const [key, name] of [['bridge', 'BRIDGE'], ['rcon', 'RCON'], ['minecraft', 'MINECRAFT']]) ports[key] = await freePort(Number(process.env[`ARENA_HEADLESS_${name}_PORT`] ?? 0), Object.values(ports));
 				const secret = randomBytes(32).toString('hex');
@@ -156,20 +168,33 @@ export async function runMatrix(options) {
 				await json(worldFile, world);
 				const runner = start(process.execPath, [path.join(root, 'coordinator/src/headless-matrix.mjs'), '--config', matrixFile, '--scenario', scenario.id, '--run-directory', directory, '--rcon-host', '127.0.0.1', '--rcon-port', String(ports.rcon), '--rcon-password-file', passwordFile, '--protocol-audit', protocol, '--provider-turns', turns, '--world-manifest', worldFile, ...(options.RequireAll ? ['--require-all'] : [])], path.join(root, 'coordinator'), path.join(directory, 'traces/runner'), env);
 				console.log(`Running ${scenario.id}: ${directory}`);
+				if (recording) {
+					server.stdin.on('error', () => {});
+					const startRecording = () => { if (!exited(server)) server.stdin.write(REPLAY_START_COMMAND + '\n'); };
+					startRecording(); recorder = setInterval(startRecording, REPLAY_START_EVERY_MS);
+				}
 				await waitFor(() => exited(runner), scenario.timeoutMs + 30000, 'Scenario runner', runner);
 				runnerReport = await readArtifactReport(path.join(directory, 'report.json'));
 			} catch (error) { failure = error.message; console.error(`${scenario.id}: ${failure}`); }
 			finally {
+				if (recorder) clearInterval(recorder);
 				if (coordinator && !exited(coordinator)) try { await requestCaptureShutdown(capture); } catch (e) { cleanupFailure = e.message; }
+				// Each child leads a separate POSIX group. Kill that owned group, including provider descendants.
+				const killGroups = async group => {
+					for (const signal of ['SIGTERM', 'SIGKILL']) {
+						for (const child of group) if (child.pid) try { process.kill(-child.pid, signal); } catch (e) { if (e.code !== 'ESRCH') cleanupFailure = e.message; }
+						await sleep(signal === 'SIGTERM' ? 1000 : 100);
+					}
+				};
+				let stopping = children;
 				if (server && !exited(server)) {
 					server.stdin.on('error', () => {}); server.stdin.end('stop\n');
-					const deadline = Date.now() + 10000; while (!exited(server) && Date.now() < deadline) await sleep(100);
+					// A caller that kills this launcher early (run-scenarios hardStop) must not orphan the coordinator and
+					// runner while a recording server saves; the server already has its stop and finishes on its own.
+					if (recording) { await killGroups(children.filter(child => child !== server)); stopping = [server]; }
+					const deadline = Date.now() + (recording ? RECORDING_STOP_MS : 10000); while (!exited(server) && Date.now() < deadline) await sleep(100);
 				}
-				// Each child leads a separate POSIX group. Kill that owned group, including provider descendants.
-				for (const signal of ['SIGTERM', 'SIGKILL']) {
-					for (const child of children) if (child.pid) try { process.kill(-child.pid, signal); } catch (e) { if (e.code !== 'ESRCH') cleanupFailure = e.message; }
-					await sleep(signal === 'SIGTERM' ? 1000 : 100);
-				}
+				await killGroups(stopping);
 				for (const stream of streams) if (!stream.writableFinished) await new Promise(resolve => stream.end(resolve));
 			}
 			const report = { ...(runnerReport ?? {}), status: failure || cleanupFailure ? 'FAILED' : runnerReport?.status ?? 'FAILED', diagnostics: failure ?? runnerReport?.diagnostics ?? null, cleanup: { status: cleanupFailure ? 'FAILED' : 'CLEAN', error: cleanupFailure } };
