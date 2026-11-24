@@ -23,6 +23,7 @@ public final class ArrowDodgeVerification {
 	public static int verify() {
 		assertions = 0;
 		headingIsSquareAcrossTheShotLine();
+		newDrawKeepsTheRunningSide();
 		sidesAlternatePerDraw();
 		unsafeFootingIsRefused();
 		sleepsWithAShieldInHand();
@@ -46,6 +47,15 @@ public final class ArrowDodgeVerification {
 				check(Math.abs(step.dot(shooter.normalize())) < 1.0E-4D, "the step is perpendicular to the shooter line at " + angle);
 			}
 		}
+	}
+
+	private static void newDrawKeepsTheRunningSide() {
+		Vec3 body = Vec3.ZERO, south = new Vec3(0.0D, 0.0D, 10.0D);
+		// Shooter due south: side +1 steps west (-x), side -1 east (+x).
+		check(ReflexActions.Dodge.continuingSide(body, south, new Vec3(-0.12D, 0.0D, 0.0D), -1) == 1, "running west: the new draw keeps west");
+		check(ReflexActions.Dodge.continuingSide(body, south, new Vec3(0.12D, 0.0D, 0.0D), 1) == -1, "running east: the new draw keeps east");
+		check(ReflexActions.Dodge.continuingSide(body, south, new Vec3(-0.09D, 0.0D, 0.09D), -1) == 1, "running south-west: the side nearer that run");
+		check(ReflexActions.Dodge.continuingSide(body, south, new Vec3(0.01D, 0.0D, 0.0D), -1) == -1, "standing: the alternating side");
 	}
 
 	private static void sidesAlternatePerDraw() {
