@@ -455,7 +455,7 @@ test('a pour held against an angry enderman is remembered from its running repor
 	book.observe('a', { revision: 1, rules: [], events: [], firing: { id: 'default-ender-water', ms: 400, detail: 'placed minecraft:water_bucket at feet 5,60,-3; standing in it while an angry enderman is near' } });
 	book.observe('a', { revision: 1, rules: [], events: [{ seq: 1, id: 'default-ender-water', outcome: 'preempted', ms: 900, detail: 'by default-breath' }] });
 	assert.deepEqual(book.pours('a', end), [{ x: 5, y: 60, z: -3 }], 'the water left by the preempted hold is remembered');
-	// Scooped back by the hold itself: its done report names no cell, and the bucket count forgets the pour.
+	// Scooped back by the hold itself: its done report names the cell as scooped, and the pour is forgotten.
 	const at = (buckets) => ({ ...end, position: { x: 5.5, y: 60, z: -2.5 }, inventory: { items: [{ itemId: buckets ? 'minecraft:water_bucket' : 'minecraft:bucket', count: 1 }] } });
 	book.observeContext('a', at(0));
 	book.observe('a', { revision: 1, rules: [], events: [{ seq: 2, id: 'default-ender-water', outcome: 'done', ms: 2000, detail: 'poured water at feet 5,60,-3, stood in it until no angry enderman was near, and scooped it back' }] });
@@ -466,5 +466,16 @@ test('a pour held against an angry enderman is remembered from its running repor
 	assert.deepEqual(book.pours('a', end), [{ x: 7, y: 60, z: -3 }]);
 	book.observe('a', { revision: 1, rules: [], events: [{ seq: 3, id: 'default-ender-water', outcome: 'done', ms: 1500, detail: 'poured water at feet 7,60,-3; the source is gone' }] });
 	assert.deepEqual(book.pours('a', end), [], 'a pour whose source is gone is forgotten');
+	// A pour left in the Overworld at the same coordinates as the next End pour stays remembered there.
+	const overworld = { ...end, world: { dimension: 'minecraft:overworld' } };
+	book.observeContext('a', overworld);
+	book.observe('a', { revision: 1, rules: [], events: [{ seq: 4, id: 'default-ender-water', outcome: 'done', ms: 400, detail: 'placed minecraft:water_bucket at feet 9,60,-3; the source stays until scooped' }] });
+	book.observeContext('a', end);
+	// Scooped as the dragon came near and the bucket spent before the next sample: the report itself forgets the pour.
+	book.observe('a', { revision: 1, rules: [], events: [], firing: { id: 'default-ender-water', ms: 400, detail: 'placed minecraft:water_bucket at feet 9,60,-3; standing in it while an angry enderman is near' } });
+	assert.deepEqual(book.pours('a', end), [{ x: 9, y: 60, z: -3 }], 'the held End pour is remembered');
+	book.observe('a', { revision: 1, rules: [], events: [{ seq: 5, id: 'default-ender-water', outcome: 'done', ms: 800, detail: 'poured water at feet 9,60,-3, scooped it back as the dragon came near' }] });
+	assert.deepEqual(book.pours('a', end), [], 'a pour the hold scooped back is forgotten from its report');
+	assert.deepEqual(book.pours('a', overworld), [{ x: 9, y: 60, z: -3 }], 'the Overworld pour at the same coordinates is kept');
 	book.clear('a');
 });
