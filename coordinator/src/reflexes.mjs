@@ -670,14 +670,16 @@ export class ReflexBook {
 		this.#pours.set(agentId, [{ x, y, z, dimension }, ...pours].slice(0, MAX_REMEMBERED_POURS));
 	}
 
-	// A hold that watched its source vanish (the dragon flew through it, or it was pushed off and the flow ran out) says so;
-	// the cell is air now, which no block row shows, so that pour is forgotten here.
+	// A hold that watched its source vanish (the dragon flew through it, or it was pushed off and the flow ran out) or scooped
+	// it back says so; the cell is air now, which no block row shows, so that pour is forgotten here.
 	#forgetGonePour(agentId, detail) {
-		const cell = /poured water at feet (-?\d+),(-?\d+),(-?\d+); the source is gone/.exec(detail ?? '');
+		const cell = /poured water at feet (-?\d+),(-?\d+),(-?\d+)(?:; the source is gone|, [^;]*scooped it back)/.exec(detail ?? '');
 		const pours = this.#pours.get(agentId);
 		if (!cell || !pours?.length) return;
 		const [x, y, z] = cell.slice(1).map(Number);
-		this.#pours.set(agentId, pours.filter(p => !(p.x === x && p.y === y && p.z === z)));
+		// The report is from this dimension: a pour at the same coordinates elsewhere is still there.
+		const dimension = this.#samples.get(agentId)?.world?.dimension ?? null;
+		this.#pours.set(agentId, pours.filter(p => !(p.x === x && p.y === y && p.z === z && p.dimension === dimension)));
 	}
 
 	// A scooped source turns to air, and the observation lists no air rows, so a scoop is read from the inventory: one more
