@@ -19,7 +19,8 @@
   "time": 6000,
   "budgetMs": 120000,
   "probe": [
-   "execute positioned {x} -58 {z} as @e[type=minecraft:skeleton,distance=..20] run data get entity @s Pos"
+   "execute positioned {x} -58 {z} as @e[type=minecraft:skeleton,distance=..20] run data get entity @s Pos",
+   "execute positioned {x} -58 {z} as @e[type=minecraft:skeleton,distance=..20] run data get entity @s equipment.mainhand.id"
   ],
   "name": "skeleton-pit-below",
   "note": "A walk along a 3-wide lit tunnel passes a 1-wide trench beside it, its floor 3 below the walk, with a skeleton in it. The tunnel's floor column next to the trench is glass, so the walk sees the skeleton, but the skeleton's eye line to the body's eye always crosses that column below the walk's floor, so it has no shot (as a skeleton on a cave floor under a ledge). A player walks on past it. Pass: the walk arrives (on main it stops HOSTILE_NEAR for the skeleton within 6 blocks).",
@@ -32,7 +33,7 @@
    "fill {x+1} -62 {z+4} {x+1} -59 {z+16} minecraft:glass",
    "tp Probe {x+0.5} -58 {z+0.5} 0 0",
    "kill @e[type=minecraft:item,distance=..40]",
-   "summon minecraft:skeleton {x+2.5} -61 {z+12.5} {PersistenceRequired:1b,CanPickUpLoot:0b,HandItems:[{id:\"minecraft:bow\",count:1},{}]}"
+   "summon minecraft:skeleton {x+2.5} -61 {z+12.5} {PersistenceRequired:1b,CanPickUpLoot:0b,equipment:{mainhand:{id:\"minecraft:bow\",count:1}}}"
   ],
   "calls": [
    {
@@ -71,7 +72,8 @@
   "time": 6000,
   "budgetMs": 120000,
   "probe": [
-   "execute positioned {x} -58 {z} as @e[type=minecraft:skeleton,distance=..20] run data get entity @s Pos"
+   "execute positioned {x} -58 {z} as @e[type=minecraft:skeleton,distance=..20] run data get entity @s Pos",
+   "execute positioned {x} -58 {z} as @e[type=minecraft:skeleton,distance=..20] run data get entity @s equipment.mainhand.id"
   ],
   "name": "skeleton-pit-open",
   "note": "Guard for skeleton-pit-below: the same trench, but the walk's floor column next to it is open instead of glass, so the skeleton's eye line to the body's eye is clear and it can shoot. The walk must still stop for it (HOSTILE_NEAR); arriving fails.",
@@ -84,7 +86,7 @@
    "fill {x+1} -62 {z+4} {x+1} -59 {z+16} minecraft:air",
    "tp Probe {x+0.5} -58 {z+0.5} 0 0",
    "kill @e[type=minecraft:item,distance=..40]",
-   "summon minecraft:skeleton {x+2.5} -61 {z+12.5} {PersistenceRequired:1b,CanPickUpLoot:0b,HandItems:[{id:\"minecraft:bow\",count:1},{}]}"
+   "summon minecraft:skeleton {x+2.5} -61 {z+12.5} {PersistenceRequired:1b,CanPickUpLoot:0b,equipment:{mainhand:{id:\"minecraft:bow\",count:1}}}"
   ],
   "calls": [
    {
