@@ -94,7 +94,7 @@ public final class ServerEscapeController implements ServerController {
 	private int searchWaits;
 	/** Gives back the running move's attempt when a reflex interrupts it (see {@link #resumed}). */
 	private Runnable refund;
-	private int fills, steps, wades;
+	private int fills, steps, wades, shaftClimbs;
 	private int covers;
 	/** Runs out of a shooter's range when no cover is in reach. */
 	private int runs;
@@ -234,6 +234,17 @@ public final class ServerEscapeController implements ServerController {
 		boolean canFill = column != null && ServerBuildController.carried(player, block) >= column.depth();
 		BlockPos step = bank == null && !canFill && block != null && steps < MAX_TRIES
 				? stepCell(player.level(), player.blockPosition(), connectedWater(player.level(), player.blockPosition()), waterTopAt(player.level(), player.blockPosition())) : null;
+		// Afloat in its own walled shaft over water too deep to fill (an aquifer under a shaft dug from the surface), with no
+		// shore in reach: a player cuts stairs up through the shaft wall from the water. lava-gate-1 on main: afloat at y56
+		// with no dry footing within 16 blocks in 8 of 8 runs, about 24 escapes a run, until the room's clock ran out.
+		ShaftWay shaft = SHAFT_STAIRS && bank == null && !canFill && step == null && shaftClimbs < MAX_TRIES && !player.isUnderWater()
+				? shaftWay(player.level(), player.blockPosition()) : null;
+		if (shaft != null) {
+			shaftClimbs++;
+			refund = () -> shaftClimbs--;
+			return startChild(player, environment.stairsUp(player, shaft.y(), shaft.heading(), childMs(now)),
+					"cut stairs up out of the flooded shaft to y" + shaft.y() + " heading " + shaft.heading().getName());
+		}
 		WaterMove next = waterMove(player.isUnderWater(), player.getAirSupply(), bank != null, tries, player.onGround(), bankAbove,
 				bank != null && stairedBanks.contains(bank), swims, canFill, step != null);
 		return switch (next) {
@@ -501,6 +512,45 @@ public final class ServerEscapeController implements ServerController {
 
 	/** How deep a water column under the body is filled at most. */
 	static final int FILL_DEPTH = 10;
+
+	/** MINEAGEN_ESCAPE_SHAFT_STAIRS=off keeps a body afloat in its own walled shaft from cutting stairs out (the A/B off arm). */
+	static final boolean SHAFT_STAIRS = !"off".equalsIgnoreCase(System.getenv("MINEAGEN_ESCAPE_SHAFT_STAIRS"));
+	/** Most open cells over the water a shaft climb looks up for the shaft's mouth. */
+	static final int SHAFT_REACH = 24;
+
+	/** Stairs out of a flooded shaft: the feet height of its mouth and the wall to cut them in. */
+	record ShaftWay(int y, Direction heading) {}
+
+	/**
+	 * The way up out of a walled shaft the body floats in: the water's top cell under open air walled on every side, a side
+	 * whose block at the water's top is solid (the first stair stands on it) and whose next two cells up are not fluid, and
+	 * the shaft's mouth, the first open cell up the column with no wall round it, within {@link #SHAFT_REACH}. Null in open
+	 * water, under a roof, or with no such side.
+	 */
+	static ShaftWay shaftWay(Level level, BlockPos feet) {
+		BlockPos top = level.getFluidState(feet).is(net.minecraft.tags.FluidTags.WATER) ? feet
+				: level.getFluidState(feet.below()).is(net.minecraft.tags.FluidTags.WATER) ? feet.below() : null;
+		if (top == null) return null;
+		while (level.getFluidState(top.above()).is(net.minecraft.tags.FluidTags.WATER)) top = top.above();
+		if (!clear(level, top.above())) return null;
+		for (Direction side : Direction.Plane.HORIZONTAL) if (!solid(level, top.above().relative(side))) return null;
+		int mouth = Integer.MIN_VALUE;
+		for (int k = 1; k <= SHAFT_REACH; k++) {
+			BlockPos cell = top.above(k);
+			if (!clear(level, cell)) return null;
+			boolean walled = false;
+			for (Direction side : Direction.Plane.HORIZONTAL) walled |= solid(level, cell.relative(side));
+			if (!walled) { mouth = cell.getY(); break; }
+		}
+		if (mouth == Integer.MIN_VALUE) return null;
+		for (Direction side : Direction.Plane.HORIZONTAL) {
+			BlockPos stand = top.relative(side);
+			if (solid(level, stand) && level.getFluidState(stand).isEmpty()
+					&& level.getFluidState(stand.above()).isEmpty() && level.getFluidState(stand.above(2)).isEmpty())
+				return new ShaftWay(mouth, side);
+		}
+		return null;
+	}
 
 	/** The water cells under the body: the lowest one (resting on a block that holds a placement) and the top one. */
 	record Column(BlockPos lowest, BlockPos top) {
