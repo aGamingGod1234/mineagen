@@ -1245,13 +1245,18 @@ final class ReflexActions {
 			if (betweenShots) {
 				input.accept(aim);
 				lastHeading = null;
+				runFor = null;
 				return Step.running("watching " + type(shooter) + " between shots" + swung);
 			}
 			Vec3 body = player.position();
 			Vec3 at = shooter.position();
+			Answer draw = ANSWERED.get(player.getUUID());
+			boolean sameDraw = draw != null && runFor != null && draw.shooterId() == runFor.shooterId() && draw.drawStart() == runFor.drawStart()
+					&& runSide != 0;
+			int running = sameDraw ? runSide : side;
 			Float[] headings = new Float[3];
 			for (int candidate : new int[]{side, -side}) {
-				headings[candidate + 1] = SafeStep.heading(player, sideYaw(body, at, candidate), OFFSETS, candidate == side ? lastHeading : null,
+				headings[candidate + 1] = SafeStep.heading(player, sideYaw(body, at, candidate), OFFSETS, candidate == running ? lastHeading : null,
 						List.of(yaw -> SafeStep.edgeWithin(player, yaw, RUN_CELLS)), MAX_DROP, true);
 			}
 			// SafeStep tries the knockback margin first: a heading that passes canStep kept it. The shot it steps from knocks
@@ -1260,11 +1265,11 @@ final class ReflexActions {
 			// A sprint runs 4 to 5 blocks a draw: a side whose run keeps clear of an edge goes first, so the body is not carried
 			// onto a rim where the next hit knocks it off (archers-zombie: every death today, 4 of 4, a fall off a platform edge).
 			java.util.function.IntPredicate clearRun = candidate -> marginSafe.test(candidate) && !SafeStep.edgeWithin(player, headings[candidate + 1], RUN_CELLS);
-			// The side picked for a draw holds for that draw while it keeps the margin: chosen afresh each tick, the run away
-			// from one side's edge clears that side once the edge is 5 cells off and turns the body back toward it.
-			Answer draw = ANSWERED.get(player.getUUID());
-			boolean sameDraw = draw != null && runFor != null && draw.shooterId() == runFor.shooterId() && draw.drawStart() == runFor.drawStart();
-			int chosen = sameDraw && runSide != 0 && marginSafe.test(runSide) ? runSide
+			// The side picked for a draw holds for that draw while it keeps the margin and is no worse than the other: chosen
+			// afresh each tick, the run away from one side's edge clears that side once the edge is 5 cells off and turns the
+			// body back toward it. A held side whose run now meets an edge gives way to a clear one.
+			boolean hold = sameDraw && marginSafe.test(runSide) && (clearRun.test(runSide) || !clearRun.test(-runSide));
+			int chosen = hold ? runSide
 					: clearRun.test(side) ? side : clearRun.test(-side) ? -side
 					: chooseSide(side, marginSafe, candidate -> headings[candidate + 1] != null);
 			runFor = draw;
