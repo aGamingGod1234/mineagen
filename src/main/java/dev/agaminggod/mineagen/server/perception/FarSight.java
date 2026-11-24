@@ -112,7 +112,7 @@ public final class FarSight {
 	static final double LAVA_FOG_END = 1.0D;
 	static final double LAVA_FOG_END_FIRE_RESISTANT = 5.0D;
 	private static final int CHUNK_RADIUS = (RANGE >> 4) + 1;
-	private static final int[][] CHUNK_OFFSETS = chunkOffsets();
+	static final int[][] CHUNK_OFFSETS = chunkOffsets();
 
 	static final int BUILT = 1;
 	static final int LAVA = 2;
@@ -417,14 +417,15 @@ public final class FarSight {
 	}
 
 	/**
-	 * The chunk lookups of one gather, each chunk asked once. Within one look nothing loads or unloads a chunk: getChunkNow
-	 * changes its answer only in the chunk map's distance updates (see ChunkHolderDemotionMixin), and no look runs inside
-	 * them. So a remembered answer is the one a fresh lookup would give. Never kept past the gather.
+	 * The chunk lookups of one gather, each chunk asked once. A chunk leaves getChunkNow in the chunk map's distance
+	 * updates (see ChunkHolderDemotionMixin) and joins it through main-thread tasks; a gather runs neither, and reads the
+	 * level only through getChunkNow and section reads. So within one gather a remembered answer is the one a fresh
+	 * lookup would give. Never kept past the gather.
 	 */
-	private static final class ChunkGrid {
+	static final class ChunkGrid {
 		private static final int WIDTH = 2 * CHUNK_RADIUS + 1;
 		private final ServerLevel level;
-		private final int centreX, centreZ;
+		final int centreX, centreZ;
 		private final LevelChunk[] chunks = new LevelChunk[WIDTH * WIDTH];
 		private final boolean[] asked = new boolean[WIDTH * WIDTH];
 
@@ -1132,15 +1133,8 @@ public final class FarSight {
 		if (gathered == null) {
 			// Over the tick's budget a survey answers only from what is cached; there is nothing cached here.
 			if (request.clips() == 0) return Result.EMPTY;
-			List<LevelChunk> loaded = new ArrayList<>();
 			ChunkGrid grid = new ChunkGrid(level, eyeChunkX, eyeChunkZ);
-			for (int[] offset : CHUNK_OFFSETS) {
-				int chunkX = eyeChunkX + offset[0], chunkZ = eyeChunkZ + offset[1];
-				// The distance needs only the chunk's coordinates, so a chunk out of range is never looked up.
-				if (horizontalDistanceToChunk(eye, new ChunkPos(chunkX, chunkZ)) > RANGE) continue;
-				LevelChunk chunk = grid.get(chunkX, chunkZ);
-				if (chunk != null) loaded.add(chunk);
-			}
+			List<LevelChunk> loaded = loadedAround(grid, eye);
 			List<StartView> starts = new ArrayList<>();
 			Map<Long, List<BoundingBox>> structureBoxes = new Long2ObjectOpenHashMap<>();
 			collectStructures(level, eye, loaded, starts, structureBoxes);
@@ -1227,7 +1221,7 @@ public final class FarSight {
 		return Math.sqrt(dx * dx + dy * dy + dz * dz);
 	}
 
-	private static double horizontalDistanceToChunk(Vec3 eye, ChunkPos chunk) {
+	static double horizontalDistanceToChunk(Vec3 eye, ChunkPos chunk) {
 		double dx = Math.max(0.0D, Math.max(chunk.getMinBlockX() - eye.x, eye.x - (chunk.getMaxBlockX() + 1)));
 		double dz = Math.max(0.0D, Math.max(chunk.getMinBlockZ() - eye.z, eye.z - (chunk.getMaxBlockZ() + 1)));
 		return Math.sqrt(dx * dx + dz * dz);
@@ -1281,6 +1275,22 @@ public final class FarSight {
 		return Math.sqrt(dx * dx + dy * dy + dz * dz);
 	}
 
+	/**
+	 * The loaded chunks within {@link #RANGE} of the eye, nearest offsets first. The distance needs only the chunk's
+	 * coordinates, so a chunk out of range is never looked up.
+	 */
+	static List<LevelChunk> loadedAround(ChunkGrid grid, Vec3 eye) {
+		List<LevelChunk> loaded = new ArrayList<>();
+		for (int[] offset : CHUNK_OFFSETS) {
+			int chunkX = grid.centreX + offset[0], chunkZ = grid.centreZ + offset[1];
+			// Negated so a NaN distance skips the chunk, as the old test after the lookup did.
+			if (!(horizontalDistanceToChunk(eye, new ChunkPos(chunkX, chunkZ)) <= RANGE)) continue;
+			LevelChunk chunk = grid.get(chunkX, chunkZ);
+			if (chunk != null) loaded.add(chunk);
+		}
+		return loaded;
+	}
+
 	static boolean scanAround(ServerLevel level, LevelIndex index, Vec3 eye, List<LevelChunk> loaded, int dimensionClass,
 			List<Found> built, List<Found> lava, List<Found> notable, List<Found> ore, List<Found> poi, List<Found> placed,
 			Map<Long, List<BoundingBox>> structureBoxes) {
@@ -1288,7 +1298,7 @@ public final class FarSight {
 	}
 
 	/** As above, reading neighbouring chunks through {@code grid} when given (one lookup per chunk per gather). */
-	private static boolean scanAround(ServerLevel level, ChunkGrid grid, LevelIndex index, Vec3 eye, List<LevelChunk> loaded, int dimensionClass,
+	static boolean scanAround(ServerLevel level, ChunkGrid grid, LevelIndex index, Vec3 eye, List<LevelChunk> loaded, int dimensionClass,
 			List<Found> built, List<Found> lava, List<Found> notable, List<Found> ore, List<Found> poi, List<Found> placed,
 			Map<Long, List<BoundingBox>> structureBoxes) {
 		boolean complete = true;

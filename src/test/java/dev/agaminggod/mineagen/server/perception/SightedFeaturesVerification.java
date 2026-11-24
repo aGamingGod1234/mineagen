@@ -990,10 +990,32 @@ public final class SightedFeaturesVerification {
 	private record Gathered(boolean complete, List<FarSight.Found> built, List<FarSight.Found> notable, List<FarSight.Found> ore) {
 	}
 
+	/** Twin indexes that gather the same fixtures with a fresh lookup per chunk, as far sight did before its chunk grid. */
+	private static final Map<FarSight.LevelIndex, FarSight.LevelIndex> FRESH_LOOKUP_TWINS = new java.util.IdentityHashMap<>();
+
+	/**
+	 * One gather as far sight makes it: the chunks in range and their neighbours read through one chunk grid. The same
+	 * gather with a fresh lookup for every chunk, on a twin index that has seen every earlier gather, must find exactly
+	 * the same.
+	 */
 	private static Gathered gather(ScanLevel level, FarSight.LevelIndex index, Vec3 eye) {
 		level.tick++;
-		List<FarSight.Found> built = new ArrayList<>(), lava = new ArrayList<>(), notable = new ArrayList<>(), ore = new ArrayList<>(), poi = new ArrayList<>();
-		boolean complete = FarSight.scanAround(level, index, eye, new ArrayList<>(level.chunks.loaded.values()), 0, built, lava, notable, ore, poi, new ArrayList<>(), Map.of());
+		var grid = new FarSight.ChunkGrid(level, net.minecraft.util.Mth.floor(eye.x) >> 4, net.minecraft.util.Mth.floor(eye.z) >> 4);
+		List<net.minecraft.world.level.chunk.LevelChunk> loaded = FarSight.loadedAround(grid, eye);
+		List<net.minecraft.world.level.chunk.LevelChunk> fresh = new ArrayList<>();
+		for (int[] offset : FarSight.CHUNK_OFFSETS) {
+			var chunk = level.getChunkSource().getChunkNow((net.minecraft.util.Mth.floor(eye.x) >> 4) + offset[0], (net.minecraft.util.Mth.floor(eye.z) >> 4) + offset[1]);
+			if (chunk != null && FarSight.horizontalDistanceToChunk(eye, chunk.getPos()) <= FarSight.RANGE) fresh.add(chunk);
+		}
+		check(loaded.equals(fresh), "the chunk grid finds the same chunks in range, in the same order, as a lookup per chunk");
+		List<FarSight.Found> built = new ArrayList<>(), lava = new ArrayList<>(), notable = new ArrayList<>(), ore = new ArrayList<>(), poi = new ArrayList<>(), placed = new ArrayList<>();
+		boolean complete = FarSight.scanAround(level, grid, index, eye, loaded, 0, built, lava, notable, ore, poi, placed, Map.of());
+		FarSight.LevelIndex twin = FRESH_LOOKUP_TWINS.computeIfAbsent(index, ignored -> new FarSight.LevelIndex());
+		List<FarSight.Found> twinBuilt = new ArrayList<>(), twinLava = new ArrayList<>(), twinNotable = new ArrayList<>(), twinOre = new ArrayList<>(), twinPoi = new ArrayList<>(), twinPlaced = new ArrayList<>();
+		boolean twinComplete = FarSight.scanAround(level, twin, eye, fresh, 0, twinBuilt, twinLava, twinNotable, twinOre, twinPoi, twinPlaced, Map.of());
+		check(complete == twinComplete && built.equals(twinBuilt) && lava.equals(twinLava) && notable.equals(twinNotable) && ore.equals(twinOre)
+				&& poi.equals(twinPoi) && placed.equals(twinPlaced) && index.sectionResets == twin.sectionResets,
+				"neighbours read through the chunk grid scan exactly as a fresh lookup per neighbour does");
 		return new Gathered(complete, built, notable, ore);
 	}
 
