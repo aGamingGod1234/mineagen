@@ -2403,6 +2403,13 @@ final class ReflexActions {
 		 * A cell within the next few that seen lava has flowed into since the walk began, or null; checked every
 		 * {@link #LAVA_RECHECK_TICKS} ticks. A player turns away from a flow coming at its path instead of walking on into it.
 		 */
+		/** Whether any of the next few cells fails {@code unsafe} (checked as the walk goes, for dangers that move). */
+		boolean unsafeAhead(ServerPlayer player, java.util.function.Predicate<GridPosition> unsafe) {
+			advance(player);
+			for (GridPosition cell : path.subList(index, Math.min(path.size(), index + LAVA_LOOKAHEAD_CELLS))) if (unsafe.test(cell)) return true;
+			return false;
+		}
+
 		GridPosition lavaAhead(ServerPlayer player) {
 			if (acceptedFlows == null) {
 				acceptedFlows = SafeStep.lavaFlows(player, path);
@@ -2613,6 +2620,11 @@ final class ReflexActions {
 			}
 			// Lava flowing toward the way back: drop it and pick a heading (the probe refuses the flow's cells).
 			if (walk != null && walk.lavaAhead(player) != null) walk = null;
+			// A perched dragon turned its head or wings across the way back: dropped, and a heading or another way chosen.
+			if (walk != null) {
+				var perch = perchZones(player);
+				if (perch != null && walk.unsafeAhead(player, perch::unsafeCell)) walk = null;
+			}
 			// A pack member stepped onto the way back (one coming up the entry tunnel): a player turns off rather than run into it.
 			if (walk != null && keepClearOfPack && walk.packAhead(player) != null) {
 				walk = null;
@@ -2640,7 +2652,10 @@ final class ReflexActions {
 					&& SafeStep.blocked(player, lastHeading) == null && !runsIntoCloud(player, lastHeading)
 					&& !runsTowardVoid(player, lastHeading)) heading = lastHeading;
 			if (heading == null) heading = SafeStep.heading(player, away, offsets, lastHeading,
-					List.of(yaw -> runsIntoCloud(player, yaw) || runsTowardVoid(player, yaw), yaw -> runsTowardVoid(player, yaw)), maxDrop);
+					List.of(yaw -> runsIntoCloud(player, yaw) || runsTowardVoid(player, yaw) || runsIntoPerch(player, yaw),
+							yaw -> runsTowardVoid(player, yaw) || runsIntoPerch(player, yaw)), maxDrop);
+			// SafeStep's last fallback drops every filter: never a heading into a perched dragon's head, neck or wings.
+			if (heading != null && runsIntoPerch(player, heading)) heading = null;
 			lastHeading = heading;
 			// No level heading out of a breath cloud (a bridge, a column top, a platform rim): the cloud is half a block high,
 			// so a block placed under the feet lifts the body out of it, where running back across it or a drop cost a hit or
@@ -2827,8 +2842,11 @@ final class ReflexActions {
 		private Step walkBack(Context context, Consumer<AgentInputState> input, double separation) {
 			ServerPlayer player = context.player();
 			List<GridPosition> preferred = keepClearOfPack ? context.memory().dryFooting() : List.of();
+			// Never back past a perched dragon's head, neck or wings (the perch room: 9 of 23 head hits during a breath run came
+			// on this way back along known ground).
+			var perch = perchZones(player);
 			List<GridPosition> path = SafeStep.awayPath(player, origin.x, origin.z, MAX_PATH_STEPS, MAX_PATH_CELLS, PATH_MIN_GAIN,
-					cell -> runsIntoCloud(player, cell) || keepClearOfPack && packOnCell(player, cell), maxDrop, preferred);
+					cell -> runsIntoCloud(player, cell) || keepClearOfPack && packOnCell(player, cell) || perch != null && perch.unsafeCell(cell), maxDrop, preferred);
 			if (path == null) return null;
 			walk = new PathWalk(path);
 			GridPosition end = path.getLast();
@@ -2904,6 +2922,34 @@ final class ReflexActions {
 		return false;
 	}
 
+	/** Points along a sprint heading checked for a perched dragon's head, neck and wings. */
+	private static final double[] PERCH_LOOKAHEAD = {1.0D, 2.0D, 3.0D};
+
+	/**
+	 * A heading that runs into a perched dragon's head or neck (10 on contact) or its wings (a throw). The perch room: 12 of
+	 * 24 head hits on the breath fix came while this run sprinted out of the cloud, round the head, and into it.
+	 */
+	static boolean runsIntoPerch(ServerPlayer player, float yaw) {
+		var zones = perchZones(player);
+		if (zones == null) return false;
+		double radians = Math.toRadians(yaw), dx = -Math.sin(radians), dz = Math.cos(radians);
+		double feetY = player.getY();
+		// Already inside one (the head swung round onto the body): only a heading still inside after the run's 3 blocks.
+		if (zones.unsafe(player.getX(), feetY, player.getZ())) return zones.unsafe(player.getX() + dx * 3.0D, feetY, player.getZ() + dz * 3.0D);
+		for (double distance : PERCH_LOOKAHEAD) {
+			if (zones.unsafe(player.getX() + dx * distance, feetY, player.getZ() + dz * distance)) return true;
+		}
+		return false;
+	}
+
+	/** The head, neck and wing boxes of a dragon perched within 24 blocks in the End, else null. */
+	static dev.agaminggod.mineagen.server.runtime.controller.DragonPerchSafety.Zones perchZones(ServerPlayer player) {
+		if (player.level().dimension() != net.minecraft.world.level.Level.END) return null;
+		var dragons = player.level().getEntitiesOfClass(net.minecraft.world.entity.boss.enderdragon.EnderDragon.class, player.getBoundingBox().inflate(24.0D),
+				dragon -> dragon.isAlive() && dragon.getPhaseManager().getCurrentPhase().isSitting());
+		return dragons.isEmpty() ? null : dev.agaminggod.mineagen.server.runtime.controller.DragonPerchSafety.contacts(player, dragons.getFirst());
+	}
+
 	/** Distances along a sprint heading checked for a void edge (a column empty from the feet cell to the world's bottom). */
 	private static final double[] VOID_LOOKAHEAD = {1.0D, 2.0D, 3.0D, 4.0D, 5.0D};
 
@@ -2962,6 +3008,10 @@ final class ReflexActions {
 			int goal = Mth.ceil(cloud.getBoundingBox().maxY - 1.0E-4D);
 			if (goal <= feet) goal = feet + 1;
 			if (goal - feet > MAX_BLOCKS) return null;
+			// A block up beside a perched dragon lifts the body into its head and neck (10 a touch; the perch room: a body
+			// stood up out of the breath under the head and was hit there).
+			var perch = perchZones(player);
+			if (perch != null && perch.unsafe(player.getX(), goal, player.getZ(), 0.3D)) return null;
 			Level level = player.level();
 			for (int y = feet + 2; y <= goal + 1; y++) {
 				BlockPos cell = BlockPos.containing(player.getX(), y, player.getZ());

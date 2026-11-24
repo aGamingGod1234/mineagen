@@ -1,0 +1,5 @@
+# #240 Keep the bot clear of a perched dragon's head, neck, wings and breath while it hits the head
+
+- **Problem:** The bot fighting a perched dragon's head kept walking into the head itself. It stood a block too high, a little off centre, beside a head that swings round, or ran into it while dodging the breath.
+- **Solution:** A perch check judges each melee spot the way vanilla judges contact. It checks the whole cell a standing body may occupy against the head, neck and wing boxes, the head's sweep as the dragon turns, and the breath, including breath about to land. The bot hits only from spots that pass, and its dodges and escapes respect the same check.
+- **Result:** Good perches (40+ dealt, under 4 health lost) rose in each of 5 same-batch rounds, 6/36 to 9/38 in the final one. Health lost at perches fell 29% (426 to 304). Head hits during the breath escape fell from 19 to 9. All measured on cloud practice rooms, 18-40 perches a side. Full-fight kills went from 2/40 to 4/40, which is not significant.
