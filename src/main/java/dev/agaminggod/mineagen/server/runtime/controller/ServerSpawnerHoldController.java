@@ -112,6 +112,13 @@ public final class ServerSpawnerHoldController implements ServerController {
 	private float lastHealth = -1.0F;
 	/** Health lost to hits (not burning) by game tick, for the rate the walk back is expected to cost: {tick, loss}. */
 	private final java.util.ArrayDeque<float[]> recentHits = new java.util.ArrayDeque<>();
+	/** Game tick the body last lost health (any source), for the open fight's lull bite. */
+	private long lastLossTick = Long.MIN_VALUE / 2;
+	/** A bite the open fight's lull started (fight_target form), and how many such meals were eaten. */
+	private boolean lullBite;
+	private int lullMeals;
+	/** Ticks with nothing taking health before the open fight stops for a bite. */
+	private static final long LULL_TICKS = 40L;
 	/** The margin ran out outside the cell: the heal starts on arrival whatever the health (up to TURTLE_DONE). */
 	private boolean coverWanted;
 	private int marginTurns;
@@ -374,6 +381,23 @@ public final class ServerSpawnerHoldController implements ServerController {
 		}
 		if (target != null && SpawnerHold.OPEN_FIGHT && phase != Phase.HOLD && emergency == null
 				&& (!marginGone(player, 0.0D) || !canWallIn(player) || openPart != null && target.isDeadOrDying() && afterOpenKill)) {
+			// A lull in the open fight with hunger under 18: health cannot regrow, and the default eat waits for no hostile
+			// within 8 blocks, which a spawner room never has (blaze spawner rooms: bodies sat at 10 health for minutes, then
+			// died to the next crowd). A player eats then: no blaze in reach, nothing hit for 2 s, no volley charging.
+			if (lullBite) {
+				if (eatTicks >= 0) return eat(player);
+				lullBite = false;
+			}
+			int lullFood = foodSlot(player);
+			if (!(openPart != null && target.isDeadOrDying()) && player.getHealth() < player.getMaxHealth()
+					&& player.getFoodData().getFoodLevel() < SpawnerHold.EAT_HUNGER && player.level().getGameTime() - lastLossTick > LULL_TICKS
+					&& SpawnerHold.shouldEat(player.getFoodData().getFoodLevel(), player.getHealth(), biteSafe(player), blazeNear(player), lullFood >= 0)) {
+				if (openPart != null) { openPart.cancel(player); openPart = null; }
+				lullBite = true;
+				lullMeals++;
+				startEat(player, lullFood);
+				return eat(player);
+			}
 			if (openPart == null) {
 				try {
 					// While a wall-in is left the open fight's floor stays under TURTLE_HEALTH: the wall-in answers low health.
@@ -401,6 +425,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 			return fought;
 		}
 		if (target != null && SpawnerHold.OPEN_FIGHT && openPart != null) { openPart.cancel(player); openPart = null; }
+		if (lullBite) { lullBite = false; eatTicks = -1; eatInput.release(); }
 		TickResult walling = emergency(player, now, elapsed);
 		if (walling != null) return walling;
 		// fight_target form: no cell site walk (the open fight or the wall-in where the body stands only).
@@ -800,8 +825,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 				if (target != null && phase != Phase.HOLD) return TickResult.running(progress(player));
 			}
 		}
-		boolean blazeInReach = !player.level().getEntitiesOfClass(LivingEntity.class, player.getBoundingBox().inflate(SpawnerHold.EAT_BLAZE_CLEAR),
-				e -> e.getType() == McEntityTypes.BLAZE && e.isAlive()).isEmpty();
+		boolean blazeInReach = blazeNear(player);
 		int slot = foodSlot(player);
 		if (inCell && SpawnerHold.shouldEat(player.getFoodData().getFoodLevel(), player.getHealth(), !shot && biteSafe(player), blazeInReach, slot >= 0)) {
 			stopEngine(player);
@@ -1254,6 +1278,12 @@ public final class ServerSpawnerHoldController implements ServerController {
 		return oldest;
 	}
 
+	/** A live blaze within {@link SpawnerHold#EAT_BLAZE_CLEAR} blocks of the body: no bite then. */
+	private static boolean blazeNear(ServerPlayer player) {
+		return !player.level().getEntitiesOfClass(LivingEntity.class, player.getBoundingBox().inflate(SpawnerHold.EAT_BLAZE_CLEAR),
+				e -> e.getType() == McEntityTypes.BLAZE && e.isAlive()).isEmpty();
+	}
+
 	private boolean biteSafe(ServerPlayer player) {
 		return SpawnerHold.biteSafe(oldestCharge(player), ReflexSensors.blockableShot(player, 1.0D) != null);
 	}
@@ -1274,6 +1304,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 		}
 		float health = player.getHealth();
 		if (lastHealth >= 0.0F && health < lastHealth) {
+			lastLossTick = player.level().getGameTime();
 			var source = player.getLastDamageSource();
 			lost.merge((source == null ? "unknown" : source.getMsgId()) + where, lastHealth - health, Float::sum);
 			String kind = source == null ? "" : source.getMsgId();
@@ -1375,10 +1406,10 @@ public final class ServerSpawnerHoldController implements ServerController {
 
 	private String summary(ServerPlayer player, long elapsed) {
 		int held = ServerFightUntilController.count(player, untilItem);
-		return String.format(Locale.ROOT, "spawner hold at %s: cell %s, %d site%s failed, %d build%s; %+d %s in %.0f s; %d engine run%s %s; %d rod trip%s (%d up a ledge, %d rods from them); %d meal%s; %d defend%s; %d heal%s (%d walled in, %d reopened; shield up %d of %d ticks, asked %d, using %d %s, keys %s, %d bite%s stopped for a volley); %d fire%s punched out; hurts %s; health lost %s; %d margin turn-back%s; heals began at %s%s",
+		return String.format(Locale.ROOT, "spawner hold at %s: cell %s, %d site%s failed, %d build%s; %+d %s in %.0f s; %d engine run%s %s; %d rod trip%s (%d up a ledge, %d rods from them); %d meal%s (%d in open-fight lulls); %d defend%s; %d heal%s (%d walled in, %d reopened; shield up %d of %d ticks, asked %d, using %d %s, keys %s, %d bite%s stopped for a volley); %d fire%s punched out; hurts %s; health lost %s; %d margin turn-back%s; heals began at %s%s",
 				spawner == null ? "none seen" : spawner.toShortString(), cell == null ? "none" : cell.toShortString(), sitesFailed, sitesFailed == 1 ? "" : "s", builds, builds == 1 ? "" : "s",
 				held - Math.max(0, startHeld), untilItemId, elapsed / 1000.0D, engineRuns, engineRuns == 1 ? "" : "s", engineEnds, trips, trips == 1 ? "" : "s", ledgeTrips, ledgeRods,
-				meals, meals == 1 ? "" : "s", defends, defends == 1 ? "" : "s", turtles, turtles == 1 ? "" : "s", seals, reopens, blockingTicks, turtleTicks, shieldAsks, usingTicks, usedInHeal, healWinners, bitesStopped, bitesStopped == 1 ? "" : "s", firesPunched, firesPunched == 1 ? "" : "s", hurts, lostText(), marginTurns, marginTurns == 1 ? "" : "s", healStarts.isEmpty() ? "none" : String.join(", ", healStarts), log.isEmpty() ? "" : "; log: " + String.join(" | ", log.subList(Math.max(0, log.size() - 6), log.size())));
+				meals, meals == 1 ? "" : "s", lullMeals, defends, defends == 1 ? "" : "s", turtles, turtles == 1 ? "" : "s", seals, reopens, blockingTicks, turtleTicks, shieldAsks, usingTicks, usedInHeal, healWinners, bitesStopped, bitesStopped == 1 ? "" : "s", firesPunched, firesPunched == 1 ? "" : "s", hurts, lostText(), marginTurns, marginTurns == 1 ? "" : "s", healStarts.isEmpty() ? "none" : String.join(", ", healStarts), log.isEmpty() ? "" : "; log: " + String.join(" | ", log.subList(Math.max(0, log.size() - 6), log.size())));
 	}
 
 	private String lostText() {
