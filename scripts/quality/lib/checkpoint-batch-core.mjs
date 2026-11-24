@@ -16,7 +16,7 @@ export const codexHomes = plan => Array.isArray(plan.codexHomes) ? plan.codexHom
 export function expandPlan(plan, { salt = () => randomInt(-2147483648, 2147483647) } = {}) {
 	const errors = [];
 	const need = (ok, message) => { if (!ok) errors.push(message); };
-	need(Number.isInteger(plan.minutes) && plan.minutes >= 1 && plan.minutes <= 240, 'minutes must be an integer 1..240');
+	need(Number.isInteger(plan.minutes) && plan.minutes >= 1 && plan.minutes <= 720, 'minutes must be an integer 1..720 (run-long.mjs allows a 12-hour window)');
 	need(!Number.isNaN(Date.parse(plan.deadline ?? '')), 'deadline must be an ISO time with its offset');
 	const homes = codexHomes(plan);
 	need(homes.length >= 1 && homes.every(h => typeof h === 'string' && h.length > 0), 'codexHome (or codexHomes, a list) names the folder holding each Codex sign-in (auth.json)');
@@ -31,7 +31,8 @@ export function expandPlan(plan, { salt = () => randomInt(-2147483648, 214748364
 	need(points.length >= 1, 'savepoints needs at least one save point');
 	for (const [name, point] of points) {
 		need(NAME.test(name), `save point name ${name} must be lower-case letters, digits and dashes`);
-		need(typeof point.file === 'string', `save point ${name} needs file`);
+		// `fresh: true` plays a new random world with an empty inventory (run-long.mjs without --checkpoint) instead of a file.
+		need(point.fresh === true ? point.file === undefined : typeof point.file === 'string', `save point ${name} needs file, or fresh: true for a new world (not both)`);
 		need(Number.isInteger(point.repeats) && point.repeats >= 1, `save point ${name} needs repeats >= 1`);
 		need(Array.isArray(point.targets) && point.targets.length >= 1, `save point ${name} needs targets (long-run milestone ids it should reach)`);
 		need(point.arms === undefined || (Array.isArray(point.arms) && point.arms.length >= 1 && point.arms.every(a => a in (plan.arms ?? {}))), `save point ${name}: arms must list arms of the plan`);

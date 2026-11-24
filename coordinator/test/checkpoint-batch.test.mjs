@@ -112,3 +112,12 @@ test('checkpoint batch splits every arm evenly over the sign-ins and gives the a
 	for (const repeat of [1, 2, 3, 4]) assert.deepEqual(new Set(games.filter(g => g.savepoint === 'nether' && g.repeat === repeat).map(g => g.account)).size, 2);
 	assert.ok(expandPlan(plan(), { salt: () => 1 }).every(g => g.account === 0));
 });
+
+test('checkpoint batch plays a fresh world (fresh: true, no file) and allows windows up to 12 hours', () => {
+	const p = plan(); p.minutes = 360; p.savepoints = { fresh: { fresh: true, repeats: 2, targets: ['nether', 'dragon'] } };
+	assert.deepEqual(expandPlan(p, { salt: () => 1 }).map(g => `${g.savepoint}-${g.repeat}`), ['fresh-1', 'fresh-1', 'fresh-2', 'fresh-2']);
+	p.savepoints.fresh.file = '/f.json';
+	assert.throws(() => expandPlan(p), /fresh: true for a new world \(not both\)/);
+	delete p.savepoints.fresh.file; p.minutes = 721;
+	assert.throws(() => expandPlan(p), /minutes must be an integer 1\.\.720/);
+});
