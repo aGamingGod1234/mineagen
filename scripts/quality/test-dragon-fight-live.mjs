@@ -31,12 +31,15 @@ import { finishRun, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const cli = process.argv.slice(2);
-if (cli.includes('--help')) { console.log('Usage: test-dragon-fight-live.mjs OUT_DIR [JAR] [--no-bow] [--survive] [--no-endermen] [--descriptive]\n' + FIXTURE_OUTCOME_HELP); process.exit(0); }
+if (cli.includes('--help')) { console.log('Usage: test-dragon-fight-live.mjs OUT_DIR [JAR] [--no-bow] [--survive] [--no-endermen] [--mixed-blocks] [--descriptive]\n' + FIXTURE_OUTCOME_HELP); process.exit(0); }
 const strict = !cli.includes('--descriptive');
 const BOW = !cli.includes('--no-bow'), SURVIVE = cli.includes('--survive');
 // --no-endermen (bring-up only, never judged): endermen are removed every sample, so perch and crystal work can be measured
 // without enderman deaths ending the fight.
 const NO_ENDERMEN = cli.includes('--no-endermen');
+// --mixed-blocks: the kit's blocks are 18 cobblestone and 18 end stone, so no one kind makes a 22-block cage pillar (a pack
+// after a walk out: what is left of the cobblestone and the end stone mined on the way).
+const MIXED_BLOCKS = cli.includes('--mixed-blocks');
 if (NO_ENDERMEN && strict) { console.error('--no-endermen is for bring-up: add --descriptive'); process.exit(2); }
 // --old-crystal-phase: the earlier crystal step (each crystal shot once from wherever the body stands, retried after 20
 // idle passes), kept so a script change is judged against it on the same jar. --caged-first (bring-up): open the caged
@@ -207,9 +210,9 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 				// The eyes-start End kit (build-savepoints-v2's eyes save), plus the bow for the bow arm.
 				await s.command(`clear ${AGENT}`); await s.command(`effect clear ${AGENT}`);
 				for (const [slot, item] of [['armor.head', 'iron_helmet'], ['armor.chest', 'iron_chestplate'], ['armor.legs', 'iron_leggings'], ['armor.feet', 'iron_boots'],
-					['hotbar.0', 'iron_sword'], ['hotbar.2', 'iron_pickaxe'], ['hotbar.3', 'cobblestone 64'], ['hotbar.4', 'water_bucket'], ['hotbar.5', 'cooked_beef 16']])
+					['hotbar.0', 'iron_sword'], ['hotbar.2', 'iron_pickaxe'], ['hotbar.3', MIXED_BLOCKS ? 'cobblestone 18' : 'cobblestone 64'], ['hotbar.4', 'water_bucket'], ['hotbar.5', 'cooked_beef 16']])
 					await s.command(`item replace entity ${AGENT} ${slot} with minecraft:${item}`);
-				await s.command(`give ${AGENT} minecraft:cobblestone 64`);
+				await s.command(MIXED_BLOCKS ? `give ${AGENT} minecraft:end_stone 18` : `give ${AGENT} minecraft:cobblestone 64`);
 				if (BOW) { await s.command(`item replace entity ${AGENT} hotbar.1 with minecraft:bow`); await s.command(`give ${AGENT} minecraft:arrow 64`); }
 				let place = PLATFORM;
 				if (SURVIVE) place = { x: SURVIVE_SPOT.x, y: await groundY(SURVIVE_SPOT.x, SURVIVE_SPOT.z), z: SURVIVE_SPOT.z };

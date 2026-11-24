@@ -547,10 +547,12 @@ public final class ServerBuildController implements ServerController {
 			}
 			case PILLAR -> {
 				if (material != null && materialRefusal(material) != null) return badMaterial(player);
+				// A player towers on whatever plain blocks the pack holds, the asked one first and then the rest (the crystal
+				// room: 1,190 of 1,544 cage pillars refused with 22+ cobblestone and end stone carried together).
 				String item = material != null ? material : plainBlock(player, false);
-				int carried = item == null ? 0 : carried(player, item);
+				int carried = pillarBlocks(player, item);
 				if (carried < size) return short_(player, "a " + size + "-block pillar needs " + size + " plain full blocks, " + carried
-						+ (item == null ? "" : " " + item) + " carried; " + (size - carried) + " more");
+						+ " carried" + (item == null ? "" : " (" + carried(player, item) + " " + item + ")") + "; " + (size - carried) + " more");
 				startY = ServerTravelController.feet(player).y();
 				pillarGoal = startY + size;
 				phase = Phase.PILLAR;
@@ -2580,6 +2582,37 @@ public final class ServerBuildController implements ServerController {
 		return portal != null && (portal.reserved(at) || mould.contains(at));
 	}
 
+	/**
+	 * Blocks a pillar can use from the hotbar and pack (the slots it selects from, not the offhand): {@code item} plus every
+	 * other {@link #pillarFiller}.
+	 */
+	private static int pillarBlocks(ServerPlayer player, String item) {
+		int count = 0;
+		for (int slot = 0; slot < 36; slot++) {
+			ItemStack stack = player.getInventory().getItem(slot);
+			String id = stack.isEmpty() ? null : BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+			if (id != null && (id.equals(item) || pillarFiller(stack))) count += stack.getCount();
+		}
+		return count;
+	}
+
+	/** The filler most carried in the selectable slots, for when the asked block has run out. */
+	private static String pillarFill(ServerPlayer player) {
+		Map<String, Integer> counts = new HashMap<>();
+		for (int slot = 0; slot < 36; slot++) {
+			ItemStack stack = player.getInventory().getItem(slot);
+			if (pillarFiller(stack)) counts.merge(BuiltInRegistries.ITEM.getKey(stack.getItem()).toString(), stack.getCount(), Integer::sum);
+		}
+		return counts.entrySet().stream().max(Map.Entry.comparingByValue()).map(Map.Entry::getKey).orElse(null);
+	}
+
+	/** A plain building block a player spends on a tower without a second thought: not ore or raw metal kept for smelting. */
+	static boolean pillarFiller(ItemStack stack) {
+		if (!TravelBuilder.buildingBlock(stack)) return false;
+		String path = BuiltInRegistries.ITEM.getKey(stack.getItem()).getPath();
+		return !path.endsWith("_ore") && !path.startsWith("raw_") && !path.equals("ancient_debris");
+	}
+
 	private static int plainCount(ServerPlayer player) {
 		int plain = 0;
 		Set<String> seen = new HashSet<>();
@@ -2618,7 +2651,9 @@ public final class ServerBuildController implements ServerController {
 		if (!above.getCollisionShape(player.level(), head).isEmpty() || !above.getFluidState().isEmpty())
 			return fail(player, "BUILD_BLOCKED", describe(above) + " over the head at " + xyz(head) + " stops the pillar at " + (current.y() - startY) + " of " + size + " blocks");
 		if (moveStage == 0) {
-			String item = pillarReturn != null ? spareItem(player) : material != null ? material : plainBlock(player, false);
+			// No block asked: plain fillers first, so the tower never spends ore while cobblestone or dirt is left.
+			String item = pillarReturn != null ? spareItem(player) : material != null && slot(player, material) >= 0 ? material
+					: pillarFill(player) != null || material != null ? pillarFill(player) : plainBlock(player, false);
 			if (item == null || carried(player, item) == 0) return short_(player, pillarReturn != null ? "stepping up needs 1 plain block, none left"
 					: "the pillar ran out of plain blocks at " + (current.y() - startY) + " of " + size + "; " + (size - (current.y() - startY)) + " more");
 			int slot = select(player, slot(player, item), now);
