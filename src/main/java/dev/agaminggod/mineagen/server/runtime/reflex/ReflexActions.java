@@ -1860,6 +1860,8 @@ final class ReflexActions {
 		 */
 		private BlockPos heldWater;
 		private int holdTicks, calmTicks, scoopTicks;
+		/** The dragon came near during the hold: the water is taken back now instead of left (see {@link #holdInWater}). */
+		private boolean dragonNear;
 		static final double HOLD_ENDERMAN_RANGE = 16.0D;
 		static final double HOLD_CLOSE_RANGE = 6.0D;
 		static final double HOLD_DRAGON_RANGE = 24.0D;
@@ -1981,20 +1983,22 @@ final class ReflexActions {
 			calmTicks = angryEndermanNear(player) ? 0 : calmTicks + 1;
 			Vec3 centre = Vec3.atCenterOf(heldWater);
 			if (player.getEyePosition().distanceTo(centre) > player.blockInteractionRange()) return Step.done(left + " (the body moved off it)");
-			if (calmTicks < CALM_TICKS) {
+			// The dragon near: the water is scooped back before the body goes, as a player keeps the bucket for the next
+			// enderman. Left behind, the bucket was empty for the next one and the body walked back for it under the dragon
+			// (the full fight: 389 of 474 pours left with the dragon near; 17 of 37 deaths endermen, 10 dragon hits on those walks).
+			if (!dragonNear && calmTicks < CALM_TICKS && !level.getEntitiesOfClass(net.minecraft.world.entity.boss.enderdragon.EnderDragon.class,
+					player.getBoundingBox().inflate(HOLD_DRAGON_RANGE), Entity::isAlive).isEmpty()) dragonNear = true;
+			if (calmTicks < CALM_TICKS && !dragonNear) {
 				// Knocked onto dry ground within reach of the source, standing still would hold the body exposed: the hold ends
 				// (a few ticks first, for the body's water state to catch up with the pour).
 				if (holdTicks > HOLD_SETTLE_TICKS && !player.isInWater()) return Step.done(left + " (the body was pushed out of it)");
-				if (!level.getEntitiesOfClass(net.minecraft.world.entity.boss.enderdragon.EnderDragon.class, player.getBoundingBox().inflate(HOLD_DRAGON_RANGE), Entity::isAlive).isEmpty()) {
-					return Step.done(left + " (the dragon came near)");
-				}
 				if (holdTicks > HOLD_TICKS) return Step.done(left + " (an angry enderman stayed near for 10 s)");
 				input.accept(look(player, centre, 0.0F, 0.0F, false, false, placedSlot, placedHand));
 				return Step.running(placed + "; standing in it while an angry enderman is near");
 			}
 			ItemStack held = player.getItemInHand(placedHand);
 			if (!held.is(net.minecraft.world.item.Items.BUCKET)) return Step.done(left + " (no empty bucket in hand to scoop it back)");
-			if (++scoopTicks > 30) return Step.done(left + " (could not scoop it back)");
+			if (++scoopTicks > 30) return Step.done(left + (dragonNear ? " (the dragon came near; could not scoop it back)" : " (could not scoop it back)"));
 			input.accept(look(player, centre, 0.0F, 0.0F, false, false, placedSlot, placedHand));
 			if (placedHand == InteractionHand.MAIN_HAND && player.getInventory().getSelectedSlot() != placedSlot) return Step.running(placed + "; no angry enderman near; selecting the bucket");
 			BlockHitResult sight = level.clip(new ClipContext(player.getEyePosition(), player.getEyePosition().add(player.getLookAngle().scale(player.blockInteractionRange())),
@@ -2003,7 +2007,7 @@ final class ReflexActions {
 			InteractionResult result = player.gameMode.useItem(player, level, held, placedHand);
 			if (result.consumesAction() && player.getItemInHand(placedHand).is(net.minecraft.world.item.Items.WATER_BUCKET)) {
 				ArmSwing.use(player, placedHand);
-				return Step.done("poured water at feet " + at + ", stood in it until no angry enderman was near, and scooped it back");
+				return Step.done("poured water at feet " + at + (dragonNear ? ", scooped it back as the dragon came near" : ", stood in it until no angry enderman was near, and scooped it back"));
 			}
 			return Step.running(placed + "; no angry enderman near; scooping it back");
 		}
