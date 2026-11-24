@@ -50,12 +50,18 @@ const OLD_REFILL = cli.includes('--old-refill');
 // and heal to 16. Judged in one batch against main's stand-in, 20 runs a side: kills 4 and 4, deaths 9 and 9, all crystals
 // down 8 against main's 12, so it stays off. --old-recover backs off only below 11.
 const OLD_PERCH = !cli.includes('--hurt-rules');
-// --old-aim: main's flying shot, at the nearest of the dragon's body and head (kept to judge the head-first aim on the same jar).
-const OLD_AIM = cli.includes('--old-aim');
+// --head-aim (trial, off by default): flying shots at the dragon's head before its body. Against main's stand-in, 10 runs a side
+// in one batch: about 2.6 damage an arrow against 2.2, but half as many arrows struck (head 13%, nearest part 24%), and no kills.
+const OLD_AIM = !cli.includes('--head-aim');
 // --old-recover: the first hurt rule, which backed off only below 11 (a step-out at 12 then walked straight back to the fountain).
 const OLD_RECOVER = cli.includes('--old-recover');
-// --old-cage: a caged crystal is left whenever no water bucket is in the hotbar, even when only caged ones stand.
-const OLD_CAGE = cli.includes('--old-cage');
+// --dry-cage (trial, off by default): with no water bucket and only caged crystals left, the cage is opened anyway and the body
+// comes down by breaking the column under its feet. Judged with --head-aim in the same batch: no gain shown, 1 fall in 6 uses.
+const OLD_CAGE = !cli.includes('--dry-cage');
+// --old-range: main's flying shot at any dragon part within 48 blocks. By default only within 26: over 2 batches (2,100
+// shots), an arrow struck 86% of the time with under 20 blocks of flight, 73% at 20-30, 48% at 30-50 and 36% past that, and
+// the 64 arrows ran out before the 20 minutes in 3 of 3 runs that cleared the crystals and timed out with the dragon alive.
+const OLD_RANGE = cli.includes('--old-range');
 const [outArg, jarArg] = cli.filter(arg => !arg.startsWith('--'));
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port = Number(process.env.SLOT_PORT_BASE);
 if (!outArg || !template || !port || !process.env.JAVA_HOME) { console.error('Usage: OUT_DIR [JAR] [--no-bow] [--survive] under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME'); process.exit(2); }
@@ -452,7 +458,7 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 					// No water left anywhere and only caged crystals standing: a player opens the cage anyway and comes down by
 					// breaking the column under the feet a block at a time (comeDown's dry descent), since a cage left standing means no
 					// kill. Round 1's fix arm: 4 of 10 runs ended alive with the two caged crystals up and the bucket empty.
-					// --old-cage: the cage is left whenever the bucket is empty.
+					// Without --dry-cage the cage is left whenever the bucket is empty.
 					const onlyCaged = !OLD_CAGE && [...seenCrystals.values()].every(k => k.gone || k.caged);
 					if (!hotbarBucket(gate) && onlyCaged) note(`no water bucket: caged crystal ${where(c)} opened with the dry descent`, null);
 					else if (!hotbarBucket(gate)) {
@@ -668,9 +674,10 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 						if (Number.isFinite(before) && Number.isFinite(after) && after < before) meleeLanded += 1;
 						meleeHits += 1; note(`melee perched head (dragon ${before} -> ${after})`, r); continue;
 					}
-					// 3. In flight within a bow's reach: shoot it, the head first when it is in reach: every other part takes about a
-					// quarter of an arrow's damage (PERCH_FACTS), the head all of it. --old-aim: the nearest of body and head.
-					const part = ranged ? entities.filter(row => row.type === 'minecraft:ender_dragon' && /^(body|head)$/.test(row.partName ?? '') && dist(row) <= 48)
+					// 3. In flight and close: shoot the nearest of its body and head (--head-aim: the head first, which takes an arrow's
+					// full damage, every other part about a quarter). A player saves arrows for close shots: none past 26 blocks
+					// (--old-range: 48).
+					const part = ranged ? entities.filter(row => row.type === 'minecraft:ender_dragon' && /^(body|head)$/.test(row.partName ?? '') && dist(row) <= (OLD_RANGE ? 48 : 26))
 						.sort((a, b) => (OLD_AIM ? 0 : (a.partName === 'head' ? 0 : 1) - (b.partName === 'head' ? 0 : 1)) || dist(a) - dist(b))[0] : undefined;
 					if (part) {
 						const r = await act('use_ranged', { targetId: part.stableId, drawDurationMs: 1100, timeoutMs: 6000 });
