@@ -547,10 +547,12 @@ public final class ServerBuildController implements ServerController {
 			}
 			case PILLAR -> {
 				if (material != null && materialRefusal(material) != null) return badMaterial(player);
+				// A player towers on whatever plain blocks the pack holds, the asked one first and then the rest (the crystal
+				// room: 1,190 of 1,544 cage pillars refused with 22+ cobblestone and end stone carried together).
 				String item = material != null ? material : plainBlock(player, false);
-				int carried = item == null ? 0 : carried(player, item);
+				int carried = pillarBlocks(player, item);
 				if (carried < size) return short_(player, "a " + size + "-block pillar needs " + size + " plain full blocks, " + carried
-						+ (item == null ? "" : " " + item) + " carried; " + (size - carried) + " more");
+						+ " carried" + (item == null ? "" : " (" + carried(player, item) + " " + item + ")") + "; " + (size - carried) + " more");
 				startY = ServerTravelController.feet(player).y();
 				pillarGoal = startY + size;
 				phase = Phase.PILLAR;
@@ -2580,6 +2582,20 @@ public final class ServerBuildController implements ServerController {
 		return portal != null && (portal.reserved(at) || mould.contains(at));
 	}
 
+	/** Blocks a pillar can use: {@code item} (which may be a block of its own kind) plus every other plain full block carried. */
+	private static int pillarBlocks(ServerPlayer player, String item) {
+		int count = carried(player, item);
+		Set<String> seen = new HashSet<>();
+		if (item != null) seen.add(item);
+		for (int slot = 0; slot < 36; slot++) {
+			ItemStack stack = player.getInventory().getItem(slot);
+			if (!TravelBuilder.buildingBlock(stack)) continue;
+			String id = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+			if (seen.add(id)) count += carried(player, id);
+		}
+		return count;
+	}
+
 	private static int plainCount(ServerPlayer player) {
 		int plain = 0;
 		Set<String> seen = new HashSet<>();
@@ -2618,7 +2634,7 @@ public final class ServerBuildController implements ServerController {
 		if (!above.getCollisionShape(player.level(), head).isEmpty() || !above.getFluidState().isEmpty())
 			return fail(player, "BUILD_BLOCKED", describe(above) + " over the head at " + xyz(head) + " stops the pillar at " + (current.y() - startY) + " of " + size + " blocks");
 		if (moveStage == 0) {
-			String item = pillarReturn != null ? spareItem(player) : material != null ? material : plainBlock(player, false);
+			String item = pillarReturn != null ? spareItem(player) : material != null && carried(player, material) > 0 ? material : plainBlock(player, false);
 			if (item == null || carried(player, item) == 0) return short_(player, pillarReturn != null ? "stepping up needs 1 plain block, none left"
 					: "the pillar ran out of plain blocks at " + (current.y() - startY) + " of " + size + "; " + (size - (current.y() - startY)) + " more");
 			int slot = select(player, slot(player, item), now);
