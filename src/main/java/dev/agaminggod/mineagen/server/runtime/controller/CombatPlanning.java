@@ -596,6 +596,26 @@ public final class CombatPlanning {
 	}
 
 	/** Lava, fire or another hazard at or under this cell, or a drop deeper than a damage-free one; null when safe. */
+	/**
+	 * Whether lava or a damaging drop lies within {@code cells} along {@code yaw} from {@code feet}, on the line or beside
+	 * it, at feet level: a run that far ends on or beside an edge a hit can knock the body over.
+	 */
+	public static boolean edgeWithin(WalkabilityView world, GridPosition feet, float yaw, int cells) {
+		double radians = Math.toRadians(yaw);
+		double dx = -Math.sin(radians);
+		double dz = Math.cos(radians);
+		int sideX = (int) Math.round(-dz);
+		int sideZ = (int) Math.round(dx);
+		for (int step = 1; step <= cells; step++) {
+			int x = feet.x() + (int) Math.round(dx * step);
+			int z = feet.z() + (int) Math.round(dz * step);
+			for (int side = -1; side <= 1; side++) {
+				if (unsafeColumn(world, new GridPosition(x + side * sideX, feet.y(), z + side * sideZ)) != null) return true;
+			}
+		}
+		return false;
+	}
+
 	static Refusal unsafeColumn(WalkabilityView world, GridPosition cell) {
 		if (walkable(world, cell)) return null;
 		if (world.cellAt(cell) == WalkabilityView.Cell.HAZARD) return new Refusal(RefusalKind.HAZARD, cell, 0);

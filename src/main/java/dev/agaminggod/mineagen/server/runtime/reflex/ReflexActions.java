@@ -1249,12 +1249,17 @@ final class ReflexActions {
 			Vec3 at = shooter.position();
 			Float[] headings = new Float[3];
 			for (int candidate : new int[]{side, -side}) {
-				headings[candidate + 1] = SafeStep.heading(player, sideYaw(body, at, candidate), OFFSETS, candidate == side ? lastHeading : null, List.of(), MAX_DROP, true);
+				headings[candidate + 1] = SafeStep.heading(player, sideYaw(body, at, candidate), OFFSETS, candidate == side ? lastHeading : null,
+						List.of(yaw -> SafeStep.edgeWithin(player, yaw, RUN_CELLS)), MAX_DROP, true);
 			}
 			// SafeStep tries the knockback margin first: a heading that passes canStep kept it. The shot it steps from knocks
 			// the body back from any range, so the margin holds however far the archer stands.
-			int chosen = chooseSide(side, candidate -> headings[candidate + 1] != null && SafeStep.canStep(player, headings[candidate + 1], true),
-					candidate -> headings[candidate + 1] != null);
+			java.util.function.IntPredicate marginSafe = candidate -> headings[candidate + 1] != null && SafeStep.canStep(player, headings[candidate + 1], true);
+			// A sprint runs 4 to 5 blocks a draw: a side whose run keeps clear of an edge goes first, so the body is not carried
+			// onto a rim where the next hit knocks it off (archers-zombie: every death today, 4 of 4, a fall off a platform edge).
+			java.util.function.IntPredicate clearRun = candidate -> marginSafe.test(candidate) && !SafeStep.edgeWithin(player, headings[candidate + 1], RUN_CELLS);
+			int chosen = clearRun.test(side) ? side : clearRun.test(-side) ? -side
+					: chooseSide(side, marginSafe, candidate -> headings[candidate + 1] != null);
 			Float heading = chosen == 0 ? null : headings[chosen + 1];
 			// On a rim with the shooter inland, neither side keeps the knockback margin and the step ran along the rim, where
 			// the next hit knocked the body off (archers-zombie: the last deaths, a fall off the west rim after an arrow). A
@@ -1295,6 +1300,9 @@ final class ReflexActions {
 			input.accept(new AgentInputState(forward, strafe, jump, false, false, false, false, aim.yaw(), aim.pitch(), aim.selectedSlot(), aim.hand()));
 			return Step.running("stepping " + SafeStep.compass(heading) + " across " + type(shooter) + "'s shot" + swung);
 		}
+
+		/** Cells ahead a dodge run is kept clear of an edge: about one sprinted step across a shot. */
+		static final int RUN_CELLS = 4;
 
 		/** How far a step off a rim turns from square toward the shooter: 30 degrees off its line, still across it. */
 		static final float RIM_TURN = 60.0F;
