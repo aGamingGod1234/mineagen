@@ -521,8 +521,10 @@ public final class ServerDigController implements ServerController {
 		boolean sight = mob.getSensing().hasLineOfSight(player);
 		String type = BuiltInRegistries.ENTITY_TYPE.getKey(mob.getType()).toString();
 		boolean ranged = TravelStops.RANGED.contains(type) || type.endsWith("guardian") || ThreatPerception.isRanged(mob);
-		if (vein) return stopsVein(distance, previous, first, hunting, sight, ranged);
-		return climbing ? stopsClimb(distance, previous, first, hunting, sight, ranged) : stopsDig(distance, previous, first, hunting, sight, ranged);
+		boolean stops = vein ? stopsVein(distance, previous, first, hunting, sight, ranged)
+				: climbing ? stopsClimb(distance, previous, first, hunting, sight, ranged) : stopsDig(distance, previous, first, hunting, sight, ranged);
+		// One that cannot get to the body digs on past it, as for a walk (TravelStops.cannotReach).
+		return stops && !TravelStops.cannotReach(player, mob);
 	}
 
 
