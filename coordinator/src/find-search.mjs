@@ -11,6 +11,7 @@ import { portalTarget, strongholdNearby, findPortalRoom } from './find-portal-ro
 import { nightMoveStop } from './night-cover.mjs';
 import { ENGAGE_CLOSE, SEARCH_LOW_HEALTH, creeperNear, pursuedByPack, searchDanger, threatRows } from './search-danger.mjs';
 import { getSwitch } from './switches.mjs';
+import { bodyDanger } from './fork-rule.mjs';
 
 export const FIND_KINDS = Object.freeze(['block', 'biome', 'mob', 'structure']);
 export const DEFAULT_FIND_WITHIN = 512;
@@ -94,6 +95,20 @@ export function hostileIsDanger(observation) {
 }
 const MAX_ESCAPES = 2;
 const BREATH_STOPS = new Set(['AIR_RESERVE_REACHED', 'BREATH_NOT_COVERED', 'TUNNEL_FLOODED']);
+const FLOOD_CONTAINED = getSwitch('find.floodContained').value;
+
+/**
+ * A dig that opened a cell water flowed into, did not step in, backed out, and the flow stopped short of the body, with a
+ * fresh sample of a live body out of the water: a shut way, as a player walls off a leak and digs elsewhere, not danger
+ * that ends the search. Chain gates on main: 31 such stops in 17 of 48 runs ended find or obtain as danger.
+ */
+export function floodContained(result, observation) {
+	const player = observation?.player;
+	return FLOOD_CONTAINED && result?.reasonCode === 'TUNNEL_FLOODED' && !/Lava flowed/i.test(String(result?.message ?? ''))
+		&& /not entered; backed out to -?\d+,-?\d+,-?\d+ and the flow stopped short of it/.test(String(result?.message ?? ''))
+		&& observation?.ready === true && player != null && player.dead !== true && Number.isFinite(player.health) && player.health > 0
+		&& player.inWater !== true && player.underWater !== true && bodyDanger(observation) === null;
+}
 // A walk's or swim's own stop for its air (travel's breath rule), as against a dig that flooded.
 const AIR_STOPS = new Set(['AIR_RESERVE_REACHED', 'BREATH_NOT_COVERED']);
 // Stops a search cannot work round by itself: the model decides (craft a pickaxe, empty the inventory...).
@@ -871,7 +886,7 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 			if (!inWater()) return null;
 		}
 		// Lava ahead is what a lava search is after: the dig loop peeks at it (below) rather than handing back.
-		if (DANGER.has(code) && !(code === 'LAVA_AHEAD' && profile.ids.has('minecraft:lava'))) {
+		if (DANGER.has(code) && !(code === 'LAVA_AHEAD' && profile.ids.has('minecraft:lava')) && !floodContained(result, observation)) {
 			// Underground, the body is handed back walled in rather than idle in a cave's line of fire; never on a stop for
 			// air, drowning or flooding, or under water, where building spends the breath it has left.
 			const walled = BREATH_STOPS.has(code) || /drown/i.test(String(result?.message ?? '')) || observation?.player?.underWater === true ? false : await cover();

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DESCENT_RESERVE, stepRow, UNREACHED, UNREACHED_SPOT, chooseHeading, pickaxeUses, stairBudget, findProfile, oreRockShare, rememberedPlaces, sameVein, seenAtOf, sightingOf } from '../src/find-search.mjs';
+import { DESCENT_RESERVE, floodContained, stepRow, UNREACHED, UNREACHED_SPOT, chooseHeading, pickaxeUses, stairBudget, findProfile, oreRockShare, rememberedPlaces, sameVein, seenAtOf, sightingOf } from '../src/find-search.mjs';
 import { normalizeMinecraftToolCall } from '../src/native-minecraft-tools.mjs';
 import { isNativeBodyTool } from '../src/codex-service.mjs';
 import { checkedSearchBody, searchFor } from './helpers/checked-body.mjs';
@@ -2197,4 +2197,20 @@ test('kit gates: a lava find starting on the lake shore it filled its bucket at 
 	block = 'minecraft:lava';
 	process.env.MINEAGEN_FIND_DRY_START = 'off';
 	try { assert.deepEqual(await run([{ blockId: 'minecraft:water', x: 334, y: 62, z: -9 }]), ['shaft']); } finally { delete process.env.MINEAGEN_FIND_DRY_START; }
+});
+
+test('chain gates: a tunnel the dig backed out of, with the flow stopped short and the body dry, is a shut way, not danger', async () => {
+	const flood = { result: { state: 'FAILED', reasonCode: 'TUNNEL_FLOODED', message: 'Fluid flowed into the opened tunnel at 2,56,0; not entered; backed out to 0,56,0 and the flow stopped short of it' }, move: () => ({ y: 56 }) };
+	const run = () => {
+		const body = fakeBody({ start: sample({ ready: true }), frontier: { candidates: [], coverage: { headings: {} } },
+			acts: { dig_to: [flood, { result: { state: 'SUCCEEDED', reasonCode: 'TARGET_SEEN', message: 'minecraft:iron_ore seen at -40,20,0, 3 blocks away' } }],
+				travel_to: [{ result: { state: 'SUCCEEDED', reasonCode: 'ARRIVED' } }] } });
+		return searchFor({ block: 'minecraft:iron_ore' }, body);
+	};
+	const result = await run();
+	if (process.env.MINEAGEN_FIND_FLOOD_CONTAINED === 'off') assert.equal(result.reasonCode, 'FIND_DANGER', result.message);
+	else assert.equal(result.reasonCode, 'FIND_SEEN', result.message);
+	assert.equal(floodContained(flood.result, sample({ ready: true, player: { health: 20, underWater: true } })), false, 'under water is still danger');
+	assert.equal(floodContained({ ...flood.result, message: 'Fluid flowed into the opened tunnel at 2,56,0; not entered; backed out to 0,56,0 and the lava kept coming' }, sample({ ready: true })), false);
+	assert.equal(floodContained(flood.result, sample({ ready: false })), false, 'no fresh sample');
 });

@@ -8,7 +8,7 @@
 // Finding a source is one function, locate(): what is in view or remembered, then a survey search, then exploring
 // (walking out for trees and animals, digging toward the ore's depth). A future find verb can replace it.
 import { howtoIndex } from './howto.mjs';
-import { DAMAGE_STOPS, FIGHT_STOPS, DISCARD, LIFE_SAFETY_STOPS, MAX_FIND_TIMEOUT_MS, UNREACHED, UNREACHED_SPOT, caveLog, hostileIsDanger, sameVein } from './find-search.mjs';
+import { DAMAGE_STOPS, FIGHT_STOPS, DISCARD, LIFE_SAFETY_STOPS, floodContained, MAX_FIND_TIMEOUT_MS, UNREACHED, UNREACHED_SPOT, caveLog, hostileIsDanger, sameVein } from './find-search.mjs';
 import { threatRows, blazeBlocksErrand } from './search-danger.mjs';
 import { nightMoveStop } from './night-cover.mjs';
 import { REGEN_RESUME_HEALTH, bodyDanger, eatCalls, lowHealthFork } from './fork-rule.mjs';
@@ -568,7 +568,8 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		const result = await promise;
 		if (result?.state === 'RUNNING' && typeof result.actionId === 'string') running = result;
 		if (danger === null && forkStop() === null && isDanger(result, result?.reasonCode === 'HOSTILE_NEAR' ? withoutQuarry(await rawBody.observe().catch(() => null), quarry) : null)
-			&& !(lavaRefusal(result) && lavaRefusalOnly(result, await rawBody.observe().catch(() => null)))) {
+			&& !(lavaRefusal(result) && lavaRefusalOnly(result, await rawBody.observe().catch(() => null)))
+			&& !(result?.reasonCode === 'TUNNEL_FLOODED' && floodContained(result, await rawBody.observe().catch(() => null)))) {
 			danger = `${result.reasonCode}: ${String(result.message ?? '').slice(0, 160)}`;
 			lowLeg = result.reasonCode === 'LOW_HEALTH';
 		}

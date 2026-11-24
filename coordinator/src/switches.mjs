@@ -122,6 +122,10 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'obtain.lavaRefusal', env: 'MINEAGEN_OBTAIN_LAVA_REFUSAL', side: 'coordinator', default: true, parser: OFF_EXACT, status: 'default-on',
 		reason: 'A dig that refuses one block for lava heard behind it, with the body itself safe, is a skipped block, not danger that ends the obtain; off is the A/B off arm.',
 		readers: ['coordinator/src/obtain-runner.mjs LAVA_REFUSAL (module load, process.env only)'] }),
+	// coordinator/src/find-search.mjs FLOOD_CONTAINED: read once at module load.
+	entry({ name: 'find.floodContained', env: 'MINEAGEN_FIND_FLOOD_CONTAINED', side: 'coordinator', default: true, parser: OFF_EXACT, status: 'default-on',
+		reason: 'A flooded tunnel the dig backed out of, with the flow stopped short and the body dry and safe, is a shut way, not danger that ends find or obtain; off is the A/B off arm.',
+		readers: ['coordinator/src/find-search.mjs FLOOD_CONTAINED (module load, process.env only)'] }),
 	// coordinator/src/kit-habit.mjs kitHabitEnabled(environment): per call.
 	entry({ name: 'kit.habit', env: 'MINEAGEN_KIT_HABIT', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
 		reason: 'Keeps a shield, iron armour and food in reach after each obtain; off is the A/B off arm (#32).',
