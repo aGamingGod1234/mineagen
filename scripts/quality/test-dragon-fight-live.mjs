@@ -48,6 +48,8 @@ const OLD_REFILL = cli.includes('--old-refill');
 // --old-perch: main's stand-in before the hurt rules (kept so both are judged on the same jar): it swung at a perched head
 // with crystals still standing and at 10 health, stepped out at 8, and went straight back to work however hurt.
 const OLD_PERCH = cli.includes('--old-perch');
+// --old-aim: main's flying shot, at the nearest of the dragon's body and head (kept to judge the head-first aim on the same jar).
+const OLD_AIM = cli.includes('--old-aim');
 const [outArg, jarArg] = cli.filter(arg => !arg.startsWith('--'));
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port = Number(process.env.SLOT_PORT_BASE);
 if (!outArg || !template || !port || !process.env.JAVA_HOME) { console.error('Usage: OUT_DIR [JAR] [--no-bow] [--survive] under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME'); process.exit(2); }
@@ -651,9 +653,10 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 						if (Number.isFinite(before) && Number.isFinite(after) && after < before) meleeLanded += 1;
 						meleeHits += 1; note(`melee perched head (dragon ${before} -> ${after})`, r); continue;
 					}
-					// 3. In flight within a bow's reach: shoot its body.
+					// 3. In flight within a bow's reach: shoot it, the head first when it is in reach: every other part takes about a
+					// quarter of an arrow's damage (PERCH_FACTS), the head all of it. --old-aim: the nearest of body and head.
 					const part = ranged ? entities.filter(row => row.type === 'minecraft:ender_dragon' && /^(body|head)$/.test(row.partName ?? '') && dist(row) <= 48)
-						.sort((a, b) => dist(a) - dist(b))[0] : undefined;
+						.sort((a, b) => (OLD_AIM ? 0 : (a.partName === 'head' ? 0 : 1) - (b.partName === 'head' ? 0 : 1)) || dist(a) - dist(b))[0] : undefined;
 					if (part) {
 						const r = await act('use_ranged', { targetId: part.stableId, drawDurationMs: 1100, timeoutMs: 6000 });
 						flyingShots += 1; note('shoot flying dragon', r); continue;
