@@ -513,8 +513,6 @@ public final class ServerDigController implements ServerController {
 	}
 
 	static boolean stopsDig(ServerPlayer player, Mob mob, java.util.Map<java.util.UUID, double[]> seen, boolean vein, boolean climbing) {
-		// One that cannot get to the body digs on past it, as for a walk (TravelStops.cannotReach).
-		if (TravelStops.cannotReach(player, mob)) return false;
 		double distance = player.distanceTo(mob);
 		double[] row = seen.get(mob.getUUID());
 		Double first = row == null ? null : row[0], previous = row == null ? null : row[1];
@@ -523,8 +521,10 @@ public final class ServerDigController implements ServerController {
 		boolean sight = mob.getSensing().hasLineOfSight(player);
 		String type = BuiltInRegistries.ENTITY_TYPE.getKey(mob.getType()).toString();
 		boolean ranged = TravelStops.RANGED.contains(type) || type.endsWith("guardian") || ThreatPerception.isRanged(mob);
-		if (vein) return stopsVein(distance, previous, first, hunting, sight, ranged);
-		return climbing ? stopsClimb(distance, previous, first, hunting, sight, ranged) : stopsDig(distance, previous, first, hunting, sight, ranged);
+		boolean stops = vein ? stopsVein(distance, previous, first, hunting, sight, ranged)
+				: climbing ? stopsClimb(distance, previous, first, hunting, sight, ranged) : stopsDig(distance, previous, first, hunting, sight, ranged);
+		// One that cannot get to the body digs on past it, as for a walk (TravelStops.cannotReach).
+		return stops && !TravelStops.cannotReach(player, mob);
 	}
 
 
