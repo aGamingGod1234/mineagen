@@ -517,6 +517,8 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 					if (me.health >= 16) { if (recovering) note(`healed to ${Math.round(me.health)}: back to work`, null); recovering = false; return false; }
 					// From 13, just past the perch swing's step-out at 12, so every step-out heals first; --old-recover: from 11.
 					if (!recovering && me.health >= (OLD_RECOVER ? 11 : 13)) return false;
+					// Health regrows only at hunger 18 or more: with no food to get there, waiting would never end.
+					if ((me.hunger ?? 20) < 18 && !(o.inventory?.items ?? []).some(i => i.itemId === 'minecraft:cooked_beef')) { recovering = false; return false; }
 					if (!recovering) note(`hurt to ${Math.round(me.health)}: back off and heal`, null);
 					recovering = true;
 					if ((me.hunger ?? 20) < 20 && now() - lastEat > 5000 && (o.inventory?.items ?? []).some(i => i.itemId === 'minecraft:cooked_beef')) {
