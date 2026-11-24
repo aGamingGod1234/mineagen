@@ -1,12 +1,19 @@
 package dev.agaminggod.mineagen.server.perception;
 
 import java.util.function.Predicate;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.level.block.LiquidBlock;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.CollisionContext;
+import net.minecraft.world.phys.shapes.EntityCollisionContext;
+import net.minecraft.world.phys.shapes.Shapes;
+import net.minecraft.world.phys.shapes.VoxelShape;
 
 public final class EntityHitboxSight {
 	private EntityHitboxSight() { }
@@ -44,6 +51,46 @@ public final class EntityHitboxSight {
 	}
 
 	public static boolean clear(BlockGetter world, CollisionContext context, Vec3 eye, Vec3 hit, ClipContext.Block shape) {
-		return hit != null && world.clip(new ClipContext(eye, hit, shape, ClipContext.Fluid.NONE, context)).getType() == HitResult.Type.MISS;
+		if (hit == null) return false;
+		ClipContext clip = shape == ClipContext.Block.VISUAL || shape == ClipContext.Block.COLLIDER
+				? new FluidAwareClip(eye, hit, shape, context) : new ClipContext(eye, hit, shape, ClipContext.Fluid.NONE, context);
+		return world.clip(clip).getType() == HitResult.Type.MISS;
+	}
+
+	/** The visual-shape clip {@link #clear} makes, for callers that need the hit. */
+	static ClipContext visualClip(Vec3 eye, Vec3 hit, CollisionContext context) {
+		return new FluidAwareClip(eye, hit, ClipContext.Block.VISUAL, context);
+	}
+
+	/**
+	 * The visual or collision shape of a liquid block for this context, or null to ask the block. Vanilla's liquid
+	 * shape is a full block only for a context that always collides with fluid (left to the block), and otherwise
+	 * empty unless it is a source under a living body that can stand on that fluid. Players cannot, so a ray through
+	 * water skips the per-cell lookup of the fluid above and the optional chain that ends in the same empty shape.
+	 */
+	static VoxelShape fluidBlockShape(BlockState state, CollisionContext context) {
+		if (state.getBlock().getClass() != LiquidBlock.class || context.getClass() != EntityCollisionContext.class) return null;
+		EntityCollisionContext entityContext = (EntityCollisionContext) context;
+		if (entityContext.alwaysCollideWithFluid()) return null;
+		if (state.getValue(LiquidBlock.LEVEL) != 0) return Shapes.empty();
+		if (!(entityContext.getEntity() instanceof LivingEntity living)) return Shapes.empty();
+		return living.canStandOnFluid(state.getFluidState()) ? null : Shapes.empty();
+	}
+
+	private static final class FluidAwareClip extends ClipContext {
+		private final ClipContext.Block shape;
+		private final CollisionContext context;
+
+		FluidAwareClip(Vec3 eye, Vec3 hit, ClipContext.Block shape, CollisionContext context) {
+			super(eye, hit, shape, ClipContext.Fluid.NONE, context);
+			this.shape = shape;
+			this.context = context;
+		}
+
+		@Override
+		public VoxelShape getBlockShape(BlockState state, BlockGetter world, BlockPos cell) {
+			VoxelShape fluid = fluidBlockShape(state, context);
+			return fluid != null ? fluid : shape.get(state, world, cell, context);
+		}
 	}
 }

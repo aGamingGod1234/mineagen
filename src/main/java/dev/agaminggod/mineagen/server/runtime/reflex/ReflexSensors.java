@@ -104,6 +104,22 @@ public final class ReflexSensors {
 		private final java.util.ArrayDeque<GridPosition> dryFooting = new java.util.ArrayDeque<>();
 		private BlockPos seenSpawner;
 		private int seenSpawnerAt;
+		/** The ranged mob beyond reach that last drew at the body, and when: a shot the dodge stepped off still started it. */
+		private Mob drewAtBody;
+		private int drewAtTick;
+
+		void noteDraw(Mob mob, int tick) {
+			drewAtBody = mob;
+			drewAtTick = tick;
+		}
+
+		/** The mob that drew at the body within {@code ticks}, still alive and in the body's level, else null. */
+		Mob drewWithin(ServerPlayer player, int ticks) {
+			Mob mob = drewAtBody;
+			if (mob == null || !mob.isAlive() || mob.level() != player.level()) return null;
+			int since = player.tickCount - drewAtTick;
+			return since >= 0 && since <= ticks ? mob : null;
+		}
 
 		List<GridPosition> dryFooting() {
 			return List.copyOf(dryFooting);
@@ -807,6 +823,26 @@ public final class ReflexSensors {
 		if (!"attacked".equals(condition.type()) || condition.negated()) return Reading.FALSE;
 		Mob mob = ReflexActions.closingMelee(player, true);
 		return mob == null ? Reading.FALSE : new Reading(true, mob);
+	}
+
+	/**
+	 * Defend's plain "attacked" from a ranged mob beyond reach that drew at the body within withinS, hit or not: a body
+	 * that sprints off each arrow takes no hit, and defend, waiting for one, never walled in from the skeleton (cover room:
+	 * cover reached in 7 of 15 runs with the sprinting dodge, 12 of 15 when an arrow landed and started defend).
+	 */
+	static Reading drewAt(ServerPlayer player, ReflexSpec.Condition condition, Memory memory) {
+		if (!"attacked".equals(condition.type()) || condition.negated() || memory == null) return Reading.FALSE;
+		// The nearest drawing at this body: a skeleton shooting a golem or another player while it sees this one is not a
+		// shot at it, and a nearer one doing so must not hide a farther one drawing here.
+		var range = player.getAttackRangeWith(player.getMainHandItem());
+		for (Mob mob : ReflexActions.watchers(player)) {
+			if (mob.getTarget() != player || !ThreatPerception.isRanged(mob) || !shotComing(mob, player)) continue;
+			if (range.isInRange(player, mob.getBoundingBox(), 0.0D)) continue;
+			memory.noteDraw(mob, player.tickCount);
+			break;
+		}
+		Mob drew = memory.drewWithin(player, (int) Math.round(condition.number("withinS", 4.0D) * 20.0D));
+		return drew == null ? Reading.FALSE : new Reading(true, drew);
 	}
 
 	private static Reading attacked(ServerPlayer player, double withinS) {
