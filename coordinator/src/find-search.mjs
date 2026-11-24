@@ -1162,7 +1162,7 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 		await leg('look at the block', 'look_at', { x: cell.x + 0.5, y: cell.y + 0.5, z: cell.z + 0.5 });
 		const opened = await leg('open the lava', 'break_block', { x: cell.x, y: cell.y, z: cell.z, acceptLavaRisk: true });
 		if (opened.interrupted) return settle(opened);
-		if (!opened.seen) return heard !== null && /Lava is heard (below|beside)/.test(String(heard)) && peekDown() ? peekBelow(cell, feet) : null;
+		if (!opened.seen) return heard !== null && /Lava is heard (below|beside)/.test(String(heard)) && peekDown() ? peekBelow(cell, feet, dir) : null;
 		const away = bodyAt(observation);
 		await leg('step out of its flow', 'move_to', { x: Math.floor(away.x) - 2 * dir.x + 0.5, y: Math.floor(away.y + 1e-3), z: Math.floor(away.z) - 2 * dir.z + 0.5, tolerance: 0.5 });
 		return arrive(opened.seen);
@@ -1173,14 +1173,24 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 	// from two cells back (lava cannot rise, so whatever flows in stays in that hole), then step up beside the hole and
 	// look down into it, one more block down if the sound said below. kit-gate-1 (r3): heard below 2-3 blocks off, the
 	// side peek saw only rock and the search walked away; heard lava stopped the tunnel in 28 of 103 failed searches.
-	const peekBelow = async (cell, feet) => {
+	const peekBelow = async (cell, feet, dir) => {
+		// A refused block in the body's own column has no floor ahead of the feet to open.
+		if (cell.x === feet.x && cell.z === feet.z) return null;
 		// The opened block's column down to the tunnel floor: the cell at the feet' height when the opened one was the upper.
 		const column = cell.y > feet.y ? [{ x: cell.x, y: feet.y, z: cell.z }] : [];
 		column.push({ x: cell.x, y: feet.y - 1, z: cell.z });
 		for (const at of column) {
 			const opened = await leg('open the floor over the lava heard', 'break_block', { ...at, acceptLavaRisk: true });
 			if (opened.interrupted) return settle(opened);
-			if (opened.seen) return arrive(opened.seen);
+			if (opened.seen) {
+				// Opened at the tunnel's own height, the lava can run along the tunnel toward the body: out of its flow first,
+				// as the side peek does. Under the floor it stays in its hole.
+				if (at.y === feet.y) {
+					const away = bodyAt(observation);
+					await leg('step out of its flow', 'move_to', { x: Math.floor(away.x) - 2 * dir.x + 0.5, y: Math.floor(away.y + 1e-3), z: Math.floor(away.z) - 2 * dir.z + 0.5, tolerance: 0.5 });
+				}
+				return arrive(opened.seen);
+			}
 			if (opened.result?.state !== 'SUCCEEDED' && opened.result?.reasonCode !== 'TARGET_AIR') return null;
 		}
 		const edge = await leg('step up beside the hole', 'move_to', { x: feet.x + 0.5, y: feet.y, z: feet.z + 0.5, tolerance: 0.5 });

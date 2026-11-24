@@ -241,6 +241,15 @@ test('lava heard below a tunnel at depth: the peek opens the floor under the ope
 	assert.deepEqual(moves, [-1.5, 0.5], 'two cells back to open it, then up beside the hole');
 	const looks = body.calls.filter((call) => call.actionType === 'look_at').map((call) => call.args.y);
 	assert.equal(looks.at(-1), -55.5, 'looks down into the opened floor');
+	// Nothing in the first look down: one more block down and a second look; lava opened at the tunnel's own height
+	// sends the body two more cells back out of its flow.
+	const deeper = await run(undefined, { look_at: [{ result: { state: 'SUCCEEDED' } }, { result: { state: 'SUCCEEDED' } }, { result: { state: 'SUCCEEDED' }, then: { blocks: [{ blockId: 'minecraft:lava', x: 0, y: -57, z: 1 }] } }] });
+	assert.equal(deeper.result.reasonCode, 'FIND_SEEN');
+	assert.deepEqual(deeper.body.calls.filter((call) => call.actionType === 'break_block').map((call) => call.args.y), [-53, -54, -55, -56]);
+	assert.equal(deeper.body.calls.filter((call) => call.actionType === 'look_at').at(-1).args.y, -56.5);
+	const level = await run(undefined, { break_block: [{ result: { state: 'SUCCEEDED' } }, { result: { state: 'SUCCEEDED' }, then: { blocks: [{ blockId: 'minecraft:lava', x: 0, y: -54, z: 2 }] } }] });
+	assert.equal(level.result.reasonCode, 'FIND_SEEN');
+	assert.deepEqual(level.body.calls.filter((call) => call.actionType === 'move_to').map((call) => call.args.z), [-1.5, -3.5], 'back out of the flow along the tunnel');
 	// The A/B off arm: the side peek only, no floor opened.
 	const off = await run('off');
 	assert.deepEqual(off.body.calls.filter((call) => call.actionType === 'break_block').map((call) => call.args.y).slice(0, 1), [-53]);
