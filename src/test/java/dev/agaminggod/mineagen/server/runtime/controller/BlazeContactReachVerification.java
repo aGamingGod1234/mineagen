@@ -233,7 +233,18 @@ public final class BlazeContactReachVerification {
 
 		/** The cornered stand lasts only while an attacker can be hit: with the blaze gone from reach, the bailout stands. */
 		void verifyStandEnds() throws Exception {
-			place(unsafe, touching, new Vec3(1.1D, 64.0D, 6.5D), 0.6D, 1.8D);
+			// The blaze it stood against drops behind the wall while the other comes into contact: it turns to that one.
+			place(unsafe, touching, new Vec3(0.5D, 64.0D, 2.5D), 0.6D, 1.8D);
+			place(unsafe, walled, new Vec3(1.1D, 64.0D, 0.5D), 0.6D, 1.8D);
+			int swings = player.attacks.size();
+			boolean turned = false;
+			for (int tick = 0; tick < 20 && !turned; tick++) {
+				ServerController.TickResult result = fight.tick(player, now += 50L);
+				check(result.state() == ServerController.State.RUNNING, "cornered: still fighting while one blaze can be hit: " + result);
+				turned = player.attacks.subList(swings, player.attacks.size()).contains(walled);
+			}
+			check(turned, "cornered: it swings at the blaze now in contact, not at the one gone behind the wall");
+			place(unsafe, walled, new Vec3(1.1D, 64.0D, 6.5D), 0.6D, 1.8D);
 			ServerController.TickResult last = null;
 			for (int tick = 0; tick < 10; tick++) {
 				last = fight.tick(player, now += 50L);

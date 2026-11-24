@@ -431,7 +431,16 @@ public final class ServerFightController implements ServerController {
 		}
 		Float flee = lootFlee(player);
 		// Cornered with an attacker in reach: keep swinging. Once none can be hit, the retreat is tried again.
-		if (cornered && attackerInReach(player) == null) cornered = false;
+		if (cornered) {
+			LivingEntity attacker = cornerTarget(player);
+			if (attacker == null) cornered = false;
+			else if (attacker != target) {
+				// The one it was fighting went out of reach while another can be hit: swing at that one, not at the wall.
+				switchTo(attacker, "cornered in-reach attacker");
+				clock.switched(player.distanceTo(strike));
+				return TickResult.running(progress(player));
+			}
+		}
 		if (!cornered && CombatPlanning.shouldBailOut(player.getHealth(), flee)) {
 			BrinkGuard.keepLevel(player, this, false);
 			input.release();
@@ -1118,7 +1127,7 @@ public final class ServerFightController implements ServerController {
 		if (strike != target) return;
 		// In range is not a hit: a target behind the spawner or a wall within 3 blocks cannot be swung at, while the
 		// blaze touching the body can (gap0 c323: 14.7 s held for the walled-off target, 20 health lost to the other).
-		if (clearHit(player, target)) return;
+		if (clearHit(player, strike)) return;
 		LivingEntity best = attackerInReach(player);
 		if (best == null || best == target) return;
 		switchTo(best, "in-reach attacker");
@@ -1130,11 +1139,12 @@ public final class ServerFightController implements ServerController {
 	 * line to its hitbox. Seen, or felt: one that just hit the body counts even from behind, as a player turns to it.
 	 */
 	private LivingEntity attackerInReach(ServerPlayer player) {
-		if (target.isAlive() && !target.isRemoved() && clearHit(player, target)) return target;
+		if (target.isAlive() && !target.isRemoved() && clearHit(player, strike)) return target;
 		LivingEntity best = null;
 		double bestDistance = Double.MAX_VALUE;
 		for (LivingEntity hostile : nearbyHostiles(player)) {
-			if (!attacking(player, hostile) || !clearHit(player, hostile)) continue;
+			// A swelling creeper is never the one to stand and swing at.
+			if (hostile instanceof Creeper || !attacking(player, hostile) || !clearHit(player, hostile)) continue;
 			if (player.getLastHurtByMob() != hostile
 					&& !dev.agaminggod.mineagen.server.perception.ObservationVisibility.canSeeEntity(player, hostile)) continue;
 			double distance = player.distanceToSqr(hostile);
@@ -1143,7 +1153,16 @@ public final class ServerFightController implements ServerController {
 		return best;
 	}
 
-	private static boolean clearHit(ServerPlayer player, LivingEntity entity) {
+	/**
+	 * Who a cornered body swings at: the attacker in reach, or under the count engine (which owns retargeting and kill
+	 * counting) only its own target.
+	 */
+	private LivingEntity cornerTarget(ServerPlayer player) {
+		if (!engineTargets) return attackerInReach(player);
+		return target.isAlive() && !target.isRemoved() && clearHit(player, strike) ? target : null;
+	}
+
+	private static boolean clearHit(ServerPlayer player, net.minecraft.world.entity.Entity entity) {
 		var range = player.getAttackRangeWith(player.getMainHandItem());
 		AABB box = entity.getBoundingBox();
 		return range.isInRange(player, box, 0.0D) && attackPoint(player, player.getEyePosition(), box, range.effectiveMaxRange(player)) != null;
@@ -1155,7 +1174,7 @@ public final class ServerFightController implements ServerController {
 	 */
 	private boolean standCornered(ServerPlayer player) {
 		if (bailout == null || !bailout.blocked()) return false;
-		LivingEntity attacker = attackerInReach(player);
+		LivingEntity attacker = cornerTarget(player);
 		if (attacker == null) return false;
 		bailout.cancel(player);
 		bailout = null;
