@@ -22,13 +22,14 @@
    "execute positioned {x} -58 {z} as @e[type=minecraft:zombie,distance=..20] run data get entity @s Pos"
   ],
   "name": "zombie-pit-below",
-  "note": "A walk along a 3-wide lit tunnel passes a 1-wide trench open beside it, its floor 3 below the walk, with a zombie in it that cannot climb out, 2 blocks off the walk line and ahead in view. A player walks on past it. Pass: the walk arrives (on main it stops HOSTILE_NEAR for the zombie within 6 blocks).",
+  "note": "A walk along a 3-wide lit tunnel passes a 1-wide trench beside it, its floor 3 below the walk, with a zombie in it that cannot climb out. The tunnel's floor column next to the trench is glass, so the zombie shows through it (stone there hid it from the walk in 18 of 20 main runs). A player walks on past it. Pass: the walk arrives (on main it stops HOSTILE_NEAR for the zombie within 6 blocks).",
   "setup": [
    "forceload add {x-20} {z-20} {x+20} {z+30}",
    "fill {x-6} -63 {z-4} {x+8} -53 {z+24} minecraft:stone",
    "fill {x-1} -58 {z-1} {x+1} -56 {z+20} minecraft:air",
    "fill {x-1} -55 {z-1} {x+1} -55 {z+20} minecraft:glowstone",
    "fill {x+2} -61 {z+4} {x+2} -56 {z+16} minecraft:air",
+   "fill {x+1} -62 {z+4} {x+1} -59 {z+16} minecraft:glass",
    "tp Probe {x+0.5} -58 {z+0.5} 0 0",
    "kill @e[type=minecraft:item,distance=..40]",
    "summon minecraft:zombie {x+2.5} -61 {z+12.5} {PersistenceRequired:1b,IsBaby:0b,CanPickUpLoot:0b}"

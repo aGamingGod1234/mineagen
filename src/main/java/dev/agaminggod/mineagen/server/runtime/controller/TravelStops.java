@@ -53,8 +53,15 @@ public final class TravelStops {
 		long bodyAt = player.blockPosition().asLong(), mobAt = mob.blockPosition().asLong();
 		long[] kept = REACH.get(mob);
 		if (kept != null && now - kept[0] < REACH_RECHECK_TICKS && kept[2] == bodyAt && kept[3] == mobAt) return kept[1] == 1L;
-		net.minecraft.world.level.pathfinder.Path path = new net.minecraft.world.entity.ai.navigation.GroundPathNavigation(mob, mob.level())
-				.createPath(player, 1);
+		var probe = new net.minecraft.world.entity.ai.navigation.GroundPathNavigation(mob, mob.level());
+		// The mob's own ways through: a door-breaking zombie opens doors, a strider floats.
+		var from = own.getNodeEvaluator();
+		var to = probe.getNodeEvaluator();
+		to.setCanOpenDoors(from.canOpenDoors());
+		to.setCanPassDoors(from.canPassDoors());
+		to.setCanFloat(from.canFloat());
+		to.setCanWalkOverFences(from.canWalkOverFences());
+		net.minecraft.world.level.pathfinder.Path path = probe.createPath(player, 1);
 		boolean unreachable = path != null && !path.canReach();
 		REACH.put(mob, new long[] {now, unreachable ? 1L : 0L, bodyAt, mobAt});
 		return unreachable;
