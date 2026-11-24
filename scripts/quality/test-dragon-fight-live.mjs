@@ -75,9 +75,9 @@ const SKY_WAIT = cli.includes('--sky-wait');
 // --crystal (practice room): the fight up to the last crystal down, endermen about. Pass: alive with a full water bucket
 // when the tenth crystal breaks, within CRYSTAL_MS (wave 5: 42 of 122 runs died before then, 19 of them to endermen).
 const CRYSTAL = cli.includes('--crystal');
-// --tall-spots (trial): an open crystal out of view is still asked about (the bot answers how far out it clears its pillar's
-// top), and a spot past the bow's reach pillars up instead of stepping back 24 in, where the tallest stays hidden (wave 6:
-// the y104 crystal was left in 21 of 60 rooms a side, 162 walks for 28 shots). --tall-only: only the two tallest crystals stand.
+// --tall-spots (trial): a spot the bot names past the bow's reach pillars up instead of stepping 24 back in, where the tallest
+// hides again (wave 6: the y104 crystal was left in 21 of 60 rooms a side, 162 walks for 28 shots). --tall-only: only the two
+// tallest crystals stand. Either way the two tallest are judged (tallLeft).
 const TALL_SPOTS = cli.includes('--tall-spots'), TALL_ONLY = cli.includes('--tall-only');
 // Eye-to-crystal distance a full-draw arrow still reaches (the bot refused at 83 and 86 and hit at 81).
 const BOW_REACH = 76;
@@ -199,17 +199,19 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 		results.cagedSpots = cagedSpots;
 		// --tall-only: the pillar tops (a crystal sits on each), the two tallest kept and the rest removed before the fight.
 		const tallSpots = [];
-		if (TALL_ONLY) {
+		if (CRYSTAL) {
 			const tops = [];
 			for (let i = 0; i < 10; i++) {
 				const x = Math.floor(42 * Math.cos(2 * (-Math.PI + Math.PI / 10 * i))), z = Math.floor(42 * Math.sin(2 * (-Math.PI + Math.PI / 10 * i)));
 				tops.push({ x: x + 0.5, y: await groundY(x, z), z: z + 0.5 });
 			}
 			tops.sort((a, b) => b.y - a.y);
-			for (const t of tops.slice(2)) await end(s, `kill @e[type=minecraft:end_crystal,x=${t.x},y=${t.y},z=${t.z},distance=..4]`);
 			tallSpots.push(...tops.slice(0, 2));
-			cagedSpots.length = 0;
 			results.tallSpots = tallSpots;
+			if (TALL_ONLY) {
+				for (const t of tops.slice(2)) await end(s, `kill @e[type=minecraft:end_crystal,x=${t.x},y=${t.y},z=${t.z},distance=..4]`);
+				cagedSpots.length = 0;
+			}
 		}
 		const tallLeft = async () => { const left = []; for (const t of tallSpots) left.push(/passed/i.test(String(await end(s, `execute if entity @e[type=minecraft:end_crystal,x=${t.x},y=${t.y},z=${t.z},distance=..4]`)))); return left; };
 		const STANDING = TALL_ONLY ? 2 : 10;
@@ -331,8 +333,7 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 						await s.clock.sleep(300);
 						v = await view().catch(() => null);
 						remember(v?.entities ?? [], v);
-						// --tall-spots: an open one is still asked about; the bot's refusal says how far out it shows over its pillar.
-						if (!(v?.entities ?? []).some(e => e.stableId === c.id) && !(TALL_SPOTS && !c.caged)) { note(`${what} ${where(c)}: not in view from here`, null); return { state: 'FAILED', reasonCode: 'NOT_IN_VIEW', full: '' }; }
+							if (!(v?.entities ?? []).some(e => e.stableId === c.id)) { note(`${what} ${where(c)}: not in view from here`, null); return { state: 'FAILED', reasonCode: 'NOT_IN_VIEW', full: '' }; }
 					}
 					const r = await act('use_ranged', { targetId: c.id, drawDurationMs: 1100, timeoutMs: 6000 });
 					if (r.reasonCode !== 'TARGET_NOT_VISIBLE' && r.reasonCode !== 'RANGED_TARGET_OUT_OF_REACH') shots += 1;
@@ -918,7 +919,7 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 				// Arrows spent through the last command too (a dead body has dropped its bag: its count stays the last one seen).
 				if (!row.died) { const last = await view().catch(() => null); const n = (last?.inventory?.items ?? []).filter(i => /^minecraft:(arrow|spectral_arrow|tipped_arrow)$/.test(i.itemId)).reduce((sum, i) => sum + i.count, 0); if (last?.inventory && Number.isFinite(n)) arrowsNow = n; }
 				const cagedEnd = await cagedLeft().catch(() => NaN);
-				Object.assign(row, { cagedBroken: cagedSpots.length - cagedEnd, openBroken: Number.isFinite(row.crystalsLeft) ? STANDING - cagedSpots.length - (row.crystalsLeft - cagedEnd) : null, tallLeft: TALL_ONLY ? await tallLeft() : undefined,
+				Object.assign(row, { cagedBroken: cagedSpots.length - cagedEnd, openBroken: Number.isFinite(row.crystalsLeft) ? STANDING - cagedSpots.length - (row.crystalsLeft - cagedEnd) : null, tallLeft: CRYSTAL ? await tallLeft() : undefined,
 					crystalsClearedAt: clearedAt, clutchArmed, arrowsUsed: Number.isFinite(arrowsStart) && Number.isFinite(arrowsNow) ? arrowsStart - arrowsNow : null, crystalTimeline, hurtLog,
 					deathMessages: await readFile(path.join(out, 'server-0', 'server.log'), 'utf8').then(text => text.split('\n').filter(line => new RegExp(`System chat: ${AGENT} (was|fell|hit|died|blew|burned|tried|went|walked|drowned|experienced|froze|starved|suffocated|withered|didn)`).test(line)).map(line => line.replace(/^.*System chat: /, ''))).catch(() => null) });
 				row.deaths = row.deathEvidence.deaths;
