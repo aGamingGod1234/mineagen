@@ -1152,7 +1152,11 @@ public final class ServerDigController implements ServerController {
 		}
 		// A level tunnel toward a goal that meets a cave floor: a player bridges over it on placed blocks rather than
 		// turning back (seed 6006: runs that found no iron stopped here again and again beside the same ore).
-		if (!down && active == Pattern.TUNNEL && throughCaves && crossSteps < MAX_CROSS && filler(player) != null) {
+		if (!down && active == Pattern.TUNNEL && throughCaves && crossSteps < MAX_CROSS && filler(player) != null && !poolUnder(player, next.below())) {
+			// An edge past a floor that holds (seen open beyond it): step onto that lip first; the crossing starts at the gap.
+			BlockPos lip = next.below();
+			BlockState lipState = player.level().getBlockState(lip);
+			if (standable(player.level(), lip, lipState) && !(lipState.getBlock() instanceof FallingBlock)) return step(player);
 			crossHeading = heading;
 			crossNext = true;
 			phase = Phase.START;
@@ -1162,6 +1166,19 @@ public final class ServerDigController implements ServerController {
 		return stop(player, "CAVE_OPENING", why + "; not stepping in" + (down ? "; no other heading here has a floor (tried "
 				+ String.join(", ", triedHere.stream().map(Direction::getName).toList()) + "), " + (maxDrop < 0 ? "no drops (throughCaves:false)" : "no seen landing within " + maxDrop + " blocks")
 				+ (crossSteps > 0 ? " and " + crossSteps + " level steps across the cave found no floor below" : filler(player) == null ? " and no block to cross it" : "") : ""));
+	}
+
+	/** Whether the first seen block under this open floor, within 24 down, is water: a pool under the drop, left as a stop. */
+	private static boolean poolUnder(ServerPlayer player, BlockPos floor) {
+		SeenTerrain.Reader<BlockState> seen = SeenTerrain.of(player);
+		for (int depth = 1; depth < 24; depth++) {
+			BlockPos at = floor.below(depth);
+			BlockState state = seen.known(at.getX(), at.getY(), at.getZ());
+			if (state == null) return false;
+			if (state.getFluidState().is(FluidTags.WATER)) return true;
+			if (!passable(player.level(), at, state)) return false;
+		}
+		return false;
 	}
 
 	/** Steps off onto seen ground at most {@code limit} blocks down when the fall leaves health well clear, else null. */
@@ -1243,7 +1260,7 @@ public final class ServerDigController implements ServerController {
 		float pitch = AgentInputStates.turnPitch(player.getXRot(), look.pitch());
 		// A floor placed out over a cave goes on the side face of the block underfoot: crouch to its edge first, as a
 		// player bridging does, so the eye sees that face.
-		if ((crossNext || floorAfterPlace) && leanTicks < LEAN_TICKS) {
+		if ((crossNext || floorAfterPlace) && leanTicks < (crossNext ? LEAN_TICKS : 12)) {
 			// Face the heading first: forward follows the view, and a lean sideways leaves the face out of sight.
 			float toward = AgentInputStates.turnYaw(player.getYRot(), heading.toYRot());
 			boolean facing = Math.abs(AgentInputStates.shortestAngleDelta(toward, heading.toYRot())) < 10.0F;
@@ -1253,7 +1270,7 @@ public final class ServerDigController implements ServerController {
 			Vec3 body = player.position();
 			double gap = (support.getX() + 0.5D + heading.getStepX() * 0.5D - body.x) * heading.getStepX()
 					+ (support.getZ() + 0.5D + heading.getStepZ() * 0.5D - body.z) * heading.getStepZ();
-			if (facing && leanTicks >= 12 && gap <= LEAN_EDGE) leanTicks = LEAN_TICKS;
+			if (crossNext && facing && leanTicks >= 12 && gap <= LEAN_EDGE) leanTicks = LEAN_TICKS;
 			applyInput(player, facing ? 1.0F : 0.0F, false, true, false, toward, pitch, player.getInventory().getSelectedSlot());
 			return TickResult.running(progress(player));
 		}
