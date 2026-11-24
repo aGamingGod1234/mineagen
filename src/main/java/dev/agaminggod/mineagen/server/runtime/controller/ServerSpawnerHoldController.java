@@ -116,6 +116,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 	private long lastLossTick = Long.MIN_VALUE / 2;
 	/** A bite the open fight's lull started (fight_target form), and how many such meals were eaten. */
 	private boolean lullBite;
+	private long lullStartTick;
 	private int lullMeals;
 	/** Ticks with nothing taking health before the open fight stops for a bite. */
 	private static final long LULL_TICKS = 40L;
@@ -383,11 +384,13 @@ public final class ServerSpawnerHoldController implements ServerController {
 		}
 		if (target != null && SpawnerHold.OPEN_FIGHT && phase != Phase.HOLD && emergency == null
 				&& (!marginGone(player, 0.0D) || !canWallIn(player) || openPart != null && target.isDeadOrDying() && afterOpenKill)) {
-			// A lull in the open fight with hunger under 18: health cannot regrow, and the default eat waits for no hostile
-			// within 8 blocks, which a spawner room never has (blaze spawner rooms: bodies sat at 10 health for minutes, then
-			// died to the next crowd). A player eats then: no blaze in reach, nothing hit for 2 s, no volley charging.
+			// A lull in the open fight: health regrows slowly, and the default eat waits for no hostile within 8 blocks, which
+			// a spawner room never has (blaze spawner rooms: bodies sat at 10 health for minutes, then died to the next crowd).
+			// A player eats then: no blaze in reach, nothing hit for 2 s, no volley charging, the blaze in sight. A hit ends
+			// the bite (it is no longer a lull) and the fight resumes.
 			if (lullBite) {
-				if (eatTicks >= 0) return eat(player);
+				if (eatTicks >= 0 && lastLossTick <= lullStartTick) return eat(player);
+				if (eatTicks >= 0) { eatTicks = -1; eatInput.release(); bitesStopped++; }
 				lullBite = false;
 			}
 			int lullFood = foodSlot(player);
@@ -395,10 +398,10 @@ public final class ServerSpawnerHoldController implements ServerController {
 			// starts vanilla's fast saturation heal.
 			if (!(openPart != null && target.isDeadOrDying()) && lullFood >= 0 && player.getHealth() <= player.getMaxHealth() - LULL_MISSING_HEALTH
 					&& player.getFoodData().getFoodLevel() < 20 && player.level().getGameTime() - lastLossTick > LULL_TICKS
-					&& biteSafe(player) && !blazeNear(player)) {
+					&& biteSafe(player) && !blazeNear(player) && ObservationVisibility.canSeeEntity(player, target)) {
 				if (openPart != null) { openPart.cancel(player); openPart = null; }
 				lullBite = true;
-				lullMeals++;
+				lullStartTick = player.level().getGameTime();
 				startEat(player, lullFood);
 				return eat(player);
 			}
@@ -1171,13 +1174,20 @@ public final class ServerSpawnerHoldController implements ServerController {
 		boolean ate = now.isEmpty() || !eatItem.equals(BuiltInRegistries.ITEM.getKey(now.getItem()).toString()) || now.getCount() < eatCount;
 		boolean stop = !ate && SpawnerHold.stopBite(oldestCharge(player), ReflexSensors.blockableShot(player, 1.0D) != null);
 		if (ate || ++eatTicks > EAT_TICKS || stop) {
-			if (ate) meals++;
+			if (ate) { meals++; if (lullBite) lullMeals++; }
 			if (stop) bitesStopped++;
 			eatTicks = -1;
 			eatInput.release();
 			return TickResult.running(progress(player));
 		}
-		eatInput.apply(player, new AgentInputState(0.0F, 0.0F, false, false, false, false, true, player.getYRot(), player.getXRot(), eatSlot, InteractionHand.MAIN_HAND));
+		float yaw = player.getYRot(), pitch = player.getXRot();
+		if (lullBite && target != null && target.isAlive()) {
+			// A lull bite keeps the head on the blaze: the open fight rebuilt after it looks the target up by sight.
+			float[] look = TravelBuilder.lookAt(player.getEyePosition(), target.getEyePosition());
+			yaw = look[0];
+			pitch = look[1];
+		}
+		eatInput.apply(player, new AgentInputState(0.0F, 0.0F, false, false, false, false, true, yaw, pitch, eatSlot, InteractionHand.MAIN_HAND));
 		return TickResult.running(progress(player));
 	}
 
