@@ -95,6 +95,16 @@ public final class SightBlockersVerification {
 		}
 		check(seen > 1000 && hidden > 1000, "the random scenes cover both seen and hidden cells: " + seen + " seen, " + hidden + " hidden");
 		assertions++;
+		// A ray millions of blocks long, where the trace's grid stepping drifts past a block corner: traced in full.
+		states.clear();
+		states.put(new BlockPos(26047999, 64, 13024000), Blocks.STONE.defaultBlockState());
+		Vec3 farEye = new Vec3(-29600000.0D, 64.5D, -14799995.149D);
+		Vec3 farView = new Vec3(2, 0, 1).normalize();
+		BlockPos farCell = new BlockPos(29600000, 64, 14800000);
+		check(ObservationVisibility.seesCell(world, context, farEye, farView, farCell) == referenceSeesCell(world, context, farEye, farView, farCell),
+				"a very long ray is traced in full, as before");
+		assertions++;
+		assertions += verifyFluidShapes(world, states);
 		check(ObservationVisibility.Blockers.crossesInside(new Vec3(-1, 0.5, 0.5), new Vec3(2, 0.5, 0.5), 0, 0, 0),
 				"a ray through a block's middle crosses its inside");
 		check(!ObservationVisibility.Blockers.crossesInside(new Vec3(-1, 0.0, 0.5), new Vec3(2, 0.0, 0.5), 0, 0, 0),
@@ -104,6 +114,56 @@ public final class SightBlockersVerification {
 		check(!ObservationVisibility.Blockers.crossesInside(new Vec3(-1, 0.5, 0.5), new Vec3(-0.5, 0.5, 0.5), 0, 0, 0),
 				"a ray that stops short does not cross the block");
 		assertions += 4;
+		return assertions;
+	}
+
+	/**
+	 * The liquid shortcut gives vanilla's visual and collision shape for a living body's context and a context with no
+	 * body: every level of water and lava, with and without the same fluid above, body above or below, every flag.
+	 */
+	private static int verifyFluidShapes(BlockGetter world, Map<BlockPos, BlockState> states) {
+		int assertions = 0;
+		try {
+			java.lang.reflect.Field unsafeField = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
+			unsafeField.setAccessible(true);
+			sun.misc.Unsafe unsafe = (sun.misc.Unsafe) unsafeField.get(null);
+			// A living body that, like a player, cannot stand on fluid; built without a level, only its type matters.
+			net.minecraft.world.entity.Entity zombie = (net.minecraft.world.entity.Entity) unsafe.allocateInstance(net.minecraft.world.entity.monster.zombie.Zombie.class);
+			java.lang.reflect.Constructor<net.minecraft.world.phys.shapes.EntityCollisionContext> constructor =
+					net.minecraft.world.phys.shapes.EntityCollisionContext.class.getDeclaredConstructor(boolean.class, boolean.class, double.class,
+							net.minecraft.world.item.ItemStack.class, boolean.class, net.minecraft.world.entity.Entity.class);
+			constructor.setAccessible(true);
+			BlockPos cell = new BlockPos(0, 64, 0);
+			int shortcuts = 0;
+			for (BlockState base : new BlockState[]{Blocks.WATER.defaultBlockState(), Blocks.LAVA.defaultBlockState()}) {
+				for (int level = 0; level <= 15; level++) {
+					BlockState state = base.setValue(net.minecraft.world.level.block.LiquidBlock.LEVEL, level);
+					for (BlockState above : new BlockState[]{Blocks.AIR.defaultBlockState(), base}) {
+						states.clear();
+						states.put(cell, state);
+						states.put(cell.above(), above);
+						for (net.minecraft.world.entity.Entity entity : new net.minecraft.world.entity.Entity[]{zombie, null}) {
+							for (int flags = 0; flags < 8; flags++) {
+								double bottom = (flags & 4) == 0 ? 70.0D : 60.0D;
+								CollisionContext context = constructor.newInstance((flags & 1) != 0, (flags & 2) != 0, bottom,
+										net.minecraft.world.item.ItemStack.EMPTY, (flags & 2) == 0 && (flags & 1) != 0, entity);
+								net.minecraft.world.phys.shapes.VoxelShape shortcut = EntityHitboxSight.fluidBlockShape(state, context);
+								if (shortcut == null) continue;
+								shortcuts++;
+								check(shortcut.equals(ClipContext.Block.VISUAL.get(state, world, cell, context))
+												&& shortcut.equals(ClipContext.Block.COLLIDER.get(state, world, cell, context)),
+										"the liquid shortcut matches vanilla for " + state + " under " + above + " flags " + flags + " body " + (entity == null ? "none" : "living"));
+								assertions++;
+							}
+						}
+					}
+				}
+			}
+			check(shortcuts > 100, "the liquid shortcut was taken: " + shortcuts);
+			assertions++;
+		} catch (ReflectiveOperationException exception) {
+			throw new AssertionError("cannot build a collision context for the liquid check", exception);
+		}
 		return assertions;
 	}
 

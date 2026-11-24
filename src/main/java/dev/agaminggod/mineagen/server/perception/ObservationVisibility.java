@@ -255,24 +255,34 @@ public final class ObservationVisibility {
 	 * Full blocks that already stopped a ray to one target cell during one {@link #seesCell} call, when the world
 	 * cannot change. A later ray that passes through the inside of one (kept a margin clear of its faces, so edge and
 	 * corner grazes never count) is stopped by it or by a block before it: the trace visits every cell whose inside
-	 * the ray crosses, and a full block's shape reports a ray that enters it from outside. A block the eye is in or
-	 * touches is never kept, since a ray that starts inside a block can leave it unreported. That block is never the target, whose
-	 * cell holds the ray's end, so the ray would fail; skipping its trace gives the same answer.
+	 * the ray crosses, and a full block's shape reports a ray that enters it from outside. That block is never the
+	 * target, whose cell holds the ray's end, so the ray would fail; skipping its trace gives the same answer.
+	 *
+	 * <p>Not kept: a block the eye is in or touches, since a ray that starts inside a block can leave it unreported.
+	 * Not skipped: a ray longer than {@link #MAX_SKIP_DISTANCE}, since the trace's grid stepping drifts with each cell
+	 * and over millions of cells can step past a block corner by more than the margin. At this length the drift stays
+	 * below a millionth of the margin. The margin must also stay well above 7.6e-5: a shorter crossing than the shape
+	 * clip's minimum ray length would go unreported.
 	 */
 	static final class Blockers {
 		private static final double MARGIN = 1.0E-4D;
-		private long[] cells = new long[4];
+		private static final double MAX_SKIP_DISTANCE = 512.0D;
+		private int[] cells = new int[12];
 		private int size;
 
 		void note(BlockGetter level, CollisionContext context, Vec3 eye, BlockPos position, BlockPos hit) {
 			// From inside a block, the trace only finds that block when the ray's first thousandth is still in it.
 			if (near(eye.x, hit.getX()) && near(eye.y, hit.getY()) && near(eye.z, hit.getZ())) return;
-			long key = hit.asLong();
-			for (int index = 0; index < size; index++) if (cells[index] == key) return;
+			int x = hit.getX();
+			int y = hit.getY();
+			int z = hit.getZ();
+			for (int index = 0; index < size; index += 3) if (cells[index] == x && cells[index + 1] == y && cells[index + 2] == z) return;
 			BlockPos cell = hit.immutable();
 			if (cellSightShape(level.getBlockState(cell), level, cell, context, position) != net.minecraft.world.phys.shapes.Shapes.block()) return;
 			if (size == cells.length) cells = java.util.Arrays.copyOf(cells, size * 2);
-			cells[size++] = key;
+			cells[size++] = x;
+			cells[size++] = y;
+			cells[size++] = z;
 		}
 
 		private static boolean near(double eye, int low) {
@@ -280,9 +290,9 @@ public final class ObservationVisibility {
 		}
 
 		boolean crosses(Vec3 from, Vec3 to) {
-			for (int index = 0; index < size; index++) {
-				long key = cells[index];
-				if (crossesInside(from, to, BlockPos.getX(key), BlockPos.getY(key), BlockPos.getZ(key))) return true;
+			if (size == 0 || from.distanceToSqr(to) > MAX_SKIP_DISTANCE * MAX_SKIP_DISTANCE) return false;
+			for (int index = 0; index < size; index += 3) {
+				if (crossesInside(from, to, cells[index], cells[index + 1], cells[index + 2])) return true;
 			}
 			return false;
 		}
