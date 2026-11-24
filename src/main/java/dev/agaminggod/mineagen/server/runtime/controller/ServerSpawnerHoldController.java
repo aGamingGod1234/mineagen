@@ -398,7 +398,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 			// starts vanilla's fast saturation heal.
 			if (!(openPart != null && target.isDeadOrDying()) && lullFood >= 0 && player.getHealth() <= player.getMaxHealth() - LULL_MISSING_HEALTH
 					&& player.getFoodData().getFoodLevel() < 20 && player.level().getGameTime() - lastLossTick > LULL_TICKS
-					&& biteSafe(player) && !hostileNear(player) && ObservationVisibility.canSeeEntity(player, target)) {
+					&& player.getHealth() > lullFloor(player) && biteSafe(player) && !hostileNear(player) && ObservationVisibility.canSeeEntity(player, target)) {
 				if (openPart != null) { openPart.cancel(player); openPart = null; }
 				lullBite = true;
 				lullStartTick = player.level().getGameTime();
@@ -1296,6 +1296,18 @@ public final class ServerSpawnerHoldController implements ServerController {
 	private static boolean blazeNear(ServerPlayer player) {
 		return !player.level().getEntitiesOfClass(LivingEntity.class, player.getBoundingBox().inflate(SpawnerHold.EAT_BLAZE_CLEAR),
 				e -> e.getType() == McEntityTypes.BLAZE && e.isAlive()).isEmpty();
+	}
+
+	/**
+	 * The open fight's flee line (raised to half health against a blaze with a rod in hand, as ServerFightController does):
+	 * at or under it the fight backs out, so a lull bite neither starts nor cuts a back-out short.
+	 */
+	private float lullFloor(ServerPlayer player) {
+		float flee = model.has("fleeAtHealth") ? model.get("fleeAtHealth").getAsFloat() : 0.0F;
+		if (flee <= 0.0F || flee >= ServerFightController.ROD_FLEE_HEALTH || !(target instanceof net.minecraft.world.entity.monster.Blaze)) return flee;
+		for (int slot = 0; slot < player.getInventory().getContainerSize(); slot++)
+			if (player.getInventory().getItem(slot).is(net.minecraft.world.item.Items.BLAZE_ROD)) return ServerFightController.ROD_FLEE_HEALTH;
+		return flee;
 	}
 
 	/** Any hostile in melee reach (a blaze, or a wither skeleton walking up): a lull bite neither starts nor goes on. */
