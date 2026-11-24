@@ -387,9 +387,9 @@ public final class ServerSpawnerHoldController implements ServerController {
 			// A lull in the open fight: health regrows slowly, and the default eat waits for no hostile within 8 blocks, which
 			// a spawner room never has (blaze spawner rooms: bodies sat at 10 health for minutes, then died to the next crowd).
 			// A player eats then: no blaze in reach, nothing hit for 2 s, no volley charging, the blaze in sight. A hit ends
-			// the bite (it is no longer a lull), as does a blaze closing to melee reach, and the fight resumes.
+			// the bite (it is no longer a lull), as does a blaze or other hostile closing to melee reach, and the fight resumes.
 			if (lullBite) {
-				if (eatTicks >= 0 && lastLossTick <= lullStartTick && !blazeNear(player)) return eat(player);
+				if (eatTicks >= 0 && lastLossTick <= lullStartTick && !hostileNear(player)) return eat(player);
 				if (eatTicks >= 0) { eatTicks = -1; eatInput.release(); bitesStopped++; }
 				lullBite = false;
 			}
@@ -398,7 +398,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 			// starts vanilla's fast saturation heal.
 			if (!(openPart != null && target.isDeadOrDying()) && lullFood >= 0 && player.getHealth() <= player.getMaxHealth() - LULL_MISSING_HEALTH
 					&& player.getFoodData().getFoodLevel() < 20 && player.level().getGameTime() - lastLossTick > LULL_TICKS
-					&& biteSafe(player) && !blazeNear(player) && ObservationVisibility.canSeeEntity(player, target)) {
+					&& biteSafe(player) && !hostileNear(player) && ObservationVisibility.canSeeEntity(player, target)) {
 				if (openPart != null) { openPart.cancel(player); openPart = null; }
 				lullBite = true;
 				lullStartTick = player.level().getGameTime();
@@ -1296,6 +1296,12 @@ public final class ServerSpawnerHoldController implements ServerController {
 	private static boolean blazeNear(ServerPlayer player) {
 		return !player.level().getEntitiesOfClass(LivingEntity.class, player.getBoundingBox().inflate(SpawnerHold.EAT_BLAZE_CLEAR),
 				e -> e.getType() == McEntityTypes.BLAZE && e.isAlive()).isEmpty();
+	}
+
+	/** Any hostile in melee reach (a blaze, or a wither skeleton walking up): a lull bite neither starts nor goes on. */
+	private static boolean hostileNear(ServerPlayer player) {
+		return !player.level().getEntitiesOfClass(LivingEntity.class, player.getBoundingBox().inflate(SpawnerHold.EAT_BLAZE_CLEAR),
+				e -> e instanceof net.minecraft.world.entity.monster.Enemy && e.isAlive()).isEmpty();
 	}
 
 	private boolean biteSafe(ServerPlayer player) {
