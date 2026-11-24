@@ -74,16 +74,17 @@
    "execute positioned {x} -58 {z} as @e[type=minecraft:skeleton,distance=..20] run data get entity @s Pos"
   ],
   "name": "skeleton-pit-open",
-  "note": "Guard for skeleton-pit-below: a pit 4 wide beside the walk, floor 3 below, with the skeleton at its far side, so its eye line to the body clears the walk's edge and it can shoot. The walk must still stop for it (HOSTILE_NEAR); arriving fails.",
+  "note": "Guard for skeleton-pit-below: the same trench, but the walk's floor column next to it is open instead of glass, so the skeleton's eye line to the body's eye is clear and it can shoot. The walk must still stop for it (HOSTILE_NEAR); arriving fails.",
   "setup": [
    "forceload add {x-20} {z-20} {x+20} {z+30}",
    "fill {x-6} -63 {z-4} {x+8} -53 {z+24} minecraft:stone",
    "fill {x-1} -58 {z-1} {x+1} -56 {z+20} minecraft:air",
    "fill {x-1} -55 {z-1} {x+1} -55 {z+20} minecraft:glowstone",
-   "fill {x+2} -61 {z+4} {x+5} -56 {z+16} minecraft:air",
+   "fill {x+2} -61 {z+4} {x+2} -56 {z+16} minecraft:air",
+   "fill {x+1} -62 {z+4} {x+1} -59 {z+16} minecraft:air",
    "tp Probe {x+0.5} -58 {z+0.5} 0 0",
    "kill @e[type=minecraft:item,distance=..40]",
-   "summon minecraft:skeleton {x+4.5} -61 {z+12.5} {PersistenceRequired:1b,CanPickUpLoot:0b,HandItems:[{id:\"minecraft:bow\",count:1},{}]}"
+   "summon minecraft:skeleton {x+2.5} -61 {z+12.5} {PersistenceRequired:1b,CanPickUpLoot:0b,HandItems:[{id:\"minecraft:bow\",count:1},{}]}"
   ],
   "calls": [
    {
