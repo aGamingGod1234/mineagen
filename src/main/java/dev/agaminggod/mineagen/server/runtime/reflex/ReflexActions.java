@@ -2000,20 +2000,21 @@ final class ReflexActions {
 			// past a lip would hold the body exposed under the dragon.
 			int scoopBudget = dragonNear && holdTicks > HOLD_SETTLE_TICKS && !player.isInWater() ? 6 : 30;
 			if (++scoopTicks > scoopBudget) return Step.done(left + (dragonNear ? " (the dragon came near; could not scoop it back)" : " (could not scoop it back)"));
+			String scooping = dragonNear ? "; the dragon is near; " : "; no angry enderman near; ";
 			input.accept(look(player, centre, 0.0F, 0.0F, false, false, placedSlot, placedHand));
-			if (placedHand == InteractionHand.MAIN_HAND && player.getInventory().getSelectedSlot() != placedSlot) return Step.running(placed + "; no angry enderman near; selecting the bucket");
+			if (placedHand == InteractionHand.MAIN_HAND && player.getInventory().getSelectedSlot() != placedSlot) return Step.running(placed + scooping + "selecting the bucket");
 			// Read once the pour's slot is selected again: a slot changed during the hold holds something else.
 			ItemStack held = player.getItemInHand(placedHand);
 			if (!held.is(net.minecraft.world.item.Items.BUCKET)) return Step.done(left + " (no empty bucket in hand to scoop it back)");
 			BlockHitResult sight = level.clip(new ClipContext(player.getEyePosition(), player.getEyePosition().add(player.getLookAngle().scale(player.blockInteractionRange())),
 					ClipContext.Block.OUTLINE, ClipContext.Fluid.SOURCE_ONLY, player));
-			if (sight.getType() != HitResult.Type.BLOCK || !sight.getBlockPos().equals(heldWater)) return Step.running(placed + "; no angry enderman near; aiming at the poured water");
+			if (sight.getType() != HitResult.Type.BLOCK || !sight.getBlockPos().equals(heldWater)) return Step.running(placed + scooping + "aiming at the poured water");
 			InteractionResult result = player.gameMode.useItem(player, level, held, placedHand);
 			if (result.consumesAction() && player.getItemInHand(placedHand).is(net.minecraft.world.item.Items.WATER_BUCKET)) {
 				ArmSwing.use(player, placedHand);
 				return Step.done("poured water at feet " + at + (dragonNear ? ", scooped it back as the dragon came near" : ", stood in it until no angry enderman was near, and scooped it back"));
 			}
-			return Step.running(placed + "; no angry enderman near; scooping it back");
+			return Step.running(placed + scooping + "scooping it back");
 		}
 
 		/** After a water clutch: once the body has landed, use the emptied bucket on the source to take it back. */

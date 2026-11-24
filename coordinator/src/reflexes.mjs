@@ -677,7 +677,9 @@ export class ReflexBook {
 		const pours = this.#pours.get(agentId);
 		if (!cell || !pours?.length) return;
 		const [x, y, z] = cell.slice(1).map(Number);
-		this.#pours.set(agentId, pours.filter(p => !(p.x === x && p.y === y && p.z === z)));
+		// The report is from this dimension: a pour at the same coordinates elsewhere is still there.
+		const dimension = this.#samples.get(agentId)?.world?.dimension ?? null;
+		this.#pours.set(agentId, pours.filter(p => !(p.x === x && p.y === y && p.z === z && p.dimension === dimension)));
 	}
 
 	// A scooped source turns to air, and the observation lists no air rows, so a scoop is read from the inventory: one more
