@@ -42,6 +42,8 @@ case $cmd in
     case $2 in *:.codex/auth.json) h=$F/\${2%%:*}; [ -f "$h/NOAUTH" ] && [ -f "$h/ck/game.sh" ] && { echo "scp failed" >&2; exit 1; };; esac
     # A BLOCKSCP file makes every upload of an arm package hang for minutes, as a slow transfer does.
     case $2 in *:ck/arms/*.tar.gz) [ -f "$F/BLOCKSCP" ] && { echo "blocked $2" >> "$F/blocked.log"; sleep 300; };; esac
+    # A NOSALVAGE file makes every copy home of a game's salvaged replays and world fail.
+    case $1 in *.salvage.tgz) [ -f "$F/NOSALVAGE" ] && { echo "scp failed" >&2; exit 1; };; esac
     case $2 in *:ck/game.sh) cp "$F/fake-game.sh" "$d";; *) cp "$s" "$d";; esac;;
   info) [ -f "$F/$1.deleted" ] && echo '{"sandbox":{"state":"deleted"}}' || printf '{"sandbox":{"state":"running","name":"%s"}}\\n' "$(cat "$F/$1.name" 2>/dev/null)";;
   delete) touch "$F/$1.deleted"; echo "$1" >> "$F/deleted.log"; echo '{}';;
@@ -368,6 +370,29 @@ test('checkpoint batch copies the replay and world of a running game before it d
 		for (const id of ['bx_aaaaaaaa', 'bx_bbbbbbbb']) assert.ok(log.indexOf(`from ${id} to salvage/`) >= 0 && log.indexOf(`from ${id} to salvage/`) < log.indexOf(`deleted ${id}`), `${id} was copied before it was deleted`);
 		assert.deepEqual(readFileSync(path.join(root, 'deleted.log'), 'utf8').trim().split('\n').sort(), ['bx_aaaaaaaa', 'bx_bbbbbbbb']);
 		assert.equal(leftSignIns(root), '0');
+	} finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('checkpoint batch keeps a machine whose running game\'s replays could not be copied on SIGTERM, with its sign-in off', posixOnly, async () => {
+	const root = setup({ record: true });
+	writeFileSync(path.join(root, 'RECORD'), ''); writeFileSync(path.join(root, 'NOSALVAGE'), '');
+	for (const id of ['bx_aaaaaaaa', 'bx_bbbbbbbb']) writeFileSync(path.join(root, id, 'HANG'), '');
+	try {
+		const child = spawn('node', [script, '--plan', path.join(root, 'plan.json'), '--out', path.join(root, 'out')], {
+			env: { ...process.env, PATH: `${path.join(root, 'bin')}:${process.env.PATH}`, BOAT_BIN: path.join(root, 'bin/boat'), FAKE_BOAT_ROOT: root, CHECKPOINT_POLL_MS: '200' }, stdio: ['ignore', 'pipe', 'pipe'] });
+		const exited = new Promise(resolve => child.on('exit', resolve));
+		let out = '';
+		await new Promise((resolve, reject) => {
+			const timer = setTimeout(() => reject(new Error(`no game started: ${out}`)), 60_000);
+			child.stdout.on('data', chunk => { out += chunk; if ((out.match(/started nether/g) ?? []).length >= 2) { clearTimeout(timer); resolve(); } });
+		});
+		const signalledAt = Date.now();
+		child.kill('SIGTERM');
+		await exited;
+		assert.ok(Date.now() - signalledAt < 60_000, 'the cleanup still ends inside the signal budget');
+		assert.equal(existsSync(path.join(root, 'deleted.log')), false, 'no machine holding an uncopied replay is deleted');
+		assert.equal(leftSignIns(root), '0');
+		assert.match(readFileSync(path.join(root, 'out/batch.log'), 'utf8'), /batch ended; machines not deleted: .*bx_aaaaaaaa.*\(kept: copy the recordings and world of/);
 	} finally { rmSync(root, { recursive: true, force: true }); }
 });
 

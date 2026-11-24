@@ -33,10 +33,17 @@ export const RECORDING_SAVE_MS = 60000;
 export const RECORDING_STOP_MS = 120000;
 // The longest a recording launcher takes to finish after SIGTERM: capture shutdown, the save wait and the stop wait.
 export const RECORDING_SHUTDOWN_MS = 15000 + RECORDING_SAVE_MS + RECORDING_STOP_MS;
-// Reads the server log written since the stop-recording command: how many recordings closed and the replay files saved.
-export function savedReplays(logText) {
-	return { closed: (logText.match(/Successfully closed replay /g) ?? []).length,
-		files: [...logText.matchAll(/Successfully saved replay \S+ to (.+?), compressed to /g)].map(match => match[1]) };
+// Reads the whole server log and the offset where the stop-recording command was sent. The recording is settled once a
+// replay closed after the command, or the command found nothing to stop (the agent already left, which closes its
+// recording) and no save is still running; it is saved when it settled with a replay closed.
+export function replayState(log, from) {
+	const count = (text, pattern) => (text.match(pattern) ?? []).length;
+	const after = log.slice(from), closed = count(log, /Successfully closed replay /g);
+	const closedAfter = count(after, /Successfully closed replay /g) > 0;
+	const nothingToStop = /No player was found|Failed to stop any recordings|Successfully stopped 0 recordings/.test(after);
+	const saving = count(log, /Starting to save replay /g) > closed;
+	const settled = closedAfter || (nothingToStop && !saving);
+	return { settled, saved: settled && closed > 0, files: [...log.matchAll(/Successfully saved replay \S+ to (.+?), compressed to /g)].map(match => match[1]) };
 }
 export async function replayRecorderInstalled(modsDirectory) {
 	return (await readdir(modsDirectory).catch(() => [])).some(name => /^server-?replay.*\.jar$/i.test(name));
@@ -215,16 +222,16 @@ export async function runMatrix(options) {
 						// orphans no process but the server, which finishes its save and stop on its own.
 						await killGroups(children.filter(child => child !== server)); stopping = [server];
 						const saveDeadline = Date.now() + RECORDING_SAVE_MS;
-						while (replayStarted && !exited(server) && Date.now() < saveDeadline && !savedReplays((await text(serverLog)).slice(replayFrom)).closed) await sleep(250);
+						while (replayStarted && !exited(server) && Date.now() < saveDeadline && !replayState(await text(serverLog), replayFrom).settled) await sleep(250);
 					}
 					if (!server.stdin.writableEnded) server.stdin.end('stop\n');
 					const deadline = Date.now() + (recording ? RECORDING_STOP_MS : 10000); while (!exited(server) && Date.now() < deadline) await sleep(100);
 				}
 				await killGroups(stopping);
 				if (recording) {
-					const replays = replayFrom === null ? { closed: 0, files: [] } : savedReplays((await text(serverLog)).slice(replayFrom));
-					recordingReport = { started: replayStarted, saved: replayStarted ? replays.closed > 0 : null, files: replays.files };
-					if (replayStarted && !replays.closed) console.error(`${scenario.id}: the replay was not confirmed saved before the server stopped`);
+					const replays = replayState(await text(serverLog), replayFrom ?? 0);
+					recordingReport = { started: replayStarted, saved: replayStarted ? replays.saved : null, files: replays.files };
+					if (replayStarted && !replays.saved) console.error(`${scenario.id}: the replay was not confirmed saved before the server stopped`);
 				}
 				for (const stream of streams) if (!stream.writableFinished) await new Promise(resolve => stream.end(resolve));
 			}

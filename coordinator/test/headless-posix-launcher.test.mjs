@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { scenarioConfig, coordinatorReady, replayRecorderInstalled, savedReplays } from '../../scripts/run-headless-provider-matrix.mjs';
+import { scenarioConfig, coordinatorReady, replayRecorderInstalled, replayState } from '../../scripts/run-headless-provider-matrix.mjs';
 
 const scenario = { provider: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'low', serviceTier: 'priority' };
 test('POSIX launcher isolates workspaces and seeds the exact requested Codex profile', () => {
@@ -41,12 +41,22 @@ test('POSIX launcher records only when the server template carries the ServerRep
 	} finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test('POSIX launcher reads a saved replay from the ServerReplay log lines', () => {
-	assert.deepEqual(savedReplays('[01:36:06] [Server thread/INFO]: System chat: Failed to start any recordings\n'), { closed: 0, files: [] });
-	const log = [
-		'[01:36:16] [Server thread/INFO]: Starting to save replay ha_rec_e2e_z4hqc, please do not stop the server!',
-		'[01:36:16] [Server thread/INFO]: Successfully saved replay ha_rec_e2e_z4hqc to ./recordings/players/ha_rec_e2e_z4hqc/2026-11-25--01-34-06.zip, compressed to 3.7 MiB',
-		'[01:36:16] [Server thread/INFO]: Successfully closed replay ha_rec_e2e_z4hqc',
-	].join('\n');
-	assert.deepEqual(savedReplays(log), { closed: 1, files: ['./recordings/players/ha_rec_e2e_z4hqc/2026-11-25--01-34-06.zip'] });
+test('POSIX launcher settles the recording on a close after its stop, or on nothing left to stop with no save running', () => {
+	const start = '[01:37:20] [Server thread/INFO]: Starting replay for agent\n';
+	const save = '[01:39:48] [Server thread/INFO]: Starting to save replay agent, please do not stop the server!\n';
+	const saved = '[01:39:48] [Server thread/INFO]: Successfully saved replay agent to ./recordings/players/agent/2026-11-25--01-37-18.zip, compressed to 4.6 MiB\n';
+	const closed = '[01:39:48] [Server thread/INFO]: Successfully closed replay agent\n';
+	const gone = '[01:39:48] [Server thread/INFO]: System chat: No player was found\n';
+	const files = ['./recordings/players/agent/2026-11-25--01-37-18.zip'];
+	// Stopped by the launcher's command.
+	assert.deepEqual(replayState(start, start.length), { settled: false, saved: false, files: [] });
+	assert.deepEqual(replayState(start + save + saved + closed, start.length), { settled: true, saved: true, files });
+	// The agent left (a stopped attempt) and its save is still running when the command finds nobody: wait for the close.
+	assert.equal(replayState(start + save + gone, start.length + save.length).settled, false);
+	assert.deepEqual(replayState(start + save + gone + saved + closed, start.length + save.length), { settled: true, saved: true, files });
+	// The agent left well before the command: its replay already closed.
+	const before = start + save + saved + closed;
+	assert.deepEqual(replayState(before + gone, before.length), { settled: true, saved: true, files });
+	// A 30-minute split closed a replay earlier; the open one still has to close after the command.
+	assert.equal(replayState(start + save + saved + closed, (start + save + saved + closed).length).settled, false);
 });

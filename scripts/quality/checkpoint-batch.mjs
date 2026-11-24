@@ -400,7 +400,7 @@ const deletes = vm => plan.drain === 'delete' || vm.created;
 // Its calls carry the abort signal, so a stalled one cannot hold a SIGTERM back from the cleanup, which redoes both steps.
 async function retire(vm) {
 	if (!vm.signInRemoved) { await removeCodexSignIn(vm.id, undefined, live); vm.signInRemoved = true; await log(`removed the sign-in from ${vm.id} (no further game for it)`); }
-	if (plan.drain === 'delete' && !vm.deleted) { await destroyMachine(vm.id, live); vm.deleted = true; await log(`deleted ${vm.id} (no further game for it)`); }
+	if (plan.drain === 'delete' && !vm.deleted && !vm.heldGame) { await destroyMachine(vm.id, live); vm.deleted = true; await log(`deleted ${vm.id} (no further game for it)`); }
 }
 
 // One machine's turn in a pass: prepare, check its game, copy a finished one home and retire the machine when no game
@@ -423,6 +423,8 @@ async function tend(vm, step) {
 				game.state = 'done'; game.done = 'local copy failed'; game.endedAt = new Date().toISOString();
 				game.score = scoreGame(null, plan.savepoints[game.savepoint].targets);
 				await log(`gave up copying ${game.id} after ${game.localCopyFailures} local failures: it scores unknown`);
+				// Its replays and world are still only on the machine, so the machine is kept for a copy by hand.
+				if (keepsWorlds) vm.heldGame = game.id;
 				vm.game = null;
 			}
 			return;
@@ -592,14 +594,17 @@ await Promise.all(machines.filter(m => m.id !== 'none' && !m.deleted).map(async 
 			return share;
 		};
 		if (endSessions) await remote(vm.id, stopGamesScript, opts(180_000)).then(() => { vm.sessionsEnded = true; return log(`ended the game sessions on ${vm.id}`); }, e => log(`could not end the game sessions on ${vm.id}: ${e.message.split('\n')[0]}`));
-		if (salvageDue && (vm.sessionsEnded || !endSessions)) await salvage(vm, cleanupGame, opts(20 * 60_000)).then(() => { vm.salvaged = true; }, e => log(`could not copy the recordings and world of ${cleanupGame.id} from ${vm.id}: ${e.message.split('\n')[0]}`));
+		if (salvageDue && (vm.sessionsEnded || !endSessions)) await salvage(vm, cleanupGame, opts(20 * 60_000)).then(() => { vm.salvaged = true; }, e => { vm.salvageFailures = (vm.salvageFailures ?? 0) + 1; return log(`could not copy the recordings and world of ${cleanupGame.id} from ${vm.id}: ${e.message.split('\n')[0]}`); });
 		else if (salvageDue) steps--;
-		const holdForCopy = salvageDue && !vm.salvaged;
+		if (salvageDue && !vm.salvaged) vm.heldGame = cleanupGame.id;
+		const holdForCopy = Boolean(vm.heldGame) && !vm.salvaged;
 		if (removeSignIn) await removeCodexSignIn(vm.id, undefined, opts()).then(() => { vm.signInRemoved = true; return log(`removed the sign-in from ${vm.id}`); }, e => { vm.signInRemoved = false; return log(`could not remove the sign-in from ${vm.id}: ${e.message}`); });
 		// Batch-created extras (and every machine under drain "delete") are deleted, never left idle.
 		if (deletes(vm) && !holdForCopy) await destroyMachine(vm.id, opts()).then(() => { vm.deleted = true; return log(`deleted ${vm.id}`); }, e => log(`could not delete ${vm.id}: ${e.message}`));
-		else if (deletes(vm)) { steps--; vm.heldForCopy = true; }
+		else if (deletes(vm)) steps--;
 		if (vm.deleted || (vm.signInRemoved && !deletes(vm) && !holdForCopy && (vm.sessionsEnded || !(vm.game || vm.lost)))) return;
+		// A held machine is left once its sign-in is off and its copy has failed three times (or cannot be retried here).
+		if (holdForCopy && vm.signInRemoved && (vm.salvageFailures ?? 0) >= (salvageDue ? 3 : 0)) return;
 		if (Date.now() >= bound() - (aborted ? 5_000 : 0)) return;
 		// A machine boat no longer knows took its sign-in with it; a stopped one keeps its disk, so it is named at the end.
 		const gone = await machineState(vm.id, aborted ? { timeoutMs: Math.max(1_000, bound() - Date.now()) } : live).then(s => LIVE.has(s) ? null : s ?? 'unknown', e => NOT_FOUND.test(e.message) ? 'not found' : null);
@@ -611,7 +616,7 @@ await Promise.all(machines.filter(m => m.id !== 'none' && !m.deleted).map(async 
 for (const g of games.filter(g => g.state === 'running')) g.state = 'not finished';
 state.endedAt = new Date().toISOString();
 await save().then(() => writeSummary(out, state)).catch(error => log(`could not write the final state: ${error.message}`));
-await log(`batch ended; machines not deleted: ${machines.filter(m => m.id !== 'none' && !m.deleted).map(m => `${m.id}${m.lost ? ' (lost)' : ''}${m.created ? '' : ' (listed, kept)'}${m.heldForCopy && !m.salvaged ? ` (kept: copy its game's recordings and world from ~/ck/games/${m.game}, then delete it)` : ''}`).join(' ') || 'none'}`);
+await log(`batch ended; machines not deleted: ${machines.filter(m => m.id !== 'none' && !m.deleted).map(m => `${m.id}${m.lost ? ' (lost)' : ''}${m.created ? '' : ' (listed, kept)'}${m.heldGame && !m.salvaged ? ` (kept: copy the recordings and world of ${m.heldGame} from its run folder, see ~/ck/games/${m.heldGame}/run.log, then delete it)` : ''}`).join(' ') || 'none'}`);
 // state.json keeps signInRemoved for every machine; one still holding a sign-in is named here and fails the run.
 const signedIn = machines.filter(m => m.id !== 'none' && !m.deleted && !m.signInRemoved && !['not found', 'deleted'].includes(m.gone));
 if (signedIn.length) { await log(`SIGN-IN MAY STILL BE ON: ${signedIn.map(m => `${m.id}${m.gone ? ` (${m.gone} on boat)` : ''}`).join(' ')}; take it off by hand (rm ~/.codex/auth.json and ~/ck)`); process.exitCode = 1; }
