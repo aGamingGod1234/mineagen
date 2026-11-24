@@ -1,5 +1,6 @@
 package dev.agaminggod.mineagen.server;
 
+import dev.agaminggod.mineagen.server.perception.PlayerObservationEvents;
 import dev.agaminggod.mineagen.agent.AgentRecord;
 import dev.agaminggod.mineagen.server.runtime.ServerActionRequest;
 import dev.agaminggod.mineagen.server.runtime.ServerActionResult;
@@ -159,8 +160,8 @@ public final class AgentChatReporter {
 		MinecraftServer server = manager.server();
 		if (server == null) return;
 		try {
-			server.getPlayerList().broadcastSystemMessage(
-					noticeLine(displayName, record.profile().provider(), level, body), false);
+			PlayerObservationEvents.activityLine(noticeLine(displayName, record.profile().provider(), level, body),
+					line -> server.getPlayerList().broadcastSystemMessage(line, false));
 		} catch (RuntimeException exception) {
 			LOGGER.warn("Could not broadcast agent notice {} for {}", code, record.agentId(), exception);
 		}
@@ -293,7 +294,7 @@ public final class AgentChatReporter {
 				.withStyle(familyColor(record.profile().provider()));
 		MutableComponent body = Component.literal(" " + (message == null || message.isBlank() ? "No details." : message))
 				.withStyle(messageColor);
-		manager.server().getPlayerList().broadcastSystemMessage(prefix.append(body), false);
+		PlayerObservationEvents.activityLine(prefix.append(body), line -> manager.server().getPlayerList().broadcastSystemMessage(line, false));
 	}
 
 	private static ChatFormatting familyColor(String provider) {
