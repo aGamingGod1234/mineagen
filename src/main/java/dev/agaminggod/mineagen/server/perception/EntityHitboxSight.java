@@ -57,6 +57,11 @@ public final class EntityHitboxSight {
 		return world.clip(clip).getType() == HitResult.Type.MISS;
 	}
 
+	/** The visual-shape clip {@link #clear} makes, for callers that need the hit. */
+	static ClipContext visualClip(Vec3 eye, Vec3 hit, CollisionContext context) {
+		return new FluidAwareClip(eye, hit, ClipContext.Block.VISUAL, context);
+	}
+
 	/**
 	 * The visual or collision shape of a liquid block for this context, or null to ask the block. Vanilla's liquid
 	 * shape is a full block only for a context that always collides with fluid (left to the block), and otherwise

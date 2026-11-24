@@ -106,10 +106,11 @@ public final class ObservationVisibility {
 			Objects.requireNonNull(entity, "entity must not be null");
 			if (entity instanceof net.minecraft.world.entity.boss.enderdragon.EnderDragon dragon && anyPart(dragon, this::hasLineOfSight)) return true;
 			CollisionContext context = CollisionContext.of(observer);
+			Blockers blockers = new Blockers();
 			return EntityHitboxSight.point(eye, entity.getBoundingBox(), point -> {
 				Vec3 hit = EntityHitboxSight.intersection(eye, point, entity.getBoundingBox());
 				return hit != null && hasLoadedSightPath(eye, hit, level::hasChunkAt)
-						&& EntityHitboxSight.clear(level, context, eye, hit, ClipContext.Block.VISUAL)
+						&& clearOfBlocks(level, context, eye, hit, blockers)
 						&& !lavaBetween(level, eye, hit, null);
 			}) != null;
 		}
@@ -175,6 +176,18 @@ public final class ObservationVisibility {
 	}
 
 	/**
+	 * {@link EntityHitboxSight#clear} with the visual shape, skipping a ray through a full block an earlier ray of the
+	 * same look already met: any block in the way fails it, so the skipped trace would fail too.
+	 */
+	static boolean clearOfBlocks(BlockGetter level, CollisionContext context, Vec3 eye, Vec3 hit, Blockers blockers) {
+		if (blockers.crosses(eye, hit)) return false;
+		BlockHitResult result = level.clip(EntityHitboxSight.visualClip(eye, hit, context));
+		if (result.getType() == HitResult.Type.MISS) return true;
+		blockers.note(level, context, eye, null, result.getBlockPos());
+		return false;
+	}
+
+	/**
 	 * Whether the eye sees this cell, whatever it holds (open air included): in the view cone, with no block and no lava
 	 * in between. Unlike block rows there is no touch allowance: being close says nothing about the empty cells and
 	 * landings behind the eye. Lava is opaque. For blocks, also test the actual view ray and shared hitbox sight
@@ -224,10 +237,11 @@ public final class ObservationVisibility {
 	/**
 	 * The shape a cell sight ray meets: terrain footing includes the backing surface of a zero-collision snow dusting,
 	 * so the target's own one-layer coating is ignored, never intervening snow, leaves, thicker cover or an opaque block.
+	 * Without a target cell (entity sight) it is the plain visual shape.
 	 */
 	private static net.minecraft.world.phys.shapes.VoxelShape cellSightShape(
 			BlockState state, BlockGetter world, BlockPos cell, CollisionContext context, BlockPos position) {
-		if (cell.getX() == position.getX() && cell.getZ() == position.getZ() && cell.getY() == position.getY() + 1
+		if (position != null && cell.getX() == position.getX() && cell.getZ() == position.getZ() && cell.getY() == position.getY() + 1
 				&& state.is(Blocks.SNOW) && state.getValue(BlockStateProperties.LAYERS) == 1) {
 			return net.minecraft.world.phys.shapes.Shapes.empty();
 		}
@@ -252,8 +266,9 @@ public final class ObservationVisibility {
 	}
 
 	/**
-	 * Full blocks that already stopped a ray to one target cell during one {@link #seesCell} call, when the world
-	 * cannot change. A later ray that passes through the inside of one (kept a margin clear of its faces, so edge and
+	 * Full blocks that already stopped a ray to one target cell during one {@link #seesCell} call, or to one entity
+	 * during one {@link Frame#hasLineOfSight} call, when the world cannot change. A later ray that passes through the
+	 * inside of one (kept a margin clear of its faces, so edge and
 	 * corner grazes never count) is stopped by it or by a block before it: the trace visits every cell whose inside
 	 * the ray crosses, and a full block's shape reports a ray that enters it from outside. That block is never the
 	 * target, whose cell holds the ray's end, so the ray would fail; skipping its trace gives the same answer.

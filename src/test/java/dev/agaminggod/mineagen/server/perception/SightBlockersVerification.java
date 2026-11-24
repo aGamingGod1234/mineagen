@@ -58,6 +58,8 @@ public final class SightBlockersVerification {
 		CollisionContext context = CollisionContext.empty();
 		int seen = 0;
 		int hidden = 0;
+		int bodiesSeen = 0;
+		int bodiesHidden = 0;
 		for (int scene = 0; scene < 400; scene++) {
 			states.clear();
 			// Denser scenes hide more cells, which is where blockers are used.
@@ -81,6 +83,27 @@ public final class SightBlockersVerification {
 				view = view.normalize();
 				// Axis-aligned views put many rays exactly along cell faces.
 				if (random.nextInt(4) == 0) view = new Vec3(Math.signum(view.x), 0.0D, 0.0D);
+				for (int body = 0; body < 10; body++) {
+					double width = 0.3D + random.nextDouble();
+					double height = 0.5D + random.nextDouble() * 1.5D;
+					double bx = random.nextDouble() * 10 - 5;
+					double by = 60 + random.nextDouble() * 10;
+					double bz = random.nextDouble() * 10 - 5;
+					AABB box = new AABB(bx, by, bz, bx + width, by + height, bz + width);
+					boolean expected = EntityHitboxSight.point(eye, box, point -> {
+						Vec3 hit = EntityHitboxSight.intersection(eye, point, box);
+						return hit != null && world.clip(new ClipContext(eye, hit, ClipContext.Block.VISUAL, ClipContext.Fluid.NONE, context)).getType() == HitResult.Type.MISS;
+					}) != null;
+					ObservationVisibility.Blockers blockers = new ObservationVisibility.Blockers();
+					boolean actual = EntityHitboxSight.point(eye, box, point -> {
+						Vec3 hit = EntityHitboxSight.intersection(eye, point, box);
+						return hit != null && ObservationVisibility.clearOfBlocks(world, context, eye, hit, blockers);
+					}) != null;
+					check(actual == expected, "entity sight with blockers matches the full trace for " + box + " from " + eye);
+					assertions++;
+					if (expected) bodiesSeen++;
+					else bodiesHidden++;
+				}
 				BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
 				for (int cell = 0; cell < 20; cell++) {
 					cursor.set(random.nextInt(-5, 6), random.nextInt(60, 71), random.nextInt(-5, 6));
@@ -94,6 +117,8 @@ public final class SightBlockersVerification {
 			}
 		}
 		check(seen > 1000 && hidden > 1000, "the random scenes cover both seen and hidden cells: " + seen + " seen, " + hidden + " hidden");
+		check(bodiesSeen > 1000 && bodiesHidden > 1000, "the random scenes cover both seen and hidden bodies: " + bodiesSeen + " seen, " + bodiesHidden + " hidden");
+		assertions++;
 		assertions++;
 		// A ray millions of blocks long, where the trace's grid stepping drifts past a block corner: traced in full.
 		states.clear();
