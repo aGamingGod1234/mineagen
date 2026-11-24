@@ -1092,7 +1092,7 @@ public final class ServerDigController implements ServerController {
 		SeenTerrain.Reader<BlockState> seen = SeenTerrain.of(player);
 		BlockState state = seen.seesNow(floor.getX(), floor.getY(), floor.getZ()) ? seen.known(floor.getX(), floor.getY(), floor.getZ()) : null;
 		if (state != null && state.getFluidState().is(FluidTags.LAVA)) return fluidStop(player, next, floor, true);
-		if (state != null && standable(player.level(), floor, state) && !(state.getBlock() instanceof FallingBlock)) return step(player);
+		if (state != null && holds(player, seen, floor, state)) return step(player);
 		BlockPos support = feet.below();
 		String filler = filler(player);
 		if ((state == null || state.canBeReplaced()) && filler != null && sturdy(player.level(), support, player.level().getBlockState(support))) {
@@ -1100,6 +1100,15 @@ public final class ServerDigController implements ServerController {
 			return startPlace(player, floor, heading, filler, null, null);
 		}
 		return stop(player, "CAVE_OPENING", "Cannot cross the cave at " + cell(floor) + ": " + (filler == null ? "no block to place" : "no floor to build from"));
+	}
+
+	/** A floor block the body can step onto: loose gravel or sand only with solid ground seen under it. */
+	private static boolean holds(ServerPlayer player, SeenTerrain.Reader<BlockState> seen, BlockPos at, BlockState state) {
+		if (!standable(player.level(), at, state)) return false;
+		if (!(state.getBlock() instanceof FallingBlock)) return true;
+		BlockPos under = at.below();
+		BlockState support = seen.known(under.getX(), under.getY(), under.getZ());
+		return support != null && !passable(player.level(), under, support);
 	}
 
 	private TickResult step(ServerPlayer player) {
@@ -1155,8 +1164,7 @@ public final class ServerDigController implements ServerController {
 		if (!down && active == Pattern.TUNNEL && throughCaves && crossSteps < MAX_CROSS && filler(player) != null && !poolUnder(player, next.below())) {
 			// An edge past a floor that holds (seen open beyond it): step onto that lip first; the crossing starts at the gap.
 			BlockPos lip = next.below();
-			BlockState lipState = player.level().getBlockState(lip);
-			if (standable(player.level(), lip, lipState) && !(lipState.getBlock() instanceof FallingBlock)) return step(player);
+			if (holds(player, SeenTerrain.of(player), lip, player.level().getBlockState(lip))) return step(player);
 			crossHeading = heading;
 			crossNext = true;
 			phase = Phase.START;
@@ -1260,7 +1268,9 @@ public final class ServerDigController implements ServerController {
 		float pitch = AgentInputStates.turnPitch(player.getXRot(), look.pitch());
 		// A floor placed out over a cave goes on the side face of the block underfoot: crouch to its edge first, as a
 		// player bridging does, so the eye sees that face.
-		if ((crossNext || floorAfterPlace) && leanTicks < (crossNext ? LEAN_TICKS : 12)) {
+		// The long lean is the level tunnel's bridge; the stairs' crossings and build-under keep the 12-tick lean.
+		boolean longLean = crossNext && active == Pattern.TUNNEL;
+		if ((crossNext || floorAfterPlace) && leanTicks < (longLean ? LEAN_TICKS : 12)) {
 			// Face the heading first: forward follows the view, and a lean sideways leaves the face out of sight.
 			float toward = AgentInputStates.turnYaw(player.getYRot(), heading.toYRot());
 			boolean facing = Math.abs(AgentInputStates.shortestAngleDelta(toward, heading.toYRot())) < 10.0F;
@@ -1270,7 +1280,7 @@ public final class ServerDigController implements ServerController {
 			Vec3 body = player.position();
 			double gap = (support.getX() + 0.5D + heading.getStepX() * 0.5D - body.x) * heading.getStepX()
 					+ (support.getZ() + 0.5D + heading.getStepZ() * 0.5D - body.z) * heading.getStepZ();
-			if (crossNext && facing && leanTicks >= 12 && gap <= LEAN_EDGE) leanTicks = LEAN_TICKS;
+			if (longLean && facing && leanTicks >= 12 && gap <= LEAN_EDGE) leanTicks = LEAN_TICKS;
 			applyInput(player, facing ? 1.0F : 0.0F, false, true, false, toward, pitch, player.getInventory().getSelectedSlot());
 			return TickResult.running(progress(player));
 		}
