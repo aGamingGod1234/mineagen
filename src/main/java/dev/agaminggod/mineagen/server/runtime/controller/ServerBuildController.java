@@ -738,6 +738,7 @@ public final class ServerBuildController implements ServerController {
 				carved = null;
 			}
 			if (carve(player, pool, plain)) return running();
+			if (carveToolStop != null) return fail(player, "TOOL_WORN", carveToolStop);
 			best = kept;
 		}
 		if (best == null && carved != null) {
@@ -748,6 +749,7 @@ public final class ServerBuildController implements ServerController {
 		// Nothing seen by the lava is open floor (find's own tunnel, a closed cave): dig a site into the rock beside a spot
 		// the body can stand on, as a player does, before walking off to look for level ground.
 		if (best == null && casting && carves < MAX_CARVES && !pool.isEmpty() && carve(player, pool, plain)) return running();
+		if (carveToolStop != null) return fail(player, "TOOL_WORN", carveToolStop);
 		if (best == null && relocations < MAX_RELOCATIONS && requested == null) return relocate(player, now);
 		if (best == null)
 			return fail(player, "BUILD_NO_SITE", "No flat, dry 4-wide site within " + SITE_RADIUS + " blocks of " + xyz(center) + ": " + siteRejects + nextSite());
@@ -1926,7 +1928,25 @@ public final class ServerBuildController implements ServerController {
 	 * center, the frame two cells from the spot (the row between dug too), within reach of the pool, fewest cells to dig
 	 * and nearest first. True when the dig starts; false (with the reasons added to the site rejects) when none fits.
 	 */
+	/** Uses a cast site's dig may take beyond its own cells: the frame's foot, the site clearing and the fetch's digs. */
+	static final int CARVE_USE_MARGIN = 24;
+	/** Set when a carve was ruled out only by the pickaxes carried: the build stops with TOOL_WORN so a fresh one is made first. */
+	private String carveToolStop;
+
+	/** Uses left on every carried item that mines deepslate faster than the hand and harvests it, not counting worn ones. */
+	private static int pickUses(ServerPlayer player) {
+		BlockState rock = Blocks.DEEPSLATE.defaultBlockState();
+		int uses = 0;
+		for (int slot = 0; slot < 36; slot++) {
+			ItemStack stack = player.getInventory().getItem(slot);
+			if (stack.isEmpty() || !stack.isDamageableItem() || stack.getDestroySpeed(rock) <= 1.0F || !stack.isCorrectToolForDrops(rock)) continue;
+			uses += Math.max(0, stack.getMaxDamage() - stack.getDamageValue() - ServerDigController.WORN_USES);
+		}
+		return uses;
+	}
+
 	private boolean carve(ServerPlayer player, List<BlockPos> pool, int plain) {
+		carveToolStop = null;
 		ServerLevel level = (ServerLevel) player.level();
 		java.util.function.BiPredicate<BlockPos, BlockState> rock = (cell, state) -> state.isCollisionShapeFullBlock(level, cell)
 				&& state.getFluidState().isEmpty() && !(state.getBlock() instanceof EntityBlock);
@@ -1973,6 +1993,15 @@ public final class ServerBuildController implements ServerController {
 					+ "or %.0f above or below, or within %.0f of, the lava, %d with water or lava seen in or beside the dig or the ground not rock, %d short of plain blocks for the mould, "
 					+ "%d with lava heard right behind a cell the dig would break)",
 					stands, CARVE_RADIUS, far, CAST_POOL_REACH, CAST_RISE, CARVE_POOL_MARGIN, ruled, blocks, heard);
+			return false;
+		}
+		// A player checks the pick before a big dig: the carve, the frame's foot and the fetch's digs after it take about
+		// this many uses, and a pick that breaks partway leaves deepslate too slow to clear by hand (kit-gate-6: 4 of 4 casts
+		// carved with a stone pick at 49 uses, then refused the site on its ground row and ran out of time).
+		int uses = pickUses(player), need = bestDig + CARVE_USE_MARGIN;
+		if (uses < need) {
+			carveToolStop = String.format(Locale.ROOT, "the pickaxes carried have %d uses left and the cast site at %s needs about %d (%d cells to dig, then the frame's foot and the fetch); "
+					+ "make a fresh pickaxe, then build again", uses, xyz(best.origin()), need, bestDig);
 			return false;
 		}
 		carves++;
