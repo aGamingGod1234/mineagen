@@ -34,6 +34,7 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.monster.Creeper;
+import net.minecraft.world.entity.monster.CrossbowAttackMob;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.boss.enderdragon.EnderDragon;
 import net.minecraft.world.entity.boss.enderdragon.EnderDragonPart;
@@ -1078,7 +1079,7 @@ final class ReflexActions {
 
 	/**
 	 * Without a shield, step across a drawn bow's line as a player does: strafe perpendicular to the shooter from a few
-	 * ticks before release until shortly after it, then the other way on the next draw. A skeleton leads a moving target
+	 * ticks before release until shortly after it; the next draw keeps the way the body already runs, else takes the other way. A skeleton leads a moving target
 	 * only by its velocity at release, so a strafe that keeps going after release carries the body off the arrow's line.
 	 * Footing is checked like any step ({@link SafeStep#heading}: no drop over one block, no lava, fire or void); with no
 	 * safe side the body stands facing the shooter. A melee mob in reach is swung at while stepping, as a player strafes.
@@ -1095,7 +1096,8 @@ final class ReflexActions {
 		static final long GRACE_TICKS = 30L;
 		/**
 		 * Per body, the draw last answered and the side it was answered with. Every dodge (the rule's and defend's) reads the
-		 * same entry, so one draw gets one side however many firings start during it, and the next draw the other side.
+		 * same entry, so one draw gets one side however many firings start during it, and the next draw the side the body
+		 * already runs toward, else the other side.
 		 */
 		private static final Map<java.util.UUID, Answer> ANSWERED = new java.util.concurrent.ConcurrentHashMap<>();
 		/** Per body, the game tick any dodge last saw a shot coming or in flight: a loaded crossbow's hold has no draw start. */
@@ -1254,7 +1256,9 @@ final class ReflexActions {
 			lastHeading = heading;
 			// A one-block rise on the step is jumped, as a running player does; walked into, it would stop the body on the line.
 			boolean jump = player.onGround() && SafeStep.jumpAhead(player, heading);
-			if (melee == null && canSprint(player)) {
+			// Not from a crossbow mob: it holds a loaded shot up to 39 ticks, and the firing ends 30 ticks after the shooter
+			// leaves the view a sprint turns away from, so against one the body strafes facing it, as before.
+			if (melee == null && canSprint(player) && !(shooter instanceof CrossbowAttackMob)) {
 				// Nothing to swing at: the body turns along the step and sprints it, as a player runs across a shot, 1.3 times
 				// as far in the arrow's flight as a strafe facing the archer (walking pace: 41% of shots that flew under a
 				// second hit the body, at 1-1.5 blocks across 11%).
