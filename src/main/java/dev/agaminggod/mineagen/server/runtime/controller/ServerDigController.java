@@ -1108,7 +1108,8 @@ public final class ServerDigController implements ServerController {
 		if (!(state.getBlock() instanceof FallingBlock)) return true;
 		BlockPos under = at.below();
 		BlockState support = seen.known(under.getX(), under.getY(), under.getZ());
-		return support != null && !passable(player.level(), under, support);
+		// Gravel falls through water and lava as through air (FallingBlock.isFree): neither holds it.
+		return support != null && !passable(player.level(), under, support) && !FallingBlock.isFree(support);
 	}
 
 	private TickResult step(ServerPlayer player) {
