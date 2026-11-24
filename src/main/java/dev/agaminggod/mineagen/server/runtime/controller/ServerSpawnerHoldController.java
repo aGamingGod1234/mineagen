@@ -1026,8 +1026,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 			cancelParts(player);
 			blockItem = item;
 			emergencyCell = player.blockPosition();
-			emergencyOpening = SpawnerHold.doorway(emergencyCell.getX(), emergencyCell.getZ(), spawner.getX(), spawner.getZ(),
-					spawner.getY() == emergencyCell.getY());
+			emergencyOpening = doorwayAt(player, emergencyCell);
 			emergency = roofing.seal(emergencyCell, emergencyOpening, blockItem, SEAL_MS + 4_000L, now);
 			emergencies++;
 			if (player.getHealth() >= SpawnerHold.TURTLE_HEALTH) marginTurns++;
@@ -1113,12 +1112,30 @@ public final class ServerSpawnerHoldController implements ServerController {
 		return stop(player, pendingEnd);
 	}
 
+	/**
+	 * The doorway for a cell: toward the spawner, or for a cell right beside it (the spawner in the doorway) the side
+	 * with a seen way out, two blocks of air over seen solid ground one step past the doorway.
+	 */
+	private Direction doorwayAt(ServerPlayer player, BlockPos at) {
+		var seen = dev.agaminggod.mineagen.server.perception.SeenTerrain.of(player);
+		return SpawnerHold.doorway(at.getX(), at.getZ(), spawner.getX(), spawner.getZ(), SpawnerHold.spawnerInDoorway(at.getY(), spawner.getY()), side -> {
+			BlockPos past = at.relative(side, 2);
+			var feet = seen.known(past.getX(), past.getY(), past.getZ());
+			var head = seen.known(past.getX(), past.getY() + 1, past.getZ());
+			var floor = seen.known(past.getX(), past.getY() - 1, past.getZ());
+			return feet != null && head != null && floor != null && feet.getFluidState().isEmpty() && floor.getFluidState().isEmpty()
+					&& feet.getCollisionShape(player.level(), past).isEmpty() && head.getCollisionShape(player.level(), past.above()).isEmpty()
+					&& !floor.getCollisionShape(player.level(), past.below()).isEmpty();
+		});
+	}
+
 	/** Mines the walled-up doorway open again (window first, then sill). Null once it is open or cannot be opened. */
 	private TickResult reopen(ServerPlayer player, long now) {
 		if (reopenWork == null) {
-			if (spawner != null && cell.relative(opening).equals(spawner)) {
-				// A cell walled up with the spawner as its doorway (before the doorway turned aside): open another side.
-				opening = SpawnerHold.doorway(cell.getX(), cell.getZ(), spawner.getX(), spawner.getZ(), true);
+			if (spawner != null && (cell.relative(opening).equals(spawner) || cell.relative(opening).above().equals(spawner))) {
+				// A cell walled up with the spawner in its doorway (before the doorway turned aside): open another side.
+				opening = doorwayAt(player, cell);
+				LAST_HOLD.put(player.getUUID(), new Held(spawner, cell, opening));
 				note("the doorway was the spawner: opening the " + opening.getName() + " side instead");
 			}
 			BlockPos doorway = cell.relative(opening);

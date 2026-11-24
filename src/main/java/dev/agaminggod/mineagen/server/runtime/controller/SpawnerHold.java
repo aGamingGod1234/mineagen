@@ -88,11 +88,22 @@ public final class SpawnerHold {
 	 * doorway, which no pickaxe opens, so the body stayed sealed in for the rest of the fight (wave 6 blaze spawner rooms,
 	 * main: 39 of 135 runs). Then the doorway turns to the side along the other axis instead.
 	 */
-	static Direction doorway(int cellX, int cellZ, int spawnerX, int spawnerZ, boolean sameLevel) {
+	static Direction doorway(int cellX, int cellZ, int spawnerX, int spawnerZ, boolean inDoorway,
+			java.util.function.Predicate<Direction> wayOut) {
 		int dx = spawnerX - cellX, dz = spawnerZ - cellZ;
 		Direction toward = facing(dx, dz);
-		if (!sameLevel || Math.abs(dx) + Math.abs(dz) != 1) return toward;
-		return toward.getAxis() == Direction.Axis.X ? Direction.SOUTH : Direction.EAST;
+		if (!inDoorway || Math.abs(dx) + Math.abs(dz) != 1) return toward;
+		// The two sides along the other axis, then the side away from the spawner: the first with a seen way out past it.
+		Direction[] sides = toward.getAxis() == Direction.Axis.X
+				? new Direction[] {Direction.SOUTH, Direction.NORTH, toward.getOpposite()}
+				: new Direction[] {Direction.EAST, Direction.WEST, toward.getOpposite()};
+		for (Direction side : sides) if (wayOut.test(side)) return side;
+		return sides[0];
+	}
+
+	/** The spawner sits in the feet or head block of a cell's doorway on that side (cell at its level or a block below). */
+	static boolean spawnerInDoorway(int cellY, int spawnerY) {
+		return spawnerY == cellY || spawnerY == cellY + 1;
 	}
 
 	/** The doorway faces the spawner along the larger horizontal axis. */
