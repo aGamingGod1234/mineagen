@@ -106,10 +106,11 @@ public final class ObservationVisibility {
 			Objects.requireNonNull(entity, "entity must not be null");
 			if (entity instanceof net.minecraft.world.entity.boss.enderdragon.EnderDragon dragon && anyPart(dragon, this::hasLineOfSight)) return true;
 			CollisionContext context = CollisionContext.of(observer);
+			Blockers blockers = new Blockers();
 			return EntityHitboxSight.point(eye, entity.getBoundingBox(), point -> {
 				Vec3 hit = EntityHitboxSight.intersection(eye, point, entity.getBoundingBox());
 				return hit != null && hasLoadedSightPath(eye, hit, level::hasChunkAt)
-						&& EntityHitboxSight.clear(level, context, eye, hit, ClipContext.Block.VISUAL)
+						&& clearOfBlocks(level, context, eye, hit, blockers)
 						&& !lavaBetween(level, eye, hit, null);
 			}) != null;
 		}
@@ -175,52 +176,180 @@ public final class ObservationVisibility {
 	}
 
 	/**
+	 * {@link EntityHitboxSight#clear} with the visual shape, skipping a ray through a full block an earlier ray of the
+	 * same look already met: any block in the way fails it, so the skipped trace would fail too.
+	 */
+	static boolean clearOfBlocks(BlockGetter level, CollisionContext context, Vec3 eye, Vec3 hit, Blockers blockers) {
+		if (blockers.crosses(eye, hit)) return false;
+		BlockHitResult result = level.clip(EntityHitboxSight.visualClip(eye, hit, context));
+		if (result.getType() == HitResult.Type.MISS) return true;
+		blockers.note(level, context, eye, null, result.getBlockPos());
+		return false;
+	}
+
+	/**
 	 * Whether the eye sees this cell, whatever it holds (open air included): in the view cone, with no block and no lava
 	 * in between. Unlike block rows there is no touch allowance: being close says nothing about the empty cells and
 	 * landings behind the eye. Lava is opaque. For blocks, also test the actual view ray and shared hitbox sight
 	 * samples across their shape, including lower edges. Air still needs evidence of the opening's depth.
 	 */
 	static boolean seesCell(BlockGetter level, CollisionContext context, Vec3 eye, Vec3 normalizedView, BlockPos position) {
-		Vec3 center = Vec3.atCenterOf(position);
-		if (isInFrontOfEye(eye, normalizedView, center) && seesPoint(level, context, eye, position, center)) return true;
+		// Copied once: callers pass a reused mutable cursor, and the rays below compare hits against this cell.
+		BlockPos cell = position.immutable();
+		Blockers blockers = new Blockers();
+		Vec3 center = Vec3.atCenterOf(cell);
+		if (isInFrontOfEye(eye, normalizedView, center) && seesPoint(level, context, eye, cell, center, blockers)) return true;
 		// A nearby opening can be in view at its lower interior while its centre is above the view cone. Checking
 		// only the centre and top left jump headroom unknown even beside a plainly visible one-block bank.
 		for (double dy : CELL_SAMPLE_HEIGHTS) {
 			for (double dx = 0.15D; dx < 1.0D; dx += 0.7D) {
 				for (double dz = 0.15D; dz < 1.0D; dz += 0.7D) {
-					Vec3 sample = new Vec3(position.getX() + dx, position.getY() + dy, position.getZ() + dz);
-					if (isInFrontOfEye(eye, normalizedView, sample) && seesPoint(level, context, eye, position, sample)) return true;
+					Vec3 sample = new Vec3(cell.getX() + dx, cell.getY() + dy, cell.getZ() + dz);
+					if (isInFrontOfEye(eye, normalizedView, sample) && seesPoint(level, context, eye, cell, sample, blockers)) return true;
 				}
 			}
 		}
-		BlockState state = level.getBlockState(position);
+		BlockState state = level.getBlockState(cell);
 		// A glimpse at an empty cell's near boundary does not establish the depth of that opening.
 		if (state.isAir()) return false;
-		for (AABB local : state.getShape(level, position, context).toAabbs()) {
-			AABB box = local.move(position);
+		for (AABB local : state.getShape(level, cell, context).toAabbs()) {
+			AABB box = local.move(cell);
 			Vec3 viewHit = EntityHitboxSight.intersection(eye, eye.add(normalizedView.scale(eye.distanceTo(box.getCenter()) + 2D)), box);
 			if (viewHit != null && isInFrontOfEye(eye, normalizedView, viewHit)
-					&& seesPoint(level, context, eye, position, viewHit)) return true;
+					&& seesPoint(level, context, eye, cell, viewHit, blockers)) return true;
 			if (EntityHitboxSight.point(eye, box, point -> isInFrontOfEye(eye, normalizedView, point)
-					&& seesPoint(level, context, eye, position, point)) != null) return true;
+					&& seesPoint(level, context, eye, cell, point, blockers)) != null) return true;
 		}
 		return false;
 	}
 
-	private static boolean seesPoint(BlockGetter level, CollisionContext context, Vec3 eye, BlockPos position, Vec3 target) {
-		BlockHitResult hit = level.clip(new ClipContext(eye, target, ClipContext.Block.VISUAL, ClipContext.Fluid.NONE, context) {
-			@Override public net.minecraft.world.phys.shapes.VoxelShape getBlockShape(BlockState state, BlockGetter world, BlockPos cell) {
-				// Terrain footing includes the backing surface of a zero-collision snow dusting. Ignore only the
-				// target's own coating, never intervening snow, leaves, thicker cover or an opaque block.
-				if (cell.getX() == position.getX() && cell.getZ() == position.getZ() && cell.getY() == position.getY() + 1
-						&& state.is(Blocks.SNOW) && state.getValue(BlockStateProperties.LAYERS) == 1) {
-					return net.minecraft.world.phys.shapes.Shapes.empty();
-				}
-				return super.getBlockShape(state, world, cell);
-			}
-		});
-		if (hit.getType() != HitResult.Type.MISS && !hit.getBlockPos().equals(position)) return false;
+	private static boolean seesPoint(BlockGetter level, CollisionContext context, Vec3 eye, BlockPos position, Vec3 target, Blockers blockers) {
+		// A ray through the inside of a full block already found in the way stops there, so the trace would only repeat it.
+		// Only for a point inside the target's own cell: the trace then visits the block before the target. A point on a
+		// shape reaching out of the cell (a piston rod) can meet the target first, which counts as seen.
+		if (insideCell(target, position) && blockers.crosses(eye, target)) return false;
+		BlockHitResult hit = level.clip(new CellSightClip(eye, target, context, position));
+		if (hit.getType() != HitResult.Type.MISS && !hit.getBlockPos().equals(position)) {
+			blockers.note(level, context, eye, position, hit.getBlockPos());
+			return false;
+		}
 		return !lavaBetween(level, eye, target, position);
+	}
+
+	private static boolean insideCell(Vec3 point, BlockPos cell) {
+		return point.x >= cell.getX() && point.x <= cell.getX() + 1.0D
+				&& point.y >= cell.getY() && point.y <= cell.getY() + 1.0D
+				&& point.z >= cell.getZ() && point.z <= cell.getZ() + 1.0D;
+	}
+
+	/**
+	 * The shape a cell sight ray meets: terrain footing includes the backing surface of a zero-collision snow dusting,
+	 * so the target's own one-layer coating is ignored, never intervening snow, leaves, thicker cover or an opaque block.
+	 * Without a target cell (entity sight) it is the plain visual shape.
+	 */
+	private static net.minecraft.world.phys.shapes.VoxelShape cellSightShape(
+			BlockState state, BlockGetter world, BlockPos cell, CollisionContext context, BlockPos position) {
+		if (position != null && cell.getX() == position.getX() && cell.getZ() == position.getZ() && cell.getY() == position.getY() + 1
+				&& state.is(Blocks.SNOW) && state.getValue(BlockStateProperties.LAYERS) == 1) {
+			return net.minecraft.world.phys.shapes.Shapes.empty();
+		}
+		net.minecraft.world.phys.shapes.VoxelShape fluid = EntityHitboxSight.fluidBlockShape(state, context);
+		return fluid != null ? fluid : ClipContext.Block.VISUAL.get(state, world, cell, context);
+	}
+
+	private static final class CellSightClip extends ClipContext {
+		private final CollisionContext context;
+		private final BlockPos position;
+
+		CellSightClip(Vec3 eye, Vec3 target, CollisionContext context, BlockPos position) {
+			super(eye, target, ClipContext.Block.VISUAL, ClipContext.Fluid.NONE, context);
+			this.context = context;
+			this.position = position;
+		}
+
+		@Override
+		public net.minecraft.world.phys.shapes.VoxelShape getBlockShape(BlockState state, BlockGetter world, BlockPos cell) {
+			return cellSightShape(state, world, cell, context, position);
+		}
+	}
+
+	/**
+	 * Full blocks that already stopped a ray to one target cell during one {@link #seesCell} call, or to one entity
+	 * during one {@link Frame#hasLineOfSight} call, when the world cannot change. A later ray that passes through the
+	 * inside of one (kept a margin clear of its faces, so edge and
+	 * corner grazes never count) is stopped by it or by a block before it: the trace visits every cell whose inside
+	 * the ray crosses, and a full block's shape reports a ray that enters it from outside. A cell ray is only skipped
+	 * when it ends inside the target's own (closed) cell: the trace steps monotonically along each axis, so a block whose
+	 * inside the ray crosses is visited before the target, and the ray would fail; skipping its trace gives the same answer. A ray ending on a shape that reaches out of its cell (a piston
+	 * rod) can meet the target before the block and is traced in full. Entity rays fail on any block.
+	 *
+	 * <p>Not kept: a block the eye is in or touches, since a ray that starts inside a block can leave it unreported.
+	 * Not skipped: a ray shorter than about 1e-3 blocks, since vanilla's shape test misses every ray under its minimum
+	 * length (squared 1e-7); and a ray longer than {@link #MAX_SKIP_DISTANCE}, since the trace's grid stepping drifts with each cell
+	 * and over millions of cells can step past a block corner by more than the margin. At this length the drift stays
+	 * below a millionth of the margin.
+	 */
+	static final class Blockers {
+		private static final double MARGIN = 1.0E-4D;
+		private static final double MAX_SKIP_DISTANCE = 512.0D;
+		private static final double MIN_SKIP_LENGTH_SQR = 1.0E-6D;
+		// Made on the first block noted: most checks see their cell on the first ray and note nothing.
+		private int[] cells;
+		private int size;
+
+		void note(BlockGetter level, CollisionContext context, Vec3 eye, BlockPos position, BlockPos hit) {
+			// From inside a block, the trace only finds that block when the ray's first thousandth is still in it.
+			if (near(eye.x, hit.getX()) && near(eye.y, hit.getY()) && near(eye.z, hit.getZ())) return;
+			int x = hit.getX();
+			int y = hit.getY();
+			int z = hit.getZ();
+			for (int index = 0; index < size; index += 3) if (cells[index] == x && cells[index + 1] == y && cells[index + 2] == z) return;
+			BlockPos cell = hit.immutable();
+			if (cellSightShape(level.getBlockState(cell), level, cell, context, position) != net.minecraft.world.phys.shapes.Shapes.block()) return;
+			if (cells == null) cells = new int[12];
+			else if (size == cells.length) cells = java.util.Arrays.copyOf(cells, size * 2);
+			cells[size++] = x;
+			cells[size++] = y;
+			cells[size++] = z;
+		}
+
+		private static boolean near(double eye, int low) {
+			return eye >= low - MARGIN && eye <= low + 1.0D + MARGIN;
+		}
+
+		boolean crosses(Vec3 from, Vec3 to) {
+			// Vanilla's shape test misses any ray shorter than about 3e-4 blocks, so a very short ray is traced as before.
+			double lengthSqr = from.distanceToSqr(to);
+			if (size == 0 || lengthSqr < MIN_SKIP_LENGTH_SQR || lengthSqr > MAX_SKIP_DISTANCE * MAX_SKIP_DISTANCE) return false;
+			for (int index = 0; index < size; index += 3) {
+				if (crossesInside(from, to, cells[index], cells[index + 1], cells[index + 2])) return true;
+			}
+			return false;
+		}
+
+		/** Whether the segment runs a positive length through the cube [x, x+1]^3 shrunk by {@link #MARGIN}. */
+		static boolean crossesInside(Vec3 from, Vec3 to, int x, int y, int z) {
+			double enter = 0.0D;
+			double exit = 1.0D;
+			// No arrays: this runs for every remembered block on every ray, and the small arrays showed up as garbage.
+			for (int axis = 0; axis < 3; axis++) {
+				int low = axis == 0 ? x : axis == 1 ? y : z;
+				double start = axis == 0 ? from.x : axis == 1 ? from.y : from.z;
+				double delta = (axis == 0 ? to.x : axis == 1 ? to.y : to.z) - start;
+				double min = low + MARGIN;
+				double max = low + 1.0D - MARGIN;
+				if (Math.abs(delta) < 1.0E-12D) {
+					if (start < min || start > max) return false;
+					continue;
+				}
+				double first = (min - start) / delta;
+				double second = (max - start) / delta;
+				enter = Math.max(enter, Math.min(first, second));
+				exit = Math.min(exit, Math.max(first, second));
+				if (enter >= exit) return false;
+			}
+			return exit - enter > 1.0E-9D;
+		}
 	}
 
 	public static boolean lavaBetween(BlockGetter level, Vec3 from, Vec3 to, BlockPos target) {

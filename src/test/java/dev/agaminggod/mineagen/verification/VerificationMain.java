@@ -316,6 +316,7 @@ public final class VerificationMain {
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.HazardExitsVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.SeenHazardAdoptionVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.perception.HazardSightVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.perception.SightBlockersVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.BreakSightlineVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.perception.BreakExposureEvidenceVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.perception.SeenTerrainVerification.verify();
