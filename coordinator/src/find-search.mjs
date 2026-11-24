@@ -875,10 +875,11 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 		}
 		// An unplugged lava flow ends in the same words: any lava in the sample around the body keeps it danger.
 		const lavaNear = () => (observation?.blocks ?? []).some((row) => row?.blockId === 'minecraft:lava');
-		// Water that ran into the opened tunnel and stopped short of the body, which backed out dry: a shut way, not danger.
+		// Water that ran into the opened tunnel and stopped short of the body, which backed out with its head clear (often
+		// standing in the edge of the stopped flow): a shut way, not danger.
 		// A player turns another way (the spot is already marked wet above). Kit gates on main: 13 of 160 searches ended here.
 		if (dryFlood() && code === 'TUNNEL_FLOODED' && !/lava/i.test(String(result?.message ?? '')) && /stopped short/.test(String(result?.message ?? ''))
-			&& !inWater() && !lavaNear() && dryFloods < MAX_DRY_FLOODS) {
+			&& observation?.player?.underWater !== true && !lavaNear() && dryFloods < MAX_DRY_FLOODS) {
 			dryFloods++;
 			return null;
 		}
