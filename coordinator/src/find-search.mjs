@@ -11,7 +11,6 @@ import { portalTarget, strongholdNearby, findPortalRoom } from './find-portal-ro
 import { nightMoveStop } from './night-cover.mjs';
 import { ENGAGE_CLOSE, SEARCH_LOW_HEALTH, creeperNear, pursuedByPack, searchDanger, threatRows } from './search-danger.mjs';
 import { getSwitch } from './switches.mjs';
-import { bodyDanger } from './fork-rule.mjs';
 
 export const FIND_KINDS = Object.freeze(['block', 'biome', 'mob', 'structure']);
 export const DEFAULT_FIND_WITHIN = 512;
@@ -95,31 +94,6 @@ export function hostileIsDanger(observation) {
 }
 const MAX_ESCAPES = 2;
 const BREATH_STOPS = new Set(['AIR_RESERVE_REACHED', 'BREATH_NOT_COVERED', 'TUNNEL_FLOODED']);
-const FLOOD_CONTAINED = getSwitch('find.floodContained').value;
-const FLOOD_LAVA_CLEAR = 8;
-
-/**
- * A dig that opened a cell water flowed into, did not step in, backed out, and the flow stopped short of the body, with a
- * fresh sample of a live body with its head out of the water and no lava near: a shut way, as a player walls off a leak and digs elsewhere, not danger
- * that ends the search. Chain gates on main: 31 such stops in 17 of 48 runs ended find or obtain as danger. Obtain reads
- * it; find's own leg stop goes through its flood turn.
- */
-export function floodContained(result, observation) {
-	const player = observation?.player;
-	return FLOOD_CONTAINED && result?.reasonCode === 'TUNNEL_FLOODED'
-		&& /not entered; backed out to -?\d+,-?\d+,-?\d+ and the flow stopped short of it/.test(String(result?.message ?? ''))
-		&& observation?.ready === true && player != null && player.dead !== true && Number.isFinite(player.health) && player.health > 0
-		// Backed out, the body usually stands in the stopped flow's edge (inWater): only a head under water counts. An
-		// unplugged lava flood ends in the same words, so lava in the fresh block sample keeps it danger.
-		&& player.underWater !== true && bodyDanger(observation) === null
-		&& !(observation.blocks ?? []).some((row) => /lava/.test(String(row?.blockId ?? '')) && !(lavaDistance(row, player) > FLOOD_LAVA_CLEAR));
-}
-// A live sample lists block coordinates, not distances: an unplaced row counts as near.
-function lavaDistance(row, player) {
-	if (Number.isFinite(Number(row?.distance))) return Number(row.distance);
-	return [row?.x, row?.y, row?.z, player?.x, player?.y, player?.z].every(Number.isFinite)
-		? Math.hypot(row.x + 0.5 - player.x, row.y + 0.5 - player.y, row.z + 0.5 - player.z) : 0;
-}
 // A walk's or swim's own stop for its air (travel's breath rule), as against a dig that flooded.
 const AIR_STOPS = new Set(['AIR_RESERVE_REACHED', 'BREATH_NOT_COVERED']);
 // Stops a search cannot work round by itself: the model decides (craft a pickaxe, empty the inventory...).

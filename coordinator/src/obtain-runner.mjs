@@ -9,7 +9,7 @@
 // (walking out for trees and animals, digging toward the ore's depth). A future find verb can replace it.
 import { appendFileSync } from 'node:fs';
 import { howtoIndex } from './howto.mjs';
-import { DAMAGE_STOPS, FIGHT_STOPS, DISCARD, LIFE_SAFETY_STOPS, floodContained, MAX_FIND_TIMEOUT_MS, UNREACHED, UNREACHED_SPOT, caveLog, hostileIsDanger, sameVein } from './find-search.mjs';
+import { DAMAGE_STOPS, FIGHT_STOPS, DISCARD, LIFE_SAFETY_STOPS, MAX_FIND_TIMEOUT_MS, UNREACHED, UNREACHED_SPOT, caveLog, hostileIsDanger, sameVein } from './find-search.mjs';
 import { threatRows, blazeBlocksErrand } from './search-danger.mjs';
 import { nightMoveStop } from './night-cover.mjs';
 import { REGEN_RESUME_HEALTH, bodyDanger, eatCalls, lowHealthFork } from './fork-rule.mjs';
@@ -35,10 +35,6 @@ const FOODS = new Set(['beef', 'porkchop', 'mutton', 'chicken', 'rabbit', 'cod',
 // MINEAGEN_OBTAIN_COSTS=off plans as before chests, the seen-source cost model and the one-trip kit iron (A/B rooms).
 const OBTAIN_COSTS = getSwitch('obtain.costs').value;
 const FILL_LEGS = getSwitch('obtain.fillLegs').value;
-const LAVA_REFUSAL = getSwitch('obtain.lavaRefusal').value;
-const NEXT_STATION = getSwitch('obtain.nextStation').value;
-// A sample whose inventory cannot be trusted: not ready (it carries an empty list), not listed, or remembered, not seen.
-const inventoryUnknown = (sample) => sample?.ready === false || !Array.isArray(sample?.inventory?.items) || sample?.continuity?.rememberedSections?.includes('inventory') === true;
 const FILL_EDGE = getSwitch('obtain.fillEdge').value;
 const EDGE_REDO = 'dug down beside a drop to water; fill again from here';
 // Food a trip below ground is stocked with, in hunger points: one full bar (20), about a quarter hour's eating. Food the
@@ -285,22 +281,6 @@ function slotOf(o, members, skip = null) {
 // edge, air running out). A hostile far off that merely ended a walk leg is not one, unless it shoots: judged from the
 // threat rows of a sample taken after the stop (observation), never from the stop's wording.
 // (DAMAGE_STOPS and LIFE_SAFETY_STOPS are find's list, one for both verbs.)
-/**
- * A dig that would not break the next block because lava is seen or heard behind it, while the body itself is safe (not in
- * lava, burning, short of air or falling): the block is skipped, as a player leaves it and mines another, not danger to
- * stop the whole obtain for. Cobblestone gathered beside the cast's pool hit this in 14 of 312 start-at-lava rooms. Lava
- * that flowed into an opened cell, or a stop with no fresh sample, stays danger.
- */
-export function lavaRefusal(result) {
-	return LAVA_REFUSAL && result?.reasonCode === 'LAVA_AHEAD' && /; not breaking /.test(String(result?.message ?? ''));
-}
-
-export function lavaRefusalOnly(result, observation) {
-	const player = observation?.player;
-	return lavaRefusal(result) && observation?.ready === true && player != null && player.dead !== true
-		&& Number.isFinite(player.health) && player.health > 0 && bodyDanger(observation) === null;
-}
-
 export function isDanger(result, observation) {
 	const code = result?.reasonCode;
 	if (DAMAGE_STOPS.has(code) || LIFE_SAFETY_STOPS.has(code)) return true;
@@ -597,9 +577,7 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 	const seen = async (promise) => {
 		const result = await promise;
 		if (result?.state === 'RUNNING' && typeof result.actionId === 'string') running = result;
-		if (danger === null && forkStop() === null && isDanger(result, result?.reasonCode === 'HOSTILE_NEAR' ? withoutQuarry(await rawBody.observe().catch(() => null), quarry) : null)
-			&& !(lavaRefusal(result) && lavaRefusalOnly(result, await rawBody.observe().catch(() => null)))
-			&& !(result?.reasonCode === 'TUNNEL_FLOODED' && floodContained(result, await rawBody.observe().catch(() => null)))) {
+		if (danger === null && forkStop() === null && isDanger(result, result?.reasonCode === 'HOSTILE_NEAR' ? withoutQuarry(await rawBody.observe().catch(() => null), quarry) : null)) {
 			danger = `${result.reasonCode}: ${String(result.message ?? '').slice(0, 160)}`;
 			lowLeg = result.reasonCode === 'LOW_HEALTH';
 		}
@@ -800,14 +778,6 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 	// Workstations this run placed go back into the inventory before it walks away and at the end.
 	const cleanup = async () => {
 		checkingCleanup = true;
-		// A drop left unconfirmed can still come in with a later station's sweep (it picks up every station kind near it).
-		const collected = (sample) => {
-			if (inventoryUnknown(sample)) return;
-			for (const left of placed.filter((one) => one.missedHeld !== undefined))
-				if ((heldCounts(sample).get(left.kind) ?? 0) > left.missedHeld) placed.splice(placed.indexOf(left), 1);
-		};
-		// Only this call's sweeps count: a later call may hold a station of that kind made elsewhere.
-		for (const one of placed) delete one.missedHeld;
 		try {
 			for (let pass = 0; pass < 2 && placed.length > 0; pass++) for (const station of [...placed]) {
 				if (body.interrupted() || body.stopped()) return;
@@ -837,7 +807,7 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 					}
 				}
 				const fits = (sample) => {
-					if (inventoryUnknown(sample)) return null;
+					if (!Array.isArray(sample.inventory?.items) || sample.continuity?.rememberedSections?.includes('inventory')) return null;
 					const rows = (sample.inventory?.items ?? []).filter((row) => row.count > 0 &&
 						(Number.isSafeInteger(row.slot) && row.slot >= 0 && row.slot < 36 || row.slot === 'mainhand'));
 					return rows.length < 36 || rows.some((row) => bare(row.itemId) === station.kind && row.count < 64);
@@ -871,8 +841,6 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 				} else {
 					const fresh = await body.observe();
 					if (cleanupStopped(fresh) || fits(fresh) === null) return;
-					collected(fresh);
-					if (!placed.includes(station)) continue;
 					heldBefore = heldCounts(fresh).get(station.kind) ?? 0;
 				}
 				removed.add(`${station.x},${station.y},${station.z}`);
@@ -889,26 +857,16 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 					await pickUpNear(station, [station.kind], 4, false, room);
 					const fresh = await body.observe();
 					if (cleanupStopped(fresh)) return;
-					const unknown = inventoryUnknown(fresh);
-					if (unknown || (heldCounts(fresh).get(station.kind) ?? 0) <= heldBefore) {
+					if (fresh.continuity?.rememberedSections?.includes('inventory') || !Array.isArray(fresh.inventory?.items)
+						|| (heldCounts(fresh).get(station.kind) ?? 0) <= heldBefore) {
 						step(`leave the ${station.kind} drop at ${station.x},${station.y},${station.z}: not confirmed in inventory`);
-						// A drop not picked up leaves the other stations to fetch: chain gates on main left the crafting table
-						// behind after every furnace drop missed, and with the pickaxe worn underground no table could be made.
-						// The drop stays in the ledger, so a later call can still collect it.
-						if (unknown || !NEXT_STATION) return;
-						station.missedHeld = heldBefore;
-						continue;
+						return;
 					}
 				}
 				placed.splice(placed.indexOf(station), 1);
-				for (const left of placed) if (left.missedHeld !== undefined && left.kind === station.kind) left.missedHeld++;
 				for (const load of loads.filter((one) => one.x === station.x && one.y === station.y && one.z === station.z)) loads.splice(loads.indexOf(load), 1);
 				if (station.drop) await pickUpNear(station, ['coal', 'charcoal', 'raw_iron', 'iron_ingot', ...OBTAIN_STATIONS], 4);
 
-			}
-			if (placed.some((one) => one.missedHeld !== undefined) && !body.interrupted() && !body.stopped()) {
-				const last = await body.observe().catch(() => null);
-				if (last && !cleanupStopped(last)) collected(last);
 			}
 		} finally { checkingCleanup = false; }
 	};

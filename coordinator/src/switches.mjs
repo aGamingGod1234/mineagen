@@ -122,18 +122,6 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'obtain.fillLegs', env: 'MINEAGEN_OBTAIN_FILL_LEGS', side: 'coordinator', default: true, parser: OFF_EXACT, status: 'default-on',
 		reason: 'A walk to water goes in 10 s legs and fills at the first source in reach; off is the one 90 s walk to the sighting, for A/B rooms.',
 		readers: ['coordinator/src/obtain-runner.mjs FILL_LEGS (module load, process.env only)'] }),
-	// coordinator/src/obtain-runner.mjs LAVA_REFUSAL: read once at module load.
-	entry({ name: 'obtain.lavaRefusal', env: 'MINEAGEN_OBTAIN_LAVA_REFUSAL', side: 'coordinator', default: true, parser: OFF_EXACT, status: 'default-on',
-		reason: 'A dig that refuses one block for lava heard behind it, with the body itself safe, is a skipped block, not danger that ends the obtain; off is the A/B off arm.',
-		readers: ['coordinator/src/obtain-runner.mjs LAVA_REFUSAL (module load, process.env only)'] }),
-	// coordinator/src/find-search.mjs FLOOD_CONTAINED: read once at module load.
-	entry({ name: 'find.floodContained', env: 'MINEAGEN_FIND_FLOOD_CONTAINED', side: 'coordinator', default: true, parser: OFF_EXACT, status: 'default-on',
-		reason: 'A flooded tunnel the dig backed out of, with the flow stopped short and the body dry and safe, is a shut way, not danger that ends obtain (helper in find-search, read by obtain-runner); off is the A/B off arm.',
-		readers: ['coordinator/src/find-search.mjs FLOOD_CONTAINED (module load, process.env only)'] }),
-	// coordinator/src/obtain-runner.mjs NEXT_STATION: read once at module load.
-	entry({ name: 'obtain.nextStation', env: 'MINEAGEN_OBTAIN_NEXT_STATION', side: 'coordinator', default: true, parser: OFF_EXACT, status: 'default-on',
-		reason: 'A station drop not confirmed in the inventory no longer ends the cleanup: the other placed stations (the crafting table) are still picked up; off is the A/B off arm.',
-		readers: ['coordinator/src/obtain-runner.mjs NEXT_STATION (module load, process.env only)'] }),
 	// coordinator/src/obtain-runner.mjs FILL_EDGE: read once at module load.
 	entry({ name: 'obtain.fillEdge', env: 'MINEAGEN_OBTAIN_FILL_EDGE', side: 'coordinator', default: true, parser: OFF_EXACT, status: 'default-on',
 		reason: 'A walk to water that ends at an edge over water 3-8 blocks below digs down beside the drop and fills there (room kit-gate-6); off is the A/B off arm.',

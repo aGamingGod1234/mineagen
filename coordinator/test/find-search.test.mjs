@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DESCENT_RESERVE, floodContained, stepRow, UNREACHED, UNREACHED_SPOT, chooseHeading, pickaxeUses, stairBudget, findProfile, oreRockShare, rememberedPlaces, sameVein, seenAtOf, sightingOf } from '../src/find-search.mjs';
+import { DESCENT_RESERVE, stepRow, UNREACHED, UNREACHED_SPOT, chooseHeading, pickaxeUses, stairBudget, findProfile, oreRockShare, rememberedPlaces, sameVein, seenAtOf, sightingOf } from '../src/find-search.mjs';
 import { normalizeMinecraftToolCall } from '../src/native-minecraft-tools.mjs';
 import { isNativeBodyTool } from '../src/codex-service.mjs';
 import { checkedSearchBody, searchFor } from './helpers/checked-body.mjs';
@@ -2215,18 +2215,4 @@ test('kit gates: a lava find starting on the lake shore it filled its bucket at 
 	block = 'minecraft:lava';
 	process.env.MINEAGEN_FIND_DRY_START = 'off';
 	try { assert.deepEqual(await run([{ blockId: 'minecraft:water', x: 334, y: 62, z: -9 }]), ['shaft']); } finally { delete process.env.MINEAGEN_FIND_DRY_START; }
-});
-
-test('chain gates: a tunnel the dig backed out of, with the flow stopped short and the body dry, is a shut way, not danger', () => {
-	const flood = { state: 'FAILED', reasonCode: 'TUNNEL_FLOODED', message: 'Fluid flowed into the opened tunnel at 2,56,0; not entered; backed out to 0,56,0 and the flow stopped short of it' };
-	const on = process.env.MINEAGEN_FIND_FLOOD_CONTAINED !== 'off';
-	const at = { x: 0.5, y: 56, z: 0.5, health: 20 };
-	assert.equal(floodContained(flood, sample({ ready: true, player: at })), on);
-	assert.equal(floodContained(flood, sample({ ready: true, player: { ...at, inWater: true } })), on, 'standing in the stopped flow\'s edge');
-	assert.equal(floodContained(flood, sample({ ready: true, player: { ...at, underWater: true } })), false, 'under water is still danger');
-	assert.equal(floodContained({ ...flood, message: 'Fluid flowed into the opened tunnel at 2,56,0; not entered; backed out to 0,56,0 and the lava kept coming' }, sample({ ready: true, player: at })), false);
-	assert.equal(floodContained(flood, sample({ ready: false, player: at })), false, 'no fresh sample');
-	// Live samples list lava by its coordinates: near (2 blocks) stays danger, far (20 blocks) does not.
-	assert.equal(floodContained(flood, sample({ ready: true, player: at, blocks: [{ blockId: 'minecraft:lava', x: 2, y: 56, z: 0 }] })), false, 'lava near');
-	assert.equal(floodContained(flood, sample({ ready: true, player: at, blocks: [{ blockId: 'minecraft:lava', x: 20, y: 56, z: 0 }] })), on, 'lava far');
 });
