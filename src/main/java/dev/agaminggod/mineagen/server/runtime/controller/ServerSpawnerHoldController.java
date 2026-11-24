@@ -143,6 +143,9 @@ public final class ServerSpawnerHoldController implements ServerController {
 	/** Outside the finished cell (site walk, build, lintel, rod trips): an attacker in reach is fought before the work goes on. */
 	private ServerFightController defend;
 	private int defends;
+	private ServerFightController meleeBlaze;
+	private int meleeBlazes, meleeBlazeKills;
+	private long meleeBlazeEndTick = Long.MIN_VALUE / 2;
 	private KillDropCollector collector;
 	/**
 	 * A rod that landed on a ledge above the feet (the platform round a fortress spawner, over the cell's floor) is
@@ -382,6 +385,10 @@ public final class ServerSpawnerHoldController implements ServerController {
 			resumeChecked = true;
 			if (resumeCell(player)) return TickResult.running(progress(player));
 		}
+		if (target != null && SpawnerHold.OPEN_FIGHT && phase != Phase.HOLD) {
+			TickResult close = meleeBlaze(player, now);
+			if (close != null) return close;
+		}
 		if (target != null && SpawnerHold.OPEN_FIGHT && phase != Phase.HOLD && emergency == null
 				&& (!marginGone(player, 0.0D) || !canWallIn(player) || openPart != null && target.isDeadOrDying() && afterOpenKill)) {
 			// A lull in the open fight: health regrows slowly, and the default eat waits for no hostile within 8 blocks, which
@@ -520,6 +527,44 @@ public final class ServerSpawnerHoldController implements ServerController {
 		defend.cancel(player);
 		defend = null;
 		note("defend " + result.reasonCode());
+		return TickResult.running(progress(player));
+	}
+
+	/**
+	 * Open fight: a blaze close enough to hit the body in melee is fought with the sword before anything else (a player
+	 * hits the blaze in its face rather than shooting another or building a wall round it). The open fight's part and a
+	 * wall-in under way are put down; the wall-in starts again after if health still calls for it. Not at the flee line,
+	 * where the fight's own back-out goes. Null when no blaze is that close.
+	 */
+	private TickResult meleeBlaze(ServerPlayer player, long now) {
+		long tick = player.level().getGameTime();
+		if (meleeBlaze == null) {
+			if (tick - meleeBlazeEndTick < SpawnerHold.MELEE_BLAZE_GAP_TICKS || atFleeLine(player)) return null;
+			LivingEntity close = null;
+			double best = SpawnerHold.MELEE_BLAZE * SpawnerHold.MELEE_BLAZE;
+			for (LivingEntity mob : player.level().getEntitiesOfClass(LivingEntity.class, player.getBoundingBox().inflate(SpawnerHold.MELEE_BLAZE),
+					e -> e.getType() == McEntityTypes.BLAZE && e instanceof net.minecraft.world.entity.Mob m && m.getTarget() == player
+							&& e.isAlive() && !e.isDeadOrDying())) {
+				double distance = mob.distanceToSqr(player);
+				if (distance <= best && ObservationVisibility.canSeeEntity(player, mob) && protection.mayInteractWithEntity(player, mob)) { best = distance; close = mob; }
+			}
+			if (close == null) return null;
+			if (openPart != null) { openPart.cancel(player); openPart = null; }
+			if (emergency != null) { emergency.cancel(player); emergency = null; note("wall-in put down: a blaze in melee reach"); }
+			if (lullBite) { lullBite = false; eatTicks = -1; eatInput.release(); }
+			HOLDING.remove(player.getUUID());
+			meleeBlaze = new ServerFightController(close, null, fleeAtHealth, false, CombatPlanning.TargetPolicy.NAMED, false, true, false,
+					player.getOffhandItem().getItem() instanceof net.minecraft.world.item.ShieldItem, SpawnerHold.MELEE_BLAZE_MS, now).keepFleeLine();
+			meleeBlazes++;
+			note(String.format(Locale.ROOT, "blaze in melee reach (%.1f blocks) at health %.1f: sword first", Math.sqrt(best), player.getHealth()));
+		}
+		TickResult result = meleeBlaze.tick(player, now);
+		if (result.state() == State.RUNNING) return TickResult.running(progress(player));
+		meleeBlaze.cancel(player);
+		meleeBlaze = null;
+		meleeBlazeEndTick = tick;
+		if ("TARGET_KILLED".equals(result.reasonCode())) meleeBlazeKills++;
+		note("melee blaze " + result.reasonCode());
 		return TickResult.running(progress(player));
 	}
 
@@ -1476,10 +1521,10 @@ public final class ServerSpawnerHoldController implements ServerController {
 
 	private String summary(ServerPlayer player, long elapsed) {
 		int held = ServerFightUntilController.count(player, untilItem);
-		return String.format(Locale.ROOT, "spawner hold at %s: cell %s, %d site%s failed, %d build%s; %+d %s in %.0f s; %d engine run%s %s; %d rod trip%s (%d up a ledge, %d rods from them); %d meal%s (%d in open-fight lulls); %d defend%s; %d heal%s (%d walled in, %d reopened; shield up %d of %d ticks, asked %d, using %d %s, keys %s, %d bite%s stopped for a volley); %d fire%s punched out; hurts %s; health lost %s; %d margin turn-back%s; heals began at %s%s",
+		return String.format(Locale.ROOT, "spawner hold at %s: cell %s, %d site%s failed, %d build%s; %+d %s in %.0f s; %d engine run%s %s; %d rod trip%s (%d up a ledge, %d rods from them); %d meal%s (%d in open-fight lulls); %d defend%s; %d melee blaze fight%s (%d kills); %d heal%s (%d walled in, %d reopened; shield up %d of %d ticks, asked %d, using %d %s, keys %s, %d bite%s stopped for a volley); %d fire%s punched out; hurts %s; health lost %s; %d margin turn-back%s; heals began at %s%s",
 				spawner == null ? "none seen" : spawner.toShortString(), cell == null ? "none" : cell.toShortString(), sitesFailed, sitesFailed == 1 ? "" : "s", builds, builds == 1 ? "" : "s",
 				held - Math.max(0, startHeld), untilItemId, elapsed / 1000.0D, engineRuns, engineRuns == 1 ? "" : "s", engineEnds, trips, trips == 1 ? "" : "s", ledgeTrips, ledgeRods,
-				meals, meals == 1 ? "" : "s", lullMeals, defends, defends == 1 ? "" : "s", turtles, turtles == 1 ? "" : "s", seals, reopens, blockingTicks, turtleTicks, shieldAsks, usingTicks, usedInHeal, healWinners, bitesStopped, bitesStopped == 1 ? "" : "s", firesPunched, firesPunched == 1 ? "" : "s", hurts, lostText(), marginTurns, marginTurns == 1 ? "" : "s", healStarts.isEmpty() ? "none" : String.join(", ", healStarts), log.isEmpty() ? "" : "; log: " + String.join(" | ", log.subList(Math.max(0, log.size() - 6), log.size())));
+				meals, meals == 1 ? "" : "s", lullMeals, defends, defends == 1 ? "" : "s", meleeBlazes, meleeBlazes == 1 ? "" : "s", meleeBlazeKills, turtles, turtles == 1 ? "" : "s", seals, reopens, blockingTicks, turtleTicks, shieldAsks, usingTicks, usedInHeal, healWinners, bitesStopped, bitesStopped == 1 ? "" : "s", firesPunched, firesPunched == 1 ? "" : "s", hurts, lostText(), marginTurns, marginTurns == 1 ? "" : "s", healStarts.isEmpty() ? "none" : String.join(", ", healStarts), log.isEmpty() ? "" : "; log: " + String.join(" | ", log.subList(Math.max(0, log.size() - 6), log.size())));
 	}
 
 	private String lostText() {
@@ -1536,6 +1581,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 
 	private void cancelParts(ServerPlayer player) {
 		if (defend != null) { defend.cancel(player); defend = null; }
+		if (meleeBlaze != null) { meleeBlaze.cancel(player); meleeBlaze = null; }
 		stopEngine(player);
 		cancelWalk(player);
 		if (work != null) { work.cancel(player); work = null; }
