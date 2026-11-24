@@ -112,3 +112,18 @@ test('checkpoint batch splits every arm evenly over the sign-ins and gives the a
 	for (const repeat of [1, 2, 3, 4]) assert.deepEqual(new Set(games.filter(g => g.savepoint === 'nether' && g.repeat === repeat).map(g => g.account)).size, 2);
 	assert.ok(expandPlan(plan(), { salt: () => 1 }).every(g => g.account === 0));
 });
+
+test('checkpoint batch plays a fresh world (fresh: true, no file) and allows windows up to the launcher limit of 6 hours', () => {
+	const p = plan(); p.minutes = 355; p.savepoints = { fresh: { fresh: true, repeats: 2, targets: ['nether', 'dragon'] } };
+	assert.deepEqual(expandPlan(p, { salt: () => 1 }).map(g => `${g.savepoint}-${g.repeat}`), ['fresh-1', 'fresh-1', 'fresh-2', 'fresh-2']);
+	p.savepoints.fresh.file = '/f.json';
+	assert.throws(() => expandPlan(p), /fresh: true for a new world \(not both\)/);
+	delete p.savepoints.fresh.file; p.minutes = 356;
+	assert.throws(() => expandPlan(p), /minutes must be an integer 1\.\.355/);
+});
+
+test('checkpoint batch counts a target a fresh world earned in its first 30 seconds', () => {
+	const report = { timeline: { startedAt: 1, stopReason: 'WALL_CLOCK_BUDGET', milestones: [{ id: 'wood', reached: true, elapsedMs: 20_000 }], deaths: [] } };
+	assert.equal(scoreGame(report, ['wood']).targets.wood, null);
+	assert.equal(scoreGame(report, ['wood'], { inheritedMs: -1 }).targets.wood, 0.33);
+});
