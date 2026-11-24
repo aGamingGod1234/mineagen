@@ -1259,8 +1259,9 @@ final class ReflexActions {
 			// On a rim with the shooter inland, neither side keeps the knockback margin and the step ran along the rim, where
 			// the next hit knocked the body off (archers-zombie: the last deaths, a fall off the west rim after an arrow). A
 			// heading angled inland toward the shooter that keeps the margin gets it off the rim, still moving across the shot.
-			if (heading == null || !SafeStep.canStep(player, heading, true)) {
-				Float inland = offRim(player, body, at, chosen == 0 ? side : chosen);
+			// Only off a rim: with no step at all (a 1-wide tunnel along the shot) the body still stands facing the shooter.
+			if (heading != null && !SafeStep.canStep(player, heading, true)) {
+				Float inland = offRim(player, body, at, chosen);
 				if (inland != null) heading = inland;
 			}
 			if (heading == null) {
@@ -1295,17 +1296,18 @@ final class ReflexActions {
 			return Step.running("stepping " + SafeStep.compass(heading) + " across " + type(shooter) + "'s shot" + swung);
 		}
 
-		/** Headings tried off a rim, angled from square toward the shooter's side or away: the first keeping the margin wins. */
-		static final float[] RIM_OFFSETS = {60.0F, -60.0F, 75.0F, -75.0F};
+		/** How far a step off a rim turns from square toward the shooter: 30 degrees off its line, still across it. */
+		static final float RIM_TURN = 60.0F;
 
-		/** A heading off a rim that keeps the knockback margin and safe footing, tried on the given side first; or null. */
+		/**
+		 * A heading off a rim, turned from square toward the shooter (inland when the drop is behind the body), that keeps
+		 * the knockback margin and safe footing, tried on the given side first; or null.
+		 */
 		private static Float offRim(ServerPlayer player, Vec3 body, Vec3 at, int side) {
 			for (int candidate : new int[]{side, -side}) {
-				float square = sideYaw(body, at, candidate);
-				for (float offset : RIM_OFFSETS) {
-					Float safe = SafeStep.heading(player, Mth.wrapDegrees(square + offset), new float[]{0.0F}, null, List.of(), MAX_DROP, true);
-					if (safe != null && SafeStep.canStep(player, safe, true)) return safe;
-				}
+				float yaw = Mth.wrapDegrees(sideYaw(body, at, candidate) - RIM_TURN * candidate);
+				Float safe = SafeStep.heading(player, yaw, new float[]{0.0F}, null, List.of(), MAX_DROP, true);
+				if (safe != null && SafeStep.canStep(player, safe, true)) return safe;
 			}
 			return null;
 		}
