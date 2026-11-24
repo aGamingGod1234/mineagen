@@ -51,10 +51,10 @@ public final class TravelStops {
 		// is cut has no shot (seed 6006 iron cave: a skeleton on the cave floor 5 below the ledge, its head in the body's
 		// sight but the ledge edge between its eye and the body's, stopped every walk at 4-6 blocks, 148 stops in a row,
 		// landing 2 hits in 130 s). The bow goal shoots only with that line, so the trip stops again once it has one, and
-		// while the bow is drawn: the goal keeps drawing for 3 s after it loses the line, and a body ducked behind the edge
+		// while the bow is drawn at the body: the goal keeps drawing for 3 s after it loses the line, and a body ducked behind the edge
 		// by the arrow dodge otherwise walked straight back into it (practice room with the edge open: 5 hits in 48 s).
 		if (ARCHERS.contains(type) && mob.isHolding(stack -> stack.getItem() instanceof net.minecraft.world.item.ProjectileWeaponItem)) return Math.abs(mob.getY() - player.getY()) >= 2.0D && mob.distanceTo(player) > 2.0D
-				&& !mob.getSensing().hasLineOfSight(player) && !mob.isUsingItem();
+				&& !mob.getSensing().hasLineOfSight(player) && !(mob.isUsingItem() && mob.getTarget() == player);
 		if (RANGED.contains(type) || type.equals("minecraft:creeper") || type.endsWith("guardian")
 				|| dev.agaminggod.mineagen.server.perception.ThreatPerception.isRanged(mob)) return false;
 		net.minecraft.world.entity.ai.navigation.PathNavigation own = mob.getNavigation();
