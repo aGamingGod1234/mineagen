@@ -132,7 +132,10 @@ setInterval(async () => {
 	try {
 		const reply = await nether(`execute positioned ${SPAWNER.join(' ')} as @e[type=minecraft:item,distance=..32] run data get entity @s Pos`);
 		const rods = [...String(reply).matchAll(/\[(-?[\d.]+)d, (-?[\d.]+)d, (-?[\d.]+)d\]/g)].map(m => [1,2,3].map(i => Math.round(Number(m[i])*10)/10));
-		await traceRow({ items: true, at: now(), s: Math.round((now() - (runDeadline - RUN_S*1000))/100)/10, rods });
+		// Every item above is any item (a mined wall's cobblestone too); these are the blaze rods alone.
+		const rodReply = await nether(`execute positioned ${SPAWNER.join(' ')} as @e[type=minecraft:item,distance=..32,nbt={Item:{id:"minecraft:blaze_rod"}}] run data get entity @s Pos`);
+		const blazeRods = [...String(rodReply).matchAll(/\[(-?[\d.]+)d, (-?[\d.]+)d, (-?[\d.]+)d\]/g)].map(m => [1,2,3].map(i => Math.round(Number(m[i])*10)/10));
+		await traceRow({ items: true, at: now(), s: Math.round((now() - (runDeadline - RUN_S*1000))/100)/10, rods, blazeRods });
 	} catch {}
 	rodProbeBusy = false;
 }, 3000 * 20 / FIXTURE_RATE).unref?.();
@@ -271,7 +274,7 @@ try {
 	results.tickRate = rate.tickRate;
 	bridge = new MultiplexedServerBridge({ port, secret }, {}); inbox = new Inbox(bridge);
 	bridge.on('observation', e => { rate.clock.observe(e.payload?.world?.gameTime); if (e.agentId === record?.agentId && e.payload.ready) { observation = e.payload; restance(e.payload).catch(() => {}); if (Number.isFinite(runDeadline) && now() <= runDeadline) { windowRods = Math.max(windowRods,rodsHeld(e.payload)); lastWindowObservation = e.payload; lastWindowObservationAt = now();
-		if (now() - lastSampleAt >= 1000) { lastSampleAt = now(); const p = e.payload; traceRow({ sample: true, at: lastSampleAt, s: Math.round((lastSampleAt - (runDeadline - RUN_S*1000))/100)/10, position: p.position, health: p.player?.health, onFire: p.player?.onFire, fireTicks: p.player?.fireTicks, onGround: p.player?.onGround, action: p.currentAction?.actionType ?? p.action?.actionType, blazes: (p.entities ?? []).filter(x => x.type === 'minecraft:blaze' || x.type === 'minecraft:small_fireball').map(x => [x.type.slice(10,15), Math.round(x.position.x*10)/10, Math.round(x.position.y*10)/10, Math.round(x.position.z*10)/10]) }).catch(() => {}); } } } });
+		if (now() - lastSampleAt >= 1000) { lastSampleAt = now(); const p = e.payload; traceRow({ sample: true, at: lastSampleAt, s: Math.round((lastSampleAt - (runDeadline - RUN_S*1000))/100)/10, position: p.position, view: p.view, seenRods: (p.entities ?? []).filter(x => x.itemId === 'minecraft:blaze_rod').map(x => [Math.round(x.position.x*10)/10, Math.round(x.position.y*10)/10, Math.round(x.position.z*10)/10]), health: p.player?.health, onFire: p.player?.onFire, fireTicks: p.player?.fireTicks, onGround: p.player?.onGround, action: p.currentAction?.actionType ?? p.action?.actionType, blazes: (p.entities ?? []).filter(x => x.type === 'minecraft:blaze' || x.type === 'minecraft:small_fireball').map(x => [x.type.slice(10,15), Math.round(x.position.x*10)/10, Math.round(x.position.y*10)/10, Math.round(x.position.z*10)/10]) }).catch(() => {}); } } } });
 	bridge.on('message', e => {
 		if (e.type === 'entity_killed') kills.push({ at: now(), type: e.payload?.entityType });
 		if (e.type === 'goal_control' && record && e.agentId === record.agentId && Number.isFinite(e.payload?.goalRevision)) record.goalRevision = e.payload.goalRevision;

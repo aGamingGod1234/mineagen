@@ -59,6 +59,13 @@ public final class SpawnerHold {
 		return !blaze;
 	}
 	static final long DEFEND_MS = 20_000L;
+	/**
+	 * Open fight: a blaze targeting the body within this distance (feet to feet) with a clear line can hit it in melee
+	 * (vanilla's blaze hits under 2 blocks). No wall-in starts then: it would be built round a blaze that keeps hitting while
+	 * the body stops swinging (doorway fix, blaze spawner rooms: in 24 of 28 runs with a death a blaze was within 1 block as
+	 * health ran out, 12 of them dying mid wall-in). The open fight goes on and swings at it instead.
+	 */
+	static final double MELEE_BLAZE = 2.5D;
 
 	private SpawnerHold() {
 	}
@@ -81,6 +88,29 @@ public final class SpawnerHold {
 	/** Lower is better: near the ideal distance, near the body, few blocks to place (a standing shelter is reused). */
 	static double siteScore(double horizontal, double fromBody, int blocksToPlace) {
 		return Math.abs(horizontal - SITE_IDEAL) + 0.15D * fromBody + 0.5D * blocksToPlace;
+	}
+
+	/**
+	 * The doorway of a cell walled up right beside the spawner: facing the spawner would make the spawner block itself the
+	 * doorway, which no pickaxe opens, so the body stayed sealed in for the rest of the fight (wave 6 blaze spawner rooms,
+	 * main: 39 of 135 runs). Then the doorway turns to the side along the other axis instead.
+	 */
+	static Direction doorway(int cellX, int cellZ, int spawnerX, int spawnerZ, boolean inDoorway,
+			java.util.function.Predicate<Direction> wayOut) {
+		int dx = spawnerX - cellX, dz = spawnerZ - cellZ;
+		Direction toward = facing(dx, dz);
+		if (!inDoorway || Math.abs(dx) + Math.abs(dz) != 1) return toward;
+		// The two sides along the other axis, then the side away from the spawner: the first with a seen way out past it.
+		Direction[] sides = toward.getAxis() == Direction.Axis.X
+				? new Direction[] {Direction.SOUTH, Direction.NORTH, toward.getOpposite()}
+				: new Direction[] {Direction.EAST, Direction.WEST, toward.getOpposite()};
+		for (Direction side : sides) if (wayOut.test(side)) return side;
+		return sides[0];
+	}
+
+	/** The spawner sits in the feet or head block of a cell's doorway on that side (cell at its level or a block below). */
+	static boolean spawnerInDoorway(int cellY, int spawnerY) {
+		return spawnerY == cellY || spawnerY == cellY + 1;
 	}
 
 	/** The doorway faces the spawner along the larger horizontal axis. */
