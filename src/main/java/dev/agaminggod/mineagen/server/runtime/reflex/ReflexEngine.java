@@ -591,6 +591,8 @@ public final class ReflexEngine {
 				ReflexSensors.Reading reading = ReflexSensors.sense(player, condition, frame, agent.memory, now);
 				// For defend, "attacked" also reads a melee hit about to land, as it does a shot about to land.
 				if (!reading.truth() && guards) reading = ReflexSensors.meleeAboutToLand(player, condition);
+				// And a ranged mob beyond reach that drew at the body lately, as a hit from it would.
+				if (!reading.truth() && guards) reading = ReflexSensors.drewAt(player, condition, agent.memory);
 				if (!reading.truth()) {
 					truth = false;
 					break;

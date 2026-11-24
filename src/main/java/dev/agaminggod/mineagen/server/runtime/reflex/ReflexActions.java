@@ -838,6 +838,8 @@ final class ReflexActions {
 			// the walls or the walk to cover, and stood dodging volleys while a zombie came on (cover-zombie: cover reached in
 			// 10 of 10 runs before the dodge, 1 of 10 with it).
 			if (shooter == null) shooter = shootingBeyondReach(player, player.getInventory().getItem(slot));
+			// Between draws too: one that drew lately is still shooting, as one that hit lately is (cover room, 24 Nov).
+			if (shooter == null && context.memory() != null) shooter = drewBeyondReach(player, context.memory(), player.getInventory().getItem(slot));
 			boolean canWall = PlaceBlock.blockSlot(player, null) >= 0 && nearestChaser(player, PACK_RANGE) >= PACK_RANGE;
 			// A ranged mob beyond reach that is the focus but has not hit yet: on a lip its first hit is the fall (four
 			// traced lava-sea deaths: the first fireball knocked the body off), so the step inland does not wait for it.
@@ -918,6 +920,13 @@ final class ReflexActions {
 				if (!player.getAttackRangeWith(weapon).isInRange(player, mob.getBoundingBox(), 0.0D)) return mob;
 			}
 			return null;
+		}
+
+		/** The ranged mob that drew at the body within {@link #UNDER_FIRE_TICKS} and stands beyond the weapon's reach, or null. */
+		static LivingEntity drewBeyondReach(ServerPlayer player, ReflexSensors.Memory memory, ItemStack weapon) {
+			Mob drew = memory.drewWithin(player, UNDER_FIRE_TICKS);
+			if (drew == null || !ThreatPerception.isRanged(drew)) return null;
+			return player.getAttackRangeWith(weapon).isInRange(player, drew.getBoundingBox(), 0.0D) ? null : drew;
 		}
 
 		static LivingEntity rangedBeyondReach(ServerPlayer player, Entity focus, ItemStack weapon) {
