@@ -60,15 +60,12 @@ public final class SpawnerHold {
 	}
 	static final long DEFEND_MS = 20_000L;
 	/**
-	 * Open fight: a blaze targeting the body within this distance (feet to feet) is in its own melee reach (vanilla's blaze
-	 * hits under 2 blocks) and the body's sword reach. It is fought with the sword first, for up to MELEE_BLAZE_MS, before
-	 * the open fight or a wall-in goes on: a wall-in started with it there is built around a blaze that keeps hitting
-	 * (doorway fix, blaze spawner rooms: in 24 of 28 runs with a death a blaze was within 1 block while health ran out,
-	 * 12 of them dying mid wall-in).
+	 * Open fight: a blaze targeting the body within this distance (feet to feet) with a clear line can hit it in melee
+	 * (vanilla's blaze hits under 2 blocks). No wall-in starts then: it would be built round a blaze that keeps hitting while
+	 * the body stops swinging (doorway fix, blaze spawner rooms: in 24 of 28 runs with a death a blaze was within 1 block as
+	 * health ran out, 12 of them dying mid wall-in). The open fight goes on and swings at it instead.
 	 */
 	static final double MELEE_BLAZE = 2.5D;
-	static final long MELEE_BLAZE_MS = 6_000L;
-	static final long MELEE_BLAZE_GAP_TICKS = 10L;
 
 	private SpawnerHold() {
 	}
