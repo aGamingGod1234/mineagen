@@ -282,7 +282,8 @@ public final class ObservationVisibility {
 	static final class Blockers {
 		private static final double MARGIN = 1.0E-4D;
 		private static final double MAX_SKIP_DISTANCE = 512.0D;
-		private int[] cells = new int[12];
+		// Made on the first block noted: most checks see their cell on the first ray and note nothing.
+		private int[] cells;
 		private int size;
 
 		void note(BlockGetter level, CollisionContext context, Vec3 eye, BlockPos position, BlockPos hit) {
@@ -294,7 +295,8 @@ public final class ObservationVisibility {
 			for (int index = 0; index < size; index += 3) if (cells[index] == x && cells[index + 1] == y && cells[index + 2] == z) return;
 			BlockPos cell = hit.immutable();
 			if (cellSightShape(level.getBlockState(cell), level, cell, context, position) != net.minecraft.world.phys.shapes.Shapes.block()) return;
-			if (size == cells.length) cells = java.util.Arrays.copyOf(cells, size * 2);
+			if (cells == null) cells = new int[12];
+			else if (size == cells.length) cells = java.util.Arrays.copyOf(cells, size * 2);
 			cells[size++] = x;
 			cells[size++] = y;
 			cells[size++] = z;
@@ -316,14 +318,13 @@ public final class ObservationVisibility {
 		static boolean crossesInside(Vec3 from, Vec3 to, int x, int y, int z) {
 			double enter = 0.0D;
 			double exit = 1.0D;
-			double[] starts = {from.x, from.y, from.z};
-			double[] deltas = {to.x - from.x, to.y - from.y, to.z - from.z};
-			int[] lows = {x, y, z};
+			// No arrays: this runs for every remembered block on every ray, and the small arrays showed up as garbage.
 			for (int axis = 0; axis < 3; axis++) {
-				double min = lows[axis] + MARGIN;
-				double max = lows[axis] + 1.0D - MARGIN;
-				double start = starts[axis];
-				double delta = deltas[axis];
+				int low = axis == 0 ? x : axis == 1 ? y : z;
+				double start = axis == 0 ? from.x : axis == 1 ? from.y : from.z;
+				double delta = (axis == 0 ? to.x : axis == 1 ? to.y : to.z) - start;
+				double min = low + MARGIN;
+				double max = low + 1.0D - MARGIN;
 				if (Math.abs(delta) < 1.0E-12D) {
 					if (start < min || start > max) return false;
 					continue;
