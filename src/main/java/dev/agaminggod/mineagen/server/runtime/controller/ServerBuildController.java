@@ -3474,7 +3474,8 @@ public final class ServerBuildController implements ServerController {
 		if (state != null) {
 			if (REMEMBER_ROCK && state.isCollisionShapeFullBlock(player.level(), at) && state.getFluidState().isEmpty() && !(state.getBlock() instanceof EntityBlock)
 					&& !(state.getBlock() instanceof net.minecraft.world.level.block.FallingBlock)) rockSeen.put(at.immutable(), state);
-			else if (!(state.isAir() && rockSeen.containsKey(at))) rockSeen.remove(at);
+			else if (state.isAir() && rockSeen.containsKey(at)) rockSeen.put(at.immutable(), state);
+			else rockSeen.remove(at);
 			return state;
 		}
 		// So does water or lava a carve met behind the rock and plugged.
