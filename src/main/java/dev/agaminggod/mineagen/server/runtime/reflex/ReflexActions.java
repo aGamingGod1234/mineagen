@@ -1990,8 +1990,8 @@ final class ReflexActions {
 					player.getBoundingBox().inflate(HOLD_DRAGON_RANGE), Entity::isAlive).isEmpty()) dragonNear = true;
 			// An angry enderman still on the body keeps main's way: the hold ends with the water left as cover. Scooped then, the
 			// pour could not fire again while that enderman stayed angry (its rule fires on the first anger), and the body fought
-			// it dry (the full fight: enderman deaths 7 to 13 of 40, hits 76 to 105).
-			if (dragonNear && scoopTicks == 0 && calmTicks == 0) return Step.done(left + " (the dragon came near)");
+			// it dry (the full fight: enderman deaths 7 to 13 of 40, hits 76 to 105). One back while the scoop lines up ends it the same way.
+			if (dragonNear && calmTicks == 0) return Step.done(left + " (the dragon came near)");
 			if (calmTicks < CALM_TICKS && !dragonNear) {
 				// Knocked onto dry ground within reach of the source, standing still would hold the body exposed: the hold ends
 				// (a few ticks first, for the body's water state to catch up with the pour).
