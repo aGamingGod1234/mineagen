@@ -110,6 +110,10 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'find.dryStart', env: 'MINEAGEN_FIND_DRY_START', side: 'coordinator', default: true, parser: OFF_EXACT, status: 'default-on',
 		reason: 'A lava search from the surface walks off seen water before its first dig down (kit gates on main: 55 of 79 first digs met water, 3 lit); off is the A/B off arm.',
 		readers: ['coordinator/src/find-search.mjs dryStart (per call)'] }),
+	// coordinator/src/find-search.mjs walkToLavaOn(environment): per call.
+	entry({ name: 'find.walkToLava', env: 'MINEAGEN_FIND_WALK_TO_LAVA', side: 'coordinator', default: true, parser: OFF_EXACT, status: 'default-on',
+		reason: 'A lava sighting more than 16 blocks off is walked to until the lava shows within 8 before find hands back, so the build sees the pool (cast-gate-5xa); off is the A/B off arm.',
+		readers: ['coordinator/src/find-search.mjs walkToLavaOn (per call)'] }),
 	// coordinator/src/find-search.mjs dryFlood(environment): per call.
 	entry({ name: 'find.dryFlood', env: 'MINEAGEN_FIND_DRY_FLOOD', side: 'coordinator', default: true, parser: OFF_EXACT, status: 'default-on',
 		reason: 'Water that ran into an opened tunnel and stopped short of the body is a shut way the search turns from, not danger that ends it; off is the A/B off arm.',
