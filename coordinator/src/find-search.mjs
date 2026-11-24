@@ -177,6 +177,8 @@ const smallLava = (row) => row?.small === true && row.blockId === 'minecraft:lav
 const WOODED = /(forest|taiga|jungle|savanna|grove|swamp|mangrove|meadow|garden|woodland|wooded)/;
 const MELEE = /(^|:)(zombie|husk|drowned|zombie_villager|spider|cave_spider|silverfish|slime|endermite|zombified_piglin|piglin|piglin_brute|hoglin|zoglin|magma_cube|vindicator)$/;
 const MAX_SIDESTEPS = 3;
+// Floods that stopped short of the body, each turned from as a shut way, before the next one goes back as danger.
+const MAX_DRY_FLOODS = 2;
 const SIDESTEP = 8;
 const CAVE_REACH = 48;
 const CAVE_BAND = 24;
@@ -214,6 +216,7 @@ const WET_WALK_STOPS = new Set(['WATER_AHEAD', 'TUNNEL_FLOODED', 'BREATH_LOW', '
 export const caveFirst = (environment = process.env) => getSwitch('find.caveFirst', environment).value;
 /** Off only for the A/B off arm (MINEAGEN_FIND_DRY_START=off): no walk off seen water before the first dig down. */
 export const dryStart = (environment = process.env) => getSwitch('find.dryStart', environment).value;
+export const dryFlood = (environment = process.env) => getSwitch('find.dryFlood', environment).value;
 // Blocks a dig_to may be given (schema.mjs maxBlocks) and the cells one step cuts per pattern.
 const MAX_DIG_BLOCKS = 4_096;
 const STEP_CELLS = Object.freeze({ tunnel: 2, stairs_down: 3, stairs_up: 3, steep_down: 4 });
@@ -870,6 +873,13 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 			if (escaped !== null) return escaped;
 			if (!inWater()) return null;
 		}
+		// Water that ran into the opened tunnel and stopped short of the body, which backed out dry: a shut way, not danger.
+		// A player turns another way (the spot is already marked wet above). Kit gates on main: 13 of 160 searches ended here.
+		if (dryFlood() && code === 'TUNNEL_FLOODED' && !/lava/i.test(String(result?.message ?? '')) && /stopped short/.test(String(result?.message ?? ''))
+			&& !inWater() && dryFloods < MAX_DRY_FLOODS) {
+			dryFloods++;
+			return null;
+		}
 		// Lava ahead is what a lava search is after: the dig loop peeks at it (below) rather than handing back.
 		if (DANGER.has(code) && !(code === 'LAVA_AHEAD' && profile.ids.has('minecraft:lava'))) {
 			// Underground, the body is handed back walled in rather than idle in a cave's line of fire; never on a stop for
@@ -1012,7 +1022,7 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 	// Out of a hostile's sight: 8 blocks straight away from it, then the search goes on from there. Travel legs do not set
 	// fightThrough (it engages creepers and pursues); find's fight() keeps its limits. Under the instincts arm the mod
 	// still fights a lone beatable melee mob on any leg without the key (TravelStops.beatable).
-	let sidesteps = 0, awayFrom = null;
+	let sidesteps = 0, awayFrom = null, dryFloods = 0;
 	const passes = new Map();
 	const sidestep = async (message) => {
 		const at = bodyAt(observation);
