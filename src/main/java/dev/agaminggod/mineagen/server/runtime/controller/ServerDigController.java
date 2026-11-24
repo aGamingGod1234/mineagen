@@ -126,6 +126,10 @@ public final class ServerDigController implements ServerController {
 	/** Ticks a cut beside loose blocks waits before its floor is judged: vanilla's 2-tick fall delay and a margin. */
 	private static final int LOOSE_SETTLE_TICKS = 4;
 	private static final int PLACE_ATTEMPTS = 3;
+	/** A crouched lean to a block's edge: the eye is past its side face within about a second. */
+	private static final int EYE_LEAN_TICKS = 30;
+	/** Stepping back out of a cell before filling it. */
+	private static final int STEP_OUT_TICKS = 20;
 	/** Blocks a player carries to fill a hole or plug lava, cheapest first. */
 	static final List<String> FILLERS = List.of("minecraft:cobblestone", "minecraft:cobbled_deepslate", "minecraft:netherrack",
 			"minecraft:dirt", "minecraft:andesite", "minecraft:diorite", "minecraft:granite", "minecraft:tuff", "minecraft:stone",
@@ -293,6 +297,7 @@ public final class ServerDigController implements ServerController {
 	private String placeItem;
 	private int placeAttempts;
 	private int leanTicks;
+	private int stepOutTicks;
 	private String placeRefusal;
 	private String afterPlace;
 	private String afterPlaceCode;
@@ -1271,11 +1276,19 @@ public final class ServerDigController implements ServerController {
 		placeItem = item;
 		placeAttempts = 0;
 		leanTicks = 0;
+		stepOutTicks = 0;
 		afterPlaceCode = code;
 		afterPlace = message;
 		phase = Phase.PLACE;
 		phaseTicks = 0;
 		return place(player);
+	}
+
+	/** The eye is on the outer side of {@code support}'s {@code face}, a little past its plane, so it can see that face. */
+	static boolean eyePastFace(ServerPlayer player, BlockPos support, Direction face) {
+		Vec3 eye = player.getEyePosition();
+		double plane = Vec3.atCenterOf(support).get(face.getAxis()) + 0.5D * face.getAxisDirection().getStep();
+		return (eye.get(face.getAxis()) - plane) * face.getAxisDirection().getStep() > 0.05D;
 	}
 
 	private TickResult place(ServerPlayer player) {
@@ -1285,10 +1298,14 @@ public final class ServerDigController implements ServerController {
 		float yaw = AgentInputStates.turnYaw(player.getYRot(), look.yaw());
 		float pitch = AgentInputStates.turnPitch(player.getXRot(), look.pitch());
 		// A floor placed out over a cave goes on the side face of the block underfoot: crouch to its edge first, as a
-		// player bridging does, so the eye sees that face.
-		// The long lean is the level tunnel's bridge; the stairs' crossings and build-under keep the 12-tick lean.
+		// player bridging does, so the eye sees that face. The long lean is the level tunnel's bridge, which ends at the
+		// support's edge. Elsewhere the lean goes on until the eye is past that face (a fixed 12 ticks left it 0.15-0.2
+		// short: 83 of 175 failed fills in the dragon crystal rooms). A top face is seen from above with no lean, and leaning
+		// toward it pushed the body into the very cell being filled (85 of 175).
 		boolean longLean = crossNext && active == Pattern.TUNNEL;
-		if ((crossNext || floorAfterPlace) && leanTicks < (longLean ? LEAN_TICKS : 12)) {
+		boolean sideFace = placeFace.getAxis().isHorizontal();
+		if ((crossNext || floorAfterPlace) && (longLean ? leanTicks < LEAN_TICKS
+				: sideFace && leanTicks < EYE_LEAN_TICKS && !eyePastFace(player, support, placeFace))) {
 			// Face the heading first: forward follows the view, and a lean sideways leaves the face out of sight.
 			float toward = AgentInputStates.turnYaw(player.getYRot(), heading.toYRot());
 			boolean facing = Math.abs(AgentInputStates.shortestAngleDelta(toward, heading.toYRot())) < 10.0F;
@@ -1299,6 +1316,19 @@ public final class ServerDigController implements ServerController {
 			double gap = (support.getX() + 0.5D + heading.getStepX() * 0.5D - body.x) * heading.getStepX()
 					+ (support.getZ() + 0.5D + heading.getStepZ() * 0.5D - body.z) * heading.getStepZ();
 			if (longLean && facing && leanTicks >= 12 && gap <= LEAN_EDGE) leanTicks = LEAN_TICKS;
+			applyInput(player, facing ? 1.0F : 0.0F, false, true, false, toward, pitch, player.getInventory().getSelectedSlot());
+			return TickResult.running(progress(player));
+		}
+		// The body hanging into the cell to fill (it arrived off centre): step out of it, crouched, before the click. The way
+		// out is from the cell's centre toward the body's, not backward from the aim: the aim is on the support's face, and
+		// backing away from it can lead further into the cell. The box is the one the placement check tests, ungrown.
+		AABB body = player.getBoundingBox();
+		if (stepOutTicks < STEP_OUT_TICKS && body.deflate(1.0E-7D).intersects(new AABB(placeAt))) {
+			stepOutTicks++;
+			double dx = body.getCenter().x - (placeAt.getX() + 0.5D), dz = body.getCenter().z - (placeAt.getZ() + 0.5D);
+			float out = Math.hypot(dx, dz) > 1.0E-3D ? (float) Math.toDegrees(Math.atan2(-dx, dz)) : heading.getOpposite().toYRot();
+			float toward = AgentInputStates.turnYaw(player.getYRot(), out);
+			boolean facing = Math.abs(AgentInputStates.shortestAngleDelta(toward, out)) < 30.0F;
 			applyInput(player, facing ? 1.0F : 0.0F, false, true, false, toward, pitch, player.getInventory().getSelectedSlot());
 			return TickResult.running(progress(player));
 		}
