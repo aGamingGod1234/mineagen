@@ -643,7 +643,9 @@ public final class ServerDigController implements ServerController {
 		SeenTerrain.Reader<BlockState> seen = SeenTerrain.of(player);
 		BlockPos floor = feet.below();
 		boolean noClutch = !acceptUnseenBelow && evaporates(player, floor);
-		boolean checkingLavaFloor = !acceptUnseenBelow && "minecraft:lava".equals(stopWhenSeen)
+		// With a water bucket in hand a player digs the one-wide shaft (douse() pours it on a lava landing), at one level a
+		// second against the two-column stairs' 2.4: lava-gate-6 and -8 spent 200-280 s of a 540 s search on the stairs down.
+		boolean checkingLavaFloor = !acceptUnseenBelow && "minecraft:lava".equals(stopWhenSeen) && bucketSlot(player) < 0
 				&& stairsAffordable(pickaxeUses(player, player.level().getBlockState(floor)), feet.getY() - (targetY != null ? targetY : maxShaftY));
 		for (int depth = 1; depth <= 24; depth++) {
 			BlockPos at = floor.below(depth);
