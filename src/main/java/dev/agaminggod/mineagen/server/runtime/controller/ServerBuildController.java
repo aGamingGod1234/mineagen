@@ -2582,18 +2582,35 @@ public final class ServerBuildController implements ServerController {
 		return portal != null && (portal.reserved(at) || mould.contains(at));
 	}
 
-	/** Blocks a pillar can use: {@code item} (which may be a block of its own kind) plus every other plain full block carried. */
+	/**
+	 * Blocks a pillar can use from the hotbar and pack (the slots it selects from, not the offhand): {@code item} plus every
+	 * other {@link #pillarFiller}.
+	 */
 	private static int pillarBlocks(ServerPlayer player, String item) {
-		int count = carried(player, item);
-		Set<String> seen = new HashSet<>();
-		if (item != null) seen.add(item);
+		int count = 0;
 		for (int slot = 0; slot < 36; slot++) {
 			ItemStack stack = player.getInventory().getItem(slot);
-			if (!TravelBuilder.buildingBlock(stack)) continue;
-			String id = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
-			if (seen.add(id)) count += carried(player, id);
+			String id = stack.isEmpty() ? null : BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+			if (id != null && (id.equals(item) || pillarFiller(stack))) count += stack.getCount();
 		}
 		return count;
+	}
+
+	/** The filler most carried in the selectable slots, for when the asked block has run out. */
+	private static String pillarFill(ServerPlayer player) {
+		Map<String, Integer> counts = new HashMap<>();
+		for (int slot = 0; slot < 36; slot++) {
+			ItemStack stack = player.getInventory().getItem(slot);
+			if (pillarFiller(stack)) counts.merge(BuiltInRegistries.ITEM.getKey(stack.getItem()).toString(), stack.getCount(), Integer::sum);
+		}
+		return counts.entrySet().stream().max(Map.Entry.comparingByValue()).map(Map.Entry::getKey).orElse(null);
+	}
+
+	/** A plain building block a player spends on a tower without a second thought: not ore or raw metal kept for smelting. */
+	static boolean pillarFiller(ItemStack stack) {
+		if (!TravelBuilder.buildingBlock(stack)) return false;
+		String path = BuiltInRegistries.ITEM.getKey(stack.getItem()).getPath();
+		return !path.endsWith("_ore") && !path.startsWith("raw_") && !path.equals("ancient_debris");
 	}
 
 	private static int plainCount(ServerPlayer player) {
@@ -2634,7 +2651,7 @@ public final class ServerBuildController implements ServerController {
 		if (!above.getCollisionShape(player.level(), head).isEmpty() || !above.getFluidState().isEmpty())
 			return fail(player, "BUILD_BLOCKED", describe(above) + " over the head at " + xyz(head) + " stops the pillar at " + (current.y() - startY) + " of " + size + " blocks");
 		if (moveStage == 0) {
-			String item = pillarReturn != null ? spareItem(player) : material != null && carried(player, material) > 0 ? material : plainBlock(player, false);
+			String item = pillarReturn != null ? spareItem(player) : material == null ? plainBlock(player, false) : slot(player, material) >= 0 ? material : pillarFill(player);
 			if (item == null || carried(player, item) == 0) return short_(player, pillarReturn != null ? "stepping up needs 1 plain block, none left"
 					: "the pillar ran out of plain blocks at " + (current.y() - startY) + " of " + size + "; " + (size - (current.y() - startY)) + " more");
 			int slot = select(player, slot(player, item), now);
