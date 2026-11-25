@@ -178,7 +178,14 @@ try {
 			// A body left dead by an earlier fight (its respawn refused) is brought back before this one.
 			if (!(await s.observeOrNull())) await respawned();
 			await s.setReflexes([]);
-			await s.command('kill @e[type=!minecraft:player]');
+			// A killed magma cube splits unless it is the smallest: shrink them first, and repeat until none is left, or the next
+			// fight starts with extra cubes.
+			for (let i = 0; i < 4; i++) {
+				await s.command('execute as @e[type=minecraft:magma_cube] run data merge entity @s {Size:0}');
+				await s.command('kill @e[type=!minecraft:player]');
+				if (!/passed/.test(String(await s.command('execute if entity @e[type=minecraft:magma_cube]').catch(() => '')))) break;
+				await s.clock.sleep(200);
+			}
 			await build(place);
 			if (await s.command('execute if entity Probe[gamemode=spectator]').then(t => /passed/.test(t)).catch(() => false)) await s.command('gamemode survival Probe');
 			await s.command(`tp Probe ${X0 + 0.5} ${FEET} ${Z0 + 0.5} -90 0`);
@@ -188,12 +195,12 @@ try {
 			const count = GROUP ?? spec.count;
 			// A group stands across the place's width (the corridor's two lanes), a block apart along it.
 			for (let i = 0; i < count; i++) {
-				await s.command(`summon minecraft:${mob} ${X0 + DIST + 0.5 + i} ${FEET + (spec.hover ?? 0)} ${Z0 + 0.5 + (i % 2)} {Tags:["fightset"],PersistenceRequired:1b${spec.nbt}}`);
+				await s.command(`summon minecraft:${mob} ${X0 + DIST + 0.5 + i} ${FEET + (spec.hover ?? 0)} ${Z0 + 0.5 + (i % 2)} {Tags:["fightset"],PersistenceRequired:1b,NoAI:1b${spec.nbt}}`);
 			}
 			let total = count;
 			if (BEHIND) {
 				const back = MOBS[BEHIND];
-				await s.command(`summon minecraft:${BEHIND} ${X0 - 1.5} ${FEET + (back.hover ?? 0)} ${Z0 + 0.5} {Tags:["fightset","fightbehind"],PersistenceRequired:1b,Rotation:[90f,0f]${back.nbt}}`);
+				await s.command(`summon minecraft:${BEHIND} ${X0 - 1.5} ${FEET + (back.hover ?? 0)} ${Z0 + 0.5} {Tags:["fightset","fightbehind"],PersistenceRequired:1b,NoAI:1b,Rotation:[90f,0f]${back.nbt}}`);
 				const ints = /\[I;\s*(-?\d+),\s*(-?\d+),\s*(-?\d+),\s*(-?\d+)\]/.exec(String(await s.command('data get entity @e[tag=fightbehind,limit=1] UUID') ?? ''));
 				if (!ints) throw new Error('could not read the mob behind\'s UUID');
 				const hex = ints.slice(1).map(n => (Number(n) >>> 0).toString(16).padStart(8, '0')).join('');
@@ -218,7 +225,11 @@ try {
 			if ((await alive()) !== total) throw new Error(`summoned ${total} mobs, ${await alive()} alive at the start`);
 			let lowest = await feetY();
 			await s.fastRate();
+			// The mobs stood still (NoAI) through the setup, the reflex arming and the counter baselines: none could hit before
+			// the measured window. They start now.
+			await s.command('execute as @e[tag=fightset] run data merge entity @s {NoAI:0b}');
 			const t0 = s.clock.now();
+			row.t0Ms = Date.now();
 			const sampler = setInterval(() => { feetY().then(y => { if (y !== null && (lowest === null || y < lowest)) lowest = y; }).catch(() => {}); }, 250);
 			// Once a second: ask for an observation (not awaited: a dead body sends none) and keep the reflex events and
 			// health the last one carried.
@@ -276,7 +287,10 @@ try {
 						if (!o) { await s.clock.sleep(500); continue; }
 						const target = (o.entities ?? []).filter(x => x.type === `minecraft:${mob}` && x.uuid !== row.behindId).sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
 						if (!target) { await s.clock.sleep(500); continue; }
-						const r = await s.act('flee_from', { targetId: target.uuid, distance: 14, timeoutMs: 8000 }, 23000).catch(error => ({ state: 'ERROR', message: String(error?.message ?? error) }));
+						// Bounded by the window left, so nothing after the window is counted as this fight's.
+						const left = Math.min(8000, WINDOW_S * 1000 - (s.clock.now() - t0));
+						if (left < 1000) { await s.clock.sleep(Math.max(0, left)); continue; }
+						const r = await s.act('flee_from', { targetId: target.uuid, distance: 14, timeoutMs: left }, left + 15000).catch(error => ({ state: 'ERROR', message: String(error?.message ?? error) }));
 						row.calls.push({ state: r.state, reasonCode: r.reasonCode, message: String(r.message ?? '').slice(0, 300) });
 					} else await s.clock.sleep(1000);
 				}
