@@ -61,8 +61,10 @@ test('a Nether save point rebuilds both portals of the last crossing, off the st
 });
 
 test('a checkpoint long run keeps the long-run rules and replaces only seed and start', async () => {
-	const samples = [at(0, OW, [0, 70, 0]), at(8, OW, [112, 64, 691]), at(9, NE, [14.5, 62, 86.5])];
+	const samples = [at(0, OW, [0, 70, 0]), at(8, OW, [112, 64, 691]), at(9, NE, [14.5, 62, 86.5], '[]', { advancements: ['story/enter_the_nether', 'recipes/misc/bucket'] })];
 	const cp = buildCheckpoint(samples, { milestone: 'nether', seed: 99 });
+	// The route reads a past Nether visit from the advancement, so it comes back with the save point (recipe unlocks do not).
+	assert.deepEqual(cp.setup.advancements, ['story/enter_the_nether']);
 	const built = normalizeHeadlessScenario(buildQualityScenario({ ...buildLongRunDefinition({ seed: cp.seed, windowMs: 600000, spendCapUsd: 1 }), setup: cp.setup }, { id: 'cp-1', profile }));
 	assert.equal(built.continueAfterDeath, true); assert.equal(built.world.seed, '99'); assert.equal(built.task, 'Beat the game');
 	const commands = [];
@@ -70,6 +72,7 @@ test('a checkpoint long run keeps the long-run rules and replaces only seed and 
 	await applyQualitySetup(structuredClone(cp.setup), command, 'P');
 	assert.ok(commands.some(c => c.includes('the_nether run fill 14 62 89 15 64 89 minecraft:nether_portal')));
 	assert.ok(!commands.some(c => /gamemode creative/.test(c)), 'the player stays in survival');
+	assert.ok(commands.includes('advancement grant P only minecraft:story/enter_the_nether'), 'the earlier advancement is granted to the player, not the placement marker');
 
 	// A full pack can pass the evidence bound on the whole-entity receipt read: the setup still goes on without it.
 	const oversized = async text => text === 'data get entity P' ? Promise.reject(Object.assign(new Error('RCON_INCOMPLETE: data get entity P; received 16745 bytes'), { code: 'RCON_INCOMPLETE' })) : command(text);
@@ -121,4 +124,20 @@ test('a new bed spawn replaces the save point\'s old bed: one bed, one spawn', (
 	assert.deepEqual(checkpoint.setup.loadChunks, [{ dimension: 'minecraft:overworld', position: [323, -28, 2553] }]);
 	assert.deepEqual(checkpoint.bedSpawn, { dimension: 'minecraft:overworld', position: [323, -28, 2553] });
 	assert.equal(checkpoint.notes.filter(n => n.startsWith('Respawn point: a red bed at ')).length, 1);
+});
+
+test('a save point holding 14 eyes and the granted Nether visit is routed to the stronghold, not to a new Nether portal', async () => {
+	const { routeLine } = await import('../src/skill-fits.mjs');
+	const { evaluatePlanCheck, emptyKnown } = await import('../src/plan-checks.mjs');
+	const { scenarios, item } = await import('./fixtures/progress/scenarios.mjs');
+	const route = advancements => {
+		const o = structuredClone(scenarios[0].observation);
+		o.world.dimension = 'minecraft:overworld'; o.ready = true; o.blocks = []; o.advancements = advancements;
+		o.inventory.items = [item('iron_pickaxe'), item('iron_sword'), item('bow'), item('arrow', 64), item('cooked_beef', 24), item('water_bucket'), item('cobblestone', 64), item('ender_eye', 14)];
+		return String(routeLine({ observation: o, known: emptyKnown(), evaluate: evaluatePlanCheck }));
+	};
+	// The bridge reports the granted advancement as the player's own (namespaced id).
+	assert.match(route(['minecraft:story/enter_the_nether']), /find structure stronghold/);
+	// Without it the same pack reads as a fresh Overworld start and is sent back to the first log.
+	assert.doesNotMatch(route([]), /find structure stronghold/);
 });

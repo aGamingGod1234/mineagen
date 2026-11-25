@@ -15,6 +15,7 @@ export function normalizeQualitySetup(value) {
 	if (value.randomSalt !== undefined && (!Number.isInteger(value.randomSalt) || value.randomSalt < -2147483648 || value.randomSalt > 2147483647)) throw new TypeError('qualitySetup.randomSalt must be a 32-bit integer');
 	if (value.usedBedSpawn !== undefined && (value.usedBedSpawn.dimension !== 'minecraft:overworld' || !Array.isArray(value.usedBedSpawn.position) || value.usedBedSpawn.position.length !== 3 || value.usedBedSpawn.position.some(n => !Number.isInteger(n) || Math.abs(n) > 29_000_000))) throw new TypeError('qualitySetup.usedBedSpawn needs an Overworld bed position');
 	if (value.finalCommands !== undefined && (!Array.isArray(value.finalCommands) || value.finalCommands.length > 128 || value.finalCommands.some(c => typeof c !== 'string' || /[\r\n]/.test(c) || c.length > 4096))) throw new TypeError('qualitySetup.finalCommands must contain bounded single-line commands');
+	if (value.advancements !== undefined && (!Array.isArray(value.advancements) || value.advancements.length > 128 || value.advancements.some(a => typeof a !== 'string' || !/^[a-z0-9_]+\/[a-z0-9_\/]+$/.test(a)))) throw new TypeError('qualitySetup.advancements must be advancement ids such as story/enter_the_nether');
 	if (!Array.isArray(value.commands) || value.commands.length > 128 || value.commands.some(c => typeof c !== 'string' || /[\r\n]/.test(c) || c.length > 4096)) throw new TypeError('qualitySetup.commands must contain bounded single-line RCON commands');
 	return structuredClone(value);
 }
@@ -206,6 +207,8 @@ export async function applyQualitySetup(value, command, agent) {
 		}
 		for (const { item, count = 1 } of setup.inventory ?? []) await run(`give {agent} ${item} ${count}`);
 		for (const [slot, item] of Object.entries(setup.armour ?? {})) await run(`item replace entity {agent} armor.${slot} with ${item}`);
+		// A save point's earlier advancements (story/enter_the_nether and the rest): the route reads a past Nether visit from them.
+		for (const id of setup.advancements ?? []) await run(`advancement grant {agent} only minecraft:${id}`);
 		// A save point may name what the body starts looking at (the spawner-in-view fortress start); the place stays as prepared.
 		if (Array.isArray(setup.facing)) await run(`execute in ${setup.dimension} at {agent} run tp {agent} ~ ~ ~ facing ${setup.facing.join(' ')}`);
 		if(setup.generality) await run('execute at {agent} run kill @e[type=minecraft:item,distance=..4]');

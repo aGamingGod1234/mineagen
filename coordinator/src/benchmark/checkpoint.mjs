@@ -174,6 +174,9 @@ export function buildCheckpoint(samples, { milestone, seed, source = null }) {
 	const setup = { dimension: s.dimension, position: pos, generality: true, commands: [], inventory, armour, effects: [], mobs: [], freezeUntilGoalStart: true,
 		time: Number.isFinite(s.gameTime) ? s.gameTime % 24000 : 1000 };
 	// Start on natural ground near the saved spot: a tunnel the agent dug does not exist in the regenerated world.
+	// The player's earlier advancements come back too: the route reads a past Nether visit from story/enter_the_nether, and
+	// without it a save point holding eyes was sent to build a Nether portal (recipe unlocks are left out).
+	setup.advancements = (s.advancements ?? []).filter(a => typeof a === 'string' && /^[a-z0-9_]+\/[a-z0-9_\/]+$/.test(a) && !a.startsWith('recipes/')).slice(0, 128);
 	if (s.dimension === DIMS.overworld || s.dimension === DIMS.end) setup.groundBelowCanopy = true;
 	else Object.assign(setup, { naturalCave: true, caveMaxY: Math.min(120, Math.floor(pos[1]) + 12), caveMinY: Math.max(5, Math.floor(pos[1]) - 12) });
 	const crossing = lastCrossing(samples, index);
