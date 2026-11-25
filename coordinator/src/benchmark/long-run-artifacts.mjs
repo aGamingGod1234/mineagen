@@ -8,11 +8,14 @@ import { estimateTokenCostUsd } from '../call-cost.mjs';
 import { extractLongRunTimeline, spendSeries } from './long-run.mjs';
 import { reconcileProviderUsage } from './quality-metrics.mjs';
 
-/** Long reports need player inventory/lifecycle, not the repeated terrain and recipe catalogues. */
+/** Long reports need player inventory/lifecycle, not the repeated terrain and recipe catalogues.
+ * An observation keeps only each held item's id and count: the observer holds every row for the whole game, and full
+ * item stacks (components, enchantments, tags) grew it by about 115 MB an hour. */
 export function longProtocolRow(row) {
 	const e = row.envelope ?? row, p = e.payload ?? {};
 	if (e.type === 'observation') return { ...row, envelope: { type: e.type, agentId: e.agentId, payload: {
-		observedAtEpochMs: p.observedAtEpochMs, dimension: p.dimension ?? p.world?.dimension, inventory: p.inventory,
+		observedAtEpochMs: p.observedAtEpochMs, dimension: p.dimension ?? p.world?.dimension,
+		inventory: { items: (p.inventory?.items ?? []).filter(i => i?.count > 0).map(({ itemId, count }) => ({ itemId, count })) },
 	} } };
 	if (['goal_control', 'goal_completion_result', 'advancement_granted', 'entity_killed', 'agent_registered', 'agent_removed'].includes(e.type)) return row;
 	return null;
