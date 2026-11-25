@@ -448,6 +448,102 @@ public final class CombatPlanning {
 		return best != null ? best : new Heading(wrap(awayYaw), false, false);
 	}
 
+	/** A flee from a melee chaser that can gain less than this over seen ground, with nothing unseen to try, is a dead end. */
+	static final double DEAD_END_GAIN = 6.0D;
+	/** How far round the feet the run room is searched; reaching it is room enough. */
+	static final int RUN_ROOM_RADIUS = 12;
+	private static final int RUN_ROOM_NODES = 1_200;
+	private static final int[][] RUN_ROOM_STEPS = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}, {1, 1}, {1, -1}, {-1, 1}, {-1, -1}};
+	private static final GridPosition UNSEEN = new GridPosition(Integer.MIN_VALUE, Integer.MIN_VALUE, Integer.MIN_VALUE);
+
+	/**
+	 * How much farther from its nearest threat the body can still walk over seen ground ({@code gain}, blocks), never
+	 * stepping more than a block nearer any threat, and whether the search met unseen ground (which may lead on).
+	 */
+	record RunRoom(double gain, boolean unseen) {
+		/** Nothing unseen to try and less gain than a run needs (or than the flee still asks for): running is a dead end. */
+		boolean deadEnd(double needed) {
+			return !unseen && gain < Math.min(DEAD_END_GAIN, needed);
+		}
+	}
+
+	/**
+	 * A player sees a bridge's end or a tunnel's back wall before running into it: the 2-cell heading probe does not.
+	 * Searches the seen ground the flee could reach (level, one block up, damage-free drops) away from {@code threats}
+	 * (x, z pairs) for the most separation it can gain.
+	 */
+	static RunRoom runRoom(WalkabilityView world, GridPosition feet, List<double[]> threats) {
+		Objects.requireNonNull(world, "world must not be null");
+		double start = nearestThreat(feet, threats);
+		java.util.ArrayDeque<GridPosition> queue = new java.util.ArrayDeque<>();
+		Set<GridPosition> visited = new java.util.HashSet<>();
+		queue.add(feet);
+		visited.add(feet);
+		double gain = 0.0D;
+		boolean unseen = false;
+		while (!queue.isEmpty()) {
+			if (visited.size() >= RUN_ROOM_NODES) return new RunRoom(gain, true);
+			GridPosition at = queue.poll();
+			for (int[] step : RUN_ROOM_STEPS) {
+				int x = at.x() + step[0];
+				int z = at.z() + step[1];
+				if (Math.abs(x - feet.x()) > RUN_ROOM_RADIUS || Math.abs(z - feet.z()) > RUN_ROOM_RADIUS) return new RunRoom(Math.max(gain, RUN_ROOM_RADIUS), unseen);
+				// A diagonal step passes the corner only with both side cells open at the feet and head (a diagonal bridge's
+				// sides are air): a wall corner stops it as it stops the body.
+				if (step[0] != 0 && step[1] != 0 && !(cornerOpen(world, at.x() + step[0], at.y(), at.z()) && cornerOpen(world, at.x(), at.y(), at.z() + step[1]))) continue;
+				GridPosition next = runStep(world, at, x, z);
+				if (next == null) continue;
+				if (next == UNSEEN) {
+					// Unseen ground counts as a way on only where the run may go: not more than a block nearer a threat.
+					if (nearestThreat(new GridPosition(x, at.y(), z), threats) >= start - 1.0D) unseen = true;
+					continue;
+				}
+				double away = nearestThreat(next, threats);
+				if (away < start - 1.0D || !visited.add(next)) continue;
+				gain = Math.max(gain, away - start);
+				queue.add(next);
+			}
+		}
+		return new RunRoom(gain, unseen);
+	}
+
+	private static boolean cornerOpen(WalkabilityView world, int x, int y, int z) {
+		GridPosition feet = new GridPosition(x, y, z);
+		return open(world, feet) && open(world, feet.above());
+	}
+
+	/** The cell a walk from {@code at} into column (x, z) stands in, {@link #UNSEEN} where the ground there is not known, or null. */
+	private static GridPosition runStep(WalkabilityView world, GridPosition at, int x, int z) {
+		GridPosition level = new GridPosition(x, at.y(), z);
+		if (world.cellAt(level) == WalkabilityView.Cell.UNLOADED) return UNSEEN;
+		if (world.lavaFlowsInto(level)) return null;
+		if (walkable(world, level)) return level;
+		GridPosition up = level.above();
+		// Clear feet under headroom not seen yet is a way that may go on: unseen, not a wall.
+		if (open(world, level) && world.cellAt(up) == WalkabilityView.Cell.UNLOADED) return UNSEEN;
+		if (!open(world, level)) {
+			// A wall, or a one-block step up onto it.
+			if (world.cellAt(up) == WalkabilityView.Cell.UNLOADED) return UNSEEN;
+			return walkable(world, up) && open(world, at.above(2)) && world.canJumpUp(at, up) ? up : null;
+		}
+		if (!open(world, up)) return null;
+		// Seen air over ground not seen: the flee never steps off onto unseen ground (a bridge's side over a lava sea the
+		// body never looked down at), so it is no way on. Unseen ground at the feet's own level is (a tunnel out of view).
+		for (int drop = 1; drop <= LocalPathfinder.MAX_DROP_BLOCKS; drop++) {
+			GridPosition below = level.below(drop);
+			if (world.cellAt(below) == WalkabilityView.Cell.UNLOADED) return null;
+			if (walkable(world, below)) return world.lavaFlowsInto(below) ? null : below;
+			if (!open(world, below)) return null;
+		}
+		return null;
+	}
+
+	private static double nearestThreat(GridPosition cell, List<double[]> threats) {
+		double nearest = Double.POSITIVE_INFINITY;
+		for (double[] threat : threats) nearest = Math.min(nearest, Math.hypot(cell.x() + 0.5D - threat[0], cell.z() + 0.5D - threat[1]));
+		return nearest;
+	}
+
 	/**
 	 * The yaw that walks the body from ({@code x}, {@code z}) along {@code headingYaw} through the cells the flee probe
 	 * checked: toward the centre of the second cell ahead of {@code feet}, so a body standing off-centre drifts back to
