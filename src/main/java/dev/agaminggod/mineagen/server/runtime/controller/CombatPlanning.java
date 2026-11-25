@@ -476,7 +476,8 @@ public final class CombatPlanning {
 				GridPosition next = runStep(world, at, x, z);
 				if (next == null) continue;
 				if (next == UNSEEN) {
-					unseen = true;
+					// Unseen ground counts as a way on only where the run may go: not more than a block nearer a threat.
+					if (nearestThreat(new GridPosition(x, at.y(), z), threats) >= start - 1.0D) unseen = true;
 					continue;
 				}
 				double away = nearestThreat(next, threats);

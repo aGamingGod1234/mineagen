@@ -140,6 +140,10 @@ public final class CombatPlanningVerification {
 		CombatPlanning.RunRoom unknown = CombatPlanning.runRoom(half, feet, zombie);
 		check(unknown.unseen() && !unknown.deadEnd(14.0D), "unseen ground behind is not called a dead end");
 		check(!end.deadEnd(1.5D) || end.gain() < 1.5D, "a flee that needs less than the room left is no dead end");
+		// The corridor with one feet cell 2 blocks toward the chaser never seen: the run may not go that way, so the back
+		// wall still makes it a dead end.
+		WalkabilityView ahead = position -> position.x() == 2 && position.z() == 0 && position.y() == 64 ? WalkabilityView.Cell.UNLOADED : corridor.cellAt(position);
+		check(CombatPlanning.runRoom(ahead, feet, zombie).deadEnd(14.0D), "unseen ground toward the chaser does not open a dead end");
 		// The corridor's feet cells past x -2 seen clear, its headroom there not yet seen: a way that may go on.
 		WalkabilityView lowView = position -> position.x() < -2 && position.y() >= 65 ? WalkabilityView.Cell.UNLOADED
 				: position.x() < -2 && position.y() == 64 && position.z() >= 0 && position.z() <= 1 ? WalkabilityView.Cell.CLEAR

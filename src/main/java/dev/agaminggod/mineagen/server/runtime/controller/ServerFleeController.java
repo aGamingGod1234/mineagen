@@ -282,7 +282,8 @@ public final class ServerFleeController implements ServerController {
 		for (LivingEntity threat : threats) at.add(new double[] {threat.getX(), threat.getZ()});
 		GridPosition feet = new GridPosition(Mth.floor(player.getX()), Mth.floor(player.getY() + 0.2D), Mth.floor(player.getZ()));
 		CombatPlanning.RunRoom room = CombatPlanning.runRoom(ObservedTerrain.of(player), feet, at);
-		double nearest = target.isAlive() ? player.distanceTo(target) : meleeAt;
+		// The gain still needed is from the nearest chaser: a named target already far off leaves a closer mob to outrun.
+		double nearest = target.isAlive() ? Math.min(player.distanceTo(target), meleeAt) : meleeAt;
 		if (!room.deadEnd(distance - nearest)) return null;
 		return finish(TickResult.failed("FLEE_BLOCKED", String.format(Locale.ROOT,
 				"Dead end: over seen ground the way away gains only %.1f blocks from %s (%.1f blocks off), with nothing unseen to try",
