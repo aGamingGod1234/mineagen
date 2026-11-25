@@ -59,6 +59,9 @@ const OPENING = process.env.OPENING ?? 'east';
 const RANGED = process.env.RANGED ?? 'none';
 // STANDIN=until (d41 fight-until): the stand-in makes one fight_until call (blaze -> UNTIL rods, WEAPON) and repeats it
 // only after the skill hands back, eating below 10 health; LOW_HP=1 sets fleeAtHealth 14 to exercise the health stop.
+// KIT=arrival: the kit real fortress arrivals carried (see kit()); default: this room's armoured kit.
+const KIT = process.env.KIT ?? 'default';
+if (!['default', 'arrival'].includes(KIT)) throw new Error('KIT must be default or arrival');
 const STANDIN = process.env.STANDIN ?? 'script', UNTIL = Number(process.env.UNTIL ?? 3), WEAPON = process.env.WEAPON ?? 'auto';
 const LOW_HP = process.env.LOW_HP === '1';
 // STANDIN=count (d41 fight-count): the same loop, but the call is fight_target on the nearest seen blaze with
@@ -224,6 +227,19 @@ async function standCell() {
 }
 async function kit() {
 	await command(`clear ${agent}`);
+	if (KIT === 'arrival') {
+		// What real fortress arrivals carried (25 Nov save points from fresh games): no armour, a stone sword, a shield,
+		// building blocks and a little cooked food. The other kits wear full iron, which no real arrival had.
+		await command(`effect clear ${agent}`);
+		await command(`effect give ${agent} minecraft:instant_health 1 10 true`);
+		await command(`effect give ${agent} minecraft:saturation 1 10 true`);
+		await command(`extinguish ${agent}`).catch(() => {});
+		await command(`item replace entity ${agent} hotbar.0 with minecraft:stone_sword`);
+		await command(`item replace entity ${agent} hotbar.1 with minecraft:cobblestone 64`);
+		await command(`item replace entity ${agent} hotbar.2 with minecraft:cooked_beef 4`);
+		await command(`item replace entity ${agent} weapon.offhand with minecraft:shield`);
+		return;
+	}
 	if (SAVE_POINT) {
 		await command(`effect clear ${agent}`);
 		await command(`effect give ${agent} minecraft:instant_health 1 10 true`);

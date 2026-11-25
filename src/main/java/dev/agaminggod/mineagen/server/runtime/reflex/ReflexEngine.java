@@ -80,11 +80,13 @@ public final class ReflexEngine {
 	/**
 	 * The body walling itself in from a shooter, or standing in the cell its walls closed: the low-health back-off rules
 	 * (retreat, cover) and the arrow dodge do not take it there. They ran or stepped it out into the open under the same
-	 * shooter, and defend was not there to roof the cell (defend-shallow: all 3 deaths left after #209). Hazard flinches
-	 * still interrupt. A queued start goes too, as in the other gates.
+	 * shooter, and defend was not there to roof the cell (defend-shallow: all 3 deaths left after #209). Neither does the
+	 * arrow shield: a body with a shield walls in from two or more shooters, and a shield firing on each shot would end the
+	 * walls half built. Hazard flinches still interrupt. A queued start goes too, as in the other gates.
 	 */
 	static boolean shelterGate(ReflexScheduler scheduler, ReflexSpec.Rule rule, boolean truth, boolean sheltered) {
-		if (!sheltered || !(backsOffWhenWeaker(rule) || "dodge".equals(rule.action().type()))) return truth;
+		String type = rule.action().type();
+		if (!sheltered || !(backsOffWhenWeaker(rule) || "dodge".equals(type) || rule.coordinatorDefault() && "shield".equals(type))) return truth;
 		scheduler.discardPendingStart(rule.id());
 		return false;
 	}

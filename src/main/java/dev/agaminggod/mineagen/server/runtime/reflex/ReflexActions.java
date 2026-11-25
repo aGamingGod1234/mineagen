@@ -828,11 +828,6 @@ final class ReflexActions {
 				}
 				return Step.running(done + "; fighting " + type(target));
 			}
-			if (shield) {
-				Step held = guard.tick(context, input);
-				if (held.status() == ReflexScheduler.ActionStatus.RUNNING) guardTicks++;
-				return Step.running(done + "; " + held.detail());
-			}
 			LivingEntity shooter = shooterBeyondReach(player, context.focus(), player.getInventory().getItem(slot));
 			// Shot at counts as under fire, not only hit: a body that steps off each arrow may never take the hit that started
 			// the walls or the walk to cover, and stood dodging volleys while a zombie came on (cover-zombie: cover reached in
@@ -841,6 +836,16 @@ final class ReflexActions {
 			// Between draws too: one that drew lately is still shooting, as one that hit lately is (cover room, 24 Nov).
 			if (shooter == null && context.memory() != null) shooter = drewBeyondReach(player, context.memory(), player.getInventory().getItem(slot));
 			boolean canWall = PlaceBlock.blockSlot(player, null) >= 0 && nearestChaser(player, PACK_RANGE) >= PACK_RANGE;
+			// A shield faces one shooter at a time. With two or more beyond reach in sight, the others hit it side-on: in real
+			// fortress games (25 Nov) the shield stayed up under 3 to 5 blazes and the body lost 10 health in a second, and
+			// the walls went up only once the shield broke, at 8 health. So the body walls in as it does with no shield.
+			boolean outgunned = shield && (walls != null || shooter != null && canWall && cover == null && player.tickCount >= coverRetryTick
+					&& shootersBeyondReach(player, player.getInventory().getItem(slot)) >= SHIELD_SHOOTERS);
+			if (shield && !outgunned) {
+				Step held = guard.tick(context, input);
+				if (held.status() == ReflexScheduler.ActionStatus.RUNNING) guardTicks++;
+				return Step.running(done + "; " + held.detail());
+			}
 			// A ranged mob beyond reach that is the focus but has not hit yet: on a lip its first hit is the fall (four
 			// traced lava-sea deaths: the first fireball knocked the body off), so the step inland does not wait for it.
 			LivingEntity ranged = shooter != null ? shooter : rangedBeyondReach(player, context.focus(), player.getInventory().getItem(slot));
@@ -927,6 +932,18 @@ final class ReflexActions {
 			Mob drew = memory.drewWithin(player, UNDER_FIRE_TICKS);
 			if (drew == null || !ThreatPerception.isRanged(drew)) return null;
 			return player.getAttackRangeWith(weapon).isInRange(player, drew.getBoundingBox(), 0.0D) ? null : drew;
+		}
+
+		/** Shooters beyond reach that make a shield no cover: it faces one, the others hit it side-on. */
+		static final int SHIELD_SHOOTERS = 2;
+
+		/** Ranged mobs in sight of the body that stand beyond the weapon's reach. */
+		static int shootersBeyondReach(ServerPlayer player, ItemStack weapon) {
+			int count = 0;
+			for (Mob mob : watchers(player)) {
+				if (ThreatPerception.isRanged(mob) && !player.getAttackRangeWith(weapon).isInRange(player, mob.getBoundingBox(), 0.0D)) count++;
+			}
+			return count;
 		}
 
 		static LivingEntity rangedBeyondReach(ServerPlayer player, Entity focus, ItemStack weapon) {
