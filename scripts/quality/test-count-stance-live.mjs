@@ -382,6 +382,35 @@ try {
 			await settle('roof-over-sill');
 		} catch (error) { await settle('roof-over-sill', error); }
 	}
+	// The Nether games' enderman deaths: the roof failed (its lintel never went up), the body fought on open ground with
+	// no armour and took 7 + 7 + 7. A slab in the lintel cell keeps the roof unfinished. Without armour the hunt must
+	// hand back ROOF_NOT_BUILT; with an iron chestplate it still falls back to the open-ground fight as before.
+	if (want('roof-no-armour')) {
+		try {
+			const arms = {};
+			for (const armour of [false, true]) {
+				await reset(); await kit(); await tough();
+				await command(`item replace entity ${agent} armor.chest with ${armour ? 'minecraft:iron_chestplate' : 'minecraft:air'}`);
+				await command('setblock 0 82 1 minecraft:cobblestone_slab');
+				for (const aim of [{ x: 0.5, y: 82.25, z: 1.5 }, { x: 0.5, y: 80, z: 2.5 }, { x: 0.5, y: 81, z: 9.5 }]) {
+					const look = await startAction('look_at', aim); await look.result; await rate.idleSleep(500); await observe();
+				}
+				await command('summon minecraft:enderman 0.5 80 9.5 {NoAI:1b,PersistenceRequired:1b,UUID:[I;0,0,0,1]}');
+				await rate.idleSleep(1500);
+				// The armoured arm ends on a given pearl once it is back on open ground; the unarmoured one must end itself.
+				const run = await countFight({ actionType: 'fight_until', mob: 'minecraft:enderman', untilItem: 'minecraft:ender_pearl', untilCount: 1, roof: true, x: 0, y: 80, z: 0, radius: 16, timeoutMs: 60000 },
+					armour ? () => command(`give ${agent} minecraft:ender_pearl 1`) : null, 30000);
+				arms[armour ? 'armoured' : 'bare'] = run;
+				await command(`item replace entity ${agent} armor.chest with minecraft:air`);
+				await command('setblock 0 82 1 minecraft:air');
+			}
+			const { bare, armoured } = arms;
+			results['roof-no-armour'] = { bare, armoured };
+			results['roof-no-armour'].pass = bare.final?.reason === 'ROOF_NOT_BUILT' && /no armour worn/.test(bare.final.message)
+				&& !/fell back/.test(bare.final.message) && /fell back to the open-ground fight/.test(armoured.final?.message ?? '');
+			await settle('roof-no-armour');
+		} catch (error) { await settle('roof-no-armour', error); }
+	}
 	// After 17 seconds on A, a nearer attacking blaze B (still outside sword reach) triggers nearest_attacker.
 	if (want('stationary-retarget')) {
 		try {

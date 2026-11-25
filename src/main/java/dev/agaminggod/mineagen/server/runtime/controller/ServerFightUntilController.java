@@ -340,6 +340,9 @@ public final class ServerFightUntilController implements ServerController {
 	private int heldBeforeSettle;
 	private boolean lintelPlaced;
 	private int lintelTicks;
+	/** Where the lintel is placed from; null until chosen, and again after a refusal there. */
+	private BlockPos lintelStand;
+	private final Set<BlockPos> lintelStandsTried = new java.util.HashSet<>();
 	private ServerNavigationController step;
 	/** The game tick the short walk (recover, roof) was last ticked on. */
 	private long stepTick;
@@ -800,8 +803,8 @@ public final class ServerFightUntilController implements ServerController {
 			building = null;
 			if (built.state() != State.SUCCEEDED) {
 				String code = built.reasonCode().startsWith("SNEAK_") ? built.reasonCode() : "ROOF_NOT_BUILT";
-				if (roofFallback(code, true)) return fallBackToOpenGround(player, code + ": " + built.reasonCode() + ": " + built.message(), now);
-				return stop(player, TickResult.failed(code, "Roof not built: " + built.reasonCode() + ": " + built.message(), progress(player)));
+				if (roofFallback(code, true, armoured(player))) return fallBackToOpenGround(player, code + ": " + built.reasonCode() + ": " + built.message(), now);
+				return stop(player, TickResult.failed(code, "Roof not built: " + built.reasonCode() + ": " + built.message() + unarmouredStop(player, code), progress(player)));
 			}
 			roofed = true;
 			roofBuilds++;
@@ -817,10 +820,18 @@ public final class ServerFightUntilController implements ServerController {
 			note("roof " + roofBuilds + " built at " + roofCenter.toShortString() + ", doorway " + roofOpening.getSerializedName());
 			return TickResult.running(progress(player));
 		}
-		TickResult walking = walkTo(player, Vec3.atBottomCenterOf(outside()), now);
+		if (lintelStand == null) {
+			lintelStand = lintelStand(player, lintel);
+			if (!lintelStand.equals(outside())) note("lintel goes up from " + lintelStand.toShortString() + ", where the roof block's " + roofOpening.getSerializedName() + " face is in sight");
+		}
+		TickResult walking = walkTo(player, Vec3.atBottomCenterOf(lintelStand), now);
 		if (walking != null) return walking;
-		if (++lintelTicks > 60 && roofFallback("ROOF_NOT_BUILT", true))
-			return fallBackToOpenGround(player, "ROOF_NOT_BUILT: the lintel over the doorway at " + lintel.toShortString() + " was not placed", now);
+		if (++lintelTicks > 60) {
+			String why = "the lintel over the doorway at " + lintel.toShortString() + " was not placed";
+			if (roofFallback("ROOF_NOT_BUILT", true, armoured(player))) return fallBackToOpenGround(player, "ROOF_NOT_BUILT: " + why, now);
+			return stop(player, TickResult.failed("ROOF_NOT_BUILT", "Roof not finished: " + why + " (the shelter at " + roofCenter.toShortString()
+					+ " stands without it)" + unarmouredStop(player, "ROOF_NOT_BUILT"), progress(player)));
+		}
 		Vec3 aim;
 		try { aim = roofing.aim(player, lintel, roofOpening, roofItem); }
 		catch (AgentDomainException refused) { aim = Vec3.atCenterOf(lintel); note("lintel aim " + refused.code()); }
@@ -829,7 +840,12 @@ public final class ServerFightUntilController implements ServerController {
 			String why = roofing.place(player, lintel, roofOpening, roofItem);
 			if (why != null) note("lintel: " + why);
 		} catch (AgentDomainException refused) {
-			if (lintelTicks % 20 == 0) note("lintel refused " + refused.code() + ": " + refused.getMessage());
+			if (lintelTicks % 20 == 0) {
+				note("lintel refused " + refused.code() + ": " + refused.getMessage());
+				// The face the lintel needs is hidden or out of reach from this cell: try the next one with it in sight.
+				lintelStandsTried.add(lintelStand);
+				lintelStand = null;
+			}
 		}
 		return TickResult.running(progress(player));
 	}
@@ -837,10 +853,55 @@ public final class ServerFightUntilController implements ServerController {
 	/**
 	 * K11: whether a roof stop falls back to the open-ground fight instead of ending the hunt. A failed build or lintel
 	 * (ROOF_NOT_BUILT) and failed walks inside the roof site do; missing blocks (the model can fetch them), a sneak
-	 * failure and the walk back to a model spot still stop.
+	 * failure and the walk back to a model spot still stop. Without armour none falls back: both enderman deaths in the
+	 * Nether games came from that open-ground fight with no armour (7 + 7 + 7), so the call hands back instead.
 	 */
-	static boolean roofFallback(String code, boolean roofSite) {
-		return "ROOF_NOT_BUILT".equals(code) || "SPOT_UNREACHABLE".equals(code) && roofSite;
+	static boolean roofFallback(String code, boolean roofSite, boolean armoured) {
+		return armoured && ("ROOF_NOT_BUILT".equals(code) || "SPOT_UNREACHABLE".equals(code) && roofSite);
+	}
+
+	private static boolean armoured(ServerPlayer player) {
+		return player.getArmorValue() > 0;
+	}
+
+	/** The receipt's reason when only the missing armour stopped the open-ground fallback; empty otherwise. */
+	private static String unarmouredStop(ServerPlayer player, String code) {
+		return roofFallback(code, true, true) && !armoured(player)
+				? "; no armour worn, so no open-ground fight: an enderman's ~7 per hit kills an unarmoured body in 3" : "";
+	}
+
+	/** The cell to place the lintel from: the first standable one with the roof block's doorway face in sight, else outside(). */
+	private BlockPos lintelStand(ServerPlayer player, BlockPos lintel) {
+		var seen = dev.agaminggod.mineagen.server.perception.SeenTerrain.of(player);
+		java.util.function.Predicate<BlockPos> solid = at -> {
+			var state = seen.known(at.getX(), at.getY(), at.getZ());
+			return state != null && state.isCollisionShapeFullBlock(player.level(), at);
+		};
+		java.util.function.Predicate<BlockPos> open = at -> {
+			var state = seen.known(at.getX(), at.getY(), at.getZ());
+			return state != null && state.getCollisionShape(player.level(), at).isEmpty() && state.getFluidState().isEmpty();
+		};
+		BlockPos support = lintel.relative(roofOpening.getOpposite());
+		double eye = choices.sneak() ? 1.27D : 1.62D;
+		var context = net.minecraft.world.phys.shapes.CollisionContext.of(player);
+		java.util.function.Predicate<BlockPos> faceSeen = cell -> dev.agaminggod.mineagen.server.runtime.TargetSightline.block(player.level(), context,
+				Vec3.atBottomCenterOf(cell).add(0.0D, eye, 0.0D), support, player.blockInteractionRange(), roofOpening) != null;
+		BlockPos stand = lintelStandFor(roofCenter, roofOpening, lintelStandsTried, solid, open, faceSeen);
+		return stand != null ? stand : outside();
+	}
+
+	/**
+	 * Where the lintel goes up from: two out of the doorway (the old fixed cell), the doorway itself, three out, then
+	 * beside the two-out cell. A cell needs a floor, two open cells and the support face in sight from its eye.
+	 */
+	static BlockPos lintelStandFor(BlockPos center, Direction opening, Set<BlockPos> tried, java.util.function.Predicate<BlockPos> solid,
+			java.util.function.Predicate<BlockPos> open, java.util.function.Predicate<BlockPos> faceSeen) {
+		BlockPos out = center.relative(opening, 2);
+		for (BlockPos cell : List.of(out, center.relative(opening), center.relative(opening, 3), out.relative(opening.getClockWise()), out.relative(opening.getCounterClockWise()))) {
+			if (tried.contains(cell) || !solid.test(cell.below()) || !open.test(cell) || !open.test(cell.above())) continue;
+			if (faceSeen.test(cell)) return cell;
+		}
+		return null;
 	}
 
 	/** Leaves the roof for the rest of the call and goes on as the hunt roof unset runs; the receipt names why. */
@@ -872,6 +933,8 @@ public final class ServerFightUntilController implements ServerController {
 		roofItem = null;
 		lintelPlaced = false;
 		lintelTicks = 0;
+		lintelStand = null;
+		lintelStandsTried.clear();
 		walkFailures = 0;
 		provoking = null;
 		settleUntilMs = -1L;
@@ -982,8 +1045,11 @@ public final class ServerFightUntilController implements ServerController {
 		if (result.state() != State.SUCCEEDED) {
 			note("walk to " + cell(goal) + " " + result.reasonCode());
 			// walkTo runs only at the roof site (outside the doorway, the cell's middle), so this is the roof's own stop.
-			if (++walkFailures >= 3 && roofFallback("SPOT_UNREACHABLE", true))
-				return fallBackToOpenGround(player, "SPOT_UNREACHABLE: three walks inside the roof site failed: " + result.reasonCode(), now);
+			if (++walkFailures >= 3) {
+				String why = "three walks inside the roof site failed: " + result.reasonCode();
+				if (roofFallback("SPOT_UNREACHABLE", true, armoured(player))) return fallBackToOpenGround(player, "SPOT_UNREACHABLE: " + why, now);
+				return stop(player, TickResult.failed("SPOT_UNREACHABLE", "Roof site walk failed: " + why + unarmouredStop(player, "SPOT_UNREACHABLE"), progress(player)));
+			}
 		}
 		return TickResult.running(progress(player));
 	}
@@ -2332,7 +2398,7 @@ public final class ServerFightUntilController implements ServerController {
 		if (result.state() == State.SUCCEEDED) { walkFailures = 0; return TickResult.running(progress(player)); }
 		note("walk back to " + cell(spot) + " " + result.reasonCode() + ": " + result.message());
 		// The walk back to a model spot is not the roof's: it still stops (roofFallback with roofSite false).
-		if (++walkFailures >= 2 && !roofFallback("SPOT_UNREACHABLE", false))
+		if (++walkFailures >= 2 && !roofFallback("SPOT_UNREACHABLE", false, true))
 			return stop(player, TickResult.failed("SPOT_UNREACHABLE", "Two walks back to " + cell(spot) + " failed: " + result.reasonCode(), progress(player)));
 		return TickResult.running(progress(player));
 	}

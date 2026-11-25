@@ -1584,6 +1584,17 @@
    "reads": "exit code; OUT/results.json roof-over-sill.pass"
   },
   {
+   "room": "count-stance-roof-no-armour",
+   "fixture": "test-count-stance-live.mjs",
+   "stage": "nether-pearls",
+   "skill": "combat",
+   "skill2": null,
+   "line": "REFLEX_ONLY=roof-no-armour ARENA_JAR=$JAR node scripts/quality/test-count-stance-live.mjs $OUT",
+   "estMinutes": 3,
+   "tickRate": 20,
+   "reads": "exit code; OUT/results.json roof-no-armour.pass"
+  },
+  {
    "room": "count-stance-stationary-retarget",
    "fixture": "test-count-stance-live.mjs",
    "stage": "nether-rods",

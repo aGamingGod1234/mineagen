@@ -86,7 +86,7 @@ public final class ForestHuntVerification {
 	private static void verifyBlocksMissing() {
 		check(WarpedForestHunt.dropsRoof(true, "ROOF_BLOCKS_MISSING"), "forest mode: too few blocks drops the roof and hunts on");
 		check(!WarpedForestHunt.dropsRoof(false, "ROOF_BLOCKS_MISSING"), "outside forest mode K11's stop stands");
-		check(!ServerFightUntilController.roofFallback("ROOF_BLOCKS_MISSING", true), "K11's static decision is unchanged");
+		check(!ServerFightUntilController.roofFallback("ROOF_BLOCKS_MISSING", true, true), "K11's static decision is unchanged");
 		check(ForestRoof.blocksNeeded(17, true, 3) == 20 && ForestRoof.blocksNeeded(17, false, 3) == 17, "a forest shelter keeps the perch's blocks too");
 	}
 

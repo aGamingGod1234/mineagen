@@ -25,6 +25,7 @@ public final class CountFightVerification {
 		verifyRound3Gates();
 		verifyRoofFallback();
 		verifyRoofSite();
+		verifyLintelStand();
 		return assertions;
 	}
 
@@ -56,13 +57,38 @@ public final class CountFightVerification {
 		check(reuse != null && reuse.center().equals(spot) && reuse.opening() == net.minecraft.core.Direction.EAST, "an earlier sill shelter is reused through its sill side");
 	}
 
+	/**
+	 * The Nether game's lintel: from two out of the doorway the roof block's doorway face was hidden (refused three
+	 * times), and the roof fell back. The stand is now the first cell with that face in sight.
+	 */
+	private static void verifyLintelStand() {
+		net.minecraft.core.BlockPos center = new net.minecraft.core.BlockPos(0, 64, 0);
+		net.minecraft.core.Direction north = net.minecraft.core.Direction.NORTH;
+		java.util.function.Predicate<net.minecraft.core.BlockPos> floor = at -> at.getY() < 64;
+		java.util.function.Predicate<net.minecraft.core.BlockPos> air = at -> at.getY() >= 64;
+		java.util.Set<net.minecraft.core.BlockPos> none = java.util.Set.of();
+		check(center.relative(north, 2).equals(ServerFightUntilController.lintelStandFor(center, north, none, floor, air, cell -> true)),
+				"the face in sight from two out: the lintel goes up from there, as before");
+		check(center.relative(north).equals(ServerFightUntilController.lintelStandFor(center, north, none, floor, air, cell -> !cell.equals(center.relative(north, 2)))),
+				"hidden from two out: the doorway cell, where the face is in sight");
+		check(center.relative(north).equals(ServerFightUntilController.lintelStandFor(center, north, java.util.Set.of(center.relative(north, 2)), floor, air, cell -> true)),
+				"a refusal at two out moves the body to the next cell");
+		java.util.function.Predicate<net.minecraft.core.BlockPos> drop = at -> at.getY() < 64 && at.getZ() > -2;
+		check(center.relative(north).equals(ServerFightUntilController.lintelStandFor(center, north, none, drop, air, cell -> true)),
+				"no floor two out: the doorway cell");
+		check(ServerFightUntilController.lintelStandFor(center, north, none, floor, air, cell -> false) == null, "the face hidden everywhere: no stand (outside as before)");
+	}
+
 	/** K11: a failed roof falls back to the open-ground hunt; missing blocks, sneak failures and the spot walk-back still stop. */
 	private static void verifyRoofFallback() {
-		check(ServerFightUntilController.roofFallback("ROOF_NOT_BUILT", true), "a failed shelter or lintel falls back");
-		check(ServerFightUntilController.roofFallback("SPOT_UNREACHABLE", true), "failed walks inside the roof site fall back");
-		check(!ServerFightUntilController.roofFallback("SPOT_UNREACHABLE", false), "two failed walks back to a model spot still stop");
-		check(!ServerFightUntilController.roofFallback("ROOF_BLOCKS_MISSING", true), "missing blocks still stop at once");
-		check(!ServerFightUntilController.roofFallback("SNEAK_NOT_HELD", true), "a sneak failure still stops");
+		check(ServerFightUntilController.roofFallback("ROOF_NOT_BUILT", true, true), "a failed shelter or lintel falls back");
+		check(ServerFightUntilController.roofFallback("SPOT_UNREACHABLE", true, true), "failed walks inside the roof site fall back");
+		check(!ServerFightUntilController.roofFallback("SPOT_UNREACHABLE", false, true), "two failed walks back to a model spot still stop");
+		check(!ServerFightUntilController.roofFallback("ROOF_BLOCKS_MISSING", true, true), "missing blocks still stop at once");
+		check(!ServerFightUntilController.roofFallback("SNEAK_NOT_HELD", true, true), "a sneak failure still stops");
+		// Both Nether enderman deaths: the roof failed, the body fought on open ground with no armour and took 7 + 7 + 7.
+		check(!ServerFightUntilController.roofFallback("ROOF_NOT_BUILT", true, false), "no armour: a failed shelter or lintel hands back");
+		check(!ServerFightUntilController.roofFallback("SPOT_UNREACHABLE", true, false), "no armour: failed site walks hand back");
 		check(ServerFightUntilController.roams(dev.agaminggod.mineagen.compat.McEntityTypes.ENDERMAN, false, null),
 				"after the fallback an enderman hunt with no spot roams as the open-ground fight");
 	}
