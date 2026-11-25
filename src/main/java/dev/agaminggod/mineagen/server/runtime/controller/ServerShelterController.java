@@ -72,6 +72,8 @@ public final class ServerShelterController implements ServerController {
 	private final CombatInputLease input = new CombatInputLease();
 	private ServerNavigationController approach;
 	private boolean building, checkedCeiling, crouched, sealed;
+	/** False for fight_until roof:true: the opening is a two-high doorway the body walks out through. */
+	private final boolean sill;
 	private int index, placed, cleared, supports, cellTicks, clearAimTicks;
 	private final java.util.Set<BlockPos> supportChecked = new java.util.HashSet<>();
 	private BlockPos clearingAt;
@@ -85,6 +87,7 @@ public final class ServerShelterController implements ServerController {
 	public ServerShelterController(BlockPos center, Direction opening, boolean roof, boolean sill, long timeoutMs, long now, Environment environment) {
 		this.center = center;
 		this.opening = opening;
+		this.sill = sill;
 		this.cells = new ArrayList<>(plan(center, opening, roof, sill));
 		this.deadline = now + timeoutMs;
 		this.environment = environment;
@@ -161,6 +164,19 @@ public final class ServerShelterController implements ServerController {
 			input.release();
 			return TickResult.succeeded("SHELTER_BUILT", facts() + "; sealed: every side, the roof and the window are solid; dig out a wall to leave");
 		}
+		if (index == cells.size() && !sill) {
+			// A doorway, not a window: its foot cell is cleared too. Built where an earlier shelter left its sill (the
+			// full games built a sill shelter and then asked for a roof on the same cell), the body was walled in and
+			// every walk out to place the lintel failed.
+			BlockPos foot = center.relative(opening);
+			BlockState state = SeenTerrain.of(player).known(foot.getX(), foot.getY(), foot.getZ());
+			if (state == null) {
+				input.release(); ServerLookController.turnToward(player, Vec3.atCenterOf(foot));
+				return TickResult.running(progress());
+			}
+			if (!state.getFluidState().isEmpty()) return finish(player, "SHELTER_BLOCKED", "Doorway " + describe(player, foot, state) + " contains fluid", false);
+			if (!state.getCollisionShape(player.level(), foot).isEmpty()) { clearingAt = foot; clearAimTicks = 0; return clearTick(player, now); }
+		}
 		if (index == cells.size()) {
 			BlockPos window = center.relative(opening).above();
 			BlockState state = SeenTerrain.of(player).known(window.getX(), window.getY(), window.getZ());
@@ -172,7 +188,8 @@ public final class ServerShelterController implements ServerController {
 			if (!state.isAir()) { clearingAt = window; clearAimTicks = 0; return clearTick(player, now); }
 			input.release();
 			if (!ServerLookController.turnToward(player, Vec3.atCenterOf(window))) return TickResult.running(progress());
-			return TickResult.succeeded("SHELTER_BUILT", facts() + "; stay inside, fight through the " + opening.getSerializedName() + " eye-height window above the sill with pursue:false");
+			return TickResult.succeeded("SHELTER_BUILT", facts() + (sill ? "; stay inside, fight through the " + opening.getSerializedName() + " eye-height window above the sill with pursue:false"
+					: "; two-high " + opening.getSerializedName() + " doorway open"));
 		}
 		Cell cell = cells.get(index);
 		if (cell.jump() && !checkedCeiling) {

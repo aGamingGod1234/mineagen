@@ -46,6 +46,14 @@ public final class CountFightVerification {
 		ServerFightUntilController.Site same = ServerFightUntilController.siteFor(spot, net.minecraft.core.Direction.EAST, flat, air);
 		check(same != null && same.center().equals(spot) && same.opening() == net.minecraft.core.Direction.EAST, "firm ground keeps the model's spot and the doorway toward the enderman");
 		check(ServerFightUntilController.siteFor(spot, net.minecraft.core.Direction.EAST, at -> false, air) == null, "no seen floor: no site, the spot stays as before");
+		// A sill shelter already stands on the spot (walls west, north, south, the roof, the sill east): the roof reuses it
+		// with its doorway east, since the roofed build now clears the sill.
+		java.util.Set<net.minecraft.core.BlockPos> shelter = new java.util.HashSet<>();
+		for (ServerShelterController.Cell cell : ServerShelterController.plan(spot, net.minecraft.core.Direction.EAST, true, true)) shelter.add(cell.at());
+		java.util.function.Predicate<net.minecraft.core.BlockPos> built = at -> at.getY() < 64 || shelter.contains(at);
+		java.util.function.Predicate<net.minecraft.core.BlockPos> clear = at -> at.getY() >= 64 && !shelter.contains(at);
+		ServerFightUntilController.Site reuse = ServerFightUntilController.siteFor(spot, net.minecraft.core.Direction.NORTH, built, clear);
+		check(reuse != null && reuse.center().equals(spot) && reuse.opening() == net.minecraft.core.Direction.EAST, "an earlier sill shelter is reused through its sill side");
 	}
 
 	/** K11: a failed roof falls back to the open-ground hunt; missing blocks, sneak failures and the spot walk-back still stop. */

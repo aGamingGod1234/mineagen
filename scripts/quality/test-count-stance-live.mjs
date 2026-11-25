@@ -357,6 +357,29 @@ try {
 			await settle('roof-crouch');
 		} catch (error) { await settle('roof-crouch', error); }
 	}
+	// The full games' roof failure: a sill shelter already stood on the cell (build_shelter), then a roof:true call named
+	// that cell. The roofed build must clear the sill into a two-high doorway, walk out and place the lintel.
+	if (want('roof-over-sill')) {
+		try {
+			await reset(); await kit(); await tough();
+			await command(`item replace entity ${agent} hotbar.2 with minecraft:iron_pickaxe`);
+			for (const [x, y, z] of [[0, 80, -1], [0, 81, -1], [-1, 80, 0], [-1, 81, 0], [1, 80, 0], [1, 81, 0], [0, 82, 0], [0, 82, -1], [0, 80, 1]])
+				await command(`setblock ${x} ${y} ${z} minecraft:cobblestone`);
+			for (const aim of [{ x: 0.5, y: 80.5, z: 1.5 }, { x: 0.5, y: 81.5, z: 1.5 }, { x: 0.5, y: 80, z: 2.5 }, { x: 0.5, y: 81, z: 9.5 }]) {
+				const look = await startAction('look_at', aim); await look.result; await rate.idleSleep(500); await observe();
+			}
+			await command('summon minecraft:enderman 0.5 80 9.5 {NoAI:1b,PersistenceRequired:1b,UUID:[I;0,0,0,1]}');
+			await rate.idleSleep(1500);
+			const run = await countFight({ untilItem: 'minecraft:ender_pearl', untilCount: 1, roof: true, x: 0, y: 80, z: 0 },
+				() => command(`give ${agent} minecraft:ender_pearl 1`), 25000);
+			const sillCleared = !(await command('execute if block 0 80 1 minecraft:cobblestone')).includes('passed');
+			const lintel = (await command('execute if block 0 82 1 minecraft:cobblestone')).includes('passed');
+			results['roof-over-sill'] = { ...run, sillCleared, lintel };
+			results['roof-over-sill'].pass = run.final != null && run.final.reason !== 'ACTION_EXCEPTION' && sillCleared && lintel
+				&& /roof: 1 build/.test(run.final.message) && !/SPOT_UNREACHABLE/.test(run.final.message);
+			await settle('roof-over-sill');
+		} catch (error) { await settle('roof-over-sill', error); }
+	}
 	// After 17 seconds on A, a nearer attacking blaze B (still outside sword reach) triggers nearest_attacker.
 	if (want('stationary-retarget')) {
 		try {

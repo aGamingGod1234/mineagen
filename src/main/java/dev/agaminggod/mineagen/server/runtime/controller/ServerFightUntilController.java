@@ -1055,12 +1055,16 @@ public final class ServerFightUntilController implements ServerController {
 					if (at.getY() != center.getY() || solid.test(at)) continue;
 					if (!solid.test(at.below())) { firm = false; break; }
 				}
-				// The doorway and the open cell beyond it must be walkable (the body stares and collects from there).
-				for (BlockPos walkable : new BlockPos[] {center.relative(opening), center.relative(opening, 2)})
-					if (!solid.test(walkable.below()) || !open.test(walkable) || !open.test(walkable.above())) firm = false;
+				// The doorway and the open cell beyond it must be walkable (the body stares and collects from there). A solid
+				// doorway (an earlier shelter's sill, a bump in the ground) is fine: the shelter clears its two cells.
+				BlockPos door = center.relative(opening), beyond = center.relative(opening, 2);
+				if (!solid.test(door.below()) || !(open.test(door) || solid.test(door)) || !(open.test(door.above()) || solid.test(door.above()))) firm = false;
+				if (!solid.test(beyond.below()) || !open.test(beyond) || !open.test(beyond.above())) firm = false;
 				if (!firm) continue;
-				// Cells already standing (an earlier shelter) save blocks and keep its window.
-				double score = Math.abs(dx) + Math.abs(dz) + (opening == toward ? 0.0D : 0.5D) - 0.2D * built;
+				int clears = (solid.test(door) ? 1 : 0) + (solid.test(door.above()) ? 1 : 0);
+				// Cells already standing (an earlier shelter) save blocks and keep its window; a doorway cell to break
+				// costs a little more than a block to place.
+				double score = Math.abs(dx) + Math.abs(dz) + (opening == toward ? 0.0D : 0.5D) - 0.2D * built + 0.3D * clears;
 				if (score < best) { best = score; bestCenter = center; bestOpening = opening; }
 			}
 		}
