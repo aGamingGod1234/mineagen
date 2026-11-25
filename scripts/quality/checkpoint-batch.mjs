@@ -28,8 +28,9 @@
 // Listed machines must not be warm-pool members (rbpool-*): the pool and its guard lease, wipe and delete those by name. Finished games are copied home in parallel and checked by sha. The sign-in is copied to each machine as its source is at
 // that launch, kept out of every copy-back, and removed from every machine when the batch ends. A copy refreshes where it
 // runs when its access token runs out (10 days after the last refresh), and every copy then refreshes on its own: on
-// 25 Nov six copies of one sign-in (here and on five game machines) refreshed on their own as it ran out, and all kept
-// working, so a refresh is logged and the batch plays on. A refresh here makes later games take the new copy.
+// 25 Nov six copies of one sign-in (here and on five game machines) refreshed on their own from the same token as it
+// ran out, and every new access token kept working, so a refresh is logged and the batch plays on. A copy that is
+// signed out shows as failing model turns in its games, not as a stopped batch. A refresh here makes later games take the new copy.
 // Every game's server gets Lithium (a server performance mod that keeps vanilla behaviour; the target's pinned JAR,
 // downloaded and checked here): the machine's template when its mods/ already holds that exact JAR, else a copy of it
 // with that JAR in place of any other Lithium version (named by a fingerprint of the template, so a changed template gets
