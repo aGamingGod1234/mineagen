@@ -349,7 +349,7 @@ function foodSource(o) {
  * hand-back this life (woodStockHandback) released the trip's wood step; diedSincePortal: the body died after it last
  * stood in the Nether, or after the portal stage was first seen (a lit frame or a visit), so the kit comes back first.
  */
-export function routeLine({ observation: o = null, known = null, memory = null, foodHandedBack = false, woodHandedBack = false, kitHandedBack = new Set(), kitPrepOver = false, diedSincePortal = false, evaluate, instincts = false } = {}) {
+export function routeLine({ observation: o = null, known = null, memory = null, foodHandedBack = false, woodHandedBack = false, kitHandedBack: kitHandedBackAll = new Set(), prepHandedBack = null, kitPrepOver = false, diedSincePortal = false, evaluate, instincts = false } = {}) {
 	if (!live(o) || !Array.isArray(o.inventory?.items) || remembered(o, 'inventory') || known === null || typeof evaluate !== 'function') return null;
 	const items = o.inventory.items.filter(i => i?.count > 0);
 	const count = re => items.filter(i => re.test(i.itemId ?? '')).reduce((n, i) => n + i.count, 0);
@@ -380,7 +380,7 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 		below: belowGround(o), woodHandedBack: woodHandedBack === true, logs: count(/^minecraft:[a-z_]+_log$/), ingots: count(/^minecraft:iron_ingot$/) };
 	const worn = new Set(items.filter(i => ['head', 'chest', 'legs', 'feet'].includes(i.slot)).map(i => i.slot));
 	const carriedId = re => items.find(i => !['head', 'chest', 'legs', 'feet'].includes(i.slot) && re.test(i.itemId ?? ''))?.itemId?.replace(/^minecraft:/, '') ?? null;
-	Object.assign(facts, { worn, carriedId, handedBack: kitHandedBack });
+	Object.assign(facts, { worn, carriedId, handedBack: prepHandedBack ?? kitHandedBackAll });
 	const kit = kitLeft(count);
 	// The trip that mines the kit's iron also mines the armour's: a player at the ore takes the iron it will wear. Mined
 	// as its own step after the kit, the armour's 8 iron with 0 to 5 held was a second trip down, and none of 30 Overworld
@@ -411,9 +411,16 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 	// hunt that found no source the food, so the gate can not hold the route. inReach: only put on what is carried (in the
 	// Nether, where a trip back for iron is itself a trip through danger).
 	const kitBefore = (trip, { inReach = false } = {}) => {
-		// Prep time is capped (kitPrep): past it the bot goes in short of what is still missing, so the gate never stalls a game.
-		if (kitPrepOver) return null;
 		const tag = why => `${why}; kit before ${trip}`;
+		// Prep time is capped (kitPrep): past it the bot goes in short of what it would have to get, so the gate never stalls
+		// a game; putting on what it carries costs nothing and still happens.
+		if (kitPrepOver) {
+			if (count(/^minecraft:shield$/) > 0 && !items.some(i => i.slot === 'offhand' && i.itemId === 'minecraft:shield')) return line('equip_item shield to offhand', tag('shield carried, not worn'));
+			const worn = [armourStep(kitFacts), inReach ? null : goldPiece(items) && [goldPiece(items).next, goldPiece(items).why]].find(step => step && /^equip_item /.test(step[0]));
+			return worn ? line(worn[0], tag(worn[1])) : null;
+		}
+		// A failed obtain releases its piece for this prep window only (prepHandedBack); a later departure asks again.
+		const kitHandedBack = prepHandedBack ?? kitHandedBackAll;
 		const shield = ROUTE.find(r => r.id === 'shield');
 		if (!ok(shield.rekit) && (count(/^minecraft:shield$/) > 0 || !inReach && !kitHandedBack.has('minecraft:shield'))) { const [next, why] = shield.next(kitFacts); return line(next, tag(why)); }
 		const armour = armourStep(kitFacts);
@@ -508,7 +515,7 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 		.some(id => /^(minecraft:)?story\/enter_the_nether$/.test(id));
 	if (visitedNether) {
 		// End readiness (end-readiness.mjs): a note behind the head, never the head; fixes only from what is in reach.
-		const kit = endKit(o, { handedBack: kitHandedBack });
+		const kit = endKit(o, { handedBack: kitHandedBackAll });
 		const first = kit?.fixes.length ? `; in reach first: ${kit.fixes.join(', ')}` : '';
 		const lacks = kit?.missing.length ? `; End kit lacks ${kit.missing.join(', ')}` : '';
 		if (portalOpen) return depart('the End', `enter the End portal${first}`, `portal open${lacks}`);

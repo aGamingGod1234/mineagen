@@ -274,7 +274,8 @@ export class LiveTaskViews {
   if (!KIT_ITEMS.test(item)) return;
   const state = this.#state(record);
   if (!state.worldId) return;
-  state.kitHandbacks = [...(state.kitHandbacks ?? []).filter(row => row.item !== item), { item, worldId: state.worldId, deaths: state.deaths }];
+  const at = Number.isFinite(state.observation?.observedAtEpochMs) ? state.observation.observedAtEpochMs : this.#now();
+  state.kitHandbacks = [...(state.kitHandbacks ?? []).filter(row => row.item !== item), { item, worldId: state.worldId, deaths: state.deaths, at }];
  }
  async actionReceipt(record, receipt) {
   if (receipt.goalRevision === record.goalRevision) {
@@ -730,8 +731,12 @@ export class LiveTaskViews {
   let route = null;
   if (beatsTheGame(record.currentGoalSpec)) {
    const memory = this.#memory(record, state, ROUTE_SOURCE_BLOCKS);
-   const capped = cappedRoute(kitPrepOver => routeLine({ observation: state.observation, known: state.known, memory, foodHandedBack, woodHandedBack, kitHandedBack, kitPrepOver, diedSincePortal, evaluate: evaluatePlanCheck, instincts: this.#instincts }),
-    current.kitPrep ?? null, { key: `${current.worldId}|${state.deaths}|${state.liveDimension ?? ''}`, at: state.observation?.observedAtEpochMs });
+   const key = `${current.worldId}|${state.deaths}|${state.liveDimension ?? ''}`;
+   // Inside a prep window, only the hand-backs since it opened release a kit piece (kitPrep in skill-fits.mjs).
+   const since = current.kitPrep?.key === key ? current.kitPrep.since : null;
+   const prepHandedBack = since === null ? new Set() : new Set((current.kitHandbacks ?? []).filter(row => row.worldId === current.worldId && row.deaths === state.deaths && Number.isFinite(row.at) && row.at >= since).map(row => row.item));
+   const capped = cappedRoute(kitPrepOver => routeLine({ observation: state.observation, known: state.known, memory, foodHandedBack, woodHandedBack, kitHandedBack, prepHandedBack, kitPrepOver, diedSincePortal, evaluate: evaluatePlanCheck, instincts: this.#instincts }),
+    current.kitPrep ?? null, { key, at: state.observation?.observedAtEpochMs });
    current.kitPrep = capped.gate; route = capped.line;
   }
   return composeContinuityHeader({ goal: record.currentGoal, intent: state.intent, evidence: intentEvidence(state), since, progress: this.#progressLine(state), route, stepProgress: stepProgress.progress ?? null, repeats: stepProgress.repeats ?? null, search: stepProgress.search ?? null, ...this.#memoryFacts(record, state, shown, observation?.recovery ?? null), results: state.results, running, effect: state.effect, orders, guardInstalled, guardCoverage, guardThreatsNear, guardThreatsTargeting, annotate });

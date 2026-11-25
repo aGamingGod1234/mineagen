@@ -83,7 +83,7 @@ async function coordinatorRoot(arg) {
 }
 const arm = await coordinatorRoot(coordinatorArg);
 const load = (file) => import(pathToFileURL(path.join(arm, 'src', file)).href);
-const [{ NativeToolRuntime }, { normalizeMinecraftToolCall }, { adaptObservation }, { InspectionClient }, { DEFAULT_REFLEXES }, { routeLine, foodStockHandback, woodStockHandback = () => false, cappedRoute = route => ({ line: route(false), gate: null }) }, { emptyKnown, evaluatePlanCheck, rememberPlanFacts }, { HeadlessRconClient }, { parseSavedWorldSpawn }] = await Promise.all([
+const [{ NativeToolRuntime }, { normalizeMinecraftToolCall }, { adaptObservation }, { InspectionClient }, { DEFAULT_REFLEXES }, { routeLine, foodStockHandback, woodStockHandback = () => false, cappedRoute = route => ({ line: route(false), gate: null }), KIT_PREP_MS = Infinity }, { emptyKnown, evaluatePlanCheck, rememberPlanFacts }, { HeadlessRconClient }, { parseSavedWorldSpawn }] = await Promise.all([
 	load('native-tool-runtime.mjs'), load('native-minecraft-tools.mjs'), load('observation-adapter.mjs'), load('inspection-client.mjs'), load('reflexes.mjs'),
 	load('skill-fits.mjs'), load('plan-checks.mjs'), load('headless-rcon.mjs'), load('headless-world-spawn.mjs')]);
 const armId = coordinatorArg ? path.basename(coordinatorArg) : 'checkout';
@@ -290,8 +290,8 @@ async function playLane(s, agent, seed, seedIndex, dir) {
 	if (['lit', 'dead'].includes(plan.start) && start) known.frames.push({ dimension: 'minecraft:overworld', x: Math.floor(start[0]) + 3, y: Math.floor(start[1]), z: Math.floor(start[2]), axis: 'x', obsidian: 10, needed: 10, lit: true });
 	let foodHandedBack = false, woodHandedBack = false;
 	// A failed kit obtain this life releases that piece on the route line, as the live view does (noteKitHandback).
-	const kitHandedBack = new Set();
-	let kitPrep = null;
+	const kitHandedBack = new Set(), kitHandbackAt = new Map();
+	let kitPrep = null, prepStartedAt = Date.now();
 	// Climb and descent tracking on the harness's own clock: a death between going under and coming up is no climb.
 	let under = null, lastDeaths = 0, sampling = true, stepText = '';
 	const sampler = (async () => {
@@ -379,9 +379,13 @@ async function playLane(s, agent, seed, seedIndex, dir) {
 		result.kitMinutes ??= kitMinutes(o, Date.now() - t0, budgetMs);
 		if ((until === 'kit' && result.kitMinutes !== null) || remaining() <= 0) break;
 		// The live view's prep clock (cappedRoute): one key a life and dimension, on the sample's time.
-		const capped = cappedRoute(kitPrepOver => routeLine({ observation: o, known, foodHandedBack, woodHandedBack, kitHandedBack, kitPrepOver, diedSincePortal: plan.start === 'dead', evaluate: evaluatePlanCheck }),
-			kitPrep, { key: `${lastDeaths}|${o.world?.dimension ?? ''}`, at: o.observedAtEpochMs ?? Date.now() });
+		const prepKey = `${lastDeaths}|${o.world?.dimension ?? ''}`;
+		const prepSince = kitPrep?.key === prepKey ? kitPrep.since : null;
+		const prepHandedBack = new Set([...kitHandbackAt].filter(([, at]) => prepSince !== null && at >= prepSince).map(([item]) => item));
+		const capped = cappedRoute(kitPrepOver => routeLine({ observation: o, known, foodHandedBack, woodHandedBack, kitHandedBack, prepHandedBack, kitPrepOver, diedSincePortal: plan.start === 'dead', evaluate: evaluatePlanCheck }),
+			kitPrep, { key: prepKey, at: o.observedAtEpochMs ?? Date.now() });
 		if (capped.gate?.over && !kitPrep?.over) result.prepCapAt ??= minutes();
+		if (capped.gate && capped.gate.since !== kitPrep?.since) prepStartedAt = Date.now();
 		kitPrep = capped.gate;
 		const line = capped.line;
 		if (until === 'portal' && portalReady(o, line)) { result.portalMinutes = minutes(); result.portalLine = line; break; }
@@ -430,7 +434,9 @@ async function playLane(s, agent, seed, seedIndex, dir) {
 		const ran = await callObtain({
 			mode: 'answer', budgetMs: budgetMs - (begun - t0), started: begun,
 			execute: async (attempt, left) => {
-				const timeoutMs = routeToolTimeout(call.kind, left);
+				// A kit step gets no more than the prep time left (at least the obtain tool's minute), as the cap promises.
+				const prepLeft = kitPrep && !kitPrep.over && /; kit before [^)]+\)$/.test(line ?? '') ? Math.max(60_000, KIT_PREP_MS - (Date.now() - prepStartedAt)) : Infinity;
+				const timeoutMs = routeToolTimeout(call.kind, Math.min(left, prepLeft));
 				if (timeoutMs === null) return { state: 'TIMED_OUT', reasonCode: 'LANE_BUDGET' };
 				return execute(tool(timeoutMs), `${turn}-${attempt}`);
 			},
@@ -445,7 +451,9 @@ async function playLane(s, agent, seed, seedIndex, dir) {
 		if (call.kind === 'obtain' && foodStockHandback({ kind: 'obtain', arguments: { item: call.item } }, done)) foodHandedBack = true;
 		if (call.kind === 'find_animal' && foodStockHandback({ kind: 'find', arguments: { mob: call.mob } }, done)) foodHandedBack = true;
 		if (call.kind === 'obtain' && ['FAILED', 'TIMED_OUT'].includes(done?.state) && done?.reasonCode !== 'OBSERVATION_UNAVAILABLE' && !/DANGER|HEALTH|CANCEL|INTERRUPT/.test(done?.reasonCode ?? '')
-			&& ['shield', 'iron_chestplate', 'iron_boots'].includes(call.item)) kitHandedBack.add(`minecraft:${call.item}`);
+			&& ['shield', 'iron_chestplate', 'iron_boots', 'stone_pickaxe', 'iron_pickaxe', 'golden_helmet', 'cobblestone'].includes(call.item)) {
+			kitHandedBack.add(`minecraft:${call.item}`); kitHandbackAt.set(`minecraft:${call.item}`, adaptObservation(agent.latest())?.observedAtEpochMs ?? Date.now());
+		}
 		if (call.kind === 'obtain' && woodStockHandback({ kind: 'obtain', arguments: { item: call.item } }, done)) woodHandedBack = true;
 		if (call.kind === 'find_animal' && done?.reasonCode === 'FIND_NIGHT') hunt = { kind: 'rest' };
 		if (call.kind === 'find_animal' && done?.state === 'SUCCEEDED' && MEATS[call.mob]) hunt = { kind: 'obtain', item: `cooked_${MEATS[call.mob]}`, count: 8 };

@@ -58,3 +58,16 @@ test('with gold held, one gold piece goes on before the Nether: a carried one fi
 	assert.match(go([['golden_helmet', 1, 'head']]), RETURN);
 	assert.match(route([['iron_pickaxe', 1], ['gold_ingot', 5]], new Set(['minecraft:golden_helmet'])), RETURN);
 });
+
+test('past the prep cap a carried shield or piece still goes on, and a hand-back only counts in its own prep window', () => {
+	const draw = (rows, extra = {}) => routeLine({ observation: { ready: true, observedAtEpochMs: 10, position: { x: 0, y: 64, z: 0 }, player: { health: 20 }, world: { dimension: 'minecraft:overworld' },
+		inventory: { items: rows.map(([id, count, slot]) => ({ itemId: `minecraft:${id}`, count, ...(slot ? { slot } : {}) })) } }, known: known(), memory, evaluate: evaluatePlanCheck, ...extra });
+	const base = [['iron_pickaxe', 1], ['cobblestone', 32], ['bread', 8]];
+	assert.match(draw([...base, ['shield', 1]], { kitPrepOver: true }), /^usual next step: equip_item shield to offhand \(shield carried, not worn; kit before the Nether\)$/);
+	assert.match(draw([...base, ['shield', 1, 'offhand'], ['iron_chestplate', 1]], { kitPrepOver: true }), /^usual next step: equip_item minecraft:iron_chestplate to chest|^usual next step: equip_item iron_chestplate to chest/);
+	assert.match(draw([...base, ['shield', 1, 'offhand']], { kitPrepOver: true }), RETURN);
+	// The life's hand-back set no longer releases the gate; only the window's does.
+	const all = new Set(['minecraft:iron_chestplate']);
+	assert.match(draw([...base, ['shield', 1, 'offhand']], { kitHandedBack: all, prepHandedBack: new Set() }), /^usual next step: obtain iron_chestplate/);
+	assert.doesNotMatch(draw([...base, ['shield', 1, 'offhand']], { kitHandedBack: all, prepHandedBack: all }), /iron_chestplate/);
+});
