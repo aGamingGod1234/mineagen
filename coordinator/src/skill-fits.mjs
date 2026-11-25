@@ -453,6 +453,8 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 		}
 		return `${clipped}…`;
 	}
+	const room = packRoom(items);
+	if (room !== null) return line(...room);
 	if (dimension === 'minecraft:the_end') {
 		// A queued wake can render an older sample after the live tally has changed.
 		const seen = o.endCrystals;
@@ -529,6 +531,44 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 		return line(`${next}${restock}`, why);
 	}
 	return null;
+}
+
+// Room in the pack. A full pack takes no drops: g1 of the 25 Nov fresh games carried 36 of 36 slots (521 cobblestone,
+// andesite, granite, cinnabar, 7 stone pickaxes) for its last hour, its digs stopped INVENTORY_FULL, and at minute 348 it
+// found sweet berries and could not pick one up, starving through a 50-minute food hunt. A player throws the clutter out
+// once the pack is nearly full. Clutter is what no route step uses; plain blocks beyond the block stock (the End kit's
+// 64, a stack spare for bridges and casting) and stone or wooden tools past two spares once a better one is held.
+const PACK_SLOTS = 36;
+const PACK_ROOM = 3;
+const BLOCK_STOCK = 128;
+const CLUTTER = /^minecraft:(sand|red_sand|sandstone|red_sandstone|calcite|smooth_basalt|dripstone_block|pointed_dripstone|moss_block|clay_ball|snowball|[a-z_]+_carpet|[a-z_]+_sapling|raw_copper|copper_ingot|lapis_lazuli|amethyst_shard|amethyst_block|poisonous_potato|wheat_seeds|beetroot_seeds|cinnabar|sulfur|bone_block|kelp|seagrass|[a-z_]+_flower|dandelion|poppy|short_grass|fern|dead_bush|stick)$/;
+const PLAIN_BLOCK = /^minecraft:(cobblestone|cobbled_deepslate|stone|deepslate|dirt|coarse_dirt|gravel|andesite|diorite|granite|tuff|netherrack|blackstone|basalt|end_stone)$/;
+const SPARE_TOOLS = 2;
+function packRoom(items) {
+	const stacks = items.filter(i => Number.isInteger(i.slot) && i.slot >= 0 && i.slot < PACK_SLOTS);
+	const free = PACK_SLOTS - new Set(stacks.map(i => i.slot)).size;
+	if (free >= PACK_ROOM || stacks.length === 0) return null;
+	const want = PACK_ROOM + 1 - free;
+	const drops = [];
+	// Sticks: two stacks' worth stay (tools and torches), the rest is clutter.
+	const sticks = stacks.filter(i => i.itemId === 'minecraft:stick').sort((a, b) => b.count - a.count);
+	drops.push(...stacks.filter(i => CLUTTER.test(i.itemId) && !(i.itemId === 'minecraft:stick' && i === sticks[0])));
+	// Plain blocks: cobblestone kept first (it casts, bridges and pillars), the odd stone kinds and dirt dropped first.
+	let blocks = stacks.filter(i => PLAIN_BLOCK.test(i.itemId)).reduce((n, i) => n + i.count, 0);
+	const order = id => /cobble/.test(id) ? 2 : /netherrack|blackstone|stone$|deepslate|end_stone/.test(id) ? 1 : 0;
+	for (const i of stacks.filter(i => PLAIN_BLOCK.test(i.itemId)).sort((a, b) => order(a.itemId) - order(b.itemId) || a.count - b.count))
+		if (blocks - i.count >= BLOCK_STOCK) { drops.push(i); blocks -= i.count; }
+	// Lower tools past the spares once a better one of the kind is held: the pickaxes obtain makes on the way pile up.
+	for (const kind of ['pickaxe', 'axe', 'shovel', 'sword', 'hoe']) {
+		const tools = items.filter(i => new RegExp(`^minecraft:[a-z]+_${kind}$`).test(i.itemId ?? ''));
+		const best = Math.max(-1, ...tools.map(i => tier(i.itemId)));
+		const lower = tools.filter(i => tier(i.itemId) < best && Number.isInteger(i.slot) && i.slot < PACK_SLOTS).sort((a, b) => tier(a.itemId) - tier(b.itemId));
+		drops.push(...lower.slice(0, Math.max(0, lower.length - (kind === 'pickaxe' ? SPARE_TOOLS : 0))));
+	}
+	if (drops.length === 0) return null;
+	const named = drops.slice(0, Math.min(want, 3));
+	const next = named.map(i => `drop_item slot:${i.slot} count:${i.count}`).join(', then ');
+	return [next, `pack ${PACK_SLOTS - free}/${PACK_SLOTS}, a full pack loses drops; spare ${named.map(i => i.itemId.slice(10)).join(', ')}`];
 }
 
 // Down a mine: under the sky and below this height. Cave and tunnel floors are under it; a spawn on dry land is not.
