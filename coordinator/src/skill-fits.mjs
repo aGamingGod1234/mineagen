@@ -161,14 +161,14 @@ const COOKED_MEAT = /^minecraft:cooked_(beef|porkchop|mutton|chicken|rabbit|cod|
 const ANIMAL_MEAT = { cow: 'beef', pig: 'porkchop', sheep: 'mutton', chicken: 'chicken', rabbit: 'rabbit' };
 
 /**
- * Whether a finished obtain or find says the food stock has no source here: an obtain of cooked meat that failed or ran
+ * Whether a finished obtain or find says the food stock has no source here: an obtain of raw or cooked meat that failed or ran
  * out of time, or a find for a meat animal that searched its whole range or budget. A danger, low-health or cancelled
  * stop is not one (the source may still be there), nor a failed observation.
  */
 export function foodStockHandback(tool, result) {
 	if (!['FAILED', 'TIMED_OUT'].includes(result?.state) || result.reasonCode === 'OBSERVATION_UNAVAILABLE') return false;
 	const id = value => String(value ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_').replace(/^minecraft:/, '');
-	if (tool?.kind === 'obtain') return COOKED_MEAT.test(`minecraft:${id(typeof result.item === 'string' ? result.item : tool.arguments?.item)}`);
+	if (tool?.kind === 'obtain') { const item = `minecraft:${id(typeof result.item === 'string' ? result.item : tool.arguments?.item)}`; return COOKED_MEAT.test(item) || RAW_FOOD.test(item); }
 	return tool?.kind === 'find' && Object.hasOwn(ANIMAL_MEAT, id(tool.arguments?.mob)) && (result.reasonCode === 'FIND_NOT_FOUND' || result.state === 'TIMED_OUT');
 }
 
@@ -226,8 +226,15 @@ const ROUTE = [
 	// moves on), the portal is lit or the Nether visited, the route no longer holds it up. held: any food carried ends it too (eating it down to one piece keeps it ended; all of it eaten before a pickaxe brings it back).
 	// rekit: the row's done-condition in a re-kit after a death past the portal stage (routeLine diedSincePortal), where
 	// the lit frame and the visit no longer say the kit is held; false: only its held fact ends it there.
-	{ id: 'food', done: 'tool:pickaxe:wooden+ | frame:lit | visited:minecraft:the_nether', rekit: 'tool:pickaxe:wooden+', held: f => f.food >= 1 || !f.foodNeeded,
-		next: f => [`obtain beef count ${MEAT} (or porkchop, mutton or chicken from the nearest animal; skip if none in view)`, 'no food held, health regrows only at hunger 18+'] },
+	// With no food held, a meat animal in view is taken at any hunger, as a player takes the sheep it passes: in the 8
+	// measure games the body walked past one at full hunger 8 times after a death (a sheep 6 blocks away in one, during a
+	// 40-min re-kit), then hunted 8-41 min per game once hungry with nothing to eat. One food hand-back (the animal fled
+	// or could not be reached) releases it while fed. In a re-kit, past the first pickaxe only the animal holds it up:
+	// the hungry case is the restock note each later kit line carries.
+	{ id: 'food', done: 'tool:pickaxe:wooden+ | frame:lit | visited:minecraft:the_nether', rekit: false,
+		held: f => f.food >= 1 || (f.nearbyMeat === null || f.foodHandedBack) && (!f.foodNeeded || f.rekit === true && f.count(/^minecraft:[a-z]+_pickaxe$/) > 0),
+		next: f => f.nearbyMeat ? [`obtain ${f.nearbyMeat} count ${MEAT} from the animal in view`, 'no food held; health regrows only at hunger 18+']
+			: [`obtain beef count ${MEAT} (or porkchop, mutton or chicken from the nearest animal; skip if none in view)`, 'no food held, health regrows only at hunger 18+'] },
 	{ id: 'wood', done: 'tool:pickaxe:wooden+', next: f => [`obtain wooden_pickaxe`, f.wood ? `${f.wood} logs/planks held` : 'no tools yet'] },
 	// R6G5: food after casting meant a 95-block climb. Bite before stone/furnace acquisition can enter a mine.
 	// Released by a food obtain or animal find that came back without a source this life, or, while health and hunger are

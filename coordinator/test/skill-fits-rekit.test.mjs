@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ROUTE_BYTES, portalDeathMark, routeLine } from '../src/skill-fits.mjs';
+import { ROUTE_BYTES, foodStockHandback, portalDeathMark, routeLine } from '../src/skill-fits.mjs';
 import { emptyKnown, evaluatePlanCheck } from '../src/plan-checks.mjs';
 import { LiveTaskViews } from '../src/live-task-view.mjs';
 import { ObservedMemoryStore } from '../src/observed-memory-store.mjs';
@@ -63,10 +63,12 @@ test('a death after lighting the portal, before entering, re-kits before the ent
 });
 
 test('food on a re-kit is the hunger check the portal return makes, not the cooked-meat quota', () => {
-	// A healthy, fed respawn goes to its tools first, with no meat quota ahead of the kit, even with a cow in view.
+	// A healthy, fed respawn with no food takes the cow in view first (4 meat, no cooked quota), then its tools.
 	const cow = { ...sample([]), entities: [{ type: 'minecraft:cow', distance: 6, alive: true }] };
 	assert.equal(routeLine({ observation: cow, known: visitedNether(), memory: portalMemory, diedSincePortal: true, evaluate: evaluatePlanCheck }),
-		'usual next step: obtain wooden_pickaxe (no tools yet; re-kit after a death)');
+		'usual next step: obtain beef count 4 from the animal in view (no food held; health regrows only at hunger 18+; re-kit after a death)');
+	// With nothing in view it goes to its tools.
+	assert.equal(route([]), 'usual next step: obtain wooden_pickaxe (no tools yet; re-kit after a death)');
 	// Hungry with no food: the spawn food row first, then food on the way of each later kit step.
 	assert.match(route([], { foodLevel: 10 }), /^usual next step: obtain beef count 4 .*re-kit after a death\)$/);
 	const hungry = route(TOOLS, { foodLevel: 10 });
@@ -148,4 +150,34 @@ test('live view: a staged save past the Nether counts a death in this session; a
 	await views.observe(r, corpse(500, 'minecraft:overworld'));
 	await views.observe(r, { ...live(600, []), world: { worldId: 'other', dimension: 'minecraft:overworld', gameTime: 600 } });
 	assert.equal(views.continuity(r).route, 'usual next step: obtain wooden_pickaxe (no tools yet)');
+});
+
+// In a measure game the re-kit after a death ran 40 min with stone tools and no food at full hunger. A sheep came within 6
+// blocks and the route said only "obtain iron_pickaxe"; once hungry, the body hunted berries, rabbits, salmon and a
+// village in a snowy taiga for 47 min. The same skip came after fresh respawns in two other games.
+test('with no food held, a meat animal in view is taken at full hunger, in a re-kit and on a fresh respawn, once', () => {
+	const near = (items, type, distance, options = {}) => ({ ...sample(items, options), entities: [{ type: `minecraft:${type}`, distance, alive: true }] });
+	const kitRoute = (o, extra = {}) => routeLine({ observation: o, known: visitedNether(), memory: portalMemory, diedSincePortal: true, evaluate: evaluatePlanCheck, ...extra });
+	const stoneKit = [['stone_pickaxe', 1], ['stone_sword', 1], ['furnace', 1], ['coal', 7]];
+	assert.equal(kitRoute(near(stoneKit, 'sheep', 6, { foodLevel: 20 })),
+		'usual next step: obtain mutton count 4 from the animal in view (no food held; health regrows only at hunger 18+; re-kit after a death)');
+	// Food held, the animal out of range (33 blocks), or a hand-back this life (it fled or could not be reached): the kit.
+	assert.match(kitRoute(near([...stoneKit, ['apple', 1]], 'sheep', 6, { foodLevel: 20 })), /^usual next step: obtain iron_pickaxe/);
+	assert.match(kitRoute(near(stoneKit, 'sheep', 33, { foodLevel: 20 })), /^usual next step: obtain iron_pickaxe/);
+	assert.match(kitRoute(near(stoneKit, 'sheep', 6, { foodLevel: 20 }), { foodHandedBack: true }), /^usual next step: obtain iron_pickaxe/);
+	// Hungry with a pickaxe and nothing in view: the restock note on the kit line, as before.
+	assert.match(route(stoneKit, { foodLevel: 10 }), /^usual next step: obtain iron_pickaxe; low hunger\/health, food 0 held: obtain cooked_beef on the way/);
+	// A fresh respawn before the portal stage (no death past it): the pig before the wooden pickaxe, at full hunger.
+	const fresh = (o, extra = {}) => routeLine({ observation: o, known: emptyKnown(), memory: null, evaluate: evaluatePlanCheck, ...extra });
+	assert.match(fresh(near([], 'pig', 2, { foodLevel: 20 })), /^usual next step: obtain porkchop count 4 from the animal in view \(no food held/);
+	assert.match(fresh(near([], 'pig', 2, { foodLevel: 20 }), { foodHandedBack: true }), /^usual next step: obtain wooden_pickaxe/);
+	// A hungry fresh respawn with no animal in view keeps the old spawn food line.
+	assert.match(fresh(sample([], { foodLevel: 10 })), /^usual next step: obtain beef count 4 \(or porkchop/);
+});
+
+test('a raw meat obtain that fails is a food hand-back, as a cooked one is', () => {
+	assert.equal(foodStockHandback({ kind: 'obtain', arguments: { item: 'minecraft:mutton' } }, { state: 'TIMED_OUT' }), true);
+	assert.equal(foodStockHandback({ kind: 'obtain', arguments: { item: 'cooked_beef' } }, { state: 'FAILED', reasonCode: 'NO_SOURCE' }), true);
+	assert.equal(foodStockHandback({ kind: 'obtain', arguments: { item: 'minecraft:mutton' } }, { state: 'FAILED', reasonCode: 'OBSERVATION_UNAVAILABLE' }), false);
+	assert.equal(foodStockHandback({ kind: 'obtain', arguments: { item: 'minecraft:oak_log' } }, { state: 'FAILED' }), false);
 });
