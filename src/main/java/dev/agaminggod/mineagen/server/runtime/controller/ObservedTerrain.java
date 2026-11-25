@@ -61,6 +61,7 @@ final class ObservedTerrain implements WalkabilityView {
 
 	private Known known;
 	private Integer movementLevel;
+	private int levelBand;
 	private final Map<GridPosition, Cell> read = new HashMap<>();
 	private final Map<GridPosition, BlockState> states = new HashMap<>();
 	private final Map<GridPosition, Boolean> jumps = new HashMap<>();
@@ -87,13 +88,27 @@ final class ObservedTerrain implements WalkabilityView {
 
 	/** Restrict standing destinations to this deck without changing any acquired terrain facts. */
 	ObservedTerrain onLevel(int y) {
+		return onLevel(y, 0);
+	}
+
+	/**
+	 * As {@link #onLevel(int)}, also standing up to {@code band} blocks above or below the deck: one-block steps up and
+	 * drops are planned between those levels, never gap jumps, swims or climbs.
+	 */
+	ObservedTerrain onLevel(int y, int band) {
 		movementLevel = y;
+		levelBand = Math.max(0, band);
 		return this;
 	}
 
 	@Override
 	public boolean isStandable(GridPosition position) {
-		return (movementLevel == null || position.y() == movementLevel) && WalkabilityView.super.isStandable(position);
+		return (movementLevel == null || Math.abs(position.y() - movementLevel) <= levelBand) && WalkabilityView.super.isStandable(position);
+	}
+
+	@Override
+	public boolean canJumpGap(GridPosition from, GridPosition to) {
+		return movementLevel == null && canJumpFrom(from);
 	}
 
 	@Override
@@ -253,7 +268,7 @@ final class ObservedTerrain implements WalkabilityView {
 
 	@Override
 	public boolean canJumpFrom(GridPosition position) {
-		if (movementLevel != null) return false;
+		if (movementLevel != null && levelBand == 0) return false;
 		return jumps.computeIfAbsent(position, key -> {
 			BlockState feet = known.state(key);
 			BlockState head = known.state(key.above());

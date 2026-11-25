@@ -210,6 +210,10 @@ public final class ServerFightController implements ServerController {
 	private int perchUnsafeTicks;
 	private List<PathNode> route;
 	private boolean keepBlazeRouteLevel;
+	/** The spawner hold's defend: its blaze approach stays on the cell's deck (no one-block steps). */
+	private boolean holdDeck;
+	/** The level a shielded blaze approach is stepping onto (one up or down), until the body lands there; else null. */
+	private Integer blazeStepTo;
 	/** Route cells a seen lava flow already reached when the route was chosen (the planner paid for them). */
 	private Set<GridPosition> routeFlows = Set.of();
 	private int routeIndex;
@@ -361,7 +365,10 @@ public final class ServerFightController implements ServerController {
 		boolean blazeWait = blazeFight && (shield && !shieldBroke
 				|| dev.agaminggod.mineagen.server.runtime.reflex.ReflexEngine.fightHoldsShield(player)
 				|| HazardExits.fireResistant(player));
-		BrinkGuard.keepLevel(player, this, blazeFight, blazeWait);
+		// A planned one-block step up or down leaves the deck on purpose: the level hold would stop it at the lip. The hold
+		// is let go only on a grounded tick that takes the step (below) and through the airborne ticks after it.
+		if (blazeStepTo != null && (!blazeWait || player.onGround())) blazeStepTo = null;
+		BrinkGuard.keepLevel(player, this, blazeFight && blazeStepTo == null, blazeWait && blazeStepTo == null);
 		keepBlazeRouteLevel = blazeWait;
 		String hazardCode = hazard.observe(player);
 		if (blazeFight && HazardEntry.ON_FIRE.equals(hazardCode)) hazardCode = null;
@@ -551,7 +558,8 @@ public final class ServerFightController implements ServerController {
 		}
 		if (blazeFight) {
 			if (blazeWait) {
-				// A hovering blaze comes down to the player. Chase only across this deck, never toward its height.
+				// A hovering blaze sinks to the player's level but, seeing the player, never comes nearer (BlazeApproach):
+				// walk to a seen spot in reach, this deck or one block up or down, never toward its height.
 				backoffTicks = 0;
 				if (waypoint != null) {
 					// Walk the route sideways or backwards while the shield stays toward the blaze.
@@ -559,9 +567,15 @@ public final class ServerFightController implements ServerController {
 					double dz = waypoint.position().z() + 0.5D - player.getZ();
 					float moveYaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
 					float[] keys = BrinkGuard.keysToward(yaw, dx, dz);
-					boolean supported = levelStep(player, moveYaw) && routeForward(player, waypoint, 1.0F, 0.0F) > 0;
+					int feetY = CombatMoveText.feet(player).y();
+					boolean levelAhead = waypoint.position().y() == feetY && levelStep(player, moveYaw);
+					boolean supported = BlazeApproach.takesStep(feetY, waypoint, levelAhead) && routeForward(player, waypoint, 1.0F, 0.0F) > 0;
 					forward = supported ? keys[0] : 0.0F;
 					strafe = supported ? keys[1] : 0.0F;
+					if (supported && BlazeApproach.levelChange(feetY, waypoint)) {
+						blazeStepTo = waypoint.position().y();
+						BrinkGuard.keepLevel(player, this, false);
+					}
 				}
 				if ((shieldWanted || footwork == null) && waypoint == null) {
 					forward = 0.0F;
@@ -585,7 +599,11 @@ public final class ServerFightController implements ServerController {
 		if (blazeWait && !step.attack() && BrinkGuard.needsFooting(player)) pitch = AgentInputStates.turnPitch(player.getXRot(), 40.0F);
 		// Swimming approach: stay afloat (or sink toward a target clearly below) and sprint-swim along the aim while
 		// submerged, so the view pitch toward the target steers the swim up or down like a player's.
-		boolean jump = pursue && (!blazeFight || !shieldWanted && footwork != null && footwork.jump()) && (SwimPlanning.fightJump(SwimPlanning.floatJump(inWater, player.onGround(), player.isUnderWater()),
+		boolean blazeStepJump = blazeWait && pursue && BlazeApproach.stepJump(CombatMoveText.feet(player).y(), waypoint,
+				forward != 0.0F || strafe != 0.0F, waypoint == null ? Double.MAX_VALUE
+						: CombatMoveText.horizontal(player.position(), waypoint.position().x() + 0.5D, waypoint.position().z() + 0.5D),
+				player.onGround());
+		boolean jump = blazeStepJump || pursue && (!blazeFight || !shieldWanted && footwork != null && footwork.jump()) && (SwimPlanning.fightJump(SwimPlanning.floatJump(inWater, player.onGround(), player.isUnderWater()),
 				strike.getY() - player.getY())
 				|| (footwork != null && footwork.jump())
 				|| (forward > 0.0F && player.onGround() && player.horizontalCollision)
@@ -621,7 +639,8 @@ public final class ServerFightController implements ServerController {
 			backoffTicks = 0;
 		} else if (step.attack()) sweepHoldStart = -1L;
 		// A held swing keeps the shield up: lowering it for a hit that never comes leaves the body open.
-		input.apply(player, new AgentInputState(forward, strafe, jump, sneak, sprint && !sneak, false, shielding && (!step.attack() || holdForSweep),
+		boolean crouch = BlazeApproach.sneakFor(sneak, blazeStepTo != null);
+		input.apply(player, new AgentInputState(forward, strafe, jump, crouch, sprint && !crouch, false, shielding && (!step.attack() || holdForSweep),
 				yaw, pitch, weaponSlot, shielding ? InteractionHand.OFF_HAND : InteractionHand.MAIN_HAND));
 		// The swing is a direct server call, so it must also yield to an operator takeover (whose input lease wins).
 		if (step.attack() && !holdForSweep && !player.isUsingItem() && !operatorControlled(player)) {
@@ -860,7 +879,7 @@ public final class ServerFightController implements ServerController {
 		reachTargetPosition = strike.position();
 		recheckRequested = false;
 		ObservedTerrain view = ObservedTerrain.forCheck(player).withContactCost(visibleWingCost(player));
-		if (keepBlazeRouteLevel) view.onLevel(CombatMoveText.feet(player).y());
+		if (keepBlazeRouteLevel) view.onLevel(CombatMoveText.feet(player).y(), BlazeApproach.levelBand(holdDeck));
 		GridPosition start = standingCell(view, player.position());
 		if (start == null) return false;
 		AABB box = strike.getBoundingBox();
@@ -1606,6 +1625,12 @@ public final class ServerFightController implements ServerController {
 
 	public ServerFightController keepFleeLine() {
 		keepFleeLine = true;
+		return this;
+	}
+
+	/** The spawner hold's defend: a blaze approach keeps the cell's deck instead of stepping a block up or down. */
+	public ServerFightController holdDeck() {
+		holdDeck = true;
 		return this;
 	}
 

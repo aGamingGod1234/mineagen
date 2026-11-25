@@ -518,7 +518,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 			if (collector != null) { collector.cancel(player); collector = null; returning = true; }
 			if (ledge != null) { ledge.cancel(player); ledge = null; returning = true; }
 			defend = new ServerFightController(attacker, null, fleeAtHealth, true, CombatPlanning.TargetPolicy.NAMED, false, true, false,
-					player.getOffhandItem().getItem() instanceof net.minecraft.world.item.ShieldItem, SpawnerHold.DEFEND_MS, now).keepFleeLine();
+					player.getOffhandItem().getItem() instanceof net.minecraft.world.item.ShieldItem, SpawnerHold.DEFEND_MS, now).keepFleeLine().holdDeck();
 			defends++;
 			note("defend against " + BuiltInRegistries.ENTITY_TYPE.getKey(attacker.getType()));
 		}
