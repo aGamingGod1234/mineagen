@@ -777,10 +777,36 @@ public final class BrinkGuard {
 	 * edge column, centring and placing with a blaze's fireballs landing, was shoved off into the lava sea (NE-LAVA-1).
 	 */
 	public static Fall brinkFrom(ServerPlayer player, Vec3 feet, Vec3 shooter) {
+		return brinkFrom(player, feet, shooter, BRACE_STEPS);
+	}
+
+	/**
+	 * As {@link #brinkFrom(ServerPlayer, Vec3, Vec3)} for a throw of up to {@code reach} blocks: a hoglin's or a large
+	 * magma cube's hit carries the body further than a fireball's shove.
+	 */
+	public static Fall brinkFrom(ServerPlayer player, Vec3 feet, Vec3 from, double reach) {
+		return brinkFrom(player, feet, from, steps(reach));
+	}
+
+	/** Inland of {@link #brinkFrom(ServerPlayer, Vec3, Vec3, double)}'s reach, as {@link #inlandStand(ServerPlayer, int, Vec3)}. */
+	public static Vec3 inlandStand(ServerPlayer player, int within, Vec3 from, double reach) {
+		double[] steps = steps(reach);
+		return inlandStand(ObservedTerrain.of(player), player.getX(), player.getY(), player.getZ(), within, at -> brinkFrom(player, at, from, steps) == null);
+	}
+
+	/** The brace steps out to {@code reach}: every 0.35 of a block, as {@link #BRACE_STEPS} are. */
+	static double[] steps(double reach) {
+		int count = Math.max(1, (int) Math.ceil(reach / 0.35D));
+		double[] steps = new double[count];
+		for (int i = 0; i < count; i++) steps[i] = Math.min(reach, 0.35D * (i + 1));
+		return steps;
+	}
+
+	private static Fall brinkFrom(ServerPlayer player, Vec3 feet, Vec3 shooter, double[] steps) {
 		WalkabilityView world = ObservedTerrain.of(player);
 		AABB box = player.getBoundingBox().move(feet.x - player.getX(), feet.y - player.getY(), feet.z - player.getZ());
 		double awayX = shooter == null ? 0.0D : feet.x - shooter.x, awayZ = shooter == null ? 0.0D : feet.z - shooter.z;
-		return brinkWithin(box, BRACE_STEPS, blocked(player), shifted -> unsupportedAt(player, shifted), shifted -> {
+		return brinkWithin(box, steps, blocked(player), shifted -> unsupportedAt(player, shifted), shifted -> {
 			Fall drop = fall(player, world, shifted);
 			return shooter == null ? drop : pushSide(drop, box, shifted, awayX, awayZ);
 		});

@@ -81,6 +81,16 @@ cp "$HOME/.codex/auth.json" "$raw/.codex-home/auth.json"; [ -f "$FAKE_BOAT_ROOT/
 [ -f "$FAKE_BOAT_ROOT/SOURCE_REFRESH" ] && rm "$FAKE_BOAT_ROOT/SOURCE_REFRESH" 2>/dev/null && echo refreshed >> "$FAKE_BOAT_ROOT/signin/auth.json"
 echo '{"event":"native_token_usage"}' > "$raw/coordinator.jsonl"
 echo "Running q: $raw" > "$dir/run.log"; echo '{}' > "$dir/ledger.json"
+# An EARLY file makes the game earn a blaze rod at once and then play on for a minute as a process named like run-long,
+# writing its report when that ends (as run-long does on a SIGTERM), with the operator stop it found.
+if [ -f "$FAKE_BOAT_ROOT/EARLY" ]; then
+  t=$(date +%s%3N)
+  printf '%s\\n' "{\\"envelope\\":{\\"type\\":\\"goal_control\\",\\"agentId\\":\\"a\\",\\"payload\\":{\\"operation\\":\\"start\\",\\"updatedAtEpochMs\\":$t}}}" "{\\"envelope\\":{\\"type\\":\\"advancement_granted\\",\\"agentId\\":\\"a\\",\\"payload\\":{\\"advancementId\\":\\"minecraft:nether/obtain_blaze_rod\\"}},\\"observedAtMs\\":$t}" > "$raw/quality-protocol.jsonl"
+  bash -c ": scripts/quality/run-long.mjs --out $dir/report; sleep 60; true"
+  stop=$(node -e 'try{console.log(JSON.stringify(require(process.argv[1])))}catch{console.log("null")}' "$dir/report/operator-stop.json")
+  echo "{\\"measurementStatus\\":\\"INCOMPLETE\\",\\"operatorStop\\":$stop,\\"timeline\\":{\\"startedAt\\":1795290758148,\\"playedMs\\":60000,\\"stopReason\\":\\"ENDED_EARLY:INTERRUPTED_SIGTERM\\",\\"milestones\\":[{\\"id\\":\\"fortress\\",\\"reached\\":true,\\"elapsedMs\\":120000}],\\"deaths\\":[]}}" > "$dir/report/long-run.json"
+  echo "exit 0 $(date -Is)" > "$dir/done"; exit 0
+fi
 echo '{"measurementStatus":"INCOMPLETE","timeline":{"startedAt":1795290758148,"playedMs":60000,"stopReason":"WALL_CLOCK_BUDGET","milestones":[{"id":"fortress","reached":true,"elapsedMs":120000}],"deaths":[{"cause":"lava"}]}}' > "$dir/report/long-run.json"
 echo "exit 0 $(date -Is)" > "$dir/done"
 `;
