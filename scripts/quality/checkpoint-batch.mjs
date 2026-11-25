@@ -50,8 +50,8 @@ const args = process.argv.slice(2);
 const flag = name => { const i = args.indexOf(`--${name}`); return i < 0 ? undefined : args[i + 1]; };
 if (args.includes('--help') || (!flag('score') && (!flag('plan') || !flag('out')))) { console.log(USAGE); process.exit(args.includes('--help') ? 0 : 2); }
 
-// CHECKPOINT_POLL_MS and CHECKPOINT_LOST_AFTER_MS shorten the pass and the drop wait for the fake-boat test
-// (coordinator/test/checkpoint-batch-loop.test.mjs).
+// CHECKPOINT_POLL_MS and CHECKPOINT_LOST_AFTER_MS shorten the pass and the drop wait for the fake-boat
+// tests (coordinator/test/checkpoint-batch-*.test.mjs).
 const POLL_MS = Number(process.env.CHECKPOINT_POLL_MS ?? 60_000), SIGNAL_BUDGET_MS = Number(process.env.CHECKPOINT_SIGNAL_BUDGET_MS ?? 60_000), LOST_AFTER_MS = Number(process.env.CHECKPOINT_LOST_AFTER_MS ?? 5 * 60_000), LIVE = new Set(['provisioned', 'cloning', 'ready', 'idle', 'running']);
 const sha = file => createHash('sha256').update(readFileSync(file)).digest('hex');
 // Local copy failures of one game (a full disk) are retried each pass; past this many the game scores unknown and the
