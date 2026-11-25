@@ -307,6 +307,17 @@ public final class EndBreathFloorVerification {
 			check(ReflexEngine.gatedTruth(strike, true, waiting), "it takes the body from a " + waiting.wireName() + " (the waits and walks the landings found)");
 		}
 		check(ReflexEngine.gatedTruth(strike, true, null), "it takes an idle body");
+		check(ReflexEngine.gatedTruth(strike, true, dev.agaminggod.mineagen.protocol.ActionType.NAVIGATE_TO), "it takes the body from a navigate_to");
+		for (dev.agaminggod.mineagen.protocol.ActionType keys : List.of(dev.agaminggod.mineagen.protocol.ActionType.CONTROL,
+				dev.agaminggod.mineagen.protocol.ActionType.CONTROL_SEQUENCE, dev.agaminggod.mineagen.protocol.ActionType.LOOK_AT,
+				dev.agaminggod.mineagen.protocol.ActionType.BREAK_BLOCK, dev.agaminggod.mineagen.protocol.ActionType.PLACE_BLOCK,
+				dev.agaminggod.mineagen.protocol.ActionType.USE_ITEM)) {
+			check(!ReflexEngine.gatedTruth(strike, true, keys), "it leaves a paused " + keys.wireName() + " alone: that lease outranks the fight's");
+		}
+		check(ReflexEngine.strikeHoldsThroughTakeoff(strike, true, true), "a firing head run holds on while its fight steps clear of a takeoff");
+		check(!ReflexEngine.strikeHoldsThroughTakeoff(strike, true, false), "it ends with the perch once no retreat runs");
+		check(!ReflexEngine.strikeHoldsThroughTakeoff(strike, false, true), "only the firing rule holds on");
+		check(!ReflexEngine.strikeHoldsThroughTakeoff(named(end, "default-breath"), true, true), "no other rule holds on this way");
 		check(ReflexActions.StrikeHead.weapon("minecraft:iron_sword") && ReflexActions.StrikeHead.weapon("minecraft:stone_axe"), "a sword or an axe is the weapon");
 		check(!ReflexActions.StrikeHead.weapon("minecraft:iron_pickaxe") && !ReflexActions.StrikeHead.weapon(null), "a pickaxe or an empty hand is not");
 		ReflexActions.Held sword = new ReflexActions.Held("minecraft:iron_sword", false, false), pick = new ReflexActions.Held("minecraft:iron_pickaxe", false, false);

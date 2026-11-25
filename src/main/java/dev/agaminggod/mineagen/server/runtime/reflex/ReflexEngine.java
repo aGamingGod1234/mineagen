@@ -126,6 +126,22 @@ public final class ReflexEngine {
 		return activeType != null && DEFEND_STANDS_ASIDE.contains(activeType);
 	}
 
+	/**
+	 * The commands a run to a perched dragon's head may pause: waits and walks, whose navigation leases sit below the fight's.
+	 * A paused key, look, mine or place command keeps its own lease (direct control 250, interaction 300) over the fight's
+	 * combat lease (200), so its old keys would drive the body instead of the approach.
+	 */
+	static final Set<ActionType> STRIKE_TAKES_FROM = Set.copyOf(java.util.EnumSet.of(ActionType.WAIT, ActionType.TRAVEL_TO,
+			ActionType.MOVE_TO, ActionType.NAVIGATE_TO));
+
+	/**
+	 * A head run whose dragon has lifted off holds on while its fight steps clear (CombatBailout.dragonTakeoff): ended
+	 * there, the retreat stopped on its first tick and left the body under the departing dragon's head and wings.
+	 */
+	static boolean strikeHoldsThroughTakeoff(ReflexSpec.Rule rule, boolean firing, boolean retreating) {
+		return firing && retreating && "strike_head".equals(rule.action().type());
+	}
+
 	/** A rule's sensed truth after the engine's gates: defend reads false while the body's own fight or flight runs. */
 	static boolean gatedTruth(ReflexSpec.Rule rule, boolean truth, ActionType activeType) {
 		return gatedTruth(rule, truth, activeType, false);
@@ -139,7 +155,7 @@ public final class ReflexEngine {
 	static boolean gatedTruth(ReflexSpec.Rule rule, boolean truth, ActionType activeType, boolean escapingShooter) {
 		// The run to a perched dragon's head stands aside the same way: the body's own fight, shot or flight is its choice.
 		return truth && !("defend".equals(rule.action().type()) && (defendStandsAside(activeType) || escapingShooter))
-				&& !("strike_head".equals(rule.action().type()) && defendStandsAside(activeType));
+				&& !("strike_head".equals(rule.action().type()) && activeType != null && !STRIKE_TAKES_FROM.contains(activeType));
 	}
 
 	/**
@@ -618,6 +634,9 @@ public final class ReflexEngine {
 				until = ReflexSensors.sense(player, condition, frame, agent.memory, now).truth();
 			}
 			truth = gatedTruth(rule, truth, activeType, escapingShooter);
+			ReflexScheduler.Firing headRun = agent.scheduler.current();
+			if (!truth && (activeType == null || STRIKE_TAKES_FROM.contains(activeType)) && strikeHoldsThroughTakeoff(rule,
+					headRun != null && headRun.ruleId().equals(rule.id()), agent.behaviour instanceof ReflexActions.StrikeHead run && run.retreating())) truth = true;
 			if (!inEnd && endOnly(rule)) truth = false;
 			truth = shieldGate(agent.scheduler, rule, truth, firingBlocksShots);
 			truth = dodgeGate(agent.scheduler, rule, truth, activeType, escapingShooter, firingMoves);

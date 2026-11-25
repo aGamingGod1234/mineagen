@@ -1983,6 +1983,11 @@ final class ReflexActions {
 			return id != null && (id.endsWith("_sword") || id.endsWith("_axe"));
 		}
 
+		/** Its head fight is stepping clear of a dragon lifting off (see ReflexEngine.strikeHoldsThroughTakeoff). */
+		boolean retreating() {
+			return fight != null && fight.bailingOut();
+		}
+
 		@Override
 		public Step tick(Context context, Consumer<AgentInputState> input) {
 			ServerPlayer player = context.player();
