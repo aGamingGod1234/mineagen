@@ -11,7 +11,7 @@ import { MOD_JAR } from './mod-jar.mjs';
 import { installTickRate, fixtureTickRate } from './watch-replay.mjs';
 import { damageCounter, recordDamageEvidence } from './lib/damage-counter.mjs';
 import { watchObservations } from './lib/fixture-play.mjs';
-import { fixtureSummary, roomVerdict } from './lib/fixture-run.mjs';
+import { finishRun, roomVerdict } from './lib/fixture-run.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const out = resolve(process.argv[2] ?? 'runtime/enderman-live');
@@ -340,7 +340,7 @@ try {
 	// where the body stands. Measured: each body step, whether it sat, hits taken while it sat, the kill and the boat.
 	const seatedInBoat = async () => /passed/i.test(await command('execute as @e[type=minecraft:oak_boat] on passengers if entity @s[type=minecraft:enderman]'));
 	const boatThere = async () => /passed/i.test(await command('execute if entity @e[type=minecraft:oak_boat]'));
-	const trap = async (name, onBlock, salt) => {
+	const trap = async (name, onBlock, salt, side = 0) => {
 		const id = 4300 + ++fightOrdinal, uuid = `00000000-0000-0000-0000-${id.toString(16).padStart(12, '0')}`;
 		await reset();
 		for (const slot of ['armor.chest', 'armor.legs']) await command(`item replace entity ${agent} ${slot} with minecraft:air`);
@@ -353,13 +353,14 @@ try {
 		const steps = {};
 		const play = await playStart();
 		const step = async (key, type, args) => { const r = await (await startAction(type, args)).result; steps[key] = { state: r.state, reasonCode: r.reasonCode ?? null, message: String(r.message ?? '').slice(0, 160) }; return r.state === 'SUCCEEDED'; };
-		const boatAt = onBlock ? { x: 0, y: 80, z: 3 } : { x: 0, y: 79, z: 3 };
+		// side: the boat this many blocks east of the enderman's straight walk to the body.
+		const boatAt = onBlock ? { x: side, y: 80, z: 3 } : { x: side, y: 79, z: 3 };
 		const built = await step('craft', 'craft_table', { recipeId: 'minecraft:oak_boat', x: 2, y: 80, z: 0, count: 1, timeoutMs: 20000 })
-			&& (!onBlock || await step('block', 'place_block', { x: 0, y: 80, z: 3, face: 'up', itemId: 'minecraft:cobblestone' }))
+			&& (!onBlock || await step('block', 'place_block', { x: side, y: 80, z: 3, face: 'up', itemId: 'minecraft:cobblestone' }))
 			&& await step('select', 'select_item', { itemId: 'minecraft:oak_boat' })
 			&& await step('boat', 'interact_block', { ...boatAt, face: 'up', hand: 'main', expectedItemId: 'minecraft:oak_boat' })
 			&& await boatThere();
-		let provoked = false, seated = false, seatedAfterMs = null, lostWhileSeated = 0, outcome = null, killedAfterMs = null;
+		let seenSeated = null, provoked = false, seated = false, seatedAfterMs = null, lostWhileSeated = 0, outcome = null, killedAfterMs = null;
 		const before = health(await observe());
 		let lowest = before;
 		if (built) {
@@ -369,11 +370,11 @@ try {
 			provoked = await until(6000, angry);
 			await command('fill -1 80 9 1 80 11 minecraft:air');
 			// Looking down at the boat: off its eyes, so it comes at the body.
-			await (await startAction('look_at', { x: 0.5, y: boatAt.y + 1, z: 3.5 })).result;
+			await (await startAction('look_at', { x: side + 0.5, y: boatAt.y + 1, z: 3.5 })).result;
 			const waitStart = rate.clock.now();
 			while (rate.clock.now() - waitStart < 15000 && !died) {
 				o = await observe(); lowest = Math.min(lowest, health(o) ?? lowest);
-				if (await seatedInBoat()) { seated = true; seatedAfterMs = rate.clock.now() - waitStart; break; }
+				if (await seatedInBoat()) { seated = true; seatedAfterMs = rate.clock.now() - waitStart; seenSeated = endermen(await observe()).find((row) => row.uuid === uuid) ?? 'not in view'; break; }
 				await rate.clock.sleep(250);
 			}
 			if (seated) {
@@ -397,17 +398,18 @@ try {
 		}
 		await rate.clock.sleep(1500);
 		const pearls = await pearlsOnGround(), boatLeft = await boatThere();
+		const groundItems = (await command('execute if entity @e[type=minecraft:item]')).trim(), heldPearls = ((await observe())?.inventory?.items ?? []).filter((item) => item?.itemId === 'minecraft:ender_pearl').reduce((sum, item) => sum + item.count, 0);
 		const tick = await playEnd(play);
 		const dead = died;
 		if (died) { await command('kill @e[type=minecraft:enderman]'); await (await startAction('respawn', {})).result.catch(() => null); died = false; await sleep(2000); }
 		return { tick, name, onBlock, salt, steps, built, provoked, seated, seatedAfterMs, lostWhileSeated, fight: outcome?.state ?? null, fightMessage: String(outcome?.message ?? '').slice(0, 160),
-			healthBefore: before, lost: dead ? before : +(before - lowest).toFixed(1), dead, killed: killedAfterMs !== null, killedAfterMs, pearls, boatLeft };
+			healthBefore: before, lost: dead ? before : +(before - lowest).toFixed(1), dead, killed: killedAfterMs !== null, killedAfterMs, pearls, heldPearls, groundItems, boatLeft, side, seenSeated };
 	};
-	for (const [name, onBlock, base] of [['boat-floor', false, 800], ['boat-block', true, 900]]) {
+	for (const [name, onBlock, base, side] of [['boat-floor', false, 800, 0], ['boat-block', true, 900, 0], ['boat-aside', false, 1000, 2]]) {
 		if (!want(name)) continue;
 		try {
 			const rows = [];
-			for (let index = 0; index < Number(process.env.BOAT_TRIALS ?? 3); index++) rows.push(await trap(name, onBlock, base + index));
+			for (let index = 0; index < Number(process.env.BOAT_TRIALS ?? 3); index++) rows.push(await trap(name, onBlock, base + index, side));
 			const count = (key) => rows.filter((row) => row[key]).length;
 			results[name] = { rows, built: count('built'), provoked: count('provoked'), seated: count('seated'), killed: count('killed'), deaths: count('dead'),
 				meanLost: +(rows.reduce((sum, row) => sum + row.lost, 0) / rows.length).toFixed(1), pearls: rows.reduce((sum, row) => sum + row.pearls, 0) };
@@ -451,9 +453,10 @@ try {
 	results.status = o?.reflexes;
 	await writeFile(join(out, 'results.json'), JSON.stringify(results, null, 2));
 	await writeFile(join(out, 'timeline.json'), JSON.stringify(timeline, null, 1));
-	const summary = fixtureSummary(scenarios.map(name => ({ ...results[name], name })));
+	// result.json and result-summary.json, as a room batch reads a room's rows (finishRun sets the exit code).
+	const summary = await finishRun(scenarios.map(name => ({ ...results[name], name })), { file: join(out, 'result.json') });
 	console.log(summary.line);
-	if (summary.status !== 'PASS') { console.log(JSON.stringify(results, null, 2)); process.exitCode = summary.status === 'INVALID' ? 2 : 1; }
+	if (summary.status !== 'PASS') console.log(JSON.stringify(results, null, 2));
 	else console.log('Enderman mechanics verified');
 } finally {
 	if (rate) await writeFile(join(out, 'tick.json'), JSON.stringify({ tickRate: rate.tickRate, held: await rate.tickReport() }, null, 2)).catch(() => {});
