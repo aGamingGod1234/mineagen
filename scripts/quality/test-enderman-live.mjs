@@ -334,6 +334,91 @@ try {
 			await settle(name);
 		} catch (error) { await settle(name, error); }
 	}
+	// The boat trap with the body, on the kit real games carried near endermen (stone sword, no armour, planks): craft a
+	// boat at a table, put it in the enderman's way (on the floor, or on a placed block), stare to provoke, look away and
+	// wait. A mob that walks into a boat is seated in it and cannot teleport out; then fight_target pursue:false from
+	// where the body stands. Measured: each body step, whether it sat, hits taken while it sat, the kill and the boat.
+	const seatedInBoat = async () => /passed/i.test(await command('execute as @e[type=minecraft:oak_boat] on passengers if entity @s[type=minecraft:enderman]'));
+	const boatThere = async () => /passed/i.test(await command('execute if entity @e[type=minecraft:oak_boat]'));
+	const trap = async (name, onBlock, salt) => {
+		const id = 4300 + ++fightOrdinal, uuid = `00000000-0000-0000-0000-${id.toString(16).padStart(12, '0')}`;
+		await reset();
+		for (const slot of ['armor.chest', 'armor.legs']) await command(`item replace entity ${agent} ${slot} with minecraft:air`);
+		await command(`item replace entity ${agent} hotbar.0 with minecraft:stone_sword`);
+		await command(`item replace entity ${agent} hotbar.1 with minecraft:oak_planks 5`);
+		await command(`item replace entity ${agent} hotbar.2 with minecraft:cobblestone 1`);
+		await command('setblock 2 80 0 minecraft:crafting_table');
+		await command(`tp ${agent} 0.5 80 0.5 0 0`);
+		await command(`random reset minecraft:entities/enderman ${salt}`);
+		const steps = {};
+		const play = await playStart();
+		const step = async (key, type, args) => { const r = await (await startAction(type, args)).result; steps[key] = { state: r.state, reasonCode: r.reasonCode ?? null, message: String(r.message ?? '').slice(0, 160) }; return r.state === 'SUCCEEDED'; };
+		const boatAt = onBlock ? { x: 0, y: 80, z: 3 } : { x: 0, y: 79, z: 3 };
+		const built = await step('craft', 'craft_table', { recipeId: 'minecraft:oak_boat', x: 2, y: 80, z: 0, count: 1, timeoutMs: 20000 })
+			&& (!onBlock || await step('block', 'place_block', { x: 0, y: 80, z: 3, face: 'up', itemId: 'minecraft:cobblestone' }))
+			&& await step('select', 'select_item', { itemId: 'minecraft:oak_boat' })
+			&& await step('boat', 'interact_block', { ...boatAt, face: 'up', hand: 'main', expectedItemId: 'minecraft:oak_boat' })
+			&& await boatThere();
+		let provoked = false, seated = false, seatedAfterMs = null, lostWhileSeated = 0, outcome = null, killedAfterMs = null;
+		const before = health(await observe());
+		let lowest = before;
+		if (built) {
+			await command('fill -1 80 9 1 80 11 minecraft:oak_fence'); await command('setblock 0 80 10 minecraft:air');
+			await command(`summon minecraft:enderman 0.5 80 10.5 {UUID:[I;0,0,0,${id}]}`); await rate.idleSleep(1500);
+			await (await startAction('look_at', { x: 0.5, y: 82.55, z: 10.5 })).result;
+			provoked = await until(6000, angry);
+			await command('fill -1 80 9 1 80 11 minecraft:air');
+			// Looking down at the boat: off its eyes, so it comes at the body.
+			await (await startAction('look_at', { x: 0.5, y: boatAt.y + 1, z: 3.5 })).result;
+			const waitStart = rate.clock.now();
+			while (rate.clock.now() - waitStart < 15000 && !died) {
+				o = await observe(); lowest = Math.min(lowest, health(o) ?? lowest);
+				if (await seatedInBoat()) { seated = true; seatedAfterMs = rate.clock.now() - waitStart; break; }
+				await rate.clock.sleep(250);
+			}
+			if (seated) {
+				// Reach check: stand still 3 s beside the seated enderman before striking.
+				const atSeat = health(await observe());
+				await rate.clock.sleep(3000); o = await observe();
+				lostWhileSeated = +(atSeat - (health(o) ?? atSeat)).toFixed(1);
+			}
+			if (!died) {
+				await (await startAction('select_item', { itemId: 'minecraft:stone_sword' })).result;
+				const started = rate.clock.now();
+				const action = await startAction('fight_target', { targetId: uuid, pursue: false, timeoutMs: 30000 });
+				const watch = async () => {
+					for await (const sample of watchObservations(rate.clock, observe, 32000, () => died)) {
+						o = sample; lowest = Math.min(lowest, health(o) ?? lowest);
+						if (!/\[\s*-?[\d.]+d?,/.test(await command(`data get entity ${uuid} Pos`))) { killedAfterMs = rate.clock.now() - started; return; }
+					}
+				};
+				[outcome] = await Promise.all([action.result, watch()]);
+			}
+		}
+		await rate.clock.sleep(1500);
+		const pearls = await pearlsOnGround(), boatLeft = await boatThere();
+		const tick = await playEnd(play);
+		const dead = died;
+		if (died) { await command('kill @e[type=minecraft:enderman]'); await (await startAction('respawn', {})).result.catch(() => null); died = false; await sleep(2000); }
+		return { tick, name, onBlock, salt, steps, built, provoked, seated, seatedAfterMs, lostWhileSeated, fight: outcome?.state ?? null, fightMessage: String(outcome?.message ?? '').slice(0, 160),
+			healthBefore: before, lost: dead ? before : +(before - lowest).toFixed(1), dead, killed: killedAfterMs !== null, killedAfterMs, pearls, boatLeft };
+	};
+	for (const [name, onBlock, base] of [['boat-floor', false, 800], ['boat-block', true, 900]]) {
+		if (!want(name)) continue;
+		try {
+			const rows = [];
+			for (let index = 0; index < Number(process.env.BOAT_TRIALS ?? 3); index++) rows.push(await trap(name, onBlock, base + index));
+			const count = (key) => rows.filter((row) => row[key]).length;
+			results[name] = { rows, built: count('built'), provoked: count('provoked'), seated: count('seated'), killed: count('killed'), deaths: count('dead'),
+				meanLost: +(rows.reduce((sum, row) => sum + row.lost, 0) / rows.length).toFixed(1), pearls: rows.reduce((sum, row) => sum + row.pearls, 0) };
+			const integrity = rows.flatMap((row) => row.tick.integrity ?? []);
+			if (integrity.length) results[name].integrity = integrity;
+			// The body can run the trap: every trial built it, and every provoked enderman sat and died with the body alive.
+			results[name].pass = results[name].built === rows.length && rows.every((row) => !row.provoked || (row.seated && row.killed && !row.dead));
+			if (rows.every((row) => row.built && !row.provoked)) results[name].notExercised = 'the stare never provoked the enderman';
+			await settle(name);
+		} catch (error) { await settle(name, error); }
+	}
 	// Drop odds: vanilla minecraft:entities/enderman gives 0-1 pearl (uniform), +0-1 per looting level. A player kill per
 	// salt; the unsalted world-default sequence repeats the same drops, which is what one save point does to every game.
 	if (want('drop-odds')) {
