@@ -408,6 +408,9 @@ async function playLane(s, agent, seed, seedIndex, dir) {
 			const mob = near ? String(near.type).replace(/^minecraft:/, '') : ['cow', 'pig', 'sheep', 'chicken'][turn % 4];
 			tool = (timeoutMs) => normalizeMinecraftToolCall('do_step', { verb: 'find', target: { mob, within: 96, timeoutMs }, why: 'route: look for an animal' });
 			call = { ...call, mob };
+		} else if (call.kind === 'rest') {
+			// The model's answer to a night that stops the search: rest under cover until day.
+			tool = (timeoutMs) => normalizeMinecraftToolCall('do_step', { verb: 'rest', target: { timeoutMs }, why: 'route: wait out the night' });
 		} else if (call.kind === 'drop') {
 			tool = () => normalizeMinecraftToolCall('act', { actionType: 'drop_item', arguments: { slot: call.slot, count: call.count } });
 		} else if (call.kind === 'equip') {
@@ -436,6 +439,7 @@ async function playLane(s, agent, seed, seedIndex, dir) {
 		if (call.kind === 'obtain' && ['FAILED', 'TIMED_OUT'].includes(done?.state) && done?.reasonCode !== 'OBSERVATION_UNAVAILABLE' && !/DANGER|HEALTH|CANCEL|INTERRUPT/.test(done?.reasonCode ?? '')
 			&& ['shield', 'iron_chestplate', 'iron_boots'].includes(call.item)) kitHandedBack.add(`minecraft:${call.item}`);
 		if (call.kind === 'obtain' && woodStockHandback({ kind: 'obtain', arguments: { item: call.item } }, done)) woodHandedBack = true;
+		if (call.kind === 'find_animal' && done?.reasonCode === 'FIND_NIGHT') hunt = { kind: 'rest' };
 		if (call.kind === 'find_animal' && done?.state === 'SUCCEEDED' && MEATS[call.mob]) hunt = { kind: 'obtain', item: `cooked_${MEATS[call.mob]}`, count: 8 };
 		const inventory = JSON.stringify((adaptObservation(agent.latest())?.inventory?.items ?? []).map(i => [i.itemId, i.count]).sort());
 		if (done?.state === 'SUCCEEDED' && key === same.key && inventory === same.inventory) same.times += 1;
