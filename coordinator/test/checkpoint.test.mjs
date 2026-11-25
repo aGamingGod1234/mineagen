@@ -29,6 +29,11 @@ test('26.3 item NBT (Slot and id first, components last) parses the same, nested
 		{ offhand: { id: 'minecraft:shield', damage: 150 } });
 });
 
+test('quoted component text with escaped quotes and braces does not shift the item boundaries', () => {
+	assert.deepEqual(parseInventory(String.raw`[{Slot: 2b, id: "minecraft:iron_sword", count: 1, components: {"minecraft:custom_name": "say \"}{\" now", "minecraft:damage": 7}}, {Slot: 3b, id: "minecraft:book", count: 2, components: {"minecraft:lore": ['it\'s }{ "odd"']}}, {Slot: 5b, id: "minecraft:dirt", count: 9}]`),
+		[{ id: 'minecraft:iron_sword', count: 1, slot: 2, damage: 7 }, { id: 'minecraft:book', count: 2, slot: 3, damage: null }, { id: 'minecraft:dirt', count: 9, slot: 5, damage: null }]);
+});
+
 test('a save point starts at the first sample where the milestone holds, near the saved spot', () => {
 	const samples = [at(0, OW, [0, 70, 0]), at(4, OW, [10, 40, 5], '[{count: 1, Slot: 0b, id: "minecraft:iron_pickaxe"}]'), at(9, OW, [50, 70, 50], '[]')];
 	const cp = buildCheckpoint(samples, { milestone: 'iron_pickaxe', seed: 7 });

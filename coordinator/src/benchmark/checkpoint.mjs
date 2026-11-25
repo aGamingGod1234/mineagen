@@ -15,10 +15,20 @@ export const NAMED_MILESTONES = {
 
 // Item compounds in any key order: older drops print `{components: {...}, count, Slot, id}`, 26.3 prints `{Slot, id, count, components: {...}}`.
 // Each entry is read with its components block cut out, so an id or count nested inside components is never taken for the item's own.
+// A quoted SNBT string ("..." or '...') may hold braces, the other quote and backslash escapes; none of them count.
+function skipString(text, i) {
+	const quote = text[i];
+	for (i++; i < text.length; i++) {
+		if (text[i] === '\\') i++;
+		else if (text[i] === quote) return i;
+	}
+	return -1;
+}
+
 function compounds(text) {
 	const out = [];
 	for (let i = 0, depth = 0, from = -1; i < text.length; i++) {
-		if (text[i] === '"') { i = text.indexOf('"', i + 1); if (i < 0) break; continue; }
+		if (text[i] === '"' || text[i] === "'") { i = skipString(text, i); if (i < 0) break; continue; }
 		if (text[i] === '{') { if (depth++ === 0) from = i; }
 		else if (text[i] === '}' && --depth === 0) out.push(text.slice(from + 1, i));
 	}
