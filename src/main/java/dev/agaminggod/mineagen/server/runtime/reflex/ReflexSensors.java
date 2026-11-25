@@ -71,6 +71,7 @@ public final class ReflexSensors {
 	static String breathShort(ServerPlayer player) {
 		if (!player.isUnderWater()) return null;
 		var surface = ReflexActions.airRoute(player);
+		if (surface == null) surface = dev.agaminggod.mineagen.server.perception.WaterAirFacts.wayBack(player);
 		double swim = surface == null ? UNKNOWN_SWIM_S
 				: surface.distance() / dev.agaminggod.mineagen.server.runtime.controller.SwimPlanning.SURFACING_BLOCKS_PER_SECOND;
 		return breathShort(player.getAirSupply(), player.getMaxAirSupply(), swim);
