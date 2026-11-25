@@ -185,9 +185,10 @@ async function meleeCount(agent) {
 	for (const kind of MELEE_KINDS) total += Number((await command(`execute if entity @e[type=${kind},x=${agent.ox},y=80,z=0,distance=..16]`).catch(() => '')).match(/count: (\d+)/i)?.[1] ?? 0);
 	return total;
 }
-// A killed large magma cube splits into smaller ones: kill until none is left, or the next case starts crowded.
+// A killed magma cube splits into smaller ones unless it is the smallest: shrink them first, or the next case starts crowded.
 async function clearMelee(agent) {
 	for (let i = 0; i < 6 && await meleeCount(agent) > 0; i++) {
+		await command(`execute as @e[type=minecraft:magma_cube,x=${agent.ox},y=80,z=0,distance=..16] run data merge entity @s {Size:0}`).catch(() => {});
 		for (const kind of MELEE_KINDS) await command(`kill @e[type=${kind},x=${agent.ox},y=80,z=0,distance=..16]`).catch(() => {});
 		await rate.idleSleep(300);
 	}
