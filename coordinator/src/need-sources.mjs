@@ -759,7 +759,7 @@ export function boatTrapLine(observation) {
 	if (observation?.world?.raining === true) return 'a boat trap fails in rain (it teleports), so leave a calm one calm and do not look at it until the rain stops';
 	const kit = boats > 0 ? `you hold ${boats} boat${boats > 1 ? 's' : ''}` : planks >= 5 ? `you hold wood for a boat (${planks} planks' worth; 5 at a crafting table)` : null;
 	if (kit === null) return 'no boat or 5 Overworld planks for a boat trap (keep one boat for the next one), so leave a calm one calm and do not look at it until you have one or are geared';
-	return `trap it in a boat instead (${kit}): place the boat about 3 blocks out on its side, stare at its eyes, look at the boat, and when it sits fight_target pursue:false from where you stand (it cannot teleport or reach you while seated)`;
+	return `trap it in a boat instead (${kit}): place the boat about 3 blocks out on its side, stare at its eyes, look at the boat, and once it stops on the boat (not marked seated in view) fight_target pursue:false from where you stand (it cannot teleport or reach you while seated)`;
 }
 
 const SWORD_TIERS = Object.freeze({ wooden: 1, golden: 1, stone: 2, copper: 2, iron: 3, diamond: 4, netherite: 5 });
