@@ -137,17 +137,19 @@ async function revive(agent) {
 
 async function watch(agent, start) {
 	let minY = start.y, entered = false, last = start, alive = true;
+	const trail = []; let beforeLava = null;
 	for (let i = 0; i < 50; i++) {
 		await rate.clock.sleep(200);
 		const h = await health(agent.name).catch(() => null);
 		if (h === null || h <= 0) { alive = false; break; }
 		last = await pos(agent.name);
 		minY = Math.min(minY, last.y);
+		trail.push([i * 0.2, round(last.x), round(last.y), round(last.z)]); if (trail.length > 12) trail.shift();
 		const sample = latest.get(agent.record.agentId);
-		if (sample?.player?.inLava === true || /passed/i.test(await command(`execute as ${agent.name} at @s if block ~ ~ ~ minecraft:lava`).catch(() => ''))) entered = true;
+		if (sample?.player?.inLava === true || /passed/i.test(await command(`execute as ${agent.name} at @s if block ~ ~ ~ minecraft:lava`).catch(() => ''))) { if (!entered) beforeLava = [...trail]; entered = true; }
 	}
 	const finalHealth = alive ? await health(agent.name) : 0;
-	return { alive, entered, health: finalHealth, end: { x: round(last.x), y: round(last.y), z: round(last.z) }, fell: round(start.y - minY) };
+	return { alive, entered, health: finalHealth, end: { x: round(last.x), y: round(last.y), z: round(last.z) }, fell: round(start.y - minY), ...(beforeLava ? { beforeLava } : {}) };
 }
 
 async function lavaKnock(agent) {
@@ -191,6 +193,15 @@ async function lavaMelee(agent, name) {
 	await command(`fill ${x1 + 1} 79 -10 ${x1 + 1} 83 4 minecraft:stone`);
 	await command(`fill ${x0 - 1} 79 -10 ${x1 + 1} 83 -10 minecraft:stone`);
 	await revive(agent);
+	// MELEE_HEALTH: start hurt, as the traced deaths did (7 health in one): a throw into lava then kills, not only burns.
+	const hurt = 20 - Number(process.env.MELEE_HEALTH ?? 20);
+	if (hurt > 0) {
+		// Below 18 food nothing heals it back during the case (the traced trips ran on little food).
+		await command(`effect clear ${agent.name} minecraft:saturation`);
+		await command(`effect give ${agent.name} minecraft:hunger 3 255 true`); await rate.idleSleep(3200);
+		await command(`effect clear ${agent.name} minecraft:hunger`);
+		await command(`damage ${agent.name} ${hurt} minecraft:generic`);
+	}
 	for (const kind of new Set(Object.values(MELEE).map(([t]) => t))) await command(`kill @e[type=${kind},x=${agent.ox},y=80,z=0,distance=..12]`).catch(() => {});
 	await command(`item replace entity ${agent.name} weapon.mainhand with minecraft:stone_sword`);
 	await command(`item replace entity ${agent.name} weapon.offhand with minecraft:shield`);
@@ -198,13 +209,17 @@ async function lavaMelee(agent, name) {
 	await command(`tp ${agent.name} ${agent.ox + 0.5} 81 0.5 0 40`); await rate.idleSleep(800);
 	await command(`tp ${agent.name} ${agent.ox + 0.5} 81 0.5 180 10`); await rate.idleSleep(800);
 	const start = await pos(agent.name);
+	const seq0 = Math.max(0, ...(latest.get(agent.record.agentId)?.reflexes?.events ?? []).map(e => e.seq ?? 0));
 	const play = await playStart(agent);
 	for (const [i, tag] of tags.entries()) await command(`summon ${type} ${agent.ox + 0.5 + i * 1.5 - (tags.length - 1) * 0.75} 81 -3.3 ${tag}`);
-	const row = { case: name, agent: agent.name, mode: agent.mode, ...(await watch(agent, start)) };
+	const count = async () => Number((await command(`execute if entity @e[type=${type},x=${agent.ox},y=80,z=0,distance=..14]`).catch(() => '')).match(/count: (\d+)/i)?.[1] ?? 0);
+	const mobsAtStart = await count();
+	const startHealth = await health(agent.name).catch(() => null);
+	const row = { case: name, agent: agent.name, mode: agent.mode, mobsAtStart, startHealth, ...(await watch(agent, start)) };
 	row.tick = await playEnd(play);
 	for (const kind of new Set(Object.values(MELEE).map(([t]) => t))) await command(`kill @e[type=${kind},x=${agent.ox},y=80,z=0,distance=..12]`).catch(() => {});
 	row.pass = row.alive && !row.entered;
-	row.events = (latest.get(agent.record.agentId)?.reflexes?.events ?? []).slice(-6).map(e => `${e.id} ${e.outcome}: ${e.detail}`);
+	row.events = (latest.get(agent.record.agentId)?.reflexes?.events ?? []).filter(e => (e.seq ?? 0) > seq0).slice(-8).map(e => `${e.id} ${e.outcome}: ${e.detail}`);
 	return row;
 }
 
