@@ -676,7 +676,7 @@ public final class ReflexSensors {
 	 * {@link #DRAGON_PERCH_BELOW} below to {@link #DRAGON_PERCH_ABOVE} above its height. The focus is its head (the part a player swings at), else the dragon.
 	 */
 	private static Reading dragonPerched(ServerPlayer player, double within, ObservationVisibility.Frame frame) {
-		if (!player.onGround()) return Reading.FALSE;
+		if (!player.onGround() && !inStep(player.getDeltaMovement().y, player.fallDistance)) return Reading.FALSE;
 		for (net.minecraft.world.entity.boss.enderdragon.EnderDragon dragon : player.level().getEntitiesOfClass(
 				net.minecraft.world.entity.boss.enderdragon.EnderDragon.class, player.getBoundingBox().inflate(within),
 				net.minecraft.world.entity.boss.enderdragon.EnderDragon::isAlive)) {
@@ -690,6 +690,19 @@ public final class ReflexSensors {
 			if (seen) return new Reading(true, head != null ? head : dragon);
 		}
 		return Reading.FALSE;
+	}
+
+	/** Rising faster than this is a throw, not a jump (a jump leaves the ground at 0.42 blocks a tick). */
+	static final double STEP_RISE = 0.6D;
+	/** Fallen this far is a fall, not a step down. */
+	static final double STEP_DROP = 3.0D;
+
+	/**
+	 * Off the ground in a step of its own walk (a jump up a block, a short drop) rather than thrown or falling. Requiring
+	 * the ground outright ended the head run mid-step on the approach's own step-ups (review on #273).
+	 */
+	static boolean inStep(double riseY, double fallDistance) {
+		return riseY < STEP_RISE && fallDistance < STEP_DROP;
 	}
 
 	/** Sitting (scanning, roaring or breathing on the fountain), within range and about level with the body. */

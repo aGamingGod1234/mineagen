@@ -314,6 +314,9 @@ public final class EndBreathFloorVerification {
 				dev.agaminggod.mineagen.protocol.ActionType.USE_ITEM)) {
 			check(!ReflexEngine.gatedTruth(strike, true, keys), "it leaves a paused " + keys.wireName() + " alone: that lease outranks the fight's");
 		}
+		check(ReflexSensors.inStep(0.42D, 0.0D) && ReflexSensors.inStep(-0.3D, 1.2D), "a jump up a block or a short drop is a step of the walk");
+		check(!ReflexSensors.inStep(1.1D, 0.0D), "a throw upward is not a step");
+		check(!ReflexSensors.inStep(-0.8D, 4.0D), "a fall past 3 blocks is not a step");
 		check(ReflexEngine.strikeHoldsThroughTakeoff(strike, true, true), "a firing head run holds on while its fight steps clear of a takeoff");
 		check(!ReflexEngine.strikeHoldsThroughTakeoff(strike, true, false), "it ends with the perch once no retreat runs");
 		check(!ReflexEngine.strikeHoldsThroughTakeoff(strike, false, true), "only the firing rule holds on");
