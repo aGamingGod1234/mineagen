@@ -177,6 +177,10 @@ public final class BlazeApproachVerification {
 		check(!BlazeApproach.takesStep(64, new PathNode(new GridPosition(0, 65, 1), TraversalType.WALK), true),
 				"a level change the route did not plan as a step is not taken");
 		check(!BlazeApproach.takesStep(64, null, true), "no route, no step");
+		PathNode upper = new PathNode(new GridPosition(0, 65, 1), TraversalType.JUMP_UP);
+		check(BlazeApproach.takesStep(65, upper, false, 65, false), "mid-jump, feet at the upper level over the takeoff cell, the step stays taken");
+		check(!BlazeApproach.takesStep(65, upper, false, 65, true), "landed, the level check decides again");
+		check(!BlazeApproach.takesStep(65, upper, false, null, false), "airborne without a planned step, no step");
 	}
 
 	private static void check(boolean passed, String label) {

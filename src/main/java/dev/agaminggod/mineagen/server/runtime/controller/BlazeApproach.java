@@ -41,6 +41,15 @@ final class BlazeApproach {
 		return levelChange(feetY, waypoint);
 	}
 
+	/**
+	 * As above, and a step already under way stays taken until the body lands: mid-jump the feet reach the upper deck's
+	 * level while still over the takeoff cell, where the level check sees only air and would stop the keys.
+	 */
+	static boolean takesStep(int feetY, PathNode waypoint, boolean levelAhead, Integer stepTo, boolean onGround) {
+		if (waypoint != null && stepTo != null && !onGround && waypoint.position().y() == stepTo) return true;
+		return takesStep(feetY, waypoint, levelAhead);
+	}
+
 	/** The jump onto a one-block step the route climbs, taken with the shield up while the keys move the body. */
 	static boolean stepJump(int feetY, PathNode waypoint, boolean moving, double horizontal, boolean onGround) {
 		return moving && waypoint != null && waypoint.position().y() == feetY + 1 && waypoint.traversal() == TraversalType.JUMP_UP

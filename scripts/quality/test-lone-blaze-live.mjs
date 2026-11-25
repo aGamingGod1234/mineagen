@@ -146,8 +146,12 @@ try {
 const summary = {};
 for (const kase of CASES) {
  const rows = results.trials.filter(t => t.kase === kase), sum = k => rows.reduce((n, t) => n + (Number(t[k]) || 0), 0);
+ // An unread damage or death counter is unknown, not zero: those totals become null and the count of such trials shows.
+ const unknown = k => rows.filter(t => t[k] === null || t[k] === undefined).length;
+ const known = (k, v) => unknown(k) ? null : v;
  summary[kase] = { trials: rows.length, kills: rows.filter(t => t.kill).length, hits: sum('hits'), blazeHealthLost: Math.round(sum('blazeHealthLost') * 10) / 10,
-  rodsPicked: sum('rodsPicked'), deaths: sum('deaths'), damageTaken: Math.round(sum('damageTaken') * 10) / 10, droppedTwo: rows.filter(t => t.droppedTwo).length };
+  rodsPicked: sum('rodsPicked'), deaths: known('deaths', sum('deaths')), damageTaken: known('damageTaken', Math.round(sum('damageTaken') * 10) / 10),
+  unknownDeaths: unknown('deaths'), unknownDamage: unknown('damageTaken'), droppedTwo: rows.filter(t => t.droppedTwo).length };
 }
 results.summary = summary;
 await save(); console.log(JSON.stringify(summary));

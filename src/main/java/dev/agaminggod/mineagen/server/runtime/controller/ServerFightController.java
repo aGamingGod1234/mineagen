@@ -569,7 +569,7 @@ public final class ServerFightController implements ServerController {
 					float[] keys = BrinkGuard.keysToward(yaw, dx, dz);
 					int feetY = CombatMoveText.feet(player).y();
 					boolean levelAhead = waypoint.position().y() == feetY && levelStep(player, moveYaw);
-					boolean supported = BlazeApproach.takesStep(feetY, waypoint, levelAhead) && routeForward(player, waypoint, 1.0F, 0.0F) > 0;
+					boolean supported = BlazeApproach.takesStep(feetY, waypoint, levelAhead, blazeStepTo, player.onGround()) && routeForward(player, waypoint, 1.0F, 0.0F) > 0;
 					forward = supported ? keys[0] : 0.0F;
 					strafe = supported ? keys[1] : 0.0F;
 					if (supported && BlazeApproach.levelChange(feetY, waypoint)) {
