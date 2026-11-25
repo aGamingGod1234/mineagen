@@ -171,8 +171,14 @@ test('enough eyes never send the agent back for blazes: missing counts down from
 	assert.match(crafted, /^usual next step: find structure stronghold\b/);
 	assert.doesNotMatch(crafted, /Nether/);
 	assert.match(route([...KIT, ['ender_eye', 12]], { dimension: 'minecraft:the_nether' }), /return home through the portal/);
-	// Throwing: one eye broke, 11 held; one more eye needs one pearl and one powder (half a rod).
-	assert.match(route([...KIT, ['ender_eye', 11]], {}, visitedNether()), /go back to the Nether for 1 blaze_rods and 1 ender_pearls \(rods 0\/1, pearls 0\/1, eyes 11 held/);
+	// Throwing: one eye broke, 11 held. Until the stronghold is found the eyes in hand keep the search going, since its
+	// frames may already hold eyes; once it is found, one more eye needs one pearl and one powder (half a rod).
+	const searching = route([...KIT, ['ender_eye', 11]], {}, visitedNether());
+	assert.match(searching, /^usual next step: find structure stronghold follows thrown eyes[^(]*count the set frames before going back/);
+	assert.doesNotMatch(searching, /go back to the Nether/);
+	for (const eyes of [1, 6, 10]) assert.match(route([...KIT, ['ender_eye', eyes]], {}, visitedNether()), /find structure stronghold/, `${eyes} eyes`);
+	const found = visitedNether(); found.structuresSeen.push({ id: 'minecraft:stronghold', dimension: 'minecraft:overworld', x: 0, z: 0 });
+	assert.match(route([...KIT, ['ender_eye', 11]], {}, found), /go back to the Nether for 1 blaze_rods and 1 ender_pearls \(rods 0\/1, pearls 0\/1, eyes 11 held/);
 	assert.match(route([...KIT, ['ender_eye', 11], ['ender_pearl', 1], ['blaze_powder', 1]], {}, visitedNether()), /craft 1 ender_eyes/);
 	// Inserting: eyes leave the inventory into frames, and nothing regresses.
 	for (const set of [0, 4, 11]) {

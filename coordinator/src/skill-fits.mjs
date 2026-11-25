@@ -463,6 +463,11 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 		// A death since the visit lost the kit: it comes back before the portal return or the rebuild below.
 		const again = rekit();
 		if (again !== null) return again;
+		// Eyes in hand and the stronghold not found yet: keep following them. A player counts the frames before going back,
+		// since a portal often comes with eyes already set, and a found stronghold makes the return a single trip. Two chain
+		// games from a save point holding 14 eyes: one was sent back to the Nether at 10-11 eyes and never saw the stronghold.
+		if (eyesHeld > 0 && (rodsMissing > 0 || pearlsMissing > 0) && !ok('seen:minecraft:stronghold'))
+			return line(`find structure stronghold follows thrown eyes and digs down; then find block end_portal_frame and count the set frames before going back for more${first}`, `${eyeFacts}; ${eyesNeeded} short only if no frame is set`);
 		const portal = overworldPortal(o, memory);
 		if ((rodsMissing > 0 || pearlsMissing > 0) && portal) {
 			const survival = foodAdviceNeeded(o) ? `low health/hunger, food ${food} held: recover first; ` : 'food stocking optional while healthy; ';
