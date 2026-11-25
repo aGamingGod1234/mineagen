@@ -298,7 +298,10 @@ export async function applyQualitySetup(value, command, agent) {
 		}
 		const initial = {};
 		for (const field of ['Pos', 'Dimension', 'Health', 'Inventory']) initial[field] = (await command(`data get entity ${agent} ${field}`)).text;
-		initial.entity = (await command(`data get entity ${agent}`)).text;
+		// The whole entity is a receipt only, read past the fields above. A save point's full pack (every item's components)
+		// can pass the evidence bound; that is no setup failure, so the receipt records why it is missing instead.
+		try { initial.entity = (await command(`data get entity ${agent}`)).text; }
+		catch (error) { if (error?.code !== 'RCON_INCOMPLETE') throw error; initial.entity = null; initial.entityOmitted = error.message; }
 		return { definition: setup, agent, receipts, initial, preparedAt: Date.now(), terrainModified: setup.commands.length > 0 };
 	} finally {
 		if(probeCreated) await command(`execute in ${setup.dimension} run kill ${probe}`).catch(()=>{});
