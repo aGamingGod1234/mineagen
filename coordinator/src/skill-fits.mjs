@@ -381,7 +381,13 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 	const carriedId = re => items.find(i => !['head', 'chest', 'legs', 'feet'].includes(i.slot) && re.test(i.itemId ?? ''))?.itemId?.replace(/^minecraft:/, '') ?? null;
 	Object.assign(facts, { worn, carriedId });
 	const kit = kitLeft(count);
-	Object.assign(facts, { kitIron: kit.iron, kitParts: kit.parts, kitOther: kit.other });
+	// The trip that mines the kit's iron also mines the armour's: a player at the ore takes the iron it will wear. Mined
+	// as its own step after the kit, the armour's 8 iron with 0 to 5 held was a second trip down, and none of 30 Overworld
+	// deaths in 8 fresh games (25 Nov) wore armour. Only while the iron held is short of the kit, so a trip down is due
+	// anyway; with the kit's iron in hand the kit is crafted first and the armour row asks after it.
+	const armourLeft = kit.iron > facts.iron ? KIT_ARMOUR.filter(piece => !worn.has(piece.slot) && !count(piece.part)) : [];
+	const armourIron = armourLeft.reduce((n, piece) => n + piece.iron, 0);
+	Object.assign(facts, { kitIron: kit.iron + armourIron, kitParts: [kit.parts, ...armourLeft.map(piece => `${piece.id.replace(/^iron_/, '')} ${piece.iron}`)].join(', '), kitOther: kit.other });
 	// Planned only when the route reaches the step: a whole-kit obtain plan per wake is not free.
 	Object.defineProperty(facts, 'tripLogs', { get: () => tripLogs(o, kit) });
 	// The re-kit after a death past the portal stage: the kit rows in route order, each ended by its rekit condition.

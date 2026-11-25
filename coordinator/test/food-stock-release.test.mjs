@@ -152,7 +152,7 @@ test('a wood obtain that found no source lets the trip go down with the wood it 
 	const stocked = [...TOOLS, item('cooked_beef', 8)];
 	assert.match(route(sample(stocked)), /^usual next step: obtain log count \d+ before going down/);
 	// Room kit-1001: under cover at spawn the log obtain could not climb out, and the step held the route for 55 minutes.
-	assert.match(route(sample(stocked), { woodHandedBack: true }), /^usual next step: obtain iron_ingot count 11 in one trip/);
+	assert.match(route(sample(stocked), { woodHandedBack: true }), /^usual next step: obtain iron_ingot count 23 in one trip/);
 	const obtain = item => ({ kind: 'obtain', arguments: { item, count: 4 } });
 	for (const id of ['log', 'oak_log', 'minecraft:spruce_log', 'planks', 'birch_planks', '#logs'])
 		assert.equal(woodStockHandback(obtain(id), { state: 'FAILED', reasonCode: 'NO_SOURCE' }), true, id);
@@ -170,7 +170,7 @@ test('the production view releases the trip wood after a failed wood obtain, unt
 	assert.match(views.continuity(r).route, /obtain log count/);
 	assert.equal(views.noteFoodHandback(r, { kind: 'obtain', arguments: { item: 'log', count: 5 } }, { state: 'FAILED', reasonCode: 'NO_SOURCE' }), true);
 	await views.observe(r, sample(stocked, { at: 2000 }));
-	assert.match(views.continuity(r).route, /obtain iron_ingot count 11/);
+	assert.match(views.continuity(r).route, /obtain iron_ingot count 23/);
 	await views.observe(r, sample([], { at: 3000, dead: true }));
 	await views.observe(r, sample(stocked, { at: 4000 }));
 	assert.match(views.continuity(r).route, /obtain log count/, 'a new life asks for the trip wood again');
