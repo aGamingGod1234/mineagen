@@ -66,6 +66,17 @@ public final class RiskAssessment {
 		return !ThreatPerception.signals(false, false, creeper, swelling, ranged, sight, distance).isEmpty();
 	}
 
+	/**
+	 * Whether {@code entity} hurt the agent within the last {@code ticks} game ticks (the server's own record of hits,
+	 * projectiles credited to their shooter).
+	 */
+	public static boolean hitWithin(ServerPlayer agent, LivingEntity entity, long ticks) {
+		if (agent == null || entity == null) return false;
+		long now = agent.level().getGameTime();
+		long last = AggressionLedger.server().lastHit(agent.getUUID(), entity.getUUID(), now);
+		return last != Long.MIN_VALUE && now - last <= ticks;
+	}
+
 	/** Creative and spectator players never count as attackers or targets (an operator's stray hit is not a fight). */
 	public static boolean attackedRecently(ServerPlayer agent, LivingEntity entity) {
 		return isRiskablePlayer(entity)

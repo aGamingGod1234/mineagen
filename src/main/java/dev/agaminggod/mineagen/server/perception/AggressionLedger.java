@@ -67,6 +67,13 @@ public final class AggressionLedger {
 		return true;
 	}
 
+	/** The game tick of the attacker's last hit on the victim within the active window, or {@link Long#MIN_VALUE}. */
+	public synchronized long lastHit(UUID victim, UUID attacker, long gameTime) {
+		Map<UUID, Long> attackers = hits.get(victim);
+		Long tick = attackers == null ? null : attackers.get(attacker);
+		return tick == null || tick > gameTime || gameTime - tick > ACTIVE_TICKS ? Long.MIN_VALUE : tick;
+	}
+
 	/** Cheap guard so per-entity lookups are skipped while nobody has hurt this victim recently. */
 	public synchronized boolean hasAttackers(UUID victim, long gameTime) {
 		Map<UUID, Long> attackers = hits.get(victim);

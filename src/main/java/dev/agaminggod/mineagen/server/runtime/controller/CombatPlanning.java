@@ -146,6 +146,24 @@ public final class CombatPlanning {
 	/** A flee never reports escape while a creeper is this close: its blast reaches about 6 blocks. */
 	public static final double CREEPER_SAFE_DISTANCE = 7.0D;
 
+	/** A hit from a mob the fight is not on, this recent (half a second), is answered at once (see {@link #answerHit}). */
+	public static final int HIT_ANSWER_TICKS = 10;
+	/** The fight's own target counts as fighting back while it hurt the body this recently (2 s). */
+	public static final long TARGET_HITTING_TICKS = 40L;
+
+	/**
+	 * Whether a fight turns at once to the mob that just hurt the body, without waiting for a policy's half-second check
+	 * and dwell: a player swings at what is hitting them. Only a mob already inside sword reach and in view, so the turn
+	 * never walks off the footing the fight holds or toward a shooter; a creeper or a player never (the model or a
+	 * back-off answers those). While the fight's own target is in reach and still hitting, the fight stays on it: the
+	 * turn would only trade one attacker's hits for the other's (pearls rooms, 25 Nov: piglins took 201 health while the
+	 * body fought an enderman that was out of its reach).
+	 */
+	public static boolean answerHit(boolean hitFresh, boolean attackerInReach, boolean attackerSeen, boolean attackerExcluded,
+			boolean targetInReach, boolean targetHitting) {
+		return hitFresh && attackerInReach && attackerSeen && !attackerExcluded && !(targetInReach && targetHitting);
+	}
+
 	/** One hostile near the agent when the chosen fight target dies. */
 	public record AttackerCandidate(double distance, boolean targetingAgent, boolean hurtAgent, boolean creeper) {
 	}
