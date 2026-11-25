@@ -1,7 +1,7 @@
 
 import { ExplorationOccupancy } from './explore-frontier.mjs';
 import { RecoveryProgressStore, doNotRedoFor } from './recovery-progress-wrap.mjs';
-import { dropLoss, recoveryRoute, recoveryPreparation } from './respawn-recovery.mjs';
+import { dropLoss, rebuildCostText, recoveryRoute, recoveryPreparation } from './respawn-recovery.mjs';
 
 const PATH_FAILURE_CODES = new Set([
 	'DESTINATION_NEAR_UNVERIFIED',
@@ -110,14 +110,15 @@ export function composeTwoCallView(observation = {}, recovery = null, {
 	const failureClass = inferFailureClass(observation);
 	const sourceRecovery = normalizeRecovery(observation, recovery);
 	// The drop clock is presented only as prose in facts.
-	const normalized = sourceRecovery === null ? null : Object.fromEntries(Object.entries(sourceRecovery).filter(([key]) => key !== 'doNotRedo' && key !== 'dropTicking'));
+	const normalized = sourceRecovery === null ? null : Object.fromEntries(Object.entries(sourceRecovery).filter(([key]) => key !== 'doNotRedo' && key !== 'dropTicking' && key !== 'rebuild'));
 	const lastDeath = normalized?.lastDeath ?? observation.death ?? null;
-	const facts = recoveryFacts({ recovery: normalized, lastDeath, observation, dropTicking: sourceRecovery?.dropTicking ?? null });
+	const facts = recoveryFacts({ recovery: normalized, lastDeath, observation, dropTicking: sourceRecovery?.dropTicking ?? null, rebuild: sourceRecovery?.rebuild ?? null });
 	const recoveryView = normalized === null
 		? (facts.length === 0 ? null : { alreadyHave: [], facts })
 		: { ...normalized, facts };
 	// The clock stays readable for the wake header's death-drop lead without a second copy in the model's JSON.
 	if (recoveryView !== null && sourceRecovery?.dropTicking) Object.defineProperty(recoveryView, 'dropTicking', { value: sourceRecovery.dropTicking, enumerable: false });
+	if (recoveryView !== null && sourceRecovery?.rebuild) Object.defineProperty(recoveryView, 'rebuild', { value: sourceRecovery.rebuild, enumerable: false });
 	const exploration = occupancy !== null && typeof occupancy.candidates === 'function' && agentId !== null
 		? occupancy.candidates(agentId, observation) : null;
 	const { options: _oldOptions, failureClass: _oldFailureClass, exploration: _oldExploration, ...currentFacts } = observation;
@@ -138,11 +139,11 @@ function inferFailureClass(observation) {
 	return null;
 }
 
-function recoveryFacts({ recovery, lastDeath, observation, dropTicking = null }) {
+function recoveryFacts({ recovery, lastDeath, observation, dropTicking = null, rebuild = null }) {
 	const parts = [];
 	if (lastDeath !== null) {
 		// Position, cause, respawn and portal are already in lastDeath; prose adds only derived facts.
-		parts.push(deathRecoveryFacts(lastDeath, observation, dropTicking));
+		parts.push(deathRecoveryFacts(lastDeath, observation, dropTicking, rebuild));
 	}
 	const entries = Array.isArray(recovery?.alreadyHaveFacts) ? recovery.alreadyHaveFacts : null;
 	const have = entries === null ? itemIds(recovery) : entries.filter((entry) => entry.remembered !== true).map((entry) => entry.itemId ?? entry.blockId);
@@ -153,7 +154,7 @@ function recoveryFacts({ recovery, lastDeath, observation, dropTicking = null })
 	return parts.join(' ');
 }
 
-function deathRecoveryFacts(death, observation, dropTicking = null) {
+function deathRecoveryFacts(death, observation, dropTicking = null, rebuild = null) {
 	const elapsed = Number.isFinite(observation.observedAtEpochMs) && Number.isFinite(death.diedAtEpochMs)
 		? Math.max(0, (observation.observedAtEpochMs - death.diedAtEpochMs) / 1000) : null;
 	const age = elapsed === null ? '' : `Died ${Math.floor(elapsed / 60)} min ago. `;
@@ -171,6 +172,7 @@ function deathRecoveryFacts(death, observation, dropTicking = null) {
 		}
 	}
 	if (loss === 'lava') parts.push('That death was in lava: drops that fell into it burned.');
+	if (loss !== 'void') { const cost = rebuildCostText(rebuild); if (cost) parts.push(`${cost[0].toUpperCase()}${cost.slice(1)}.`); }
 	parts.push(recoveryPreparation(death, observation));
 	const night = nightUnarmed(observation);
 	if (night) parts.push(night);

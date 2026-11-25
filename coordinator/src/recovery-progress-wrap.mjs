@@ -43,7 +43,7 @@ export class RecoveryProgressStore {
 		const next = previous.goalRevision === goalRevision ? cloneRecord(previous) : {
 			...emptyRecord(goalRevision, previous.lastDeath, previous.lastLostInventory),
 			// Retain loss accounting privately; an old held stack is not evidence of current inventory.
-			lastLive: previous.lastLive, portal: previous.portal, crossings: (previous.crossings ?? []).slice(), dropTicking: previous.dropTicking, simulationDistance: previous.simulationDistance, accountedInventory: previous.accountedInventory.slice(), deathInventory: previous.deathInventory ?? null, lifecycle: previous.lifecycle ? structuredClone(previous.lifecycle) : null,
+			lastLive: previous.lastLive, lifeStart: previous.lifeStart ?? null, gearClock: previous.gearClock, portal: previous.portal, crossings: (previous.crossings ?? []).slice(), dropTicking: previous.dropTicking, simulationDistance: previous.simulationDistance, accountedInventory: previous.accountedInventory.slice(), deathInventory: previous.deathInventory ?? null, lifecycle: previous.lifecycle ? structuredClone(previous.lifecycle) : null,
 		};
 		if (hasDurableObservationFacts(observation)) ingestObservation(next, observation);
 		this.#agents.set(id, next);
@@ -137,7 +137,10 @@ function ingestObservation(record, observation) {
 			record.deathInventory = null;
 			record.accountedInventory = [];
 			const portal = record.portal ?? crossingInto(record, nextDeath.dimensionId);
-			record.lastDeath = Object.freeze({ ...nextDeath, ...(portal ? { portal } : {}) });
+			// Where this body set out: the walked trail to the drops starts there, wherever the next body respawns.
+			const setOutFrom = record.lifeStart ?? null;
+			record.lastDeath = Object.freeze({ ...nextDeath, ...(portal ? { portal } : {}), ...(setOutFrom ? { setOutFrom } : {}) });
+			record.lifeStart = null;
 			// The body stays at the death site until respawn, so its chunk ticks the drops until then.
 			record.dropTicking = Number.isFinite(nextDeath.diedAtEpochMs) ? { nearMs: 0, lastAt: nextDeath.diedAtEpochMs, lastNear: true } : null;
 			record.lastLive = null;
@@ -171,7 +174,9 @@ function ingestObservation(record, observation) {
 			rememberCrossing(record, record.lastLive, live);
 		}
 		record.lastLive = live;
+		record.lifeStart ??= point(live);
 		advanceDropTicking(record, live, observation.observedAtEpochMs);
+		startGearClock(record, live, observation.observedAtEpochMs);
 		if (record.deathInventory && record.deathInventory.revivedAt === null) record.deathInventory = { ...record.deathInventory, revivedAt: observation.observedAtEpochMs ?? Number.MAX_SAFE_INTEGER };
 	}
 	if (inventory.length > 0) {
@@ -185,6 +190,7 @@ function ingestObservation(record, observation) {
 			record.lastLostInventory = subtractRecovered(record.lastLostInventory, acquired);
 		}
 		record.inventory = inventory;
+		noteGearHeld(record, inventory, observation.observedAtEpochMs);
 		if (record.lastLostInventory.length > 0) {
 			const previousCounts = new Map(record.accountedInventory.map(({ itemId, count }) => [itemId, count]));
 			const heldCounts = new Map(inventory.map(({ itemId, count }) => [itemId, count]));
@@ -235,9 +241,11 @@ function deriveRecovery(record, observation) {
 	const doNotRedo = doNotRedoFor(alreadyHave);
 	if (lastDeath === null && alreadyHave.length === 0 && lastLostInventory.length === 0 && doNotRedo.length === 0) return null;
 	const dropTicking = lastDeath !== null && record?.lastDeath === lastDeath ? dropTickingView(record, observation) : null;
+	const rebuild = lastDeath !== null && record?.lastDeath === lastDeath ? rebuildView(record, lastLostInventory) : null;
 	return Object.freeze({
 		...(lastDeath === null ? {} : { lastDeath }),
 		...(dropTicking === null ? {} : { dropTicking }),
+		...(rebuild === null ? {} : { rebuild }),
 		...(lastLostInventory.length === 0 ? {} : { lastLostInventory: lastLostInventory.map(cloneItem) }),
 		alreadyHave,
 		alreadyHaveFacts,
@@ -490,6 +498,8 @@ function emptyRecord(goalRevision, lastDeath = null, lastLostInventory = []) {
 		accountedInventory: [],
 		lastLostInventory: lastLostInventory.slice(),
 		lastLive: null,
+		lifeStart: null,
+		gearClock: null,
 		deathInventory: null,
 		lifecycle: null,
 		disproved: [],
@@ -512,6 +522,8 @@ function cloneRecord(record) {
 		accountedInventory: record.accountedInventory.slice(),
 		lastLostInventory: record.lastLostInventory.slice(),
 		lastLive: record.lastLive,
+		lifeStart: record.lifeStart ?? null,
+		gearClock: record.gearClock ? { ...record.gearClock, firstHeld: { ...record.gearClock.firstHeld } } : null,
 		deathInventory: record.deathInventory ?? null,
 		lifecycle: record.lifecycle ? structuredClone(record.lifecycle) : null,
 		disproved: (record.disproved ?? []).slice(),
@@ -589,6 +601,37 @@ function advanceDropTicking(record, live, at) {
 	const near = dropTickingNear(record, live);
 	// Unknown range makes the whole clock unknown from here on.
 	record.dropTicking = near === null || clock.lastNear === null ? { nearMs, lastAt: at, lastNear: null } : { nearMs, lastAt: at, lastNear: near };
+}
+
+// What the lost pickaxe cost this run: the game minutes from the first live sample in this world to the first sample
+// holding it. Every other tool waits on the pickaxe tier, so a player weighing a walk back against a rebuild knows the
+// kit took at least that long to make. When later gear (a shield, a lava bucket) was first held says when it was
+// wanted, not what it costs, so only pickaxes are priced.
+const MAX_GEAR_CLOCK = 64;
+const PICKAXE_TIER = { netherite: 5, diamond: 4, iron: 3, golden: 1, stone: 2, wooden: 1 };
+const pickaxeTier = (id) => /^minecraft:([a-z]+)_pickaxe$/.exec(id)?.[1];
+function startGearClock(record, live, at) {
+	if (!Number.isFinite(at)) return;
+	if (record.gearClock === null || record.gearClock === undefined || record.gearClock.worldId !== live.worldId) record.gearClock = { worldId: live.worldId, startedAt: at, firstHeld: {} };
+}
+function noteGearHeld(record, inventory, at) {
+	const clock = record.gearClock;
+	if (!clock || !Number.isFinite(at)) return;
+	for (const { itemId } of inventory) {
+		if (pickaxeTier(itemId) === undefined || clock.firstHeld[itemId] !== undefined || Object.keys(clock.firstHeld).length >= MAX_GEAR_CLOCK) continue;
+		clock.firstHeld[itemId] = at;
+	}
+}
+/** The best lost pickaxe made in this run, with the minutes it took to first hold; null when none was. */
+function rebuildView(record, lost) {
+	const clock = record?.gearClock;
+	if (!clock || !Array.isArray(lost)) return null;
+	const best = lost.filter(({ itemId, count }) => count > 0 && Number.isFinite(clock.firstHeld[itemId]))
+		.map(({ itemId }) => ({ itemId, tier: PICKAXE_TIER[pickaxeTier(itemId)] ?? 0, minutes: Math.floor((clock.firstHeld[itemId] - clock.startedAt) / 60_000) }))
+		// A pickaxe held from the first sample was not made in this run: its cost is unknown, not zero.
+		.filter(({ minutes }) => minutes >= 1)
+		.sort((a, b) => b.tier - a.tier)[0];
+	return best === undefined ? null : Object.freeze({ itemId: best.itemId, minutes: best.minutes });
 }
 
 function dropTickingView(record, observation) {

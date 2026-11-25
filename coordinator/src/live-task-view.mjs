@@ -17,7 +17,7 @@ import { VILLAGE_POI, headingOf, sightingKind } from './search-coverage.mjs';
 import { foodStockHandback, portalDeathMark, routeLine, skillFitsLine, woodStockHandback } from './skill-fits.mjs';
 import { KIT_ITEMS } from './end-readiness.mjs';
 import { beatsTheGame } from './goal-spec-translator.mjs';
-import { dropLoss, recoveryRoute } from './respawn-recovery.mjs';
+import { dropLoss, rebuildCostText, recoveryRoute } from './respawn-recovery.mjs';
 import { lightLine, upLine, toolsLine, picksLine, sleepLine, spawnLine, castingLine, frameLine } from './wake-body-facts.mjs';
 import { noteIntent, noteRepeat, noteSearch, progressFacts, resetProgress, takeProgressWake, trackProgress } from './step-progress.mjs';
 
@@ -1014,7 +1014,8 @@ export function deathDropsLead(recovery, position, dimension, ids, observation =
  const items = lost.slice(0, 6).map(({ itemId, count }) => `${itemId.replace(/^minecraft:/, '')}${count > 1 ? ` x${count}` : ''}`).join(', ');
  const left = clock ? (clock.tickedSeconds >= 240 ? 'under 1 min' : `~${Math.floor((300 - clock.tickedSeconds) / 60)} min`) + ` of drop time left${clock.tickingNow ? ', ageing' : ', paused while you are away'}` : 'drop time unknown';
  const way = death.dimensionId !== dimension ? wayBackShort(death, observation) : null;
- return `death drops ${where}${loss === 'lava' ? ' (died in lava: what fell in burned)' : ''}: ${items}${lost.length > 6 ? ` +${lost.length - 6} more` : ''} (${left})${way ? `; ${way}` : ''}`;
+ const cost = recovery.rebuild ? rebuildCostText(recovery.rebuild) : null;
+ return `death drops ${where}${loss === 'lava' ? ' (died in lava: what fell in burned)' : ''}: ${items}${lost.length > 6 ? ` +${lost.length - 6} more` : ''} (${left})${way ? `; ${way}` : ''}${cost ? `; ${cost}` : ''}`;
 }
 /** The way back through a portal, short: the portal in view or remembered, and where the far side puts you. */
 function wayBackShort(death, observation) {

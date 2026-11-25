@@ -105,6 +105,15 @@ export function respawnLead(recovery, observation, { now = observation?.observed
 	return `Respawned. Your drops wait where you died ${where} (${cause}): ${items}; ${dropClockText(clock)}.${route ? ` ${route}` : ''}`;
 }
 
+/**
+ * What remaking the lost pickaxe cost this run, as a player would remember it: the game minutes from the start to first
+ * holding it. A rebuild after a death starts from the same nothing, so it is a floor, not an estimate. Null without one.
+ */
+export function rebuildCostText(rebuild) {
+	if (!rebuild || !Number.isSafeInteger(rebuild.minutes) || rebuild.minutes < 1 || typeof rebuild.itemId !== 'string') return null;
+	return `making the lost ${rebuild.itemId.replace(/^minecraft:/, '')} took this run ${rebuild.minutes} min from its start`;
+}
+
 /** Only held items, worn slots and remembered sightings; no terrain scan or autonomous recovery choice. */
 export function recoveryPreparation(death, observation) {
  if (!finite(death) || typeof death.dimensionId !== 'string') return '';
@@ -113,7 +122,15 @@ export function recoveryPreparation(death, observation) {
  const hasPick = items.some(i => i.count > 0 && i.itemId?.endsWith('_pickaxe'));
  const wornGold = items.some(i => i.count > 0 && ['head','chest','legs','feet'].includes(i.slot) && /^minecraft:golden_(helmet|chestplate|leggings|boots)$/.test(i.itemId));
  if (memory?.connected === true) parts.push(`Walked retrace route: ${memory.length} blocks, ${memory.waypoints} waypoints; hazards remembered: ${(memory.hazards ?? []).join(', ') || 'none recorded (terrain may have changed)'}. travelTo({x:${death.x},y:${death.y},z:${death.z},dimension:${JSON.stringify(death.dimensionId)},retrace:true}) follows remembered turns with travel safety; enter remembered portals and reissue after the dimension change.`);
- else if (memory) parts.push('No connected walked route to these drops is remembered from this respawn; straight-line distance is not route length.');
+ else if (memory) {
+  // A respawn lands a few blocks off the trail it walked before, and the walked-route memory joins only from a cell on it.
+  const from = death.setOutFrom, at = observation?.position ?? observation?.player;
+  const start = finite(from) && finite(at) && from.dimension === observation?.world?.dimension && from.dimension === death.dimensionId ? from : null;
+  const off = start ? flat(start, at) : 0;
+  parts.push(start && off >= 3
+   ? `The walk out to these drops set off ${off} blocks ${headingOf(start.x - at.x, start.z - at.z)} of here ${cell(start)}: the walked trail starts there, and travelTo retrace:true follows remembered steps from a cell on it. Straight-line distance is not route length.`
+   : 'No connected walked route to these drops is remembered from this respawn; straight-line distance is not route length.');
+ }
  const resources = memory?.seenResources ?? (observation?.continuity?.rememberedSections?.includes('blocks') ? [] : observation?.blocks ?? []).filter(b => finite(b) && /_(log|stem|wood|hyphae|planks)$|^minecraft:(crafting_table|chest|barrel)$/.test(b.blockId ?? '')).map(b => ({...b, dimension: observation.world?.dimension, kind: b.blockId.endsWith('_planks') ? 'planks' : /crafting_table/.test(b.blockId) ? 'crafting table' : /chest|barrel/.test(b.blockId) ? 'chest' : 'wood'})).slice(0,4);
  if (resources.length) parts.push(`Nearest remembered resources (last seen, availability unverified): ${resources.map(r => `${r.kind} ${r.blockId.replace('minecraft:','')} ${cell(r)} in ${dimensionName(r.dimension)}`).join('; ')}.`);
  else if (memory) parts.push('No wood, planks, crafting table or chest location remembered here.');
