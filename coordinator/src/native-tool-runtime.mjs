@@ -1,6 +1,8 @@
 import { forgetResourceResult, knownResources, newResourceMemory, rememberKnownBlocks, rememberResources } from './seen-resources.mjs';
 /** How often the dig-seen ore rows are merged from the observed-memory store, per agent. */
 const KNOWN_ORE_MS = 5_000;
+// A refused walk to the portal goes in short when the model sends it again within this time (#portalKitGate).
+const PORTAL_KIT_CONFIRM_MS = 60_000;
 const SKY_TOP_NEAR = 8;
 const SKY_TOP_SPOTS = 32;
 import { createHash, randomUUID } from 'node:crypto';
@@ -120,6 +122,8 @@ export class NativeToolRuntime {
 	#portalSearches = new Map();
 	#lastLive = new Map();
 	#holdCancelRefusals = new Map();
+	#portalKitRefusals = new Map();
+	#portalKit = null;
 	#actions = new Map();
 	#completions = new Map();
 	#staleActions = new Map();
@@ -245,6 +249,8 @@ export class NativeToolRuntime {
 		planVocabulary = null,
 		knownStations = null,
 		planNeeds = null,
+		// The kit gate at the portal (live-task-view.mjs portalKitGate): {line, portals} while the route asks for kit first.
+		portalKit = null,
 		memoryObservation = null,
 		programExecutor = null,
 		onProgramEvent = () => {},
@@ -308,6 +314,7 @@ export class NativeToolRuntime {
 		this.#knownStations = knownStations;
 		if (planNeeds !== null && typeof planNeeds !== 'function') throw new TypeError('planNeeds must be a function');
 		this.#planNeeds = planNeeds;
+		this.#portalKit = typeof portalKit === 'function' ? portalKit : null;
 		this.#memoryObservation = memoryObservation;
 		this.#programExecutor = programExecutor ?? (this.#clock === WALL_CLOCK ? new NativeProgramExecutor({ sessionId })
 			// The cancel acknowledgement is a bridge round trip, not body time, so it keeps wall-time timers.
@@ -1104,6 +1111,7 @@ export class NativeToolRuntime {
 			return { ...this.#programStatus(record, request.tool.programId),
 				...(answered?.resourceSightings?.length ? { resourceSightings: answered.resourceSightings } : {}) };
 		}
+		this.#portalKitGate(record, request.tool);
 		if (request.tool.kind === 'cancel_action') {
 			this.#holdCancelGate(record, request.tool);
 			return this.#cancelAction(record, request.tool);
@@ -2506,6 +2514,32 @@ export class NativeToolRuntime {
 		const preservesProgram = active?.pausedProgram === true && active.goalRevision === record.goalRevision
 			&& run?.goalRevision === record.goalRevision && !run.settled && run.epoch === epoch;
 		return preservesProgram ? epoch : epoch + 1;
+	}
+
+	/**
+	 * The kit check at the portal, as a player stops at the frame to look at what they carry: a walk to a known Nether
+	 * portal while the route still asks for kit first is refused once with that step; the same walk again within
+	 * PORTAL_KIT_CONFIRM_MS goes in short. Only walks (travel_to, move_to, navigate_to) to within 3 blocks of a portal.
+	 */
+	#portalKitGate(record, tool) {
+		if (this.#portalKit === null || !['action', 'start_action', 'replace_action'].includes(tool?.kind) || !['travel_to', 'move_to', 'navigate_to'].includes(tool.actionType)) return;
+		const target = tool.arguments ?? {};
+		if (![target.x, target.z].every(Number.isFinite)) return;
+		let gate = null;
+		try { gate = this.#portalKit(record); } catch { return; }
+		if (typeof gate?.line !== 'string' || !Array.isArray(gate.portals)) return;
+		const near = gate.portals.some(p => [p?.x, p?.z].every(Number.isFinite) && Math.abs(p.x - target.x) <= 3 && Math.abs(p.z - target.z) <= 3
+			&& (!Number.isFinite(target.y) || !Number.isFinite(p.y) || Math.abs(p.y - target.y) <= 4));
+		if (!near) return;
+		const earlier = this.#portalKitRefusals.get(record.agentId);
+		if (Number.isFinite(earlier) && Date.now() - earlier <= PORTAL_KIT_CONFIRM_MS) {
+			this.#portalKitRefusals.delete(record.agentId);
+			this.#trace('native_portal_kit_confirmed', { agentId: record.agentId, goalRevision: record.goalRevision, actionType: tool.actionType });
+			return;
+		}
+		this.#portalKitRefusals.set(record.agentId, Date.now());
+		this.#trace('native_portal_kit_refused', { agentId: record.agentId, goalRevision: record.goalRevision, actionType: tool.actionType });
+		throw codedError('KIT_CONFIRM_REQUIRED', `Kit check at the portal: ${gate.line.replace(/^usual next step: /, '')}. Do that first, or send the same step again within ${PORTAL_KIT_CONFIRM_MS / 1000} s to go in without it.`);
 	}
 
 	/** Wall breaker rods: the model's own cancel or replace of a blaze spawner hold is confirmed by repeating it (spawner-hold.mjs). */

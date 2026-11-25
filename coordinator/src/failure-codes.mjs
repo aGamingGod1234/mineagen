@@ -367,6 +367,7 @@ export const FAILURE_CODES = Object.freeze({
 	SPAWNER_UNREACHABLE: ['cell', null],
 	SPAWNER_QUIET: ['body', null],
 	CANCEL_CONFIRM_REQUIRED: ['rule', null],
+	KIT_CONFIRM_REQUIRED: ['rule', null],
 	WITHER_ON_DECK: ['threat', null],
 	ROOF_NOT_BUILT: ['cell', null],
 	SILL_NOT_REACHED: ['cell', null],
