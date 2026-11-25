@@ -71,6 +71,12 @@ test('a checkpoint long run keeps the long-run rules and replaces only seed and 
 	assert.ok(commands.some(c => c.includes('the_nether run fill 14 62 89 15 64 89 minecraft:nether_portal')));
 	assert.ok(!commands.some(c => /gamemode creative/.test(c)), 'the player stays in survival');
 
+	// A full pack can pass the evidence bound on the whole-entity receipt read: the setup still goes on without it.
+	const oversized = async text => text === 'data get entity P' ? Promise.reject(Object.assign(new Error('RCON_INCOMPLETE: data get entity P; received 16745 bytes'), { code: 'RCON_INCOMPLETE' })) : command(text);
+	const receipt = await applyQualitySetup(structuredClone(cp.setup), oversized, 'P');
+	assert.equal(receipt.initial.entity, null); assert.match(receipt.initial.entityOmitted, /16745 bytes/);
+	await assert.rejects(applyQualitySetup(structuredClone(cp.setup), async text => text === 'data get entity P' ? Promise.reject(new Error('lost')) : command(text), 'P'), /lost/);
+
 	const dir = await mkdtemp(path.join(os.tmpdir(), 'cp-run-'));
 	try {
 		const file = path.join(dir, 'cp.json'); await writeFile(file, JSON.stringify(cp));
