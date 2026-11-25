@@ -129,6 +129,8 @@ try {
    row.rodsPicked = Math.max(0, (await rods()) - rodsBefore);
    row.lowestFeetY = lowest;
    row.droppedTwo = kase === 'drop2' && lowest !== null && lowest < g.body - 0.5;
+   // No feet reading at all is no evidence the body stayed on its pad: finishRun marks the trial INVALID.
+   if (kase === 'drop2' && lowest === null) (row.integrity ??= []).push({ file: 'feet', error: 'no feet position read during the trial' });
    recordDamageEvidence(row, damageBefore, await readDamage());
    recordDeathEvidence(row, deathsBefore, await deaths().catch(() => null));
    row.pass = kase === 'drop2' ? !row.droppedTwo : row.kill;
