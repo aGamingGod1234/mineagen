@@ -16,7 +16,7 @@ import { REGEN_RESUME_HEALTH, bodyDanger, eatCalls, lowHealthFork } from './fork
 import { heldCounts, heldOf, keepPickaxeMakings, planObtain, readyTimes, resolveObtainItem, searchCost, seenRowCost, shortId, OBTAIN_STATIONS } from './obtain-plan.mjs';
 import { JOB_BLOCK, houseYield, lootSources, structureReach } from './loot-sources.mjs';
 import { lootChest } from './loot-step.mjs';
-import { kitLeft } from './skill-fits.mjs';
+import { KIT_ARMOUR, kitLeft } from './skill-fits.mjs';
 import { getSwitch } from './switches.mjs';
 
 export const OBTAIN_DEFAULT_TIMEOUT_MS = 900_000;
@@ -178,6 +178,19 @@ export function kitIronShort(o) {
 	const items = (o?.inventory?.items ?? []).filter((row) => row?.count > 0);
 	const count = (re) => items.filter((row) => re.test(row.itemId ?? '')).reduce((n, row) => n + row.count, 0);
 	return Math.max(0, kitLeft(count).iron - count(/^minecraft:(iron_ingot|raw_iron)$/));
+}
+
+/**
+ * Iron the kit and the route's armour (KIT_ARMOUR pieces not held) still lack beyond what is held: what a top-up at the
+ * ore takes. A player at a vein takes the iron it will wear too. The armour row alone asked for 8 iron with 0 to 5 held,
+ * a second trip down, and 0 of 30 Overworld deaths in 8 fresh games (25 Nov) wore armour. Never a fresh search: the
+ * top-up mines only ore in view or known within reach.
+ */
+export function kitAndArmourIronShort(o) {
+	const items = (o?.inventory?.items ?? []).filter((row) => row?.count > 0);
+	const count = (re) => items.filter((row) => re.test(row.itemId ?? '')).reduce((n, row) => n + row.count, 0);
+	const armour = KIT_ARMOUR.filter((piece) => !count(piece.part)).reduce((n, piece) => n + piece.iron, 0);
+	return Math.max(0, kitLeft(count).iron + armour - count(/^minecraft:(iron_ingot|raw_iron)$/));
 }
 
 /** Armour points worn and the best sword or axe tier held (-1 none): whether a built mob's fight is a way. */
@@ -2019,13 +2032,13 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		const unsafe = bodyDanger(o);
 		if (unsafe !== null) { danger ??= unsafe; continue; }
 		// On a kit-iron trip (an iron tool's call that took on the rest of the kit's iron), the target alone does not end
-		// it: the kit's iron still short is mined from ore at hand first, while raw-iron tries and time are left.
-		const kitShort = kitTrip ? kitIronShort(o) : 0;
+		// it: the kit's iron still short, and the armour's, is mined from ore at hand first, while raw-iron tries and time are left.
+		const kitShort = kitTrip ? kitAndArmourIronShort(o) : 0;
 		// "At the ore": only while iron ore is in view or known within reach, never a fresh search after the target is held.
 		const topUp = have >= count && kitShort > 0 && (failures.get('need:raw_iron') ?? 0) < 5 && left() > 60_000
 			&& inView({ kind: 'mine', blocks: ['iron_ore', 'deepslate_iron_ore'], mobs: [] }, o, { ...budget, topUp: true }) !== null;
 		budget.topUp = topUp;
-		if (have >= count && !topUp) return end('SUCCEEDED', 'OBTAINED', `Obtained ${label}${kitTrip && kitShort > 0 ? `; the kit is still ${kitShort} iron short` : ''}`);
+		if (have >= count && !topUp) return end('SUCCEEDED', 'OBTAINED', `Obtained ${label}${kitTrip && kitShort > 0 ? `; the kit and its armour are still ${kitShort} iron short` : ''}`);
 		if (now() - startedAt >= timeoutMs) return end('TIMED_OUT', 'OBTAIN_TIMEOUT', `timeoutMs ${timeoutMs} ran out`);
 		if (capacityStop !== null) return end('FAILED', 'OBTAIN_STUCK', capacityStop);
 		if (nightStop !== null) return end('INTERRUPTED', 'NIGHT', `Waiting for morning: ${nightStop}; call obtain again at dawn or from under cover`);
