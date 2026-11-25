@@ -109,8 +109,24 @@ public final class WaterAirFacts {
 	static void add(ServerPlayer agent, JsonObject player) {
 		if (!agent.isUnderWater()) { SURFACES.remove(agent); return; }
 		var eye = agent.getEyePosition();
+		var lookup = surface(agent);
+		var surface = lookup.surface() == null && !lookup.searching() ? wayBack(agent) : lookup.surface();
 		add(player, view(agent), Mth.floor(eye.x), Mth.floor(eye.y), Mth.floor(eye.z), agent.getAirSupply(),
-				agent.getDeltaMovement().y, agent.isSwimming(), surface(agent).surface());
+				agent.getDeltaMovement().y, agent.isSwimming(), surface);
+	}
+
+	/**
+	 * The way the eyes swam from their last breath (LastBreath), as a route to that air: a player who has lost sight of the
+	 * air swims back the way they came. The seen-air search reaches 8 blocks across through seen two-high water only, so
+	 * a dive past it, or through a one-high gap under ice or a ledge, knew of no air and the swim rose blind into the
+	 * ceiling until it drowned (5 of 30 Overworld deaths in the 8 fresh-world games of 25 Nov, each a few seconds of
+	 * swimming from its last breath). Null when no way back is kept.
+	 */
+	public static SwimPlanning.Surface wayBack(ServerPlayer agent) {
+		var back = LastBreath.wayBack(agent);
+		if (back.size() < 2) return null;
+		BlockPos breath = back.get(back.size() - 1);
+		return new SwimPlanning.Surface(breath.getX(), breath.getY(), breath.getZ(), back.size() - 1, true, back);
 	}
 
 	public static SwimPlanning.Cell cell(net.minecraft.world.level.block.state.BlockState state, boolean collision) {

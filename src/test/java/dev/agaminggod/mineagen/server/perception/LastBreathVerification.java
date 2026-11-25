@@ -55,6 +55,12 @@ public final class LastBreathVerification {
 		other.step(new BlockPos(5, 70, 5), false, OVERWORLD);
 		other.step(new BlockPos(5, 69, 5), true, OVERWORLD);
 		checks += check(other.wayBack(new BlockPos(5, 69, 5), OVERWORLD).equals(List.of(new BlockPos(5, 69, 5), new BlockPos(5, 70, 5))), "each breath starts the way back again");
+		other.forget();
+		other.step(new BlockPos(5, 68, 5), true, OVERWORLD);
+		checks += check(other.wayBack(new BlockPos(5, 68, 5), OVERWORLD).isEmpty(), "a way back forgotten after a stall stays forgotten until the next breath");
+		other.step(new BlockPos(5, 70, 5), false, OVERWORLD);
+		other.step(new BlockPos(5, 69, 5), true, OVERWORLD);
+		checks += check(other.wayBack(new BlockPos(5, 69, 5), OVERWORLD).size() == 2, "and the next breath keeps a new one");
 		return checks;
 	}
 
