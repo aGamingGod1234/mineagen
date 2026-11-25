@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { HeadlessRconClient } from '../src/headless-rcon.mjs';
 import { MultiplexedServerBridge } from '../src/protocol-v2.mjs';
-import { DEFAULT_REFLEXES } from '../src/reflexes.mjs';
+import { DEFAULT_REFLEXES, DIMENSION_REFLEXES } from '../src/reflexes.mjs';
 import { defaultModel } from '../src/default-models.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
@@ -30,7 +30,7 @@ const MODEL = defaultModel('codex');
 const X = 100.5, Y = -60, Z = 100.5;
 
 // The arms: the default set before the fast-danger reflexes were added, and the current one.
-const benchmarkDefaults = DEFAULT_REFLEXES.map((rule) => ({ ...rule, coordinatorDefault: true }));
+const benchmarkDefaults = [...DEFAULT_REFLEXES, ...DIMENSION_REFLEXES['minecraft:overworld']].map((rule) => ({ ...rule, coordinatorDefault: true }));
 export const ARMS = {
 	original4: benchmarkDefaults.filter((rule) => ['default-lava', 'default-fire', 'default-air', 'default-edge'].includes(rule.id)),
 	current10: benchmarkDefaults,

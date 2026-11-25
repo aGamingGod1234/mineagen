@@ -337,7 +337,12 @@ public final class ReflexBodyVerification {
 		for (int index = 0; index < 12; index++) {
 			full.add(JsonParser.parseString("{\"id\":\"own-" + index + "\",\"when\":{\"type\":\"on_fire\"},\"do\":{\"type\":\"leave_fire\"}}"));
 		}
-		check(ReflexSpec.parseRules(full).size() == ReflexSpec.MAX_RULES - 4, "the defaults and a full set of 12 model rules fit the mod's limit");
+		// The fixture is the Overworld set: the defaults and the Overworld's own default-edge-hit.
+		check(ReflexSpec.parseRules(full).size() == ReflexSpec.MAX_RULES - 3, "the defaults and a full set of 12 model rules fit the mod's limit");
+		// The End has no default-edge-hit (its rules are at the cap): the End's own replace it.
+		for (int index = full.size() - 1; index >= 0; index--) {
+			if ("default-edge-hit".equals(full.get(index).getAsJsonObject().get("id").getAsString())) full.remove(index);
+		}
 		// In the End the coordinator adds its End defaults (reflexes.mjs DIMENSION_REFLEXES): the same fixture file pins them.
 		String end;
 		try (var input = ReflexBodyVerification.class.getResourceAsStream("/end-reflex-rules.json")) {

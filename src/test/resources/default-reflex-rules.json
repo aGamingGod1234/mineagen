@@ -291,5 +291,30 @@
 		"cooldownMs": 5000,
 		"ttlMs": 3600000,
 		"coordinatorDefault": true
+	},
+	{
+		"id": "default-edge-hit",
+		"kind": "trigger",
+		"priority": 8,
+		"when": [
+			{
+				"type": "attacked",
+				"withinS": 2
+			},
+			{
+				"type": "edge_near",
+				"within": 2,
+				"direction": "any",
+				"drop": 5
+			}
+		],
+		"do": {
+			"type": "away_from_edge",
+			"blocks": 3
+		},
+		"maxMs": 6000,
+		"cooldownMs": 3000,
+		"ttlMs": 3600000,
+		"coordinatorDefault": true
 	}
 ]

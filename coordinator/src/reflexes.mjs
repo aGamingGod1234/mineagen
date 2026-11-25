@@ -54,7 +54,16 @@ export const DEFAULT_REFLEXES = Object.freeze([
  * cloud or toward the void and ends stepped back off a brink. default-end-throw steps inland when the dragon swoops at a
  * body standing near a deep drop, the throw that ends in the void.
  */
+// A hit next to a deep drop: step inland before trading more hits. Knockback, not a step, threw the body off: 4 of the 5
+// first Nether deaths in the pearls A/B were a blaze fireball or a hoglin hit sending it off a fortress ledge into the
+// lava sea while it walked or fought on the edge, and brace walks a shove back only as far as air keys can. The rule is
+// default-end-throw's for every mob: a hit within 2 s (or a shot a shield stopped) with a drop of 5+ (lava, the void)
+// within 2 blocks walks to seen footing 3 blocks from every drop, and goes on with the paused action from there.
+const EDGE_HIT = Object.freeze({ id: 'default-edge-hit', kind: 'trigger', priority: 8, when: [{ type: 'attacked', withinS: 2 }, { type: 'edge_near', within: 2, direction: 'any', drop: 5 }], do: { type: 'away_from_edge', blocks: 3 }, maxMs: 6_000, cooldownMs: 3_000, ttlMs: 3_600_000 });
 export const DIMENSION_REFLEXES = Object.freeze({
+	// The End keeps default-end-throw instead (its rule count is at the cap).
+	'minecraft:overworld': Object.freeze([EDGE_HIT]),
+	'minecraft:the_nether': Object.freeze([EDGE_HIT]),
 	'minecraft:the_end': Object.freeze([
 		{ id: 'default-breath', kind: 'trigger', priority: 9, when: [{ type: 'cloud_near', within: 2 }], do: { type: 'sprint_away', blocks: 10 }, maxMs: 6_000, ttlMs: 3_600_000 },
 		{ id: 'default-end-throw', kind: 'trigger', priority: 8, when: [{ type: 'dragon_charging', within: 48 }, { type: 'edge_near', within: 3, direction: 'any', drop: 16 }], do: { type: 'away_from_edge', blocks: 6 }, maxMs: 6_000, cooldownMs: 3_000, ttlMs: 3_600_000 },

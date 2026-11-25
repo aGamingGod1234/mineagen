@@ -24,7 +24,7 @@ test('End defaults follow the dimension: armed on entering the End, gone on leav
 	assert.equal(book.observeContext('a', live(END)), false, 'nothing more while it stays');
 	assert.equal(book.observeContext('a', live(OVERWORLD)), true, 'leaving changes the set');
 	assert.ok(END_IDS.every((id) => !ids(book).some((row) => row.startsWith(id))), 'gone after leaving');
-	assert.equal(ids(book).length, DEFAULT_REFLEXES.length);
+	assert.equal(ids(book).length, DEFAULT_REFLEXES.length + 1, 'with the Overworld default-edge-hit');
 	// Entering the Nether arms none of them.
 	book.observeContext('a', live(NETHER));
 	assert.ok(END_IDS.every((id) => !ids(book).some((row) => row.startsWith(id))));

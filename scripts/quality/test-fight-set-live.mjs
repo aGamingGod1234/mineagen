@@ -8,6 +8,8 @@
 //   open    a flat stone field 100 by 80 blocks with no drop in reach; the mob DIST blocks ahead.
 //   tight   a corridor 2 wide and 3 high, roofed; the mob DIST blocks down it.
 //   ledge   a 3-wide nether-brick bridge 6 above a lava sea; the mob DIST blocks along it.
+//   fort    the same bridge leading back into a walled, roofed nether-brick room 5 blocks behind the body (a fortress
+//           corridor's inside), entered by a doorway as wide as the bridge: footing away from every drop to step into.
 // Kits (KITS): iron  iron sword, shield in the off hand, full iron armour, cobblestone 64, cooked beef 8.
 //              none  the same without armour.
 //              stone  what real games met their deaths with: a stone sword, a shield, 16 cobblestone, no armour, no food.
@@ -25,7 +27,8 @@
 // place, kit and stand-in.
 // Each fight also keeps the reflex events seen while it ran and the body's lowest health (from observations once a second).
 // Env: ARENA_JAR, MOBS (default all ten), PLACES (open,tight,ledge), KITS (iron,none,stone), STANDINS (fight,idle,walk,flee),
-// REPEATS (default 1), DIST (default 8), WINDOW_S (default 40), GROUP, START_HEALTH (default 20). Launch under slot.sh live with
+// REPEATS (default 1), DIST (default 8), WINDOW_S (default 40), GROUP, START_HEALTH (default 20), DEFAULTS_OFF (default
+// rule ids left out of the armed set, comma list: the arm without one default). Launch under slot.sh live with
 // ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME set.
 import { mkdir, writeFile } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
@@ -70,19 +73,19 @@ const BEHIND = process.env.BEHIND || null;
 // read before the fight's counter starts, so it is not counted.
 const START_HEALTH = Number(process.env.START_HEALTH ?? 20);
 const list = (name, fallback) => (process.env[name] ?? fallback).split(',').map(x => x.trim()).filter(Boolean);
-const MOB_LIST = list('MOBS', Object.keys(MOBS).join(',')), PLACES = list('PLACES', 'open,tight,ledge'), KITS = list('KITS', 'iron,none');
+const MOB_LIST = list('MOBS', Object.keys(MOBS).join(',')), PLACES = list('PLACES', 'open,tight,ledge'), DEFAULTS_OFF = new Set(list('DEFAULTS_OFF', '')), KITS = list('KITS', 'iron,none');
 const STANDINS = list('STANDINS', 'fight,idle');
 const REPEATS = Number(process.env.REPEATS ?? 1), DIST = Number(process.env.DIST ?? 8), WINDOW_S = Number(process.env.WINDOW_S ?? 40);
 for (const m of MOB_LIST) if (!MOBS[m]) { console.error(`unknown mob ${m}`); process.exit(2); }
 if (BEHIND && !MOBS[BEHIND]) { console.error(`unknown BEHIND mob ${BEHIND}`); process.exit(2); }
-for (const p of PLACES) if (!['open', 'tight', 'ledge'].includes(p)) { console.error(`unknown place ${p}`); process.exit(2); }
+for (const p of PLACES) if (!['open', 'tight', 'ledge', 'fort'].includes(p)) { console.error(`unknown place ${p}`); process.exit(2); }
 for (const k of KITS) if (!['iron', 'none', 'stone'].includes(k)) { console.error(`unknown kit ${k}`); process.exit(2); }
 for (const t of STANDINS) if (!['fight', 'idle', 'walk', 'flee'].includes(t)) { console.error(`unknown stand-in ${t}`); process.exit(2); }
 const planned = MOB_LIST.length * PLACES.length * KITS.length * STANDINS.length * REPEATS;
 
 const hash = createHash('sha256'); for await (const chunk of createReadStream(jar)) hash.update(chunk);
 await mkdir(out, { recursive: true });
-const results = { kind: 'provider-free mixed fight set', jar, jarSha256: hash.digest('hex'), mobs: MOB_LIST, behind: BEHIND, places: PLACES, kits: KITS, standIns: STANDINS, repeats: REPEATS, dist: DIST, windowS: WINDOW_S, tickRate: TICK_RATE, fights: [] };
+const results = { kind: 'provider-free mixed fight set', jar, jarSha256: hash.digest('hex'), mobs: MOB_LIST, behind: BEHIND, places: PLACES, defaultsOff: [...DEFAULTS_OFF], kits: KITS, standIns: STANDINS, repeats: REPEATS, dist: DIST, windowS: WINDOW_S, tickRate: TICK_RATE, fights: [] };
 const save = () => writeFile(join(out, 'fight-set.json'), JSON.stringify(results, null, 1));
 const number = text => { const m = /(-?[\d.]+)[fd]?\s*$/.exec(String(text ?? '').trim()); return m ? Number(m[1]) : null; };
 // Floor (walking surface) at feet y 101 everywhere; the ledge's lava sea lies 6 below it.
@@ -108,15 +111,23 @@ async function build(place) {
 		await s.command(`fill ${X0 - 6} 100 ${Z0 - 3} ${X0 + 26} 105 ${Z0 + 4} minecraft:stone`);
 		await s.command(`fill ${X0 - 3} 101 ${Z0} ${X0 + 22} 103 ${Z0 + 1} minecraft:air`);
 	} else {
-		await s.command(`fill ${X0 - 6} 94 ${Z0 - 8} ${X0 + 26} 94 ${Z0 + 8} minecraft:lava`);
-		await s.command(`fill ${X0 - 6} 95 ${Z0 - 8} ${X0 + 26} 99 ${Z0 + 8} minecraft:air`);
+		const west = place === 'fort' ? X0 - 16 : X0 - 6;
+		if (place === 'fort') await s.command(`fill ${west} 92 ${Z0 - 8} ${X0 - 7} 93 ${Z0 + 8} minecraft:stone`);
+		await s.command(`fill ${west} 94 ${Z0 - 8} ${X0 + 26} 94 ${Z0 + 8} minecraft:lava`);
+		await s.command(`fill ${west} 95 ${Z0 - 8} ${X0 + 26} 99 ${Z0 + 8} minecraft:air`);
 		await s.command(`fill ${X0 - 4} 100 ${Z0 - 1} ${X0 + 22} 100 ${Z0 + 1} minecraft:nether_bricks`);
+		if (place === 'fort') {
+			// Shell x -14..-5, z -4..4, y 100..105; inside x -13..-6, z -3..3, 4 high; doorway at x -5, z -1..1, 2 high.
+			await s.command(`fill ${X0 - 14} 100 ${Z0 - 4} ${X0 - 5} 105 ${Z0 + 4} minecraft:nether_bricks`);
+			await s.command(`fill ${X0 - 13} 101 ${Z0 - 3} ${X0 - 6} 104 ${Z0 + 3} minecraft:air`);
+			await s.command(`fill ${X0 - 5} 101 ${Z0 - 1} ${X0 - 5} 102 ${Z0 + 1} minecraft:air`);
+		}
 	}
 }
 
 const weapon = name => name === 'stone' ? 'stone_sword' : 'iron_sword';
 // The far end of each place a walk heads for, and its start: the walk stand-in goes there and back past the mobs.
-const WALK_END = { open: X0 + 20, tight: X0 + 20, ledge: X0 + 20 };
+const WALK_END = { open: X0 + 20, tight: X0 + 20, ledge: X0 + 20, fort: X0 + 20 };
 
 async function kit(name) {
 	await s.command('clear Probe'); await s.command('effect clear Probe');
@@ -161,6 +172,7 @@ try {
 	const arm = async () => {
 		book.observeContext(s.record.agentId, await s.observe());
 		const payload = book.payload(s.record.agentId);
+		payload.rules = payload.rules.filter(rule => !DEFAULTS_OFF.has(rule.id));
 		s.revision = Math.max((s.revision ?? 0) + 1, payload.revision);
 		await s.bridge.send('reflex_update', s.record.agentId, { ...payload, revision: s.revision });
 		for (let i = 0; i < 50; i++) {

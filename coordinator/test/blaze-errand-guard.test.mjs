@@ -25,7 +25,7 @@ test('default cover reaches native wire without using the twelve model slots; ha
  const book=new ReflexBook();book.observeContext('a',view());
  book.apply('a',normalizeReflexEntries(Array.from({length:MAX_REFLEXES},(_,i)=>({id:'own-'+i,when:{type:'on_fire'},do:{type:'leave_fire'}}))));
  const rules=book.payload('a').rules,cover=rules.find(r=>r.id==='default-blaze-cover');
- assert.equal(rules.length,28);assert.ok(cover);assert.equal(cover.do.type,'take_cover');
+ assert.equal(rules.length,29);assert.ok(cover);assert.equal(cover.do.type,'take_cover');
  assert.ok(cover.when.some(c=>c.type==='exposed'&&c.mobs.includes('minecraft:blaze')));
  for(const mob of ['minecraft:skeleton','minecraft:stray','minecraft:bogged'])assert.ok(cover.when.some(c=>c.type==='exposed'&&c.mobs.includes(mob)),'bow skeletons are covered too (K8): '+mob);
  for(const id of ['default-lava','default-lava-flow','default-air','default-fire','default-arrow','default-retreat'])assert.ok(DEFAULT_REFLEXES.find(r=>r.id===id).priority>cover.priority,id);
