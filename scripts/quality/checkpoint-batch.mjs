@@ -25,9 +25,12 @@
 // created (create, spares) are deleted when it ends, and with drain "delete" every machine is deleted as soon as it has no
 // further game, because an idle machine bills in full. A created machine has a boat deadline (--ttl) that each pass
 // pushes back while the batch runs, so a runner that dies (SIGKILL, a reboot) leaves no machine billing for long.
-// Listed machines must not be warm-pool members (rbpool-*): the pool and its guard lease, wipe and delete those by name. Finished games are copied home in parallel and checked by sha. The sign-in is copied to each machine, checked against its source
-// hash after every game (a changed hash means Codex refreshed it there, which can sign out the source machine, so no new
-// game starts), kept out of every copy-back, and removed from every machine when the batch ends.
+// Listed machines must not be warm-pool members (rbpool-*): the pool and its guard lease, wipe and delete those by name. Finished games are copied home in parallel and checked by sha. The sign-in is copied to each machine as its source is at
+// that launch, kept out of every copy-back, and removed from every machine when the batch ends. A copy refreshes where it
+// runs when its access token runs out (10 days after the last refresh), and every copy then refreshes on its own: on
+// 25 Nov six copies of one sign-in (here and on five game machines) refreshed on their own from the same token as it
+// ran out, and every new access token kept working, so a refresh is logged and the batch plays on. A copy that is
+// signed out shows as failing model turns in its games, not as a stopped batch. A refresh here makes later games take the new copy.
 // Every game's server gets Lithium (a server performance mod that keeps vanilla behaviour; the target's pinned JAR,
 // downloaded and checked here): the machine's template when its mods/ already holds that exact JAR, else a copy of it
 // with that JAR in place of any other Lithium version (named by a fingerprint of the template, so a changed template gets
@@ -113,7 +116,8 @@ if (existsSync(out) && (await readdir(out)).length) throw new Error(`${out} is n
 await mkdir(path.join(out, 'games'), { recursive: true });
 await mkdir(path.join(out, 'pkg'), { recursive: true });
 const log = async line => { const text = `${new Date().toISOString()} ${line}`; console.log(text); await appendFile(path.join(out, 'batch.log'), `${text}\n`).catch(() => {}); };
-const authShas = authFiles.map(sha), authSha = authShas[0];
+// launchedAuth: the sign-in hash each running game was launched with, kept out of state.json.
+const authShas = authFiles.map(sha), launchedAuth = new Map();
 const codexVersion = execFileSync('codex', ['--version'], { encoding: 'utf8' }).trim().split(/\s+/).pop();
 
 // Package each arm once.
@@ -171,7 +175,7 @@ async function meterOk() {
 
 const state = { plan: { ...plan, codexHome: '(private)', codexHomes: authFiles.map((_, i) => `(private sign-in ${i + 1})`) }, startedAt: new Date().toISOString(), codexVersion, arms: pkgs, games, machines: [] };
 const save = async () => { await writeFile(path.join(out, 'state.json.tmp'), JSON.stringify(state, null, 2)); await rename(path.join(out, 'state.json.tmp'), path.join(out, 'state.json')); };
-let created = 0, spares = plan.spares ?? 0, stopped = false, aborted = false, abortedAt = 0, signInChanged = false, interrupts = 0, wake = () => {};
+let created = 0, spares = plan.spares ?? 0, stopped = false, aborted = false, abortedAt = 0, interrupts = 0, wake = () => {};
 // Every boat call of the loop (preparing, launching, checking, copying home) carries this signal, so an abort kills a
 // transfer in flight (up to 15 minutes) instead of waiting for it, and the cleanup starts at once. The cleanup's own
 // calls and machine creation do not carry it: a killed `boat new` could leave a machine whose id is never learned.
@@ -222,8 +226,8 @@ function underCap() {
 async function prepare(vm) {
 	await remote(vm.id, 'set -e; mkdir -p ~/ck/arms ~/ck/sp ~/ck/games; command -v eatmydata >/dev/null; test -x ~/rooms/jdk/bin/java', live);
 	vm.signInRemoved = false;
-	const hash = await installCodex(vm.id, { authFile, version: codexVersion, ...live });
-	if (hash !== authSha) throw new Error(`sign-in copy on ${vm.id} does not match its source`);
+	const want = sha(authFile), hash = await installCodex(vm.id, { authFile, version: codexVersion, ...live });
+	if (hash !== want) throw new Error(`sign-in copy on ${vm.id} does not match its source`);
 	for (const [name, pkg] of Object.entries(pkgs)) {
 		await upload(vm.id, pkg.tar, `ck/arms/${name}.tar.gz`, live);
 		await upload(vm.id, plan.arms[name].jar, `ck/arms/${name}.jar`, live);
@@ -312,14 +316,15 @@ function dropDue(vm, live, since) {
 	return live === false || Date.now() - vm[since] > LOST_AFTER_MS;
 }
 async function launch(vm, game) {
-	// A sign-in refreshed at its source (Codex on this computer) no longer matches its hash: like a refresh on a machine,
-	// it stops new starts instead of failing every launch until the deadline.
-	if (sha(authFiles[game.account]) !== authShas[game.account]) { signInChanged = true; await log(`SIGN-IN CHANGED at its source (sign-in ${game.account + 1}): Codex refreshed it on this computer; no new game starts`); return; }
+	// Codex on this computer refreshed the sign-in at its source: this game and later ones take the new copy.
+	const source = sha(authFiles[game.account]);
+	if (source !== authShas[game.account]) { authShas[game.account] = source; await log(`SIGN-IN REFRESHED at its source (sign-in ${game.account + 1}): later games take the new copy`); }
 	// Marked before the upload: a launch that fails after the sign-in landed must still have it taken off.
 	vm.signInRemoved = false;
 	await upload(vm.id, authFiles[game.account], '.codex/auth.json', live);
 	const copied = (await remote(vm.id, 'chmod 600 ~/.codex/auth.json; sha256sum ~/.codex/auth.json | cut -c1-64', live)).trim();
-	if (copied !== authShas[game.account]) throw new Error(`sign-in ${game.account + 1} did not copy intact to ${vm.id}`);
+	if (copied !== source) throw new Error(`sign-in ${game.account + 1} did not copy intact to ${vm.id}`);
+	launchedAuth.set(game.id, source);
 	vm.launchFailingSince = null;
 	game.state = 'running'; game.attempts++; game.machine = vm.id; game.startedAt = new Date().toISOString(); vm.game = game.id;
 	game.timingOut = false; game.localCopyFailures = 0;
@@ -338,10 +343,12 @@ if [ -n "$raw" ] && [ -d "$raw" ]; then rm -rf raw; mkdir raw
 [ $staged = yes ] && tar --exclude=auth.json --exclude=.codex-home -czf ../${game.id}.tgz . && echo ok; echo tgz=$(sha256sum ../${game.id}.tgz | cut -c1-64); sha256sum ~/.codex/auth.json | cut -c1-64`, { timeoutMs: 15 * 60_000, ...live });
 	const lines = text.trim().split('\n'), remoteSha = lines.pop();
 	// The game's coordinator works on its own copy of the sign-in (.codex-home under the run folder), so a refresh during
-	// the game shows there, not in ~/.codex: both must still match the source.
+	// the game shows there, not in ~/.codex: both are compared with the copy the game was launched with.
 	const runShas = lines.filter(l => l.startsWith('run=')).map(l => l.slice(4));
-	const changed = [remoteSha, ...runShas].some(hash => hash !== authShas[game.account]);
-	if (changed) { signInChanged = true; await log(`SIGN-IN CHANGED on ${vm.id}${runShas.some(h => h !== authShas[game.account]) ? ' (the game\'s own copy)' : ''}: Codex refreshed it there; no new game starts`); }
+	// The copy was the source as it was at launch; a refresh there stays there and is removed at the end.
+	const launched = launchedAuth.get(game.id) ?? authShas[game.account];
+	const changed = [remoteSha, ...runShas].some(hash => hash !== launched);
+	if (changed) await log(`SIGN-IN REFRESHED on ${vm.id}${runShas.some(h => h !== launched) ? ' (the game\'s own copy)' : ''}: Codex refreshed it there; the batch plays on`);
 	// No "ok" means tar failed on the machine (its disk full, say): a machine-side failure, not a local one, so it counts
 	// against the machine instead of being copied again forever. The sign-in hashes above were already compared.
 	if (!lines.includes('ok')) throw new Error(`could not pack ${game.id} on ${vm.id}${lines.includes('stage-failed') ? ' (copying its raw journals failed)' : lines.includes('world-failed') ? ' (packing its world or recordings failed; they stay on the machine)' : ''}`);
@@ -430,7 +437,7 @@ async function writeSummary(dir, s) {
 
 const machines = state.machines;
 
-const noMoreGames = () => stopped || signInChanged || existsSync(path.join(out, 'STOP')) || !canStart(Date.now(), plan) || !nextGame(games);
+const noMoreGames = () => stopped || existsSync(path.join(out, 'STOP')) || !canStart(Date.now(), plan) || !nextGame(games);
 // plan.drain "delete": every machine is deleted once it has no further game and its sign-in is off (idle machines bill
 // in full). Otherwise only the machines this batch created are deleted, at the end; listed (reused) ones are kept.
 const deletes = vm => plan.drain === 'delete' || vm.created;
@@ -599,7 +606,7 @@ try {
 	// With no live machine left, a queued game can never start (spares are made only to replace a machine as it is lost
 	// or fails to be made): the batch ends instead of waiting for the deadline.
 	const usable = machines.some(m => !m.lost && !m.deleted);
-	const startable = usable && !stopped && !signInChanged && !meterLow && !existsSync(path.join(out, 'STOP')) && canStart(Date.now(), plan) && nextGame(games);
+	const startable = usable && !stopped && !meterLow && !existsSync(path.join(out, 'STOP')) && canStart(Date.now(), plan) && nextGame(games);
 	if (aborted || (!running && !startable)) break;
 	await new Promise(resolve => { wake = resolve; setTimeout(resolve, POLL_MS); });
 	}

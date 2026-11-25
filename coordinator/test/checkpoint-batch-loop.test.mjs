@@ -98,14 +98,29 @@ test('checkpoint batch keeps every machine whose copy of a vanished game\'s repl
 	} finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test('checkpoint batch stops starting games when the game\'s own sign-in copy was refreshed', posixOnly, () => {
+test('checkpoint batch logs a refresh of the game\'s own sign-in copy and plays every game', posixOnly, () => {
 	const root = setup({ refresh: true });
 	try {
 		run(root);
 		const log = readFileSync(path.join(root, 'out/batch.log'), 'utf8');
-		assert.match(log, /SIGN-IN CHANGED on bx_[a-z]+ \(the game's own copy\)/);
+		assert.match(log, /SIGN-IN REFRESHED on bx_[a-z]+ \(the game's own copy\): Codex refreshed it there; the batch plays on/);
 		const state = JSON.parse(readFileSync(path.join(root, 'out/state.json'), 'utf8'));
-		assert.deepEqual(state.games.map(g => g.state), ['done', 'done', 'not started', 'not started']);
+		assert.deepEqual(state.games.map(g => g.state), ['done', 'done', 'done', 'done']);
+		assert.equal(leftSignIns(root), '0');
+	} finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('checkpoint batch gives later games the new sign-in when it was refreshed at its source', posixOnly, () => {
+	const root = setup();
+	writeFileSync(path.join(root, 'SOURCE_REFRESH'), '');
+	try {
+		run(root);
+		const log = readFileSync(path.join(root, 'out/batch.log'), 'utf8');
+		assert.match(log, /SIGN-IN REFRESHED at its source \(sign-in 1\): later games take the new copy/);
+		// The games launched before the refresh carry the old copy: that is no refresh on their machine.
+		assert.doesNotMatch(log, /SIGN-IN REFRESHED on /);
+		const state = JSON.parse(readFileSync(path.join(root, 'out/state.json'), 'utf8'));
+		assert.deepEqual(state.games.map(g => g.state), ['done', 'done', 'done', 'done']);
 		assert.equal(leftSignIns(root), '0');
 	} finally { rmSync(root, { recursive: true, force: true }); }
 });
