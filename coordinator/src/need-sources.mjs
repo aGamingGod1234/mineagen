@@ -663,15 +663,18 @@ export function pearlOptions({ observation = null, position = null, known = null
 	const entities = (observation?.entities ?? []).filter((row) => row?.alive !== false);
 	const piglins = entities.filter((row) => row.type === 'minecraft:piglin' && row.baby !== true && !row.targetingAgent && Number.isFinite(row.distance) && row.distance <= 48).length;
 	const per = (ingots) => ingots * Math.max(BARTER_S / Math.min(Math.max(piglins, 1), 8), BARTER_FLOOR_S) / 60;
-	const parts = [];
+	const parts = [], barter = [];
 	const ingotsFor = Math.ceil(more / PEARLS_PER_INGOT);
 	const seenGold = goldSourceFact(observation, known, position);
-	if (seenGold) parts.push(seenGold);
-	if (gold > 0) parts.push(`barter the ${gold} held gold: ~${(gold * PEARLS_PER_INGOT).toFixed(1)} pearls expected, ${Math.round((1 - BARTER_HIT) ** gold * 100)}% chance of none, ${round(per(gold)) === '<1' ? '<1' : `~${round(per(gold))}`} min${piglins ? ` with the ${piglins} calm piglin${piglins === 1 ? '' : 's'} in view` : ''} (about ${BARTER_S} s per ingot with one piglin, measured ${BARTER_FLOOR_S} s with 5)`);
-	parts.push(`${more} pearls by barter take ~${ingotsFor} gold (~${Math.ceil(ingotsFor / 9)} gold blocks)${gold ? '' : `; 10 gold gives none ${Math.round((1 - BARTER_HIT) ** 10 * 100)}% of the time`}`);
+	if (seenGold) barter.push(seenGold);
+	if (gold > 0) barter.push(`barter the ${gold} held gold: ~${(gold * PEARLS_PER_INGOT).toFixed(1)} pearls expected, ${Math.round((1 - BARTER_HIT) ** gold * 100)}% chance of none, ${round(per(gold)) === '<1' ? '<1' : `~${round(per(gold))}`} min${piglins ? ` with the ${piglins} calm piglin${piglins === 1 ? '' : 's'} in view` : ''} (about ${BARTER_S} s per ingot with one piglin, measured ${BARTER_FLOOR_S} s with 5)`);
+	barter.push(`${more} pearls by barter take ~${ingotsFor} gold (~${Math.ceil(ingotsFor / 9)} gold blocks)${gold ? '' : `; 10 gold gives none ${Math.round((1 - BARTER_HIT) ** 10 * 100)}% of the time`}`);
 	const sightings = position === null ? [] : (known?.sightings ?? []).map((row) => ({ ...row, kind: sightingKind(row) }));
 	const nearest = (rows) => rows.filter((row) => [row.x, row.y, row.z].every(Number.isFinite)).sort((a, b) => Math.hypot(a.x - position.x, a.z - position.z) - Math.hypot(b.x - position.x, b.z - position.z))[0] ?? null;
 	const bastion = nearest(sightings.filter((row) => row.kind === 'structure' && /^bastion/.test(row.what ?? '')));
+	// Gold to barter with now: held, seen, or a bastion's. Without any the barter sums come last, after the ways open now.
+	const barterNow = gold > 0 || Boolean(seenGold) || Boolean(bastion);
+	if (barterNow) parts.push(...barter);
 	if (bastion) parts.push(`bastion ${where(position, bastion)} @${bastion.x},${bastion.y},${bastion.z} (walk ${round(reach(position, bastion))} min): gold blocks 9 ingots each, breaking angers piglins within ${PIGLIN_SIGHT} even unseen; its chests hold gold too`);
 	else if (dimension === 'minecraft:the_nether') parts.push('bastion not seen yet');
 	const fresh = (row) => !Number.isFinite(known?.tick) || !Number.isFinite(row.tick) || known.tick - row.tick <= MOB_FRESH_TICKS;
@@ -695,17 +698,49 @@ export function pearlOptions({ observation = null, position = null, known = null
 	if (dimension === 'minecraft:overworld' && Number.isFinite(observation?.world?.dayTime)) {
 		const tick = ((observation.world.dayTime % 24000) + 24000) % 24000;
 		const night = tick >= 13000 && tick < 23000;
-		parts.push(night ? 'night now: endermen spawn in the dark on open ground (about 1 in 50 night spawns), seen from afar standing tall' : `endermen spawn at night (in ~${round((13000 - tick + (tick >= 13000 ? 24000 : 0)) / 20 / 60)} min), about 1 in 50 night spawns`);
+		parts.push(night ? 'night now: endermen spawn on dark open ground (~1 in 50 night spawns), seen from afar standing tall' : `endermen spawn at night (in ~${round((13000 - tick + (tick >= 13000 ? 24000 : 0)) / 20 / 60)} min), about 1 in 50 night spawns`);
 	}
-	if (warpedHere || warped || inView || enderman || parts.some((part) => part.startsWith('night now'))) parts.push('enderman fight: 40 health, hits ~7 (~4 through full iron); iron sword 6 per hit (~7 hits); a 2-high gap or standing water is optional protection, not a prerequisite; a stare at its eyes provokes one; collect its pearl');
+	if (warpedHere || warped || inView || enderman || parts.some((part) => part.startsWith('night now'))) parts.push(endermanFight(observation, items ?? []));
 	// Put the model's primary route and enderman fight facts before secondary currency facts.
 	if (inView || warpedHere || warped) {
 		const lead = parts.findIndex((part) => part.includes(': 0-1 pearl per kill'));
 		parts.unshift(...parts.splice(lead, 1), ...parts.splice(-1));
-	}
+	} else if (!barterNow && parts.at(-1)?.startsWith('enderman fight')) parts.unshift(parts.pop());
+	if (!barterNow) parts.push(...barter);
 	// Eyes for the End portal: 12 frames, each already filled 10% of the time (vanilla); 1 in 5 eyes thrown breaks.
 	const why = needed >= 10 ? '; eyes: 1 per empty End portal frame of 12 (a frame starts filled 10% of the time), 1 in 5 thrown to find the stronghold breaks' : '';
 	return boundBytes(`ender_pearl: ${more} more needed (pearls and eyes held ${held + eyes}/${needed}: ${held} pearls${eyes ? `, ${eyes} eyes` : ''}; ${gold} gold${why}), est. options: ${parts.join('; ')}`, PEARL_OPTIONS_BYTES);
+}
+
+const ENDERMAN_FIGHT = 'enderman fight: 40 health, hits ~7 (~4 through full iron); iron sword 6 per hit (~7 hits); a stare at its eyes provokes one; collect its pearl; a 2-high gap or standing water is optional protection, not a prerequisite';
+
+/**
+ * The enderman fight facts for this body. Geared: the fight itself. Not geared: what it lacks and what readies it, priced
+ * from the carried iron, since in eight full games the bot met 13 calm endermen with a stone sword and 0 armour, was told
+ * to leave them, and never planned the 2 ingots an iron sword takes.
+ */
+function endermanFight(observation, items) {
+	const gap = endermanGearGap({ ...observation, inventory: { items } });
+	return gap === null ? ENDERMAN_FIGHT : `enderman fight: not geared (${gap}); ready = ${endermanReadyCost(observation, items)}; 40 health, 3 of its ~7 hits kill you unarmoured, so leave calm ones calm until then`;
+}
+
+/** What readies the body for an enderman, priced from what it carries: an iron sword (or 10+ armour) and 14+ health. */
+export function endermanReadyCost(observation, items = observation?.inventory?.items ?? []) {
+	const count = (pattern) => (items ?? []).reduce((sum, item) => sum + (pattern.test(item?.itemId ?? '') && item.count > 0 ? item.count : 0), 0);
+	let tier = 0;
+	for (const item of items ?? []) {
+		const match = /^minecraft:(\w+?)_(sword|axe)$/.exec(item?.itemId ?? '');
+		if (match && item.count > 0) tier = Math.max(tier, SWORD_TIERS[match[1]] ?? 0);
+	}
+	const armor = Number.isFinite(observation?.player?.armor) ? observation.player.armor : 0;
+	const health = observation?.player?.health;
+	const ready = [];
+	if (tier < 3 && !(tier >= 2 && armor >= ENDERMAN_ARMOR_POINTS)) {
+		const ingots = count(/^minecraft:iron_ingot$/), raw = count(/^minecraft:raw_iron$/), sticks = count(/^minecraft:stick$/) + count(/_planks$/);
+		ready.push(`iron sword: 2 iron ingots + 1 stick (held: ${ingots} ingots${raw ? `, ${raw} raw iron to smelt` : ''}${ingots >= 2 && sticks ? '; craft it now' : ''})`);
+	}
+	if (Number.isFinite(health) && health < ENDERMAN_HUNT_HEALTH) ready.push(`eat to ${ENDERMAN_HUNT_HEALTH}+ health`);
+	return ready.join(' and ');
 }
 
 // A hunt line names an enderman only this near: c3 forest games had one within 16 m for 13 min/h and started ~5 fights/h.
@@ -739,7 +774,7 @@ export function pearlHuntLine({ observation = null, position = null, open = '' }
 	return `enderman ${Math.round(target.distance)} m, ${dy === 0 ? 'level' : dy > 0 ? `${dy} up` : `${-dy} down`}, ${angry ? 'angry at you' : 'calm'}`
 		+ `${others > 0 ? `, ${others} more within ${HUNT_RANGE} m` : ''}; pearls ${held}/${needed} open`
 		+ `${/^(travel_to|navigate_to)$/.test(action ?? '') ? `; your ${action} is still running and does not stop for it` : ''}`
-		+ (unready === null ? '' : `; not geared for it (${unready}): it hits for 7 and has 40 health, so leave a calm one calm and do not look at it until you are`);
+		+ (unready === null ? '' : `; not geared for it (${unready}): it hits for 7 and has 40 health, so leave a calm one calm and do not look at it until you are; ready = ${endermanReadyCost(observation, items)}`);
 }
 
 const SWORD_TIERS = Object.freeze({ wooden: 1, golden: 1, stone: 2, copper: 2, iron: 3, diamond: 4, netherite: 5 });

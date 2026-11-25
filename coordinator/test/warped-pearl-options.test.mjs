@@ -5,7 +5,7 @@ const position={x:0,y:65,z:0};
 test('warped forest fight facts and hunting survive the bounded pearl line before secondary seen and held gold',()=>{
  const observation={world:{dimension:'minecraft:the_nether',biome:'minecraft:warped_forest'},blocks:[{x:4,y:65,z:0,blockId:'minecraft:nether_gold_ore'}],entities:[]};
  const known={blocks:observation.blocks,sightings:[{what:'bastion',kind:'structure',x:200,y:30,z:200}]};
- const fact=pearlOptions({observation,position,known,items:[{itemId:'minecraft:gold_ingot',count:2}]});
+ const fact=pearlOptions({observation,position,known,items:[{itemId:'minecraft:gold_ingot',count:2},{itemId:'minecraft:iron_sword',count:1}]});
  assert.ok(Buffer.byteLength(fact)<=PEARL_OPTIONS_BYTES);
  assert.ok(fact.indexOf('standing in a warped forest')<fact.indexOf('seen gold:'));
  assert.ok(fact.indexOf('enderman fight: 40 health')<fact.indexOf('seen gold:'));

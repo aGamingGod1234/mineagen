@@ -394,10 +394,10 @@ test('full game: pearls partly gathered keep their place on the plan line, and a
  const spent = { ...after, observedAtEpochMs: 1, inventory: sample(1, [['iron_pickaxe'], ['ender_pearl', 6]]).inventory };
  await views.observe(record, spent);
  assert.match(views.continuity(record).options, /^ender_pearl: 6 more needed .* \| Nether route/);
- // An enderman in view: its hunt and the fight rule lead the pearl line, ahead of the barter sums.
+ // An enderman in view: its hunt and the fight facts (here the missing sword and its price) lead the pearl line, ahead of the barter sums.
  const enderman = { ...spent, observedAtEpochMs: 2, entities: [{ type: 'minecraft:enderman', stableId: 'e1', x: 10.5, y: 60, z: 0.5, distance: 10, alive: true }] };
  await views.observe(record, enderman);
- assert.match(views.continuity(record).options, /^ender_pearl: 6 more needed .*est\. options: 1 enderman in view: 0-1 pearl per kill .*; enderman fight: 40 health, hits ~7 .*optional protection, not a prerequisite; a stare at its eyes provokes one; collect its pearl; 6 pearls by barter take/);
+ assert.match(views.continuity(record).options, /^ender_pearl: 6 more needed .*est\. options: 1 enderman in view: 0-1 pearl per kill .*; enderman fight: not geared \(no sword or axe\); ready = iron sword: 2 iron ingots \+ 1 stick \(held: 0 ingots\); .*; 6 pearls by barter take/);
 });
 
 
