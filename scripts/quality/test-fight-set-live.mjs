@@ -271,7 +271,8 @@ try {
 						const target = (o.entities ?? []).filter(x => x.type === `minecraft:${mob}` && x.uuid !== row.behindId).sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
 						if (!target) { await s.clock.sleep(500); continue; }
 						await s.act('select_item', { itemId: `minecraft:${weapon(kitName)}` }).catch(() => {});
-						const left = Math.max(2000, Math.min(15000, WINDOW_S * 1000 - (s.clock.now() - t0)));
+						const left = Math.min(15000, WINDOW_S * 1000 - (s.clock.now() - t0));
+						if (left < 1000) { await s.clock.sleep(Math.max(0, left)); continue; }
 						const r = await s.act('fight_target', { targetId: target.uuid, pursue: true, shield: true, fleeAtHealth: 6, collect: false, timeoutMs: left }, left + 15000).catch(error => ({ state: 'ERROR', message: String(error?.message ?? error) }));
 						row.calls.push({ state: r.state, reasonCode: r.reasonCode, message: String(r.message ?? '').slice(0, 300) });
 					} else if (standIn === 'walk') {
@@ -279,7 +280,8 @@ try {
 						const o = await s.observe().catch(() => null);
 						if (!o) { await s.clock.sleep(500); continue; }
 						const x = (o.position?.x ?? X0) < (X0 + WALK_END[place]) / 2 ? WALK_END[place] : X0;
-						const left = Math.max(2000, Math.min(12000, WINDOW_S * 1000 - (s.clock.now() - t0)));
+						const left = Math.min(12000, WINDOW_S * 1000 - (s.clock.now() - t0));
+						if (left < 1000) { await s.clock.sleep(Math.max(0, left)); continue; }
 						const r = await s.act('navigate_to', { x: x + 0.5, y: FEET, z: Z0 + 0.5, tolerance: 1, sprint: false, timeoutMs: left }, left + 15000).catch(error => ({ state: 'ERROR', message: String(error?.message ?? error) }));
 						row.calls.push({ state: r.state, reasonCode: r.reasonCode, message: String(r.message ?? '').slice(0, 300) });
 					} else if (standIn === 'flee') {
