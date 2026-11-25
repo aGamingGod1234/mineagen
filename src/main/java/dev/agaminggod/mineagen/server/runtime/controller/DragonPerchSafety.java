@@ -103,11 +103,13 @@ public final class DragonPerchSafety {
 
 	/**
 	 * The walk as the body plays it, tick by tick: keep walking to the leg's point until within {@link #ROUND_REACHED} of it
-	 * or it stops being clear (the head turned, a breath landed), then take the next leg. Re-aiming every tick instead hugs
-	 * the zones' edge and on two of the four real perches stopped half way round with no clear point.
+	 * or the walk from here to it stops being clear (the head turned, a breath landed: every tick, not only the point), then
+	 * take the next leg. Re-aiming every tick instead hugs the zones' edge and on two of the four real perches stopped half
+	 * way round with no clear point. Checking only the point let the dragon room's bodies walk on into zones that had moved
+	 * onto their path (2 of 5 walks, 7.6 and 18.2 health lost under Resistance III).
 	 */
 	public static Detour holdOrNext(Detour held, Zones zones, double x, double feetY, double z, double centreX, double centreZ, double headX, double headZ) {
-		if (held != null && Math.hypot(held.x() - x, held.z() - z) >= ROUND_REACHED && !zones.unsafe(held.x(), feetY, held.z(), 0.3D)) return held;
+		if (held != null && Math.hypot(held.x() - x, held.z() - z) >= ROUND_REACHED && clearChord(zones, x, feetY, z, held.x(), held.z())) return held;
 		return roundToHead(zones, x, feetY, z, centreX, centreZ, headX, headZ);
 	}
 

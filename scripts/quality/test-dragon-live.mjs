@@ -234,13 +234,43 @@ try {
 		await sleep(1200);
 		return { phase: p, head: (await parts()).head ?? rows.head };
 	};
+	// Every quarter second while a far-side case runs: the body's health and place, the dragon's phase and place, and breath
+	// clouds within 6. Each health drop is put down to breath (a cloud that near) or to the dragon's body (its head, neck).
+	const vec = text => { const m = /\[(-?[\d.]+)d, (-?[\d.]+)d, (-?[\d.]+)d\]/.exec(text ?? ''); return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null; };
+	const sampler = () => {
+		const rows = []; let on = true;
+		const run = (async () => {
+			while (on) {
+				try {
+					const [h, p, ph, c, d] = await Promise.all([command(`data get entity ${agent} Health`), command(`data get entity ${agent} Pos`), dragonPhase(),
+						end(`execute at ${agent} if entity @e[type=minecraft:area_effect_cloud,distance=..6]`), end('data get entity @e[type=minecraft:ender_dragon,limit=1] Pos')]);
+					const at = vec(p), dragon = vec(d);
+					rows.push({ ms: Date.now(), health: number(h), phase: ph, clouds: Number((/count: (\d+)/.exec(c ?? '') ?? [0, 0])[1]),
+						at, dragonDistance: at && dragon ? Math.round(Math.hypot(at[0] - dragon[0], at[2] - dragon[2]) * 10) / 10 : null });
+				} catch { /* a missed sample */ }
+				await sleep(250);
+			}
+		})();
+		return { rows, stop: async () => { on = false; await run; } };
+	};
+	const hits = rows => {
+		const out = [];
+		for (let i = 1; i < rows.length; i++) {
+			const lost = rows[i - 1].health - rows[i].health;
+			if (lost > 0.4) out.push({ lost: Math.round(lost * 10) / 10, cause: rows[i].clouds > 0 || rows[i - 1].clouds > 0 ? 'breath' : 'dragon body or other', phase: rows[i].phase, dragonDistance: rows[i].dragonDistance });
+		}
+		return out;
+	};
 	await command(`effect clear ${agent} minecraft:resistance`); await command(`effect give ${agent} minecraft:resistance 1200 2 true`);
 	// A failure here (a death under Resistance III, a timeout) is recorded and never stops the room's own result below.
 	try {
 		const at = await farSide();
 		const before = await dragonHealth(), hurt0 = await damage().catch(() => null), t0 = Date.now();
+		const watch = sampler();
 		const r = at.head ? await act('fight_target', { targetId: at.head.uuid, timeoutMs: 20000 }) : null;
+		await watch.stop();
 		const hurt1 = await damage().catch(() => null);
+		results.perchRoundHits = hits(watch.rows); results.perchRoundSamples = watch.rows;
 		results.perchRound = r && { startPhase: at.phase, endPhase: await dragonPhase(), state: r.state, reasonCode: r.reasonCode, healthDrop: before - await dragonHealth(),
 			damageTaken: hurt0 === null || hurt1 === null ? null : hurt1 - hurt0, seconds: Math.round((Date.now() - t0) / 1000),
 			walkedRound: /walked round the perched dragon/.test(r.message ?? ''), message: r.message };
@@ -254,7 +284,10 @@ try {
 		// The End default as the coordinator arms it (reflexes.mjs default-perch-strike), under a fixture id.
 		await bridge.send('reflex_update', record.agentId, { revision: 3, yield: false, rules: normalizeReflexEntries([{ id: 'perch-strike-room', kind: 'stance', priority: 6,
 			when: [{ type: 'dragon_perched', within: 24 }, { type: 'health_below', value: 10, not: true }], do: { type: 'strike_head' }, ttlS: 120, maxS: 20, cooldownS: 1, wake: false }]) });
+		const watch = sampler();
 		await sleep(15000);
+		await watch.stop();
+		results.perchStrikeHits = hits(watch.rows); results.perchStrikeSamples = watch.rows;
 		const after = await observe(), hurt1 = await damage().catch(() => null);
 		results.perchStrike = at.head && { startPhase: at.phase, endPhase: await dragonPhase(), healthDrop: before - await dragonHealth(),
 			damageTaken: hurt0 === null || hurt1 === null ? null : hurt1 - hurt0,

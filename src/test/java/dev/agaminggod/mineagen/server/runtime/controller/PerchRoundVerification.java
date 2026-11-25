@@ -76,6 +76,7 @@ public final class PerchRoundVerification {
 		alreadyOnTheHeadsSide();
 		takesTheShortWay();
 		noClearPointMeansNoWalk();
+		aZoneOnTheWayDropsTheLeg();
 		return assertions;
 	}
 
@@ -130,6 +131,17 @@ public final class PerchRoundVerification {
 		check(leg != null && Math.abs(Math.toDegrees(Math.atan2(leg.x(), leg.z())) - 35.0D) < 0.5D, "the walk turns 25 degrees the short way");
 		check(Math.abs(Math.hypot(leg.x(), leg.z()) - (10.0D - DragonPerchSafety.ROUND_CLOSER)) < 1.0E-9, "with nothing in the way it closes in by its step");
 		check(Math.abs(Math.toDegrees(leg.gap()) - 35.0D) < 0.5D, "the gap left is reported");
+	}
+
+	/** A breath landing across the held leg's path (not on its point) ends that leg at once. */
+	static void aZoneOnTheWayDropsTheLeg() {
+		DragonPerchSafety.Zones none = new DragonPerchSafety.Zones(List.of(), List.of());
+		var held = DragonPerchSafety.roundToHead(none, 10.0D, 63.0D, 0.0D, 0.0D, 0.0D, 0.0D, 7.0D);
+		double midX = (10.0D + held.x()) / 2.0D, midZ = held.z() / 2.0D;
+		DragonPerchSafety.Zones breath = new DragonPerchSafety.Zones(List.of(), List.of(new DragonPerchSafety.Circle(midX, 63.0D, midZ, 1.0D)));
+		check(!breath.unsafe(held.x(), 63.0D, held.z(), 0.3D), "the breath is clear of the leg's point");
+		check(DragonPerchSafety.holdOrNext(held, breath, 10.0D, 63.0D, 0.0D, 0.0D, 0.0D, 0.0D, 7.0D) != held, "a breath across the way ends the held leg");
+		check(DragonPerchSafety.holdOrNext(held, none, 10.0D, 63.0D, 0.0D, 0.0D, 0.0D, 0.0D, 7.0D) == held, "with the way clear the leg is held");
 	}
 
 	static void noClearPointMeansNoWalk() {
