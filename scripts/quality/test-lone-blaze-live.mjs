@@ -43,7 +43,8 @@ const number = text => { const m = /(-?[\d.]+)[fd]?\s*$/.exec(String(text ?? '')
 let s;
 const blazeHealth = async () => number(await s.command('data get entity @e[type=minecraft:blaze,tag=lone,limit=1] Health')) ?? 0;
 const feetY = async () => number(await s.command('data get entity Probe Pos[1]'));
-const rods = async () => number(await s.command('clear Probe minecraft:blaze_rod 0')) ?? 0;
+// "Found 2 matching item(s) on player Probe": the first number; "No items were found" has none.
+const rods = async () => Number(/(\d+)/.exec(String(await s.command('clear Probe minecraft:blaze_rod 0') ?? ''))?.[1] ?? 0);
 try {
  s = await boot(out, { jar, template: process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port: Number(process.env.SLOT_PORT_BASE), seed: 20261125, tickRate: fixtureTickRate() });
  await s.command('gamerule minecraft:spawn_mobs false'); await s.command('difficulty hard');
