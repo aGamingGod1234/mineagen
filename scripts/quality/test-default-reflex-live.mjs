@@ -334,7 +334,8 @@ try {
 			const row = await run(agent); console.log(JSON.stringify(row)); results.cases.push(row);
 		}
 	}
-	const tally = (mode, name) => { const rows = results.cases.filter(c => c.mode === mode && c.case === name && !c.skipped); return `${rows.filter(c => name.startsWith('edge-control') ? !(c.offBridge ?? c.knockedOff) : c.alive).length}/${rows.length}${name.startsWith('edge-control') ? ' stayed on' : ' alive'}${name.startsWith('lava') ? `, entered lava ${rows.filter(c => c.entered).length}/${rows.length}` : ''}`; };
+	// A melee room that starts crowded or hurt past its ask (valid: false) is left out of the count and shown on its own.
+	const tally = (mode, name) => { const all = results.cases.filter(c => c.mode === mode && c.case === name && !c.skipped), rows = all.filter(c => c.valid !== false), invalid = all.length - rows.length; return `${rows.filter(c => name.startsWith('edge-control') ? !(c.offBridge ?? c.knockedOff) : c.alive).length}/${rows.length}${name.startsWith('edge-control') ? ' stayed on' : ' alive'}${name.startsWith('lava') ? `, entered lava ${rows.filter(c => c.entered).length}/${rows.length}` : ''}${invalid ? `, invalid ${invalid}` : ''}`; };
 	results.summary = Object.fromEntries(['defaults', 'none'].map(mode => [mode, Object.fromEntries(['edge-control', 'edge-control-shield', 'lava-knock', 'lava-drop', ...Object.keys(MELEE)].map(name => [name, tally(mode, name)]))]));
 	results.summary.jar = jarPath;
 	results.tickRate = rate.tickRate;

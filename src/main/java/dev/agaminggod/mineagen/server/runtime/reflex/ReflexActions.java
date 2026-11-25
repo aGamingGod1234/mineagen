@@ -621,11 +621,11 @@ final class ReflexActions {
 
 		/**
 		 * Backing out, walling in or walking to cover: the body is already leaving the shot line. Stepping inland off a brink
-		 * or bracing on one counts too, and so does waiting to land after a hit's hop there: a strafe would pull the body off
-		 * the step that keeps it from the drop.
+		 * (from a shooter or out of a melee mob's throw) or bracing on one counts too, and so does waiting to land after a
+		 * hit's hop there: a strafe would pull the body off the step that keeps it from the drop.
 		 */
 		boolean movingBody() {
-			return backOut != null || walls != null || cover != null || inland != null || braceInPlace || landing;
+			return backOut != null || walls != null || cover != null || inland != null || meleeInland != null || braceInPlace || landing;
 		}
 
 		/** Building a wall-in round the body now. */
