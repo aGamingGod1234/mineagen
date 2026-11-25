@@ -101,7 +101,7 @@ export function dependentChain(plan, id) {
  * ({ active: [ids], lastFired: text }) shown as-is; `annotate(intent, { contradicted, since, evidence })` lets a
  * shared provenance layer word validity. Neither may choose a replacement intent.
  */
-export function composeContinuityHeader({ goal, intent = null, evidence = null, since = null, progress = null, route = null, stepProgress = null, repeats = null, search = null, hunt = null, options = null, craft = null, known = null, mining = null, light = null, up = null, sleep = null, casting = null, frame = null, tools = null, results = [], running = null, effect = null, orders = null, guardInstalled = undefined, guardCoverage = null, guardThreatsNear = 0, guardThreatsTargeting = 0, annotate = null }) {
+export function composeContinuityHeader({ goal, intent = null, evidence = null, since = null, progress = null, stuck = null, route = null, stepProgress = null, repeats = null, search = null, hunt = null, options = null, craft = null, known = null, mining = null, light = null, up = null, sleep = null, casting = null, frame = null, tools = null, results = [], running = null, effect = null, orders = null, guardInstalled = undefined, guardCoverage = null, guardThreatsNear = 0, guardThreatsTargeting = 0, annotate = null }) {
 	// The event's own goal field carries the goal; the header starts at the intent.
 	if (typeof goal !== 'string' || goal.length === 0) return null;
 	const header = {};
@@ -133,6 +133,8 @@ export function composeContinuityHeader({ goal, intent = null, evidence = null, 
 	const failure = unresolvedFailure(results, running);
 	if (failure !== null) header.failure = failure.text;
 	if (typeof progress === 'string' && progress.length) header.plan = progress;
+	// A task past its budget across lives (task-clock.mjs): the time lost, the sites tried and a way that can still work.
+	if (typeof stuck === 'string' && stuck.length) header.stuck = stuck;
 	// The usual next step on the route (skill-fits.mjs routeLine): a suggestion beside the plan, never an order.
 	if (typeof route === 'string' && route.length) header.route = route;
 	// Whether the plan is moving, and a result that keeps repeating: facts beside the plan line, never a verdict.

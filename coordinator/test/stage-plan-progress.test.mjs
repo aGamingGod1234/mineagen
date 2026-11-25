@@ -101,7 +101,8 @@ test('no progress for the threshold states the focus step, its numbers and where
 
 test('a long climb back toward the step after the fact is stated is not stated again', async () => {
  let now = T0;
- const views = new LiveTaskViews({ now: () => now });
+ // The 20 minutes here would also run out the pool's task clock (task-clock.mjs): this test is about the step window.
+ const views = new LiveTaskViews({ now: () => now, progressTiming: { taskBudgetMs: Infinity } });
  await views.observe(record, sample(now, { y: -55 }));
  await views.operate(record, { operation: 'replace', plan: stagePlan });
  await views.observe(record, sample(now, { y: -55 }));

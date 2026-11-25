@@ -815,8 +815,15 @@ export function portalAtHand(observation) {
 	return frame?.lit === true || obsidian + framed >= needed;
 }
 
-export function bedSpawnOption(observation, target) {
-	const source = quickBedSource(observation);
+// A short look for sheep before going in without a bed: the portal waits, so the look stays short.
+export const BED_SEARCH_MIN = 3;
+/**
+ * The quick respawn bed for a target portal (or a base without one). search: with no bed, wool or sheep at hand, offer
+ * a short look for sheep instead of nothing (the re-entry offer, until a respawn by the portal is set).
+ */
+export function bedSpawnOption(observation, target, { search = false } = {}) {
+	const source = quickBedSource(observation, { atPortal: target !== undefined });
+	if (source === null && search && target !== undefined) return `option bed by the ${target} portal: no bed, wool or sheep at hand; a look for sheep nearby (3 of one colour + 3 planks makes a bed) for at most ${BED_SEARCH_MIN} min, then go in without it; without a bed here a death in there respawns at the world spawn or the last bed used. Beds explode in the Nether and End.`;
 	if (source === null) return null;
 	const cost = { held: 'the bed carried', seen: 'the bed in view', wool: 'a bed from the matching wool held (+ 3 planks)', sheep: 'a bed from the sheep in view (3 matching wool + 3 planks)' }[source];
 	const place = target === undefined ? 'a chosen Overworld base' : `the ${target} portal`;
