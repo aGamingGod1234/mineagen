@@ -159,7 +159,7 @@ test('a lit portal suggests entering with optional preparation; the Nether and t
 });
 
 // The Overworld kit after the first Nether visit: an iron pickaxe and food, so the eye steps are reached.
-const KIT = [['iron_pickaxe', 1], ['cooked_beef', 16], SHIELD, ...ARMOUR];
+const KIT = [['iron_pickaxe', 1], ['cooked_beef', 16], SHIELD, ...ARMOUR, ['cobblestone', 32]];
 const visitedNether = () => { const known = emptyKnown(); known.visitedDimensions.push('minecraft:the_nether'); return known; };
 const withFrames = (items, filled, total = 12) => ({ ...sample(items), blocks: Array.from({ length: total }, (_, index) => ({ blockId: 'minecraft:end_portal_frame', x: index, y: 30, z: 0, state: { eye: index < filled ? 'true' : 'false' } })) });
 const routeAt = (observation, known = visitedNether()) => routeLine({ observation, known, evaluate: evaluatePlanCheck });
@@ -273,7 +273,7 @@ const portalMemory = (extra = {}) => ({ position: { x: 0, y: 64, z: 0 }, known: 
 	sightings: [{ what: portal.blockId, kind: 'portal', x: portal.x, y: portal.y, z: portal.z, tick: 100 }], blocks: [], ...extra,
 } });
 // The kit taken back through the portal (kitBefore): the shield, the armour and 4 food.
-const READY = [SHIELD, ...ARMOUR, ['bread', 4]];
+const READY = [SHIELD, ...ARMOUR, ['bread', 4], ['cobblestone', 32]];
 const recoveryRoute = (observation = sample(READY), memory = portalMemory(), known = visitedNether()) =>
 	routeLine({ observation, memory, known, evaluate: evaluatePlanCheck });
 

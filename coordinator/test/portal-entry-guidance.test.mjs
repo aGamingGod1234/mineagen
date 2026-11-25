@@ -9,7 +9,7 @@ import { decodeModelFacts } from '../src/model-fact-encoding.mjs';
 
 const record = { agentId: 'portal-entry', provider: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'low', goalRevision: 1 };
 // The kit taken into the Nether (skill-fits.mjs kitBefore): armour worn and food held, with the shield above.
-const KIT = [{ itemId: 'minecraft:iron_chestplate', count: 1, slot: 'chest' }, { itemId: 'minecraft:iron_boots', count: 1, slot: 'feet' }, { itemId: 'minecraft:cooked_beef', count: 4 }];
+const KIT = [{ itemId: 'minecraft:iron_chestplate', count: 1, slot: 'chest' }, { itemId: 'minecraft:iron_boots', count: 1, slot: 'feet' }, { itemId: 'minecraft:cooked_beef', count: 4 }, { itemId: 'minecraft:cobblestone', count: 32 }];
 const sample = (health = 20, foodLevel = 20) => ({ ready: true, observedAtEpochMs: 1,
 	world: { dimension: 'minecraft:overworld' }, player: { x: 229.5, y: -55, z: 7.5, health, foodLevel },
 	inventory: { items: [{ itemId: 'minecraft:iron_pickaxe', count: 1 }, { itemId: 'minecraft:shield', count: 1, slot: 'offhand' },

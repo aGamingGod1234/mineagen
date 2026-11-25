@@ -421,9 +421,15 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 		if (!inReach && pick !== null && pick.left < TRIP_USES && !kitHandedBack.has(`minecraft:${pick.make}`)) {
 			return line(`obtain ${pick.make} count ${count(new RegExp(`^minecraft:${pick.make}$`)) + 1}`, tag(`pickaxe ${pick.left} uses left`));
 		}
-		if (inReach || food >= MEAT || foodHandedBack === true && facts.nearbyMeat === null) return null;
-		const [next, why] = stockFoodNext(kitFacts, { stock: MEAT, have: food, before: `going to ${trip}`, what: 'food' });
-		return line(next, tag(why));
+		if (inReach) return null;
+		if (food < MEAT && !(foodHandedBack === true && facts.nearbyMeat === null)) {
+			const [next, why] = stockFoodNext(kitFacts, { stock: MEAT, have: food, before: `going to ${trip}`, what: 'food' });
+			return line(next, tag(why));
+		}
+		// Blocks to bridge a lava gap, wall off a mob or pillar out of a hole, without stopping to dig for them.
+		const blocks = count(PLAIN_BLOCK);
+		if (blocks >= TRIP_BLOCKS || pick === null || kitHandedBack.has('minecraft:cobblestone')) return null;
+		return line(`obtain cobblestone count ${count(/^minecraft:cobblestone$/) + TRIP_BLOCKS - blocks}`, tag(`plain blocks ${blocks}/${TRIP_BLOCKS}`));
 	};
 	const depart = (trip, next, why, options) => kitBefore(trip, options) ?? line(next, why);
 	// Instincts arm: food first in every dimension (C27), before more resource travel.
@@ -564,6 +570,7 @@ const PLAIN_BLOCK = /^minecraft:(cobblestone|cobbled_deepslate|stone|deepslate|d
 const SPARE_TOOLS = 2;
 // A trip into danger digs its way out (a nether path, a fortress wall, a stronghold stair): this many uses at least.
 const TRIP_USES = 32;
+const TRIP_BLOCKS = 16;
 const PICK_TIER = ['wooden', 'stone', 'copper', 'iron', 'diamond', 'netherite'];
 /** The best pickaxe's uses left, and the pickaxe to make when it is short: iron when 3 iron is held, else stone. */
 function pickaxeLeft(items) {

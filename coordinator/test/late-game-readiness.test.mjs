@@ -22,6 +22,7 @@ const kitted = o => {
 	if (!items.some(i => i.slot === 'chest')) add.push(item('iron_chestplate', 1, 'chest'));
 	if (!items.some(i => i.slot === 'feet')) add.push(item('iron_boots', 1, 'feet'));
 	if (!items.some(i => /cooked_|bread/.test(i.itemId))) add.push(item('bread', 4));
+	if (!items.some(i => i.itemId === 'minecraft:cobblestone')) add.push(item('cobblestone', 32));
 	return { ...o, inventory: { items: [...items, ...add] } };
 };
 const route = (o, kitHandedBack) => routeLine({ observation: kitted(o), known: visited(), evaluate: evaluatePlanCheck, ...(kitHandedBack ? { kitHandedBack } : {}) });

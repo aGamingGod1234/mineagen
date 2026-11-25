@@ -20,7 +20,7 @@ const route = (items, { died = true, known = visitedNether(), memory = portalMem
 
 const SHIELD = ['shield', 1, 'offhand'];
 const ARMOUR = [['iron_chestplate', 1, 'chest'], ['iron_boots', 1, 'feet']];
-const TOOLS = [['iron_pickaxe', 1], ['furnace', 1]];
+const TOOLS = [['iron_pickaxe', 1], ['furnace', 1], ['cobblestone', 32]];
 const RETURN = /^usual next step: return via known Overworld portal at 30,-20,7 to the Nether/;
 
 test('a respawn after a Nether death with a known portal re-kits before the portal return', () => {
@@ -41,7 +41,7 @@ test('a respawn after a Nether death with a known portal re-kits before the port
 	// The whole kit back on: the portal return, as before.
 	assert.match(route([...TOOLS, SHIELD, ...ARMOUR, ['bread', 4]]), RETURN);
 	// A keepInventory-style respawn (or drops recovered) has nothing to re-kit.
-	assert.match(route([['diamond_pickaxe', 1], SHIELD, ['diamond_chestplate', 1, 'chest'], ['golden_boots', 1, 'feet'], ['bread', 4]]), RETURN);
+	assert.match(route([['diamond_pickaxe', 1], SHIELD, ['diamond_chestplate', 1, 'chest'], ['golden_boots', 1, 'feet'], ['bread', 4], ['cobblestone', 32]]), RETURN);
 });
 
 test('without a known portal the rebuild goes on past the iron pickaxe to the shield and armour after a death', () => {
