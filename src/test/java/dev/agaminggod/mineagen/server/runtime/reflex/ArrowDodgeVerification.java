@@ -178,12 +178,12 @@ public final class ArrowDodgeVerification {
 	}
 
 	/**
-	 * In its own walls against a shooter, the low-health retreat and cover rules and the dodge do not take the body; hazard
+	 * In its own walls against a shooter, the low-health retreat and cover rules, the dodge and the arrow shield do not take the body; hazard
 	 * flinches and defend (which roofs the cell) still do (defend-shallow: all 3 deaths after #209 left the walls this way).
 	 */
 	private static void shelterHoldsTheBackOffRules() {
 		ReflexScheduler scheduler = new ReflexScheduler();
-		for (String id : List.of("default-retreat", "default-cover", "default-blaze-cover", "default-arrow-dodge")) {
+		for (String id : List.of("default-retreat", "default-cover", "default-blaze-cover", "default-arrow-dodge", "default-arrow")) {
 			check(!ReflexEngine.shelterGate(scheduler, rule(id), true, true), id + " waits while the body is in its own walls");
 			check(ReflexEngine.shelterGate(scheduler, rule(id), true, false), id + " fires as before outside them");
 		}
