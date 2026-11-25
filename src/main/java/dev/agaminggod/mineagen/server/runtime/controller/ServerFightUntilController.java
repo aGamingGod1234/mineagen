@@ -785,7 +785,8 @@ public final class ServerFightUntilController implements ServerController {
 				}
 				int needed = ForestRoof.blocksNeeded(cellsToPlace(player), forest != null, PERCH_HEIGHT);
 				int carried = roofItem == null ? 0 : count(player, BuiltInRegistries.ITEM.getValue(Identifier.parse(roofItem)));
-				if ((roofItem == null || carried < needed) && WarpedForestHunt.dropsRoof(forest != null, "ROOF_BLOCKS_MISSING")) {
+				// Without armour the open-ground hunt is where the forest deaths came from: missing blocks stop instead.
+				if ((roofItem == null || carried < needed) && WarpedForestHunt.dropsRoof(forest != null, "ROOF_BLOCKS_MISSING") && armoured(player)) {
 					note(String.format(Locale.ROOT, "roof dropped: %d blocks needed, carries %s; hunting on open ground", needed, roofItem == null ? "none" : carried + " " + roofItem));
 					roofWanted = false;
 					leaveRoof(player, false);
@@ -1196,6 +1197,14 @@ public final class ServerFightUntilController implements ServerController {
 		}
 		if (!provoked(player, target)) {
 			holding = null;
+			if (ForestRoof.holdsStare(forest != null, roofWanted, roofBuilds, armoured(player), player.distanceTo(target))) {
+				// No armour on open ground: no stare until the contact shelter stands (the roof is built on this contact).
+				if (look != null) { look.cancel(player); look = null; }
+				if (walk != null) { walk.cancel(player); walk = null; }
+				lastTargetMs = elapsed;
+				ServerLookController.turnToward(player, legs(target));
+				return TickResult.running(progress(player));
+			}
 			if (staredOut.contains(target.getUUID()) || !eyesClear(player, target)) return null;
 			if (provoking != target) { provoking = target; provokeSinceMs = elapsed; stares++; if (beyondReach(player, target)) farStares++; }
 			if (elapsed - provokeSinceMs >= PROVOKE_MS) {

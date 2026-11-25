@@ -87,6 +87,12 @@ public final class ForestHuntVerification {
 		check(WarpedForestHunt.dropsRoof(true, "ROOF_BLOCKS_MISSING"), "forest mode: too few blocks drops the roof and hunts on");
 		check(!WarpedForestHunt.dropsRoof(false, "ROOF_BLOCKS_MISSING"), "outside forest mode K11's stop stands");
 		check(!ServerFightUntilController.roofFallback("ROOF_BLOCKS_MISSING", true, true), "K11's static decision is unchanged");
+		check(ForestRoof.holdsStare(true, true, 0, false, 8.0D), "no armour, a shelter to come: no stare at a calm enderman in contact range");
+		check(!ForestRoof.holdsStare(true, true, 0, true, 8.0D), "armoured: the stare goes on as before");
+		check(!ForestRoof.holdsStare(true, true, 0, false, 20.0D), "beyond contact range the body walks in as before");
+		check(!ForestRoof.holdsStare(true, false, 0, false, 8.0D), "no roof asked for: unchanged");
+		check(!ForestRoof.holdsStare(true, true, ForestRoof.MAX_ROOFS, false, 8.0D), "no shelters left to build: unchanged");
+		check(!ForestRoof.holdsStare(false, true, 0, false, 8.0D), "outside forest mode: unchanged");
 		check(ForestRoof.blocksNeeded(17, true, 3) == 20 && ForestRoof.blocksNeeded(17, false, 3) == 17, "a forest shelter keeps the perch's blocks too");
 	}
 

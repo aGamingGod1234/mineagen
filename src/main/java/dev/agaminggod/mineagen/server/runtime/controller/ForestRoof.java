@@ -23,6 +23,15 @@ final class ForestRoof {
 		return roofWanted && !roofed && !building && roofBuilds < MAX_ROOFS && !angry && distance <= CONTACT_RANGE && inViewMs >= CONTACT_MS;
 	}
 
+	/**
+	 * Whether an unarmoured body on open ground holds off staring a calm enderman: a shelter is still to come and the
+	 * enderman is near enough to be the contact that builds it. One of the two Nether enderman deaths came from an
+	 * unarmoured forest hunt on open ground before any shelter (7 + 7 + 7). Farther off it walks in as before.
+	 */
+	static boolean holdsStare(boolean forest, boolean roofWanted, int roofBuilds, boolean armoured, double distance) {
+		return forest && roofWanted && roofBuilds < MAX_ROOFS && !armoured && distance <= CONTACT_RANGE;
+	}
+
 	/** Blocks a forest shelter needs carried before it starts: the shelter's own plus the perch's. */
 	static int blocksNeeded(int shelter, boolean forest, int perch) {
 		return shelter + (forest ? perch : 0);
