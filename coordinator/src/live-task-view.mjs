@@ -12,7 +12,7 @@ import { composeContinuityHeader, dependentChain, inventoryEffect, rememberResul
 import { boundPlacements, functionalPlacement, placementAt, placementCellsInDimension, placementsForItems, prunePlacements, relevantPlacement, samePlacementBlock } from './plan-placement-memory.mjs';
 import { armorMaterialNeed, chainText, howtoChain, howtoHeldRecipe, howtoHoldings, howtoTopic } from './howto.mjs';
 import { fortressSearchOption } from './nether-regions.mjs';
-import { NETHER_OPTIONS_BYTES, SOURCE_BLOCKS, bedSpawnOption, descentRespawnFact, knownLine, needOptions, netherReadiness, netherRouteOption, pearlHuntLine, pearlOptions, pearlSourceInView, pearlsWanted, pickaxeTier, portalAtHand, progressionGoal, textResources } from './need-sources.mjs';
+import { NETHER_OPTIONS_BYTES, SOURCE_BLOCKS, bedSpawnOption, descentRespawnFact, knownLine, needOptions, netherFoodFact, netherReadiness, netherRouteOption, pearlHuntLine, pearlOptions, pearlSourceInView, pearlsWanted, pickaxeTier, portalAtHand, progressionGoal, textResources } from './need-sources.mjs';
 import { VILLAGE_POI, headingOf, sightingKind } from './search-coverage.mjs';
 import { foodStockHandback, portalDeathMark, routeLine, skillFitsLine, woodStockHandback } from './skill-fits.mjs';
 import { KIT_ITEMS } from './end-readiness.mjs';
@@ -867,7 +867,8 @@ export class LiveTaskViews {
   const sleep = sleepLine(observation) ?? spawnLine(observation, state.known?.spawn ?? null);
   const casting = castingLine(observation, { goal: `${record.currentGoal} ${activity}` });
   const light = lightLine(observation), up = upLine(observation, state.openSky ?? null), tools = toolsLine(observation, { activity }), frame = frameLine(observation);
-  return { ...(hunt === null ? {} : { hunt }), ...(craft === null ? {} : { craft }), ...(casting === null ? {} : { casting }), ...(frame === null ? {} : { frame }), ...(known === null ? {} : { known }), ...(options === null ? {} : { options }), ...(mining === null ? {} : { mining }), ...(light === null ? {} : { light }), ...(up === null ? {} : { up }), ...(sleep === null ? {} : { sleep }), ...(tools === null ? {} : { tools }) };
+  const food = deadSample(observation) ? null : netherFoodFact({ observation, frames: state.known?.frames ?? [], position: memory.position });
+  return { ...(food === null ? {} : { food }), ...(hunt === null ? {} : { hunt }), ...(craft === null ? {} : { craft }), ...(casting === null ? {} : { casting }), ...(frame === null ? {} : { frame }), ...(known === null ? {} : { known }), ...(options === null ? {} : { options }), ...(mining === null ? {} : { mining }), ...(light === null ? {} : { light }), ...(up === null ? {} : { up }), ...(sleep === null ? {} : { sleep }), ...(tools === null ? {} : { tools }) };
  }
  /**
   * Pearl sources while pearls (or eyes) are an open plan need but not the first unfinished step's: in the Nether, or in

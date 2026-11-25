@@ -101,7 +101,7 @@ export function dependentChain(plan, id) {
  * ({ active: [ids], lastFired: text }) shown as-is; `annotate(intent, { contradicted, since, evidence })` lets a
  * shared provenance layer word validity. Neither may choose a replacement intent.
  */
-export function composeContinuityHeader({ goal, intent = null, evidence = null, since = null, progress = null, route = null, stepProgress = null, repeats = null, search = null, hunt = null, options = null, craft = null, known = null, mining = null, light = null, up = null, sleep = null, casting = null, frame = null, tools = null, results = [], running = null, effect = null, orders = null, guardInstalled = undefined, guardCoverage = null, guardThreatsNear = 0, guardThreatsTargeting = 0, annotate = null }) {
+export function composeContinuityHeader({ goal, intent = null, evidence = null, since = null, progress = null, route = null, stepProgress = null, repeats = null, search = null, food = null, hunt = null, options = null, craft = null, known = null, mining = null, light = null, up = null, sleep = null, casting = null, frame = null, tools = null, results = [], running = null, effect = null, orders = null, guardInstalled = undefined, guardCoverage = null, guardThreatsNear = 0, guardThreatsTargeting = 0, annotate = null }) {
 	// The event's own goal field carries the goal; the header starts at the intent.
 	if (typeof goal !== 'string' || goal.length === 0) return null;
 	const header = {};
@@ -139,6 +139,8 @@ export function composeContinuityHeader({ goal, intent = null, evidence = null, 
 	if (typeof stepProgress === 'string' && stepProgress.length) header.progress = stepProgress;
 	if (typeof repeats === 'string' && repeats.length) header.repeats = repeats;
 	if (typeof search === 'string' && search.length) header.search = search;
+	// No food held in the Nether while health cannot regrow: where food is, with the remembered portal out (need-sources netherFoodFact).
+	if (typeof food === 'string' && food.length) header.food = food;
 	// A near enderman (within walking height, no path check) while pearls are open, beside the plan line: a fact to weigh against travel, never an order.
 	if (typeof hunt === 'string' && hunt.length) header.hunt = hunt;
 	if (typeof craft === 'string' && craft.length) header.craft = craft;

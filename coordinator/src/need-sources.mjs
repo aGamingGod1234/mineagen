@@ -815,6 +815,25 @@ export function portalAtHand(observation) {
 	return frame?.lit === true || obsidian + framed >= needed;
 }
 
+/**
+ * In the Nether with no food held while health cannot regrow (hunger under 18, and hurt or hungry): where food is, with
+ * the lit portal remembered there as the way to the Overworld's animals. A measured game spent 13 min at 0.3-5 health
+ * and hunger 15-17 beside a fortress with no food and an empty healing.options; its lit Nether portal was remembered
+ * (frames) but named nowhere, and the body died there to a blaze. frames: plan-check known.frames. Facts only: the
+ * model weighs the trip against cover and hoglins.
+ */
+export function netherFoodFact({ observation = null, frames = [], position = null } = {}) {
+	const o = observation, items = o?.inventory?.items, food = o?.player?.foodLevel;
+	if (o?.world?.dimension !== 'minecraft:the_nether' || o.player?.dead === true || !Array.isArray(items)
+		|| o.continuity?.rememberedSections?.includes('inventory') || !Number.isFinite(food) || food >= 18 || !foodAdviceNeeded(o)) return null;
+	if (items.some((item) => item?.count > 0 && item.itemId !== 'minecraft:wheat' && /^minecraft:/.test(item.itemId ?? '') && FOOD.test(short(item.itemId)))) return null;
+	const at = position ?? (Number.isFinite(o.player?.x) && Number.isFinite(o.player?.z) ? o.player : null);
+	const lit = (frames ?? []).filter((f) => f?.dimension === 'minecraft:the_nether' && f.lit === true && [f.x, f.y, f.z].every(Number.isFinite));
+	const portal = at === null ? null : lit.sort((a, b) => Math.hypot(a.x - at.x, a.z - at.z) - Math.hypot(b.x - at.x, b.z - at.z))[0] ?? null;
+	const exit = portal ? `the Overworld's animals through the lit portal remembered ${where(at, portal)} @${portal.x},${portal.y},${portal.z}` : 'the Overworld\'s animals through a portal (no lit portal remembered in the Nether)';
+	return `none held; hunger ${food}/20 cannot regrow health (needs 18+), so damage taken here stays. Nether food: hoglins (crimson forests, hit hard), or ${exit}`;
+}
+
 export function bedSpawnOption(observation, target) {
 	const source = quickBedSource(observation);
 	if (source === null) return null;
