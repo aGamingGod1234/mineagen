@@ -1407,18 +1407,23 @@ public final class ServerFightUntilController implements ServerController {
 	 * and follow-through never picks one), and another player only with includePlayers when it hurt the body.
 	 */
 	private LivingEntity attackerInReach(ServerPlayer player) {
-		var range = player.getAttackRangeWith(player.getMainHandItem());
 		LivingEntity best = null;
 		double bestDistance = Double.MAX_VALUE;
 		for (LivingEntity hostile : player.level().getEntitiesOfClass(LivingEntity.class, player.getBoundingBox().inflate(4.0D),
 				e -> e != player && e.isAlive() && !e.isDeadOrDying() && (e instanceof Mob m && m.getTarget() == player
 						|| choices.includePlayers() && e instanceof ServerPlayer && player.getLastHurtByMob() == e))) {
-			if (!choices.reachTurn(hostile.getType() == mob) || !followable(hostile.getType() == mob, hostile instanceof net.minecraft.world.entity.monster.Creeper)) continue;
-			if (!range.isInRange(player, hostile.getBoundingBox(), 0.0D) || !ObservationVisibility.canSeeEntity(player, hostile) || !mayEngage(player, hostile)) continue;
+			if (!turnable(player, hostile)) continue;
 			double distance = player.distanceToSqr(hostile);
 			if (distance < bestDistance) { bestDistance = distance; best = hostile; }
 		}
 		return best;
+	}
+
+	/** {@link #attackerInReach}'s gates for one mob: the model's choices, protection, in sword reach and in view. */
+	private boolean turnable(ServerPlayer player, LivingEntity hostile) {
+		var range = player.getAttackRangeWith(player.getMainHandItem());
+		return choices.reachTurn(hostile.getType() == mob) && followable(hostile.getType() == mob, hostile instanceof net.minecraft.world.entity.monster.Creeper)
+				&& range.isInRange(player, hostile.getBoundingBox(), 0.0D) && ObservationVisibility.canSeeEntity(player, hostile) && mayEngage(player, hostile);
 	}
 
 	/**
@@ -1446,8 +1451,7 @@ public final class ServerFightUntilController implements ServerController {
 		boolean fresh = since >= 0 && since <= CombatPlanning.HIT_ANSWER_TICKS;
 		if (!fresh || currentInReach && RiskAssessment.hitWithin(player, current, CombatPlanning.TARGET_HITTING_TICKS)) return null;
 		if (!(hurtBy instanceof Mob) || hurtBy instanceof net.minecraft.world.entity.monster.Creeper) return null;
-		LivingEntity close = attackerInReach(player);
-		return close == hurtBy ? hurtBy : null;
+		return turnable(player, hurtBy) ? hurtBy : null;
 	}
 
 	private void engageMelee(ServerPlayer player, LivingEntity target, long elapsed, long now) {
