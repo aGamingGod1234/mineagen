@@ -31,6 +31,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.EntityType;
 import dev.agaminggod.mineagen.compat.McEntityTypes;
 import net.minecraft.world.entity.LivingEntity;
+import dev.agaminggod.mineagen.server.perception.RiskAssessment;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.monster.Monster;
@@ -560,8 +561,8 @@ public final class ServerFightUntilController implements ServerController {
 				melee = null;
 				firstTarget = current;
 				swordTurns++;
-				note("sword turned from " + BuiltInRegistries.ENTITY_TYPE.getKey(current.getType()) + " out of reach to "
-						+ BuiltInRegistries.ENTITY_TYPE.getKey(close.getType()) + " in sword reach");
+				note("sword turned from " + BuiltInRegistries.ENTITY_TYPE.getKey(current.getType()) + " to "
+						+ BuiltInRegistries.ENTITY_TYPE.getKey(close.getType()) + " hitting from sword reach");
 				current = null;
 				engageMelee(player, close, elapsed, nowEpochMs);
 				return TickResult.running(progress(player));
@@ -1426,10 +1427,27 @@ public final class ServerFightUntilController implements ServerController {
 	 * continueWithAttackers, protection, no creepers), else null.
 	 */
 	private LivingEntity swordTurn(ServerPlayer player) {
-		if (current.getType() != McEntityTypes.BLAZE) return null;
-		if (player.getAttackRangeWith(player.getMainHandItem()).isInRange(player, current.getBoundingBox(), 0.0D)) return null;
+		boolean currentInReach = player.getAttackRangeWith(player.getMainHandItem()).isInRange(player, current.getBoundingBox(), 0.0D);
+		if (current.getType() != McEntityTypes.BLAZE) return hitTurn(player, currentInReach);
+		if (currentInReach) return null;
 		LivingEntity close = attackerInReach(player);
 		return close == current ? null : close;
+	}
+
+	/**
+	 * Any other sword fight: the mob that hurt the body from sword reach within {@link CombatPlanning#HIT_ANSWER_TICKS}, while
+	 * the current target is out of reach or no longer hitting ({@link CombatPlanning#answerHit}), under the same gates as
+	 * {@link #attackerInReach}; else null.
+	 */
+	private LivingEntity hitTurn(ServerPlayer player, boolean currentInReach) {
+		LivingEntity hurtBy = player.getLastHurtByMob();
+		if (hurtBy == null || hurtBy == current || !hurtBy.isAlive()) return null;
+		int since = player.tickCount - player.getLastHurtByMobTimestamp();
+		boolean fresh = since >= 0 && since <= CombatPlanning.HIT_ANSWER_TICKS;
+		if (!fresh || currentInReach && RiskAssessment.hitWithin(player, current, CombatPlanning.TARGET_HITTING_TICKS)) return null;
+		if (!(hurtBy instanceof Mob) || hurtBy instanceof net.minecraft.world.entity.monster.Creeper) return null;
+		LivingEntity close = attackerInReach(player);
+		return close == hurtBy ? hurtBy : null;
 	}
 
 	private void engageMelee(ServerPlayer player, LivingEntity target, long elapsed, long now) {

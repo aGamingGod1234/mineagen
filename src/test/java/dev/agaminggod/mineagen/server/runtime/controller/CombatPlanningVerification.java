@@ -21,6 +21,7 @@ public final class CombatPlanningVerification {
 		verifyFleeSteering();
 		verifyDiagonalCornerHazards();
 		verifyFollowThrough();
+		verifyAnswerHit();
 		verifyMultiThreatFlee();
 		verifyWater();
 		return assertions;
@@ -196,6 +197,16 @@ public final class CombatPlanningVerification {
 		check(CombatPlanning.nextAttacker(List.of(new CombatPlanning.AttackerCandidate(CombatPlanning.THREAT_RANGE + 1.0D, true, false, false))) < 0,
 				"an attacker beyond the threat range is left for the model");
 		check(CombatPlanning.nextAttacker(List.of()) < 0, "with no attackers left the fight ends");
+	}
+
+	private static void verifyAnswerHit() {
+		check(CombatPlanning.answerHit(true, true, true, false, false, false), "a fresh hit from sword reach while the target is out of reach turns the fight");
+		check(CombatPlanning.answerHit(true, true, true, false, true, false), "a fresh hit from reach while the target in reach is not hitting turns the fight");
+		check(!CombatPlanning.answerHit(true, true, true, false, true, true), "the target in reach and still hitting keeps the fight on it");
+		check(!CombatPlanning.answerHit(false, true, true, false, false, false), "an old hit does not turn the fight");
+		check(!CombatPlanning.answerHit(true, false, true, false, false, false), "an attacker out of reach is never chased (a shooter, a mob across a drop)");
+		check(!CombatPlanning.answerHit(true, true, false, false, false, false), "an attacker out of view is not swung at");
+		check(!CombatPlanning.answerHit(true, true, true, true, false, false), "a creeper or a player is left to the model or a back-off");
 	}
 
 	private static void verifyMultiThreatFlee() {

@@ -177,6 +177,8 @@ public final class ServerFightController implements ServerController {
 	private boolean dragonSat;
 	private int policyCountdown = CombatPlanning.POLICY_INTERVAL_TICKS;
 	private int policySwitches;
+	/** Turns to a mob that hit the body from sword reach ({@link #answerHit}). */
+	private int answeredHits;
 	private boolean handoffChecked;
 	private final long timeoutMs;
 	private final Map<String, Integer> kills = new LinkedHashMap<>();
@@ -419,6 +421,7 @@ public final class ServerFightController implements ServerController {
 		shieldChecked = true;
 		if (!engineTargets) applyTargetPolicy(player);
 		if (blazeFight && !engineTargets) strikeAttackerInReach(player);
+		else if (!engineTargets) answerHit(player);
 		ticksOnTarget++;
 		if (strike instanceof net.minecraft.world.entity.boss.enderdragon.EnderDragonPart dragonPart) {
 			var phase = dragonPart.parentMob.getPhaseManager().getCurrentPhase();
@@ -1142,6 +1145,29 @@ public final class ServerFightController implements ServerController {
 		clock.switched(player.distanceTo(strike));
 	}
 
+	/**
+	 * Every tick: a mob this fight is not on hurt the body from inside sword reach within {@link CombatPlanning#HIT_ANSWER_TICKS}
+	 * ({@link CombatPlanning#answerHit}): the fight turns to it at once and names it. Arrows credit their shooter, which
+	 * stands out of reach, so a shot never pulls the fight toward a shooter.
+	 */
+	private void answerHit(ServerPlayer player) {
+		if (strike != target) return;
+		LivingEntity hurtBy = player.getLastHurtByMob();
+		if (hurtBy == null || hurtBy == target || !hurtBy.isAlive()) return;
+		int since = player.tickCount - player.getLastHurtByMobTimestamp();
+		var range = player.getAttackRangeWith(player.getMainHandItem());
+		boolean excluded = !(hurtBy instanceof net.minecraft.world.entity.Mob) || hurtBy instanceof Creeper
+				|| !ThreatPerception.isActiveThreat(player, hurtBy);
+		if (!CombatPlanning.answerHit(since >= 0 && since <= CombatPlanning.HIT_ANSWER_TICKS,
+				range.isInRange(player, hurtBy.getBoundingBox(), 0.0D),
+				dev.agaminggod.mineagen.server.perception.ObservationVisibility.canSeeEntity(player, hurtBy), excluded,
+				range.isInRange(player, target.getBoundingBox(), 0.0D),
+				RiskAssessment.hitWithin(player, target, CombatPlanning.TARGET_HITTING_TICKS))) return;
+		answeredHits++;
+		switchTo(hurtBy, "hit the body from sword reach " + since + " tick(s) before");
+		clock.switched(player.distanceTo(strike));
+	}
+
 	private List<CombatPlanning.PolicyCandidate> policyCandidates(ServerPlayer player, List<LivingEntity> hostiles) {
 		List<CombatPlanning.PolicyCandidate> candidates = new ArrayList<>(hostiles.size());
 		for (LivingEntity hostile : hostiles) {
@@ -1380,6 +1406,7 @@ public final class ServerFightController implements ServerController {
 	/** Sensed hostiles still around (creepers included), nearest first, so the model can choose what is next. */
 	private String remainingThreats(ServerPlayer player) {
 		String switches = policySwitches == 0 ? "" : "; " + targetPolicy.wireName() + " switched target " + policySwitches + "x";
+		if (answeredHits > 0) switches += "; turned to a mob hitting from sword reach " + answeredHits + "x";
 		List<LivingEntity> remaining = new ArrayList<>();
 		// Reported to the model even when they are not switch candidates: it can still choose to fight them.
 		for (LivingEntity hostile : player.level().getEntitiesOfClass(LivingEntity.class,
