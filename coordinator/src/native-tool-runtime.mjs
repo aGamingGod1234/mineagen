@@ -2522,15 +2522,21 @@ export class NativeToolRuntime {
 	 * PORTAL_KIT_CONFIRM_MS goes in short. Only walks (travel_to, move_to, navigate_to) to within 3 blocks of a portal.
 	 */
 	#portalKitGate(record, tool) {
-		if (this.#portalKit === null || !['action', 'start_action', 'replace_action'].includes(tool?.kind) || !['travel_to', 'move_to', 'navigate_to'].includes(tool.actionType)) return;
-		const target = tool.arguments ?? {};
-		if (![target.x, target.z].every(Number.isFinite)) return;
+		if (this.#portalKit === null) return;
+		const walks = tool?.kind === 'sequence' && Array.isArray(tool.actions) ? tool.actions
+			: ['action', 'start_action', 'replace_action'].includes(tool?.kind) ? [tool] : [];
+		const moves = walks.filter(a => ['travel_to', 'move_to', 'navigate_to'].includes(a?.actionType));
+		if (moves.length === 0) return;
 		let gate = null;
 		try { gate = this.#portalKit(record); } catch { return; }
 		if (typeof gate?.line !== 'string' || !Array.isArray(gate.portals)) return;
-		const near = gate.portals.some(p => [p?.x, p?.z].every(Number.isFinite) && Math.abs(p.x - target.x) <= 3 && Math.abs(p.z - target.z) <= 3
-			&& (!Number.isFinite(target.y) || !Number.isFinite(p.y) || Math.abs(p.y - target.y) <= 4));
-		if (!near) return;
+		// A walk retraced into the Nether goes through the portal wherever its target is (fresh games: 2 of the entries).
+		const intoPortal = ({ actionType, arguments: target = {} }) => (actionType === 'travel_to' && target.dimension === 'minecraft:the_nether')
+			|| ([target.x, target.z].every(Number.isFinite) && gate.portals.some(p => [p?.x, p?.z].every(Number.isFinite) && Math.abs(p.x - target.x) <= 3 && Math.abs(p.z - target.z) <= 3
+				&& (!Number.isFinite(target.y) || !Number.isFinite(p.y) || Math.abs(p.y - target.y) <= 4)));
+		const move = moves.find(intoPortal);
+		if (!move) return;
+		tool = move;
 		const earlier = this.#portalKitRefusals.get(record.agentId);
 		if (Number.isFinite(earlier) && Date.now() - earlier <= PORTAL_KIT_CONFIRM_MS) {
 			this.#portalKitRefusals.delete(record.agentId);

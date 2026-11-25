@@ -469,13 +469,15 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 	function line(next, why) {
 		const text = `usual next step: ${foodNote}${next} (${why})`;
 		if (Buffer.byteLength(text) <= ROUTE_BYTES) return text;
+		// A clipped kit line keeps its "; kit before <trip>)" tag: the prep clock and the portal kit check read it.
+		const tail = text.match(/; kit before [^)]+\)$/)?.[0] ?? '';
 		let clipped = '', used = 0;
-		for (const char of text) {
+		for (const char of text.slice(0, text.length - tail.length)) {
 			const bytes = Buffer.byteLength(char);
-			if (used + bytes > ROUTE_BYTES - 3) break;
+			if (used + bytes > ROUTE_BYTES - 3 - Buffer.byteLength(tail)) break;
 			clipped += char; used += bytes;
 		}
-		return `${clipped}…`;
+		return `${clipped}…${tail}`;
 	}
 	const room = packRoom(items);
 	if (room !== null) return line(...room);
