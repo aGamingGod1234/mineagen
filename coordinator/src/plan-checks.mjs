@@ -107,6 +107,18 @@ export function rememberPlanFacts(known, observation) {
 }
 
 /**
+ * A walk that stopped on sight of a spawner (travel_to stopWhenSeen) reports it only in its result: the body saw it, so
+ * the plan keeps it even when no observation carried the block before the next fight began.
+ */
+export function rememberSeenResult(known, receipt, dimension) {
+ if (receipt?.state !== 'SUCCEEDED' || receipt.reasonCode !== 'TARGET_SEEN' || typeof receipt.message !== 'string' || typeof dimension !== 'string') return false;
+ const m = /^(minecraft:[a-z0-9_]+) seen at (-?\d+),(-?\d+),(-?\d+)/.exec(receipt.message);
+ if (!m || !SEEN_BLOCKS.has(m[1]) || known.structuresSeen.some(v => v.id === m[1] && v.dimension === dimension)) return false;
+ known.structuresSeen.push({ id: m[1], x: Number(m[2]), z: Number(m[4]), dimension });
+ return true;
+}
+
+/**
  * Where the next death respawns, as the player knows it: the "Respawn point set" message after using a bed (by day
  * too) or a charged anchor, the death screen's respawn target, and the "no home bed" message when that target was lost.
  * kind 'set' carries the cell; kind 'world' is the world spawn. Null until one of these was seen.
