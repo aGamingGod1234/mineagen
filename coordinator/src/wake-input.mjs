@@ -350,7 +350,10 @@ export function buildNativeEventInput(record, { event, trigger, programId, statu
 		const entered = contexts.map((row) => row.entered).join(', ');
 		// From-scratch games 22 Nov: 10 of 14 deaths were unarmoured bodies out on the surface at night; the wake listed the
 		// dangers but never the cover a player takes.
-		const cover = contexts.some((row) => row.lasts === 'night') && nightFor(observation) === 'night' ? ` ${NIGHT_COVER_LINE}` : '';
+		// Night is when endermen walk the surface: one within 16 m with a boat trap on offer (the hunt line) is a pearl worth
+		// the seconds before cover, and the cover line alone sent the body digging past it (s1 boat-trap A/B, 26 Nov).
+		const enderNear = (visibleObservation(observation).entities ?? []).some((row) => row?.type === 'minecraft:enderman' && Number.isFinite(row.distance) && row.distance <= 16);
+		const cover = contexts.some((row) => row.lasts === 'night') && nightFor(observation) === 'night' ? ` ${NIGHT_COVER_LINE}${enderNear ? ` ${NIGHT_ENDERMAN_LINE}` : ''}` : '';
 		instruction = instruction === GENERIC_UPDATE_INSTRUCTION || instruction === GENERIC_FACTS_INSTRUCTION
 			? `Live Minecraft event: entered ${entered}. contexts lists each danger there and which armed reflex senses it.${cover}${status?.decision ? ' Answer program decisions.' : ''}`
 			: `${instruction} Entered ${entered}: contexts lists its dangers and armed reflexes.${cover}`;
@@ -510,6 +513,7 @@ function deathInstruction(event, observation, taskMemory, name) {
 	return `Died: ${cause}. While dead only respawn acts. Respawn keeps the goal; then choose dropped-item recovery or re-kit from fresh inventory.${night}${respawnSurroundings(observation, taskMemory)}`;
 }
 const NIGHT_COVER_LINE = 'With no armour a player spends the night under cover: rest (bed, walls or a dug hole) until dawn, or dig down and work underground.';
+const NIGHT_ENDERMAN_LINE = 'An enderman within 16 m is the exception when the hunt line offers a boat trap: trap and kill it first (under a minute), then take cover.';
 const RESPAWN_NIGHT_LINE = 'It is night: after respawn, rest first (with no blocks it digs a hole), then recover or re-kit at dawn.';
 
 // Hostiles seen now around where the next respawn lands: the set respawn, else the last respawn in this dimension (the

@@ -103,6 +103,12 @@ test('a context wake leads with the entry and lists dangers; a danger wake names
 	const armoured = { ...observation, player: { ...observation.player, armor: 15 } };
 	const ironLine = buildNativeEventInput(record, { event: 'observation', trigger: 'context_entry', observation: armoured, contexts, uncovered: [] }).split('\n')[0];
 	assert.doesNotMatch(ironLine, /under cover/, 'full iron takes the night');
+	assert.doesNotMatch(line, /enderman within 16 m/, 'no enderman near: cover alone');
+	const ender = { ...observation, entities: [{ type: 'minecraft:enderman', distance: 10 }] };
+	const enderLine = buildNativeEventInput(record, { event: 'observation', trigger: 'context_entry', observation: ender, contexts, uncovered: [] }).split('\n')[0];
+	assert.match(enderLine, /under cover.*An enderman within 16 m is the exception when the hunt line offers a boat trap/, 'a near enderman: trap it before cover');
+	const far = { ...observation, entities: [{ type: 'minecraft:enderman', distance: 30 }] };
+	assert.doesNotMatch(buildNativeEventInput(record, { event: 'observation', trigger: 'context_entry', observation: far, contexts, uncovered: [] }).split('\n')[0], /enderman within 16 m/);
 	assert.deepEqual(json.contexts, contexts);
 	assert.equal(json.noRuleFor, undefined, 'not a danger wake');
 	const danger = JSON.parse(buildNativeEventInput(record, { event: 'observation', trigger: 'damage', observation, uncovered: ['melee hits (spider, zombie)'] }).split('\n')[1]);
