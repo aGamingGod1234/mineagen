@@ -10,16 +10,21 @@
 //   ledge   a 3-wide nether-brick bridge 6 above a lava sea; the mob DIST blocks along it.
 // Kits (KITS): iron  iron sword, shield in the off hand, full iron armour, cobblestone 64, cooked beef 8.
 //              none  the same without armour.
+//              stone  what real games met their deaths with: a stone sword, a shield, 16 cobblestone, no armour, no food.
 // Stand-ins (STANDINS): fight  the model's call: fight_target on the mob (pursue, shield, flee at 6, 15 s) until it dies,
 //                              the body dies or the window ends; nothing else.
 //                       idle   no model call at all: the default reflexes alone, as between turns or while it thinks.
+//                       walk   the model busy elsewhere: navigate_to the far end of the place and back, again and again,
+//                              as most real fight deaths came under a travel or a walk.
+//                       flee   the model's other answer: flee_from the nearest of the mobs (14 blocks, 8 s), again and again.
 // Every fight arms the default reflexes as the coordinator arms them (ReflexBook), with night set so drowned and the rest
 // hunt the body, natural spawning off, the mob persistent and, for the neutral ones (piglin, zombified piglin), angered
 // at the body by a 0.5 hit from it. A fight ends when the mob is dead, the body is dead, or WINDOW_S game seconds pass.
 // Per fight: died, damage taken, mob killed, mob health lost, seconds, fell (feet more than 2 below the start), lowest
 // feet y. A fight passes when the body survives it. result.json holds every fight; fight-set.json adds totals per mob,
 // place, kit and stand-in.
-// Env: ARENA_JAR, MOBS (default all ten), PLACES (open,tight,ledge), KITS (iron,none), STANDINS (fight,idle),
+// Each fight also keeps the reflex events seen while it ran and the body's lowest health (from observations once a second).
+// Env: ARENA_JAR, MOBS (default all ten), PLACES (open,tight,ledge), KITS (iron,none,stone), STANDINS (fight,idle,walk,flee),
 // REPEATS (default 1), DIST (default 8), WINDOW_S (default 40), GROUP, START_HEALTH (default 20). Launch under slot.sh live with
 // ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME set.
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -66,8 +71,8 @@ const STANDINS = list('STANDINS', 'fight,idle');
 const REPEATS = Number(process.env.REPEATS ?? 1), DIST = Number(process.env.DIST ?? 8), WINDOW_S = Number(process.env.WINDOW_S ?? 40);
 for (const m of MOB_LIST) if (!MOBS[m]) { console.error(`unknown mob ${m}`); process.exit(2); }
 for (const p of PLACES) if (!['open', 'tight', 'ledge'].includes(p)) { console.error(`unknown place ${p}`); process.exit(2); }
-for (const k of KITS) if (!['iron', 'none'].includes(k)) { console.error(`unknown kit ${k}`); process.exit(2); }
-for (const t of STANDINS) if (!['fight', 'idle'].includes(t)) { console.error(`unknown stand-in ${t}`); process.exit(2); }
+for (const k of KITS) if (!['iron', 'none', 'stone'].includes(k)) { console.error(`unknown kit ${k}`); process.exit(2); }
+for (const t of STANDINS) if (!['fight', 'idle', 'walk', 'flee'].includes(t)) { console.error(`unknown stand-in ${t}`); process.exit(2); }
 const planned = MOB_LIST.length * PLACES.length * KITS.length * STANDINS.length * REPEATS;
 
 const hash = createHash('sha256'); for await (const chunk of createReadStream(jar)) hash.update(chunk);
@@ -100,12 +105,16 @@ async function build(place) {
 	}
 }
 
+const weapon = name => name === 'stone' ? 'stone_sword' : 'iron_sword';
+// The far end of each place a walk heads for, and its start: the walk stand-in goes there and back past the mobs.
+const WALK_END = { open: X0 + 20, tight: X0 + 20, ledge: X0 + 20 };
+
 async function kit(name) {
 	await s.command('clear Probe'); await s.command('effect clear Probe');
 	await s.command('effect give Probe minecraft:instant_health 1 4 true'); await s.command('effect give Probe minecraft:saturation 1 20 true');
-	await s.command('item replace entity Probe hotbar.0 with minecraft:iron_sword');
-	await s.command('item replace entity Probe hotbar.1 with minecraft:cobblestone 64');
-	await s.command('item replace entity Probe hotbar.2 with minecraft:cooked_beef 8');
+	await s.command(`item replace entity Probe hotbar.0 with minecraft:${weapon(name)}`);
+	await s.command(`item replace entity Probe hotbar.1 with minecraft:cobblestone ${name === 'stone' ? 16 : 64}`);
+	if (name !== 'stone') await s.command('item replace entity Probe hotbar.2 with minecraft:cooked_beef 8');
 	await s.command('item replace entity Probe weapon.offhand with minecraft:shield');
 	if (name === 'iron') for (const [slot, item] of [['head', 'helmet'], ['chest', 'chestplate'], ['legs', 'leggings'], ['feet', 'boots']]) {
 		await s.command(`item replace entity Probe armor.${slot} with minecraft:iron_${item}`);
@@ -180,6 +189,25 @@ try {
 			await s.fastRate();
 			const t0 = s.clock.now();
 			const sampler = setInterval(() => { feetY().then(y => { if (y !== null && (lowest === null || y < lowest)) lowest = y; }).catch(() => {}); }, 250);
+			// Once a second: ask for an observation (not awaited: a dead body sends none) and keep the reflex events and
+			// health the last one carried.
+			const seenEvents = new Set();
+			row.reflex = []; row.minHealth = null;
+			const watch = () => {
+				const o = s.observation;
+				if (o) {
+					const health = o.player?.health;
+					if (Number.isFinite(health) && (row.minHealth === null || health < row.minHealth)) row.minHealth = health;
+					for (const ev of o.reflexes?.events ?? []) {
+						const key = `${ev.seq}:${ev.id}:${ev.outcome}`;
+						if (seenEvents.has(key)) continue;
+						seenEvents.add(key);
+						if (row.reflex.length < 60) row.reflex.push({ t: Math.round((s.clock.now() - t0) / 100) / 10, id: ev.id, outcome: ev.outcome, ms: ev.ms, detail: String(ev.detail ?? '').slice(0, 240) });
+					}
+				}
+				s.bridge.send('request_observation', s.record.agentId, { goalRevision: s.record.goalRevision }).catch(() => {});
+			};
+			const watcher = setInterval(watch, 1000);
 			const over = async () => {
 				const living = await alive();
 				if (living === null) throw new Error('could not count the fight\'s mobs');
@@ -198,14 +226,29 @@ try {
 						// The nearest of the fight's mobs, as a model names the one closing in.
 						const target = (o.entities ?? []).filter(x => x.type === `minecraft:${mob}`).sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
 						if (!target) { await s.clock.sleep(500); continue; }
-						await s.act('select_item', { itemId: 'minecraft:iron_sword' }).catch(() => {});
+						await s.act('select_item', { itemId: `minecraft:${weapon(kitName)}` }).catch(() => {});
 						const left = Math.max(2000, Math.min(15000, WINDOW_S * 1000 - (s.clock.now() - t0)));
 						const r = await s.act('fight_target', { targetId: target.uuid, pursue: true, shield: true, fleeAtHealth: 6, collect: false, timeoutMs: left }, left + 15000).catch(error => ({ state: 'ERROR', message: String(error?.message ?? error) }));
+						row.calls.push({ state: r.state, reasonCode: r.reasonCode, message: String(r.message ?? '').slice(0, 300) });
+					} else if (standIn === 'walk') {
+						// There and back along the place, past the mobs, as a travel that does not stop for them.
+						const o = await s.observe().catch(() => null);
+						if (!o) { await s.clock.sleep(500); continue; }
+						const x = (o.player?.x ?? X0) < (X0 + WALK_END[place]) / 2 ? WALK_END[place] : X0;
+						const left = Math.max(2000, Math.min(12000, WINDOW_S * 1000 - (s.clock.now() - t0)));
+						const r = await s.act('navigate_to', { x: x + 0.5, y: FEET, z: Z0 + 0.5, tolerance: 1, sprint: false, timeoutMs: left }, left + 15000).catch(error => ({ state: 'ERROR', message: String(error?.message ?? error) }));
+						row.calls.push({ state: r.state, reasonCode: r.reasonCode, message: String(r.message ?? '').slice(0, 300) });
+					} else if (standIn === 'flee') {
+						const o = await s.observe().catch(() => null);
+						if (!o) { await s.clock.sleep(500); continue; }
+						const target = (o.entities ?? []).filter(x => x.type === `minecraft:${mob}`).sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
+						if (!target) { await s.clock.sleep(500); continue; }
+						const r = await s.act('flee_from', { targetId: target.uuid, distance: 14, timeoutMs: 8000 }, 23000).catch(error => ({ state: 'ERROR', message: String(error?.message ?? error) }));
 						row.calls.push({ state: r.state, reasonCode: r.reasonCode, message: String(r.message ?? '').slice(0, 300) });
 					} else await s.clock.sleep(1000);
 				}
 				row.ended = ended;
-			} finally { clearInterval(sampler); }
+			} finally { clearInterval(sampler); clearInterval(watcher); watch(); }
 			row.seconds = Math.round((s.clock.now() - t0) / 1000);
 			await s.normalRate();
 			const left = await alive();
