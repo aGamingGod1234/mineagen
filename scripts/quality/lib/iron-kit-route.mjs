@@ -9,6 +9,15 @@ export function kitHeld(o) {
 		&& count(/^minecraft:(bucket|water_bucket|lava_bucket)$/) >= 2 && count(/^minecraft:flint_and_steel$/) > 0;
 }
 
+/** The kit taken through a portal (skill-fits.mjs kitBefore): shield in the off hand, chestplate and boots worn, 4+ food. */
+export function entryKit(o) {
+	const items = (o?.inventory?.items ?? []).filter(i => i?.count > 0);
+	const food = items.filter(i => /^minecraft:(cooked_[a-z]+|bread|beef|porkchop|mutton|chicken|rabbit|cod|salmon|apple|baked_potato|carrot|potato|sweet_berries|golden_carrot)$/.test(i.itemId ?? '')).reduce((n, i) => n + i.count, 0);
+	const short = [items.some(i => i.slot === 'offhand' && i.itemId === 'minecraft:shield') ? null : 'shield', items.some(i => i.slot === 'chest') ? null : 'chest',
+		items.some(i => i.slot === 'feet') ? null : 'feet', food >= 4 ? null : 'food'].filter(Boolean);
+	return { kitted: short.length === 0, short, food };
+}
+
 /** Time in minutes when a full kit is seen within the lane's budget. */
 export function kitMinutes(o, elapsedMs, budgetMs) {
 	return elapsedMs <= budgetMs && kitHeld(o) ? Math.round(elapsedMs / 600) / 100 : null;
@@ -42,6 +51,9 @@ export function routeCall(line) {
 	const text = String(line ?? '').replace(/^usual next step:\s*/, '').replace(/\s*\([^()]*\)\s*$/, '');
 	const restock = /low hunger\/health, food \d+ held: obtain ([a-z_]+)/.exec(text);
 	if (restock) return { kind: 'obtain', item: restock[1], count: null, restock: true };
+	// "drop_item slot:N count:C, then ...": the first stack the pack-room step names.
+	const drop = /^drop_item slot:(\d+) count:(\d+)/.exec(text);
+	if (drop) return { kind: 'drop', slot: Number(drop[1]), count: Number(drop[2]) };
 	const equip = /^equip_item ([a-z_:]+)(?: to (offhand|head|chest|legs|feet))?/.exec(text);
 	if (equip) { const item = equip[1].replace(/^minecraft:/, ''); return { kind: 'equip', item, slot: equip[2] ?? (item === 'shield' ? 'offhand' : null) }; }
 	if (/^look for nearby cows/.test(text)) return { kind: 'find_animal' };
