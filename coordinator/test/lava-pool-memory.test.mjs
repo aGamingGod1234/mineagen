@@ -67,17 +67,24 @@ test('pool cells cast into the frame stop counting as lava once seen as obsidian
 	rememberPlanFacts(known, sample({ x: 372.5, y: -56, z: 513.5 }, { blocks: pool.map(c => lava(...c)) }));
 	assert.equal(sources(known), 7);
 	const near = sample({ x: 373.5, y: -54, z: 514.5 });
-	assert.match(route(near, known), /^usual next step: build nether_portal beside the lava pool at 373,-56,513 \(/);
+	assert.match(route(near, known), /^usual next step: build nether_portal beside the lava pool at 373,-56,513, 2 blocks away \(/);
 	// The frame's bottom row was cast from the cells under it, and one flowing remnant is left.
 	rememberPlanFacts(known, sample({ x: 375.5, y: -55, z: 511.5 }, { blocks: [block('obsidian', 372, -56, 513), block('obsidian', 373, -56, 513), lava(370, -55, 512, '3')] }));
 	assert.equal(sources(known), 4);
 	assert.ok(!known.lavaPools[0].cells.includes('372,-56,513'));
-	assert.match(route(near, known), /beside the lava pool at 369,-55,513 \(/);
+	assert.match(route(near, known), /beside the lava pool at 369,-55,513, 4 blocks away \(/);
 	// Every cell gone: the pool is dropped and the route goes back to finding lava.
 	rememberPlanFacts(known, sample({ x: 375.5, y: -55, z: 511.5 }, { blocks: [[368, -55, 512], [369, -55, 512], [368, -55, 513], [369, -55, 513]].map(c => block('cobblestone', ...c)) }));
 	assert.deepEqual(known.lavaPools, []);
 	assert.equal(evaluatePlanCheck('lava:1', near, known).ok, false);
 	assert.match(route(near, known), /^usual next step: find block minecraft:lava, then build nether_portal beside the pool/);
+});
+
+test('a pool within the build verb\'s 64 blocks is built beside; one past it is a trip or a nearer pool', () => {
+	const known = emptyKnown();
+	rememberPlanFacts(known, sample({ x: 0.5, y: -50, z: 0.5 }, { blocks: [lava(40, -52, 3)] }));
+	assert.match(route(sample({ x: 0.5, y: -50, z: 0.5 }), known), /^usual next step: build nether_portal beside the lava pool at 40,-52,3, 40 blocks away \(casts the frame/);
+	assert.match(route(sample({ x: -40.5, y: -50, z: 0.5 }), known), /^usual next step: find block minecraft:lava nearer than the pool 81 blocks away at 40,-52,3 \(or go there\)/);
 });
 
 test('a result that saw lava, another action, or a dead sample forgets nothing', () => {
@@ -86,6 +93,8 @@ test('a result that saw lava, another action, or a dead sample forgets nothing',
 	for (const lastResult of [
 		{ actionId: 'a', actionType: 'cast_obsidian', reasonCode: 'CAST_INCOMPLETE', message: 'cast 4 of 10; lava sources seen within 16: 2; carried water_bucket 1, lava_bucket 0, bucket 1' },
 		{ actionId: 'b', actionType: 'travel_to', reasonCode: 'ARRIVED', message: 'Arrived within 1.0 blocks of the target' },
+		// A cast stopped early reports the terrain memory as it stands, without the full look around.
+		{ actionId: 'b2', actionType: 'cast_obsidian', reasonCode: 'HOSTILE_NEAR', message: 'Stopped: minecraft:zombie 3.1 blocks away; lava sources seen within 16: 0; carried water_bucket 1, lava_bucket 0, bucket 1' },
 		{ actionId: 'c', actionType: 'cast_obsidian', reasonCode: 'NO_LAVA_IN_REACH', message: 'No lava source seen within 16 blocks', present: false },
 	]) {
 		const known = fresh();

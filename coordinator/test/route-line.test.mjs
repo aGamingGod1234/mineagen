@@ -72,7 +72,7 @@ test('the route walks the usual Overworld order from nothing to a lit portal', (
 	const kit = [...bare, ...ARMOUR];
 	assert.match(route([...kit, ...COOKED]), /^usual next step: find block minecraft:lava, then build nether_portal beside the pool \(casts the frame with your buckets, lights it\) \(water bucket held, plain blocks 0\/13, lava pools seen 0\)$/);
 	assert.match(route([...kit, ['cobblestone', 16], ...COOKED], {}, { ...emptyKnown(), lavaPools: [{ dimension: 'minecraft:overworld', x: 4, y: 60, z: 4 }] }),
-		/^usual next step: build nether_portal beside the lava pool at 4,60,4 \(casts the frame with your buckets and lights it\) \(water bucket held, plain blocks 16\/13, lava pools seen 1\)$/);
+		/^usual next step: build nether_portal beside the lava pool at 4,60,4, 7 blocks away \(casts the frame with your buckets and lights it\) \(water bucket held, plain blocks 16\/13, lava pools seen 1\)$/);
 	// Without water the step names the verb that fills a bucket (gate games asked obtain for water_bucket and were refused).
 	assert.match(route([['iron_pickaxe', 1], ['bucket', 2], ['flint_and_steel', 1], SHIELD, ...ARMOUR, ...COOKED]), /^usual next step: obtain water_bucket, then find block minecraft:lava and build nether_portal beside it \(plain blocks 0\/13, lava pools seen 0\)$/);
 	assert.match(route([['iron_pickaxe', 1], ['bucket', 2], ['flint_and_steel', 1], SHIELD, ...ARMOUR, ...COOKED], {}, { ...emptyKnown(), lavaPools: [{ dimension: 'minecraft:overworld', x: 4, y: -50, z: 4 }] }),

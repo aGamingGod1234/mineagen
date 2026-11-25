@@ -11,6 +11,8 @@ export const SKILL_FITS_BYTES = 240;
 const FIGHT_RANGE = 24;
 const BARTER_RANGE = 32;
 const LAVA_RANGE = 16;
+// build nether_portal casts at a pool seen within this many blocks of the site (ServerBuildController CAST_LAVA_RANGE).
+const BUILD_LAVA_RANGE = 64;
 const MELEE = /^minecraft:(wooden|golden|stone|copper|iron|diamond|netherite)_(sword|axe)$/;
 const GOLD_ARMOUR = /^minecraft:golden_(helmet|chestplate|leggings|boots)$/;
 const WORN = new Set(['head', 'chest', 'legs', 'feet']);
@@ -274,10 +276,10 @@ const ROUTE = [
 		if (f.count(/^minecraft:obsidian$/) >= 10) return ['build nether_portal', `${f.count(/^minecraft:obsidian$/)} obsidian held`];
 		// obtain fills a carried bucket at the nearest water; gate games that read "fill a bucket with water" asked obtain for
 		// water_bucket (then refused) or climbed to the surface for it.
-		// A remembered pool far behind is a trip, not a cast: say where it is so a nearer pool can win.
-		const pool = f.pool, near = pool && pool.d <= LAVA_RANGE;
+		// A remembered pool beyond the build verb's reach is a trip, not a cast: say where it is so a nearer pool can win.
+		const pool = f.pool, near = pool && pool.d <= BUILD_LAVA_RANGE;
 		const target = !pool ? 'find block minecraft:lava and build nether_portal beside it'
-			: near ? `build nether_portal beside the lava pool at ${pool.at}`
+			: near ? `build nether_portal beside the lava pool at ${pool.at}, ${pool.d} blocks away`
 			: `find block minecraft:lava nearer than the pool ${pool.d} blocks away at ${pool.at} (or go there), then build nether_portal beside it`;
 		if (!f.count(/^minecraft:water_bucket$/)) return [`obtain water_bucket, then ${target}`, kit];
 		if (!pool) return ['find block minecraft:lava, then build nether_portal beside the pool (casts the frame with your buckets, lights it)', `water bucket held, ${kit}`];
