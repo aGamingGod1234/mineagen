@@ -125,3 +125,19 @@ test('a new bed spawn replaces the save point\'s old bed: one bed, one spawn', (
 	assert.deepEqual(checkpoint.bedSpawn, { dimension: 'minecraft:overworld', position: [323, -28, 2553] });
 	assert.equal(checkpoint.notes.filter(n => n.startsWith('Respawn point: a red bed at ')).length, 1);
 });
+
+test('a save point holding 14 eyes and the granted Nether visit is routed to the stronghold, not to a new Nether portal', async () => {
+	const { routeLine } = await import('../src/skill-fits.mjs');
+	const { evaluatePlanCheck, emptyKnown } = await import('../src/plan-checks.mjs');
+	const { scenarios, item } = await import('./fixtures/progress/scenarios.mjs');
+	const route = advancements => {
+		const o = structuredClone(scenarios[0].observation);
+		o.world.dimension = 'minecraft:overworld'; o.ready = true; o.blocks = []; o.advancements = advancements;
+		o.inventory.items = [item('iron_pickaxe'), item('iron_sword'), item('bow'), item('arrow', 64), item('cooked_beef', 24), item('water_bucket'), item('cobblestone', 64), item('ender_eye', 14)];
+		return String(routeLine({ observation: o, known: emptyKnown(), evaluate: evaluatePlanCheck }));
+	};
+	// The bridge reports the granted advancement as the player's own (namespaced id).
+	assert.match(route(['minecraft:story/enter_the_nether']), /find structure stronghold/);
+	// Without it the same pack reads as a fresh Overworld start and is sent back to the first log.
+	assert.doesNotMatch(route([]), /find structure stronghold/);
+});
