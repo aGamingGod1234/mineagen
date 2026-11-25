@@ -765,6 +765,35 @@ export function boatTrapLine(observation) {
 	return `trap it in a boat instead (${kit}): place the boat about 3 blocks out on its side, stare at its eyes, look at the boat, and once it stops on the boat (not marked seated in view) fight_target pursue:false from where you stand (it cannot teleport or reach you while seated); break the boat after to keep it`;
 }
 
+export const ENDERMAN_TRAP_TRIGGER = 'enderman_trap_ready';
+
+/**
+ * A calm enderman newly within HUNT_RANGE and HUNT_CLIMB while pearls and eyes are under 12, it is not raining and the
+ * body holds a boat or 5 Overworld planks' worth: the trap is ready, so a player turns to it. Once per enderman
+ * (state.endermanTrapSeen keeps the ids it woke for). Returns { id, distance } or null.
+ */
+export function endermanTrapEdge(state, observation) {
+	const items = observation?.inventory?.items;
+	if (!Array.isArray(items) || observation?.world?.raining === true || /the_(nether|end)$/.test(observation?.world?.dimension ?? '')) return null;
+	const held = items.reduce((sum, item) => sum + (/^minecraft:ender_(pearl|eye)$/.test(item?.itemId ?? '') && item.count > 0 ? item.count : 0), 0);
+	if (held >= 12) return null;
+	const kit = boatKit(items);
+	if (kit.boats === 0 && kit.planks < 5) return null;
+	const player = observation.player ?? {};
+	const py = (observation.position ?? player.position ?? player)?.y;
+	if (!Number.isFinite(py)) return null;
+	state.endermanTrapSeen ??= new Set();
+	const idOf = (row) => row?.uuid ?? row?.stableId ?? row?.id;
+	const target = (observation.entities ?? []).filter((row) => row?.type === 'minecraft:enderman' && row.alive !== false && row.perceivedBy !== 'sound'
+		&& row.targetingAgent !== true && row.appearance?.screaming !== true && Number.isFinite(row.distance) && row.distance <= HUNT_RANGE
+		&& Math.abs((row.y ?? row.position?.y ?? Infinity) - py) <= HUNT_CLIMB && idOf(row) !== undefined && !state.endermanTrapSeen.has(idOf(row)))
+		.sort((a, b) => a.distance - b.distance)[0];
+	if (target === undefined) return null;
+	const id = idOf(target);
+	state.endermanTrapSeen.add(id);
+	return { id, distance: Math.round(target.distance) };
+}
+
 const SWORD_TIERS = Object.freeze({ wooden: 1, golden: 1, stone: 2, copper: 2, iron: 3, diamond: 4, netherite: 5 });
 // Armour points at which a stone weapon is enough: an enderman's 7 falls to about 4 through iron (AGENTS.md fight facts).
 const ENDERMAN_ARMOR_POINTS = 10;

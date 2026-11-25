@@ -65,6 +65,7 @@ import { BestEffortDiagnosticQueue } from './best-effort-diagnostic-queue.mjs';
 import { RotatingJsonlSink } from './rotating-jsonl-sink.mjs';
 import { sanitizeDiagnosticCode, sanitizeDiagnosticErrorCode, sanitizeDiagnosticErrorMessage, sanitizeDiagnosticText, sanitizeDiagnosticValue } from './diagnostic-sanitizer.mjs';
 import { dragonPerchEdge, noteCombatDispatch, rememberEndCrystals, settleCombatResult } from './dragon-fight-facts.mjs';
+import { ENDERMAN_TRAP_TRIGGER, endermanTrapEdge } from './need-sources.mjs';
 import { heldToolBreak } from './held-tool-break.mjs';
 import { SituationChangeTracker } from './situation-changes.mjs';
 import { ContextEntryTracker, uncoveredDangers } from './danger-contexts.mjs';
@@ -108,7 +109,7 @@ const GENERIC_WAKE_TRIGGERS = new Set(['attention', 'observation']);
 const STEP_UNTIL_TRIGGER = 'step_until_seen';
 // A running step's search has made no progress for minutes (wake-filter.mjs STEP_STALL_WAKE_MS).
 const STEP_STALLED_TRIGGER = 'step_stalled';
-const STEP_NAMED_TRIGGERS = new Set(['resource_discovery', 'structure_sighted', 'lava_heard', 'furnace_ready', 'heal_opportunity']);
+const STEP_NAMED_TRIGGERS = new Set([ENDERMAN_TRAP_TRIGGER, 'resource_discovery', 'structure_sighted', 'lava_heard', 'furnace_ready', 'heal_opportunity']);
 // Ordinary perception a running program already receives and answers through its own decisions (onObservation).
 const PROGRAM_OWNED_PERCEPTION_TRIGGERS = new Set(['attention', 'observation', 'resource_discovery', 'structure_sighted', 'lava_heard', 'heal_opportunity', 'projectile']);
 // Longest an ordinary wake is held for the model's own running action. Long walks (navigate_to ran up to 37 s) must
@@ -1769,12 +1770,14 @@ export class DynamicCoordinator extends EventEmitter {
 		const dimensionChanged = dimension !== null && state.dimension != null && dimension !== state.dimension;
 		if (dimension !== null) state.dimension = dimension;
 		const dragonPerch = dragonPerchEdge(state, observation, sampledAt);
+		const endermanTrap = endermanTrapEdge(state, observation);
 		const endCrystals = rememberEndCrystals(state, observation);
 		this.#nativeWorldSignals.set(record.agentId, state);
 		return {
 			previousPlayer,
 			lavaFlowDue,
 			dragonPerch,
+			endermanTrap,
 			endCrystals,
 			movementLoop,
 			resourceDiscovery,

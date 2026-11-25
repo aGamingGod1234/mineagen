@@ -7,6 +7,9 @@ import { randomBytes, createHash } from 'node:crypto';
 import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { normalizeReflexEntries } from '../../coordinator/src/reflexes.mjs';
+import { ENDERMAN_TRAP_TRIGGER, endermanTrapEdge } from '../../coordinator/src/need-sources.mjs';
+import { classifyObservationTrigger } from '../../coordinator/src/observation-facts.mjs';
+import { WakeFilter } from '../../coordinator/src/wake-filter.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 import { installTickRate, fixtureTickRate } from './watch-replay.mjs';
 import { damageCounter, recordDamageEvidence } from './lib/damage-counter.mjs';
@@ -425,6 +428,49 @@ try {
 			if (rows.every((row) => row.built && !row.provoked)) results[name].notExercised = 'the stare never provoked the enderman';
 			await settle(name);
 		} catch (error) { await settle(name, error); }
+	}
+	// Trap wake: live samples run through the coordinator's own edge, classifier and wake filter (no model). A calm penned
+	// enderman near a held boat wakes once; a second one wakes once more; with the boat gone a third does not.
+	if (want('trap-wake')) {
+		try {
+			await reset();
+			await command(`give ${agent} minecraft:oak_boat 1`); await command(`give ${agent} minecraft:stone_sword 1`);
+			await command(`tp ${agent} 0.5 80 0.5 0 45`);
+			const state = {}, filter = new WakeFilter(), wakes = [];
+			const penAt = async (x, z, id) => {
+				await command(`fill ${x - 1} 80 ${z - 1} ${x + 1} 80 ${z + 1} minecraft:oak_fence`); await command(`setblock ${x} 80 ${z} minecraft:air`);
+				await command(`summon minecraft:enderman ${x + 0.5} 80 ${z + 0.5} {UUID:[I;0,0,0,${id}]}`); await rate.idleSleep(1500);
+			};
+			const watch = async (ms, phase) => {
+				let samples = 0, seen = 0;
+				const end = rate.clock.now() + ms;
+				while (rate.clock.now() < end) {
+					o = await observe(); samples += 1;
+					if (endermen(o).some((row) => row.distance <= 16)) seen += 1;
+					const signal = endermanTrapEdge(state, o);
+					const classified = classifyObservationTrigger({ attention: false, changedFacts: [] }, o, { endermanTrap: signal });
+					if (classified.trigger === ENDERMAN_TRAP_TRIGGER) wakes.push({ phase, ...signal, verdict: filter.decide(agent, { attention: classified, observation: o, goalText: 'beat the game' }).verdict });
+					filter.take(agent, o);
+					await rate.clock.sleep(250);
+				}
+				return { samples, seen, wakes: wakes.filter((wake) => wake.phase === phase).length };
+			};
+			const play = await playStart();
+			await penAt(0, 10, 7101);
+			const first = await watch(6000, 'first');
+			await penAt(6, 10, 7102);
+			const second = await watch(6000, 'second');
+			await command(`clear ${agent} minecraft:oak_boat`); await command('kill @e[type=minecraft:enderman]'); await rate.idleSleep(500);
+			await penAt(-6, 10, 7103);
+			const noBoat = await watch(6000, 'no-boat');
+			const angered = angry(await observe());
+			const tick = await playEnd(play);
+			results['trap-wake'] = { tick, first, second, noBoat, wakes, angered,
+				pass: first.wakes === 1 && second.wakes === 1 && noBoat.wakes === 0 && noBoat.seen > 0 && wakes.every((wake) => wake.verdict === 'wake') };
+			if (first.seen === 0) results['trap-wake'].notExercised = 'no enderman reached the observation within 16 m';
+			await command('kill @e[type=minecraft:enderman]');
+			await settle('trap-wake');
+		} catch (error) { await settle('trap-wake', error); }
 	}
 	// Drop odds: vanilla minecraft:entities/enderman gives 0-1 pearl (uniform), +0-1 per looting level. A player kill per
 	// salt; the unsalted world-default sequence repeats the same drops, which is what one save point does to every game.
