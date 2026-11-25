@@ -45,15 +45,15 @@ const TICK_RATE = unshownTickRate('a new fixture, not yet in a 20 vs 60 TPS A/B'
 // The mob as summoned: its NBT, how many come at once (as the real fights met them: a lone creeper, a pack of zombified
 // piglins), and whether a hit from the body is what turns them on the body. GROUP=1 summons one of each.
 const MOBS = {
-	skeleton: { nbt: '', count: 2 },
+	skeleton: { nbt: ',equipment:{mainhand:{id:"minecraft:bow",count:1}}', count: 2 },
 	zombie: { nbt: ',IsBaby:0b', count: 3 },
 	drowned: { nbt: ',IsBaby:0b', count: 2 },
 	blaze: { nbt: '', hover: 1, count: 2 },
 	creeper: { nbt: '', count: 1 },
 	spider: { nbt: '', count: 2 },
-	piglin: { nbt: ',IsImmuneToZombification:1b,IsBaby:0b', provoke: true, count: 2 },
-	zombified_piglin: { nbt: ',IsBaby:0b', provoke: true, count: 3 },
-	wither_skeleton: { nbt: '', count: 2 },
+	piglin: { nbt: ',IsImmuneToZombification:1b,IsBaby:0b,equipment:{mainhand:{id:"minecraft:golden_sword",count:1}}', count: 2 },
+	zombified_piglin: { nbt: ',IsBaby:0b,equipment:{mainhand:{id:"minecraft:golden_sword",count:1}}', provoke: true, count: 3 },
+	wither_skeleton: { nbt: ',equipment:{mainhand:{id:"minecraft:stone_sword",count:1}}', count: 2 },
 	magma_cube: { nbt: ',Size:1', count: 2 },
 };
 const GROUP = process.env.GROUP === undefined ? null : Number(process.env.GROUP);
@@ -78,8 +78,11 @@ const number = text => { const m = /(-?[\d.]+)[fd]?\s*$/.exec(String(text ?? '')
 // Floor (walking surface) at feet y 101 everywhere; the ledge's lava sea lies 6 below it.
 const FEET = 101, X0 = 0, Z0 = 0;
 let s;
-// Mobs of the fight still alive: "Test passed, count: N", or "Test failed" for none.
-const alive = async () => Number(/count: (\d+)/.exec(String(await s.command('execute if entity @e[tag=fightset]') ?? ''))?.[1] ?? 0);
+// Mobs of the fight still alive, counted into command storage and read back (null when the read fails).
+const alive = async () => {
+	await s.command('execute store result storage mineagen:fightset alive int 1 if entity @e[tag=fightset]');
+	return number(await s.command('data get storage mineagen:fightset alive'));
+};
 const feetY = async () => number(await s.command('data get entity Probe Pos[1]'));
 
 async function build(place) {
@@ -157,26 +160,41 @@ try {
 			for (let i = 0; i < count; i++) {
 				await s.command(`summon minecraft:${mob} ${X0 + DIST + 0.5 + i} ${FEET + (spec.hover ?? 0)} ${Z0 + 0.5 + (i % 2)} {Tags:["fightset"],PersistenceRequired:1b${spec.nbt}}`);
 			}
-			if (spec.provoke) await s.command('execute as @e[tag=fightset] run damage @s 0.5 minecraft:player_attack by Probe');
+			// Summoned by command a mob carries nothing: the weapon it spawns with in a real world is given above.
+			// A neutral mob is angered at the body as a hit from it would: its anger target and time set on it (both the
+			// older and the newer save names), then read back.
+			if (spec.provoke) {
+				const uuid = /\[I;\s*(-?\d+),\s*(-?\d+),\s*(-?\d+),\s*(-?\d+)\]/.exec(String(await s.command('data get entity Probe UUID') ?? ''));
+				if (!uuid) throw new Error('could not read the body\'s UUID to anger the mob');
+				const ints = `[I;${uuid.slice(1).join(',')}]`;
+				const gameTime = number(await s.command('time query gametime')) ?? 0;
+				await s.command(`execute as @e[tag=fightset] run data merge entity @s {AngerTime:2400,AngryAt:${ints},anger_end_time:${gameTime + 2400}L,angry_at:${ints}}`);
+				row.provoked = String(await s.command('data get entity @e[tag=fightset,limit=1]') ?? '').match(/(AngerTime|anger_end_time|AngryAt|angry_at)[^,]*/g)?.join(' ') ?? 'no anger field';
+			}
 			if (START_HEALTH < 20) await s.command(`damage Probe ${20 - START_HEALTH} minecraft:generic`);
 			await arm();
 			const damageBefore = await readDamage(), deathsBefore = await deaths().catch(() => null);
 			row.count = count;
+			if ((await alive()) !== count) throw new Error(`summoned ${count} ${mob}, ${await alive()} alive at the start`);
 			let lowest = await feetY();
 			await s.fastRate();
 			const t0 = s.clock.now();
 			const sampler = setInterval(() => { feetY().then(y => { if (y !== null && (lowest === null || y < lowest)) lowest = y; }).catch(() => {}); }, 250);
 			const over = async () => {
-				if ((await alive()) === 0) return 'all dead';
-				const o = await s.observe();
-				if (o.player?.dead || (o.player?.health ?? 20) <= 0) return 'body died';
+				const living = await alive();
+				if (living === null) throw new Error('could not count the fight\'s mobs');
+				if (living === 0) return 'all dead';
+				// A dead body sends no observation: the vanilla death counter says it died.
+				const nowDeaths = await deaths().catch(() => null);
+				if (nowDeaths !== null && deathsBefore !== null && nowDeaths > deathsBefore) return 'body died';
 				return (s.clock.now() - t0) / 1000 >= WINDOW_S ? 'window' : null;
 			};
 			try {
 				let ended = null;
 				while (!(ended = await over())) {
 					if (standIn === 'fight') {
-						const o = await s.observe();
+						const o = await s.observe().catch(() => null);
+						if (!o) continue;
 						// The nearest of the fight's mobs, as a model names the one closing in.
 						const target = (o.entities ?? []).filter(x => x.type === `minecraft:${mob}`).sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
 						if (!target) { await s.clock.sleep(500); continue; }
@@ -191,6 +209,7 @@ try {
 			row.seconds = Math.round((s.clock.now() - t0) / 1000);
 			await s.normalRate();
 			const left = await alive();
+			if (left === null) throw new Error('could not count the fight\'s mobs');
 			row.killed = left === 0; row.mobsKilled = count - left;
 			row.lowestFeetY = lowest;
 			row.fell = lowest !== null && lowest < FEET - 2;
@@ -200,7 +219,10 @@ try {
 			row.died = row.deaths === null ? null : row.deaths > 0;
 			row.pass = row.died === false;
 			if (row.died) row.failReason = `died to ${mob} (${place}, ${kitName}, ${standIn})${row.fell ? ' after a fall' : ''}`;
-			if (row.deaths) await s.act('respawn', {}, 10000).catch(() => {});
+			if (row.deaths) {
+				await s.act('respawn', {}, 10000).catch(() => {});
+				for (let i = 0; i < 40 && !(await s.observe().then(() => true).catch(() => false)); i++) await s.clock.sleep(500);
+			}
 		} catch (error) {
 			row.error = String(error?.stack ?? error).slice(0, 1500);
 		}
