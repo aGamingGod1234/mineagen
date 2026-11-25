@@ -19,7 +19,7 @@ import {normalizeReflexEntries,DEFAULT_REFLEXES} from '../../coordinator/src/ref
 import {finishRun,EDIT_LOOP_HELP,FIXTURE_OUTCOME_HELP} from './lib/fixture-run.mjs';
 // The room's verdict goes through finishRun into room.json and room-summary.json (one row); result.json stays the
 // detailed report. PASS: at least PEARL_BAR (6) pearls held inside the window, no death, no error.
-const USAGE='Usage: [STANDIN=roof|until|count] [PEARL_BAR=6] [DEFAULTS=1] test-warped-pearl-live.mjs CHECKPOINT OUT JAR [salt=1] [gameTicks=24000] [--strict|--descriptive] under slot.sh live';
+const USAGE='Usage: [STANDIN=roof|until|count] [ROOF_SPOT=feet|offset] [ROOF_SILL=1] [PEARL_BAR=6] [DEFAULTS=1] test-warped-pearl-live.mjs CHECKPOINT OUT JAR [salt=1] [gameTicks=24000] [--strict|--descriptive] under slot.sh live';
 const cli=process.argv.slice(2);
 if(cli.includes('--help')){console.log(USAGE+'\n'+EDIT_LOOP_HELP+'\n'+FIXTURE_OUTCOME_HELP);process.exit(0);}
 const strict=!cli.includes('--descriptive');
@@ -54,6 +54,11 @@ async function observe(){
 // 180 s on base). Every call is capped at the window left. Scoring is by game tick: pearlsInWindow is the count the last
 // observation inside startGameTicks+gameTicks showed; a death fails the run (pass false, pearlsInWindow 0).
 const STANDIN=process.env.STANDIN??'script';
+// STANDIN=roof as the live model called it: ROOF_SPOT names the shelter site in every call (feet: the body's cell; offset:
+// 3 blocks toward the enderman, or east), and ROOF_SILL=1 first builds an ordinary sill shelter on that cell, as the model
+// did before its roof calls. Without them the stand-in calls roof:true with no spot (the body's own site choice).
+const ROOF_SPOT=process.env.ROOF_SPOT??null,ROOF_SILL=process.env.ROOF_SILL==='1';
+if(ROOF_SPOT!==null&&!['feet','offset'].includes(ROOF_SPOT)){console.error(USAGE);process.exit(2);}
 // DEFAULTS=1: the until, roof and count stand-ins play with the coordinator's default reflexes armed (leave lava, step off
 // fire, shield and the rest), as every model game does; without it they play with none.
 const DEFAULTS=process.env.DEFAULTS==='1';
@@ -210,7 +215,20 @@ try{
    const e=facts.entities.filter(x=>x.type==='minecraft:enderman'&&x.visible!==false&&x.perceivedBy!=='sound'&&x.distance<=24).sort((a,b)=>a.distance-b.distance)[0];
    const untimed=process.env.CALL_TIMEOUT_MS==='none';
    const common={untilItem:'minecraft:ender_pearl',untilCount:held+16,fleeAtHealth:Number(process.env.FLEE_AT??8),roof:true,...(untimed?{}:{timeoutMs:leftMs})};
-   let [type,args]=e?['fight_target',{targetId:e.stableId,...common,...(untimed?{timeoutMs:30000}:{})}]:['fight_until',{mob:'minecraft:enderman',...common}];
+   let site=null;
+   if(ROOF_SPOT){
+    const p=facts.player,fx=Math.floor(p.x),fy=Math.floor(p.y),fz=Math.floor(p.z);
+    const dir=e?(Math.abs(e.x-p.x)>=Math.abs(e.z-p.z)?[Math.sign(e.x-p.x)||1,0]:[0,Math.sign(e.z-p.z)||1]):[1,0];
+    site=ROOF_SPOT==='feet'?{x:fx,y:fy,z:fz}:{x:fx+3*dir[0],y:fy,z:fz+3*dir[1]};
+    if(ROOF_SILL&&!result.sillShelter){
+     const opening=dir[0]>0?'east':dir[0]<0?'west':dir[1]>0?'south':'north';
+     const b=await act('build_shelter',{...site,opening,itemId:'minecraft:cobblestone',roof:true,timeoutMs:30000});
+     result.sillShelter={...site,opening,state:b.state,reason:b.reasonCode};await save();
+     await select('minecraft:iron_sword');
+    }
+   }
+   // A named spot goes through fight_until, as every live-model roof call did (fight_target takes no spot).
+   let [type,args]=e&&!site?['fight_target',{targetId:e.stableId,...common,...(untimed?{timeoutMs:30000}:{})}]:['fight_until',{mob:'minecraft:enderman',...common,...(site??{})}];
    if(untimed&&type==='fight_until'){const normalized=validateAction({type,...args});args={...args,timeoutMs:normalized.timeoutMs};}
    args={...args,timeoutMs:Math.min(args.timeoutMs??180000,leftMs)};
    if(Number(process.env.THINK_MS??0)>0)await s.clock.sleep(Number(process.env.THINK_MS));
@@ -281,6 +299,12 @@ for(const f of await readdir(path.join(out,'server/world/players/stats')).catch(
 if(dead)result.pearlsInWindow=0;
 // Shelters built and kills, from every hunt receipt (ServerFightUntilController: "shelters built: N", "N kill(s)").
 let shelters=0,kills=0;for(const c of result.untilCalls??[]){const m=String(c.message);shelters+=Number(/shelters built: (\d+)/.exec(m)?.[1]??0);kills+=Number(/: (\d+) kills?,/.exec(m)?.[1]??0);}
+// Roofs whose lintel went up (the receipt keeps "roof: N build ... doorway" without "lintel missing" or a fallback), the
+// kills in those calls, and the roofs that fell back to the open-ground fight.
+let lintels=0,roofKills=0,roofFallbacks=0;
+for(const c of result.untilCalls??[]){const m=String(c.message);if(/fell back to the open-ground fight/.test(m)){roofFallbacks++;continue;}
+ if(/roof: \d+ builds? at [^;]* doorway /.test(m)&&!/lintel missing/.test(m)){lintels++;roofKills+=Number(/: (\d+) kills?,/.exec(m)?.[1]??0);}}
+Object.assign(result,{roofSpot:ROOF_SPOT,roofSill:ROOF_SILL,lintelsPlaced:lintels,roofKills,roofFallbacks});
 Object.assign(result,{sheltersBuilt:shelters,receiptKills:kills,sheltersPerKill:kills?shelters/kills:null,pass:!dead&&!(result.deaths>0)&&!result.error&&(result.pearlsInWindow??0)>=Number(process.env.PEARL_BAR??6)});
 // Hand-back codes and main's pass-over of unreachable endermen ("out of reach: passed over N times ... (M let back in)").
 const handBacks={};let passedOver=0,letBackIn=0;

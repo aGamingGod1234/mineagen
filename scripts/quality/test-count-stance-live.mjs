@@ -174,7 +174,9 @@ try {
 		const wall0 = Date.now(), timer = await rate.gameTimer();
 		o = await observe();
 		const start = row(o);
-		const { result } = await startAction('fight_target', { targetId: uuid(1), untilItem: 'minecraft:rotten_flesh', untilCount: 5, timeoutMs: 15000, ...args });
+		// actionType fight_until for a model-named spot (x, y, z), which fight_target's schema does not take.
+		const { actionType = 'fight_target', ...fightArgs } = args;
+		const { result } = await startAction(actionType, { ...(actionType === 'fight_target' ? { targetId: uuid(1) } : {}), untilItem: 'minecraft:rotten_flesh', untilCount: 5, timeoutMs: 15000, ...fightArgs });
 		const rows = []; let done = null;
 		result.then((value) => { done = value; }, () => {});
 		const end = rate.clock.now() + 230000;
@@ -370,7 +372,7 @@ try {
 			}
 			await command('summon minecraft:enderman 0.5 80 9.5 {NoAI:1b,PersistenceRequired:1b,UUID:[I;0,0,0,1]}');
 			await rate.idleSleep(1500);
-			const run = await countFight({ untilItem: 'minecraft:ender_pearl', untilCount: 1, roof: true, x: 0, y: 80, z: 0 },
+			const run = await countFight({ actionType: 'fight_until', mob: 'minecraft:enderman', untilItem: 'minecraft:ender_pearl', untilCount: 1, roof: true, x: 0, y: 80, z: 0, radius: 16 },
 				() => command(`give ${agent} minecraft:ender_pearl 1`), 25000);
 			const sillCleared = !(await command('execute if block 0 80 1 minecraft:cobblestone')).includes('passed');
 			const lintel = (await command('execute if block 0 82 1 minecraft:cobblestone')).includes('passed');
