@@ -417,6 +417,10 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 		const armour = armourStep(kitFacts);
 		// Carried gold the Nether line already names, with the piglins' reason.
 		if (armour !== null && (!inReach || /^equip_item (?!golden_)/.test(armour[0]))) return line(armour[0], tag(armour[1]));
+		const pick = pickaxeLeft(items);
+		if (!inReach && pick !== null && pick.left < TRIP_USES && !kitHandedBack.has(`minecraft:${pick.make}`)) {
+			return line(`obtain ${pick.make} count ${count(new RegExp(`^minecraft:${pick.make}$`)) + 1}`, tag(`pickaxe ${pick.left} uses left`));
+		}
 		if (inReach || food >= MEAT || foodHandedBack === true && facts.nearbyMeat === null) return null;
 		const [next, why] = stockFoodNext(kitFacts, { stock: MEAT, have: food, before: `going to ${trip}`, what: 'food' });
 		return line(next, tag(why));
@@ -558,6 +562,20 @@ const BLOCK_STOCK = 128;
 const CLUTTER = /^minecraft:(sand|red_sand|sandstone|red_sandstone|calcite|smooth_basalt|dripstone_block|pointed_dripstone|moss_block|clay_ball|snowball|[a-z_]+_carpet|[a-z_]+_sapling|raw_copper|copper_ingot|lapis_lazuli|amethyst_shard|amethyst_block|poisonous_potato|wheat_seeds|beetroot_seeds|cinnabar|sulfur|bone_block|kelp|seagrass|[a-z_]+_flower|dandelion|poppy|short_grass|fern|dead_bush|stick)$/;
 const PLAIN_BLOCK = /^minecraft:(cobblestone|cobbled_deepslate|stone|deepslate|dirt|coarse_dirt|gravel|andesite|diorite|granite|tuff|netherrack|blackstone|basalt|end_stone)$/;
 const SPARE_TOOLS = 2;
+// A trip into danger digs its way out (a nether path, a fortress wall, a stronghold stair): this many uses at least.
+const TRIP_USES = 32;
+const PICK_TIER = ['wooden', 'stone', 'copper', 'iron', 'diamond', 'netherite'];
+/** The best pickaxe's uses left, and the pickaxe to make when it is short: iron when 3 iron is held, else stone. */
+function pickaxeLeft(items) {
+	const picks = items.map(i => ({ m: String(i.itemId ?? '').match(/^minecraft:([a-z]+)_pickaxe$/), i })).filter(r => r.m && r.i.count > 0)
+		.map(({ m, i }) => ({ tier: PICK_TIER.indexOf(m[1]), left: Number.isFinite(i.usesLeft) ? i.usesLeft : i.maxDamage > 0 && Number.isFinite(i.damage) ? i.maxDamage - i.damage : Infinity }));
+	const sound = picks.filter(p => p.tier >= 1);
+	if (sound.length === 0) return null;
+	const left = Math.max(...sound.map(p => p.left));
+	const iron = items.filter(i => i.itemId === 'minecraft:iron_ingot').reduce((n, i) => n + i.count, 0);
+	return { left, make: iron >= 3 ? 'iron_pickaxe' : 'stone_pickaxe' };
+}
+
 function packRoom(items) {
 	const stacks = items.filter(i => Number.isInteger(i.slot) && i.slot >= 0 && i.slot < PACK_SLOTS);
 	const free = PACK_SLOTS - new Set(stacks.map(i => i.slot)).size;

@@ -14,7 +14,7 @@ const WOOL = /^([a-z_]+)_wool$/;
 export const END_KIT = Object.freeze({ arrows: 32, food: 16, blocks: 32, pillarBlocks: 64 });
 
 /** Kit item ids whose obtain hands back release that fix: the ids the fixes below ask obtain for. */
-export const KIT_ITEMS = /^minecraft:(arrow|bow|water_bucket|[a-z_]+_bed|cooked_(beef|porkchop|mutton|chicken|rabbit|cod|salmon)|cobblestone|iron_chestplate|iron_boots|shield)$/;
+export const KIT_ITEMS = /^minecraft:(arrow|bow|water_bucket|[a-z_]+_bed|cooked_(beef|porkchop|mutton|chicken|rabbit|cod|salmon)|cobblestone|iron_chestplate|iron_boots|shield|stone_pickaxe|iron_pickaxe)$/;
 
 /**
  * { missing: [short names], fixes: [obtain steps] } for the End kit, or null without a fresh live sample.
