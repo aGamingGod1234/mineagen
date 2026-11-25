@@ -752,14 +752,17 @@ const BOAT_LOG = new RegExp(`^minecraft:(?:stripped_)?(?:oak|spruce|birch|jungle
  * The boat trap for a body not geared to fight an enderman in the open: what it holds toward one and the method, or why
  * it is off (rain makes endermen teleport). Knowledge for the model's choice, not a step it must take.
  */
+export function boatKit(items) {
+	const count = (pattern) => (items ?? []).reduce((sum, item) => sum + (pattern.test(item?.itemId ?? '') && item.count > 0 ? item.count : 0), 0);
+	return { boats: count(BOAT_ITEM), planks: count(BOAT_PLANKS) + 4 * count(BOAT_LOG) };
+}
+
 export function boatTrapLine(observation) {
-	const items = observation?.inventory?.items ?? [];
-	const count = (pattern) => items.reduce((sum, item) => sum + (pattern.test(item?.itemId ?? '') && item.count > 0 ? item.count : 0), 0);
-	const boats = count(BOAT_ITEM), planks = count(BOAT_PLANKS) + 4 * count(BOAT_LOG);
+	const { boats, planks } = boatKit(observation?.inventory?.items);
 	if (observation?.world?.raining === true) return 'a boat trap fails in rain (it teleports), so leave a calm one calm and do not look at it until the rain stops';
-	const kit = boats > 0 ? `you hold ${boats} boat${boats > 1 ? 's' : ''}` : planks >= 5 ? `you hold wood for a boat (${planks} planks' worth; 5 at a crafting table)` : null;
+	const kit = boats > 0 ? `you hold ${boats} boat${boats > 1 ? 's' : ''}` : planks >= 5 ? `you hold wood for a boat (${planks} planks' worth; 5 at a crafting table; if it is out of view after the craft it is still near: turn to find it, it stands tall)` : null;
 	if (kit === null) return 'no boat or 5 Overworld planks for a boat trap (keep one boat for the next one), so leave a calm one calm and do not look at it until you have one or are geared';
-	return `trap it in a boat instead (${kit}): place the boat about 3 blocks out on its side, stare at its eyes, look at the boat, and once it stops on the boat (not marked seated in view) fight_target pursue:false from where you stand (it cannot teleport or reach you while seated)`;
+	return `trap it in a boat instead (${kit}): place the boat about 3 blocks out on its side, stare at its eyes, look at the boat, and once it stops on the boat (not marked seated in view) fight_target pursue:false from where you stand (it cannot teleport or reach you while seated); break the boat after to keep it`;
 }
 
 const SWORD_TIERS = Object.freeze({ wooden: 1, golden: 1, stone: 2, copper: 2, iron: 3, diamond: 4, netherite: 5 });

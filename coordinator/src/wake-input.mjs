@@ -18,6 +18,7 @@ import { arrivalFacts, reportsDimensionChange } from './arrival-facts.mjs';
 import { DRAGON_PERCHED_TRIGGER, dragonPerchLine } from './dragon-fight-facts.mjs';
 import { SITUATION_CHANGED_FIELD, STRATEGY_POINTER_FIELD } from './situation-changes.mjs';
 import { nightFor } from './night-cover.mjs';
+import { boatKit } from './need-sources.mjs';
 import { provenance } from './fact-provenance.mjs';
 import { dangerGlance } from './danger-glance.mjs';
 import { asArray, hudFacts, inHazardContact, LAVA_FLOW_TRIGGER, lavaFlowLine } from './observation-facts.mjs';
@@ -353,7 +354,12 @@ export function buildNativeEventInput(record, { event, trigger, programId, statu
 		// Night is when endermen walk the surface: one within 16 m with a boat trap on offer (the hunt line) is a pearl worth
 		// the seconds before cover, and the cover line alone sent the body digging past it (s1 boat-trap A/B, 26 Nov).
 		const enderNear = (visibleObservation(observation).entities ?? []).some((row) => row?.type === 'minecraft:enderman' && Number.isFinite(row.distance) && row.distance <= 16);
-		const cover = contexts.some((row) => row.lasts === 'night') && nightFor(observation) === 'night' ? ` ${NIGHT_COVER_LINE}${enderNear ? ` ${NIGHT_ENDERMAN_LINE}` : ''}` : '';
+		// With no boat in hand the trap starts with a 7 s craft, and the one enderman of ab1c wandered out of view during it.
+		const items = observation.inventory?.items ?? [];
+		const pearlsDone = items.reduce((sum, item) => sum + (/^minecraft:ender_(pearl|eye)$/.test(item?.itemId ?? '') && item.count > 0 ? item.count : 0), 0) >= 12;
+		const kit = boatKit(items);
+		const boatFirst = !enderNear && !pearlsDone && kit.boats === 0 && kit.planks >= 5 ? ` ${NIGHT_BOAT_LINE}` : '';
+		const cover = contexts.some((row) => row.lasts === 'night') && nightFor(observation) === 'night' ? ` ${NIGHT_COVER_LINE}${enderNear ? ` ${NIGHT_ENDERMAN_LINE}` : boatFirst}` : '';
 		instruction = instruction === GENERIC_UPDATE_INSTRUCTION || instruction === GENERIC_FACTS_INSTRUCTION
 			? `Live Minecraft event: entered ${entered}. contexts lists each danger there and which armed reflex senses it.${cover}${status?.decision ? ' Answer program decisions.' : ''}`
 			: `${instruction} Entered ${entered}: contexts lists its dangers and armed reflexes.${cover}`;
@@ -514,6 +520,7 @@ function deathInstruction(event, observation, taskMemory, name) {
 }
 const NIGHT_COVER_LINE = 'With no armour a player spends the night under cover: rest (bed, walls or a dug hole) until dawn, or dig down and work underground.';
 const NIGHT_ENDERMAN_LINE = 'An enderman within 16 m is the exception when the hunt line offers a boat trap: trap and kill it first (under a minute), then take cover.';
+const NIGHT_BOAT_LINE = 'Before cover, a player holding 5 spare Overworld planks crafts one boat (about 7 s) and keeps it: night endermen wander off in the seconds a craft takes, and a boat in hand makes the trap place, stare and fight.';
 const RESPAWN_NIGHT_LINE = 'It is night: after respawn, rest first (with no blocks it digs a hole), then recover or re-kit at dawn.';
 
 // Hostiles seen now around where the next respawn lands: the set respawn, else the last respawn in this dimension (the

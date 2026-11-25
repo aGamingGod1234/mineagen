@@ -103,7 +103,14 @@ test('a context wake leads with the entry and lists dangers; a danger wake names
 	const armoured = { ...observation, player: { ...observation.player, armor: 15 } };
 	const ironLine = buildNativeEventInput(record, { event: 'observation', trigger: 'context_entry', observation: armoured, contexts, uncovered: [] }).split('\n')[0];
 	assert.doesNotMatch(ironLine, /under cover/, 'full iron takes the night');
-	assert.doesNotMatch(line, /enderman within 16 m/, 'no enderman near: cover alone');
+	assert.doesNotMatch(line, /enderman within 16 m|crafts one boat/, 'no enderman near and no wood: cover alone');
+	const wood = { ...observation, inventory: { items: [{ itemId: 'minecraft:jungle_planks', count: 5 }] } };
+	const woodLine = buildNativeEventInput(record, { event: 'observation', trigger: 'context_entry', observation: wood, contexts, uncovered: [] }).split('\n')[0];
+	assert.match(woodLine, /under cover.*Before cover, a player holding 5 spare Overworld planks crafts one boat/, 'wood and no boat: craft one before cover');
+	for (const items of [[{ itemId: 'minecraft:jungle_planks', count: 5 }, { itemId: 'minecraft:oak_boat', count: 1 }], [{ itemId: 'minecraft:warped_planks', count: 9 }], [{ itemId: 'minecraft:oak_log', count: 3 }, { itemId: 'minecraft:ender_pearl', count: 12 }]]) {
+		const held = buildNativeEventInput(record, { event: 'observation', trigger: 'context_entry', observation: { ...observation, inventory: { items } }, contexts, uncovered: [] }).split('\n')[0];
+		assert.doesNotMatch(held, /crafts one boat/, `no boat line for ${items.map((row) => row.itemId).join(', ')}`);
+	}
 	const ender = { ...observation, entities: [{ type: 'minecraft:enderman', distance: 10 }] };
 	const enderLine = buildNativeEventInput(record, { event: 'observation', trigger: 'context_entry', observation: ender, contexts, uncovered: [] }).split('\n')[0];
 	assert.match(enderLine, /under cover.*An enderman within 16 m is the exception when the hunt line offers a boat trap/, 'a near enderman: trap it before cover');
