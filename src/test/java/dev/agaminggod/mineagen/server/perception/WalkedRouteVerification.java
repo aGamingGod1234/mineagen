@@ -57,7 +57,27 @@ public final class WalkedRouteVerification {
   for(int y=64;y<=68;y++) {rungs.step(p("ow",0,y,0),false);rungs.mark(p("ow",0,y,0),WalkedRoute.CLIMBABLE);}
   rungs.step(p("ow",1,68,0),false);
   check(rungs.path(p("ow",0,64,0),p("ow",1,68,0)).points().contains(p("ow",0,68,0)),"a ladder's top rung stays a waypoint");
-  return 19;
+  // A ledge walked, a 10-block fall 2 blocks out, then a walk on below: the trail before the fall is still the way back.
+  WalkedRoute fell=new WalkedRoute();
+  for(int x=0;x<=5;x++) fell.step(p("ow",x,70,0),false);
+  for(int x=7;x<=10;x++) fell.step(p("ow",x,60,0),false);
+  WalkedRoute.Path back=fell.path(p("ow",10,60,0),p("ow",0,70,0));
+  check(back!=null,"a fall keeps the trail above it on the way back");
+  int landing=back.points().indexOf(p("ow",7,60,0)), top=back.points().indexOf(p("ow",7,70,0));
+  check(landing>=0 && top==landing+1 && back.points().get(top+1).y()==70 && back.points().get(top+1).x()<=5,"back up a fall: pillar over the landing, then step across to the ledge");
+  check(back.hazards().stream().anyMatch(h->h.startsWith("fall: dropped 10 blocks")),"the fall names the blocks the climb back needs");
+  WalkedRoute.Path down=fell.path(p("ow",0,70,0),p("ow",10,60,0));
+  check(down!=null && !down.points().contains(p("ow",7,70,0)),"forward, the fall is the drop itself, not the pillar");
+  check(!fell.path(p("ow",7,70,0),p("ow",0,70,0)).points().contains(p("ow",7,70,0)),"the pillar top over a landing is never where a retrace starts");
+  WalkedRoute.Path toTop=fell.path(p("ow",10,60,0),p("ow",7,70,0));
+  check(toTop!=null && toTop.points().getLast().equals(p("ow",5,70,0)),"the pillar top over a landing is never where a retrace ends");
+  check(fell.path(p("ow",8,70,0),p("ow",0,70,0))==null,"beside the pillar top alone there is no entry yet");
+  fell.disconnect();fell.step(p("ow",7,70,0),false);
+  check(fell.path(p("ow",8,70,0),p("ow",0,70,0))!=null,"a pillar top the body stood on is a footstep like any other");
+  WalkedRoute far=new WalkedRoute();
+  far.step(p("ow",0,70,0),false);far.step(p("ow",12,67,0),false);
+  check(far.path(p("ow",12,67,0),p("ow",0,70,0))==null,"a landing far beyond a fall's drift (a pearl, a knockback flight) stays unconnected");
+  return 28;
  }
  private static WalkedRoute.Point p(String d,int x,int y,int z) {return new WalkedRoute.Point(d,x,y,z);}
  private static void check(boolean condition,String message) {if(!condition) throw new AssertionError(message);}
