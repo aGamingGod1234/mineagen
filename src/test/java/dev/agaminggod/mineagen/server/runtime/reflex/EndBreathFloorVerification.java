@@ -36,6 +36,7 @@ public final class EndBreathFloorVerification {
 		failedRunWaitsItsCooldown(end);
 		corneredBreathHandsARunningCommandTheBody(end);
 		endDefaultsAreEndOnly(end);
+		perchStrikeRunsOnlyForALandingInReach(end);
 		gapHoldsStillInputOverTheCommand();
 		lavaFloorStillGivesACommandItsCooldown();
 		blockedEndDefaultsNeverFire(end);
@@ -281,6 +282,57 @@ public final class EndBreathFloorVerification {
 		ReflexSpec.Rule model = rule("{\"id\":\"default-breath\",\"priority\":9,\"when\":{\"type\":\"cloud_near\",\"within\":1},\"do\":{\"type\":\"sprint_away\",\"blocks\":10}}");
 		check(!ReflexEngine.endOnly(model), "a model rule with the same id is the model's: not gated by dimension");
 		check(!ReflexEngine.endOnly(null), "no rule is not End-only");
+	}
+
+	/**
+	 * The run to a perched dragon's head: a stance under the breath and throw rules, standing aside for the body's own
+	 * fight, shot or flight, asleep without a sword or axe, and only for a landing about level with the body.
+	 */
+	private static void perchStrikeRunsOnlyForALandingInReach(List<ReflexSpec.Rule> end) {
+		ReflexSpec.Rule strike = named(end, "default-perch-strike");
+		check(strike.kind() == ReflexSpec.Kind.STANCE && "strike_head".equals(strike.action().type()), "the perch strike is a stance that runs strike_head");
+		check(strike.when().stream().anyMatch(condition -> "dragon_perched".equals(condition.type()) && condition.number("within", 0.0D) == 24.0D),
+				"it fires for a perched dragon within 24 blocks (vanilla keeps a perched dragon down while a player is within 20)");
+		check(strike.when().stream().anyMatch(condition -> "health_below".equals(condition.type()) && condition.negated()), "it stays out at low health");
+		check(!ReflexScheduler.floor(strike), "it is no hazard floor: a model command takes the body back");
+		check(named(end, "default-breath").priority() > strike.priority() && named(end, "default-end-throw").priority() > strike.priority()
+				&& named(end, "default-gaze").priority() > strike.priority(), "breath, throw and gaze outrank it");
+		for (dev.agaminggod.mineagen.protocol.ActionType own : List.of(dev.agaminggod.mineagen.protocol.ActionType.FIGHT_TARGET,
+				dev.agaminggod.mineagen.protocol.ActionType.FIGHT_UNTIL, dev.agaminggod.mineagen.protocol.ActionType.USE_RANGED,
+				dev.agaminggod.mineagen.protocol.ActionType.FLEE_FROM)) {
+			check(!ReflexEngine.gatedTruth(strike, true, own), "it stands aside while the body's own " + own.wireName() + " runs");
+		}
+		for (dev.agaminggod.mineagen.protocol.ActionType waiting : List.of(dev.agaminggod.mineagen.protocol.ActionType.WAIT,
+				dev.agaminggod.mineagen.protocol.ActionType.TRAVEL_TO, dev.agaminggod.mineagen.protocol.ActionType.MOVE_TO)) {
+			check(ReflexEngine.gatedTruth(strike, true, waiting), "it takes the body from a " + waiting.wireName() + " (the waits and walks the landings found)");
+		}
+		check(ReflexEngine.gatedTruth(strike, true, null), "it takes an idle body");
+		check(ReflexEngine.gatedTruth(strike, true, dev.agaminggod.mineagen.protocol.ActionType.NAVIGATE_TO), "it takes the body from a navigate_to");
+		for (dev.agaminggod.mineagen.protocol.ActionType keys : List.of(dev.agaminggod.mineagen.protocol.ActionType.CONTROL,
+				dev.agaminggod.mineagen.protocol.ActionType.CONTROL_SEQUENCE, dev.agaminggod.mineagen.protocol.ActionType.LOOK_AT,
+				dev.agaminggod.mineagen.protocol.ActionType.BREAK_BLOCK, dev.agaminggod.mineagen.protocol.ActionType.PLACE_BLOCK,
+				dev.agaminggod.mineagen.protocol.ActionType.USE_ITEM)) {
+			check(!ReflexEngine.gatedTruth(strike, true, keys), "it leaves a paused " + keys.wireName() + " alone: that lease outranks the fight's");
+		}
+		check(ReflexSensors.inStep(0.42D, 0.0D) && ReflexSensors.inStep(-0.3D, 1.2D), "a jump up a block or a short drop is a step of the walk");
+		check(!ReflexSensors.inStep(1.1D, 0.0D), "a throw upward is not a step");
+		check(!ReflexSensors.inStep(-0.8D, 4.0D), "a fall past 3 blocks is not a step");
+		check(ReflexEngine.strikeHoldsThroughTakeoff(strike, true, true), "a firing head run holds on while its fight steps clear of a takeoff");
+		check(!ReflexEngine.strikeHoldsThroughTakeoff(strike, true, false), "it ends with the perch once no retreat runs");
+		check(!ReflexEngine.strikeHoldsThroughTakeoff(strike, false, true), "only the firing rule holds on");
+		check(!ReflexEngine.strikeHoldsThroughTakeoff(named(end, "default-breath"), true, true), "no other rule holds on this way");
+		check(ReflexActions.StrikeHead.weapon("minecraft:iron_sword") && ReflexActions.StrikeHead.weapon("minecraft:stone_axe"), "a sword or an axe is the weapon");
+		check(!ReflexActions.StrikeHead.weapon("minecraft:iron_pickaxe") && !ReflexActions.StrikeHead.weapon(null), "a pickaxe or an empty hand is not");
+		ReflexActions.Held sword = new ReflexActions.Held("minecraft:iron_sword", false, false), pick = new ReflexActions.Held("minecraft:iron_pickaxe", false, false);
+		check(ReflexActions.lacks(strike.action(), slot -> slot == 3 ? sword : ReflexActions.Held.EMPTY, 0, ReflexActions.Held.EMPTY) == null, "a hotbar sword wakes it");
+		check("no sword or axe in hotbar".equals(ReflexActions.lacks(strike.action(), slot -> slot == 0 ? pick : slot == 20 ? sword : ReflexActions.Held.EMPTY, 0, ReflexActions.Held.EMPTY)),
+				"a sword only in the bag (not the hotbar) leaves it asleep");
+		check(ReflexSensors.perchLevel(62.0D, 67.0D) && ReflexSensors.perchLevel(59.0D, 67.0D) && ReflexSensors.perchLevel(69.5D, 67.0D),
+				"ground round the fountain, 2-8 below the perched dragon, is level with it");
+		check(!ReflexSensors.perchLevel(58.0D, 67.0D) && !ReflexSensors.perchLevel(71.0D, 67.0D), "a pit or a tower is not");
+		ReflexActions.StrikeHead run = new ReflexActions.StrikeHead();
+		check(run.doneAtMaxS() && run.drivesOwnNavigation(), "a 20 s span of the perch ends done and the fight drives its own input");
+		check(ReflexActions.StrikeHead.head(null) == null, "no dragon, no head");
 	}
 
 	/** Council R2: in the gap the input that wins is the reflex lease's still input, not the command's last forward/sprint/jump. */

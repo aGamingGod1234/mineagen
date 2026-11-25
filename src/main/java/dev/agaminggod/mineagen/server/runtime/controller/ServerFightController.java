@@ -827,6 +827,11 @@ public final class ServerFightController implements ServerController {
 		return routeRefusal == null ? aligned : 0.0F;
 	}
 
+	/** A retreat (low health, or a dragon lifting off) has taken over the fight. */
+	public boolean bailingOut() {
+		return bailout != null;
+	}
+
 	public ServerFightController strikingPart(net.minecraft.world.entity.boss.enderdragon.EnderDragonPart part) {
 		if (part.parentMob != target) throw new IllegalArgumentException("part must belong to the fight target");
 		this.strike = part;

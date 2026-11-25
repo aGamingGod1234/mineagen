@@ -170,6 +170,7 @@ final class ReflexActions {
 			case "dodge" -> new Dodge();
 			case "leave_fire", "leave_lava" -> new LeaveFire();
 			// Never started: the engine treats a brace rule as a body setting (see ReflexEngine), not a firing.
+			case "strike_head" -> new StrikeHead();
 			case "brace" -> (context, input) -> Step.done("brace never takes the body");
 			default -> (context, input) -> Step.failed("unknown action " + action.type());
 		};
@@ -235,6 +236,8 @@ final class ReflexActions {
 			case "place_block" -> holds(slots, Held.EMPTY, 9, held -> item != null ? item.equals(held.id()) : held.coverBlock()) ? null
 					: "no " + (item != null ? item : "full block") + " in hotbar";
 			case "select" -> item == null || holds(slots, offhand, 36, held -> item.equals(held.id())) ? null : "no " + item + " in inventory";
+			// A head hit worth the run: a sword or an axe on the hotbar (a fist does 1 a hit, about 50 swings a perch).
+			case "strike_head" -> holds(slots, Held.EMPTY, 9, held -> StrikeHead.weapon(held.id())) ? null : "no sword or axe in hotbar";
 			default -> null;
 		};
 	}
@@ -1953,6 +1956,76 @@ final class ReflexActions {
 			if (back != null) back.cancel(player);
 			back = null;
 		}
+
+		@Override
+		public boolean drivesOwnNavigation() { return true; }
+	}
+
+	/**
+	 * A player waiting near the fountain runs in when the dragon lands and swings at its head until it takes off. The
+	 * model's own reply took 4-5 s and the landing is short: in 12 End games, 36 of 75 landings after the last crystal saw
+	 * no fight at all, and the 13 fights that did start ran under 10 s before take-off, dragon health flat in 11. The run
+	 * is fight_target on the head part (ServerFightController.strikingPart): its approach keeps out of the head, neck and
+	 * wing boxes and the breath (DragonPerchSafety), and it ends when the dragon lifts off (DRAGON_TOOK_OFF). Only that
+	 * end, or the kill, is done; any other end (low health, no way in) has failed.
+	 */
+	static final class StrikeHead implements Behaviour {
+		/**
+		 * A perch with a player near lasts up to about 50 s (four breaths); a firing lasts at most the rule's 20 s, and the
+		 * stance takes the body again a second later while the dragon still sits.
+		 */
+		static final long STRIKE_MS = 50_000L;
+		/** Ends of the head fight that mean the perch is over, not that the run failed. */
+		static final Set<String> PERCH_OVER = Set.of("DRAGON_TOOK_OFF", "TARGET_KILLED", "TARGET_GONE");
+		private dev.agaminggod.mineagen.server.runtime.controller.ServerFightController fight;
+
+		static boolean weapon(String id) {
+			return id != null && (id.endsWith("_sword") || id.endsWith("_axe"));
+		}
+
+		/** Its head fight is stepping clear of a dragon lifting off (see ReflexEngine.strikeHoldsThroughTakeoff). */
+		boolean retreating() {
+			return fight != null && fight.bailingOut();
+		}
+
+		@Override
+		public Step tick(Context context, Consumer<AgentInputState> input) {
+			ServerPlayer player = context.player();
+			long now = dev.agaminggod.mineagen.server.runtime.GameClock.nowMs();
+			if (fight == null) {
+				net.minecraft.world.entity.boss.enderdragon.EnderDragonPart head = head(context.focus());
+				if (head == null) return Step.done("no perched dragon head in sight");
+				fight = new dev.agaminggod.mineagen.server.runtime.controller.ServerFightController(head.parentMob, null, null, false,
+						dev.agaminggod.mineagen.server.runtime.controller.CombatPlanning.TargetPolicy.NAMED, false, true, false, false,
+						STRIKE_MS, now).strikingPart(head);
+			}
+			var result = fight.tick(player, now);
+			if (result.state() == dev.agaminggod.mineagen.server.runtime.controller.ServerController.State.RUNNING) return Step.running("at the perched dragon's head");
+			fight.cancel(player);
+			fight = null;
+			String detail = "head fight " + result.reasonCode();
+			return PERCH_OVER.contains(result.reasonCode()) || result.state() == dev.agaminggod.mineagen.server.runtime.controller.ServerController.State.SUCCEEDED
+					? Step.done(detail) : Step.failed(detail);
+		}
+
+		/** The head of the sensed perched dragon (the focus is its head part, or the dragon itself). */
+		static net.minecraft.world.entity.boss.enderdragon.EnderDragonPart head(Entity focus) {
+			net.minecraft.world.entity.boss.enderdragon.EnderDragon dragon = focus instanceof net.minecraft.world.entity.boss.enderdragon.EnderDragonPart part
+					? part.parentMob : focus instanceof net.minecraft.world.entity.boss.enderdragon.EnderDragon whole ? whole : null;
+			if (dragon == null || !dragon.isAlive()) return null;
+			for (var part : dragon.getSubEntities()) if ("head".equals(part.name)) return part;
+			return null;
+		}
+
+		@Override
+		public void end(ServerPlayer player) {
+			if (fight != null) fight.cancel(player);
+			fight = null;
+		}
+
+		/** Its 20 s run out with the dragon still sitting is a span of the perch, not a failure. */
+		@Override
+		public boolean doneAtMaxS() { return true; }
 
 		@Override
 		public boolean drivesOwnNavigation() { return true; }

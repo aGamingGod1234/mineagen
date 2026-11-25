@@ -23,10 +23,10 @@ import java.util.regex.Pattern;
 public final class ReflexSpec {
 	/**
 	 * The model's own 12 rules plus the coordinator's 16 default rules (15 survival rules and the owed-drops habit) and the
-	 * 4 it arms only in the End (breath, the dragon's throw, the gaze guard and water against an angry enderman,
-	 * reflexes.mjs DIMENSION_REFLEXES).
+	 * 5 it arms only in the End (breath, the dragon's throw, the gaze guard, water against an angry enderman and the run
+	 * to a perched dragon's head, reflexes.mjs DIMENSION_REFLEXES).
 	 */
-	public static final int MAX_RULES = 32;
+	public static final int MAX_RULES = 33;
 	/** Ids the coordinator's default survival rules carry (reflexes.mjs DEFAULT_REFLEXES). */
 	public static final String DEFAULT_RULE_PREFIX = "default-";
 	public static final int MAX_CONDITIONS = 4;
@@ -136,6 +136,8 @@ public final class ReflexSpec {
 		condition("cloud_near", true, new Param("within", ParamKind.NUMBER, 0.0D, 4.0D, false));
 		// The dragon seen flying at the body (its flight line passes within about 10 blocks in the next 3 s).
 		condition("dragon_charging", true, new Param("within", ParamKind.NUMBER, 8.0D, 96.0D, false));
+		// The dragon seen sitting on the exit fountain within range, the body on the ground near its height.
+		condition("dragon_perched", true, new Param("within", ParamKind.NUMBER, 4.0D, 32.0D, false));
 		// Digging (midgame): the head inside a solid block, as falling sand or gravel lands on it.
 		condition("suffocating", false);
 		// A mob hurt the body within withinS seconds (the hurt flash and its direction), or a hostile's shot is about to land.
@@ -168,6 +170,8 @@ public final class ReflexSpec {
 		action("defend");
 		// No shield in either hand: strafe across a drawn bow's line around release, the other way on the next draw.
 		action("dodge");
+		// Walk to a perched dragon's head and swing at it each recharge until it takes off (fight_target on the head part).
+		action("strike_head");
 	}
 
 	private ReflexSpec() {
