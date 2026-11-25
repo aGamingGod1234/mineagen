@@ -76,8 +76,18 @@ public final class WalkedRouteVerification {
   check(fell.path(p("ow",8,70,0),p("ow",0,70,0))!=null,"a pillar top the body stood on is a footstep like any other");
   WalkedRoute far=new WalkedRoute();
   far.step(p("ow",0,70,0),false);far.step(p("ow",12,67,0),false);
-  check(far.path(p("ow",12,67,0),p("ow",0,70,0))==null,"a landing far beyond a fall's drift (a pearl, a knockback flight) stays unconnected");
-  return 28;
+  WalkedRoute.Path jumped=far.path(p("ow",12,67,0),p("ow",0,70,0));
+  check(jumped!=null && jumped.points().equals(java.util.List.of(p("ow",12,67,0))),"a landing far beyond a fall's drift (a pearl, a knockback flight) is no remembered way: only the last leg's ordinary travel");
+  // A target off every footstep: walk the trail to the footstep nearest it, then the last leg is ordinary travel.
+  WalkedRoute off=new WalkedRoute();
+  for(int x=0;x<=10;x++) off.step(p("ow",x,64,0),false);
+  for(int z=1;z<=10;z++) off.step(p("ow",10,64,z),false);
+  WalkedRoute.Path tree=off.path(p("ow",0,64,0),p("ow",18,66,10));
+  check(tree!=null && tree.points().getLast().equals(p("ow",10,64,10)),"a target 8 blocks off the trail: the walked way ends at the footstep nearest it");
+  check(Math.abs(tree.length()-(20+Math.sqrt(68)))<1e-6,"the length counts the last leg off the trail");
+  check(off.path(p("ow",0,64,0),p("ow",30,64,10))==null,"a target farther than the last leg allows has no route");
+  check(off.path(p("ow",0,64,0),p("ow",10,64,10)).points().getLast().equals(p("ow",10,64,10)),"a target on the trail is walked to as before");
+  return 32;
  }
  private static WalkedRoute.Point p(String d,int x,int y,int z) {return new WalkedRoute.Point(d,x,y,z);}
  private static void check(boolean condition,String message) {if(!condition) throw new AssertionError(message);}

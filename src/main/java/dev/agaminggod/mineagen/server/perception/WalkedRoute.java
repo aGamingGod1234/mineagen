@@ -41,6 +41,8 @@ public final class WalkedRoute {
  }
  /** Drift a fall carries off a ledge before landing; a farther jump (a pearl, a knockback flight) is not a fall. */
  static final int FALL_DRIFT=6;
+ /** How far off the trail a retrace target may be: the last leg there is ordinary travel, not a remembered way. */
+ static final double LAST_LEG=16;
  static boolean fall(Point from, Point to) {
   return from.dimension.equals(to.dimension) && to.y<from.y-1 && Math.hypot(from.x-to.x,from.z-to.z)<=FALL_DRIFT;
  }
@@ -56,8 +58,11 @@ public final class WalkedRoute {
  public boolean climbable(Point at) { return hazards.getOrDefault(at,Set.of()).contains(CLIMBABLE); }
  public Path path(Point from, Point target) {
   // The body must stand on the remembered route. A nearby tunnel behind a wall is not an entry.
+  // The target on the trail (a footstep within 2.5) is walked to; else the walked way ends at the reachable footstep
+  // nearest it, within LAST_LEG, and the controller's last leg is ordinary travel from there, as a player walks back to
+  // the spot they know and goes on from it. In 8 measured games 9 of 26 failed retraces named a place 4-30 blocks off
+  // every footstep (a tree, a ledge seen from the trail).
   Point end = nearest(target, 2.5);
-  if (end == null) return null;
   Map<Point, Double> costs = new HashMap<>(); Map<Point, Point> parent = new HashMap<>();
   record Pending(Point at, double cost) {}
   PriorityQueue<Pending> queue = new PriorityQueue<>(Comparator.comparingDouble(Pending::cost));
@@ -80,7 +85,14 @@ public final class WalkedRoute {
     costs.put(next,cost); parent.put(next,p.at); queue.add(new Pending(next,cost));
    }
   }
-  if (!costs.containsKey(end)) return null;
+  if (end == null || !costs.containsKey(end)) {
+   end = null; double best = LAST_LEG;
+   for (Point at: costs.keySet()) {
+    double d = at.distance(target);
+    if (!rises.contains(at) && (d < best || d == best && end != null && costs.get(at) < costs.get(end))) { best = d; end = at; }
+   }
+   if (end == null) return null;
+  }
   List<Point> full=new ArrayList<>(); Set<String> risks=new LinkedHashSet<>();
   for (Point at=end; at!=null; at=parent.get(at)) { full.add(at); risks.addAll(hazards.getOrDefault(at,Set.of())); }
   Collections.reverse(full);
