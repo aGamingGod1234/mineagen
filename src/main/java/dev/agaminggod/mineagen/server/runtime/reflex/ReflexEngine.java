@@ -388,6 +388,9 @@ public final class ReflexEngine {
 		boolean holding;
 		/** A command's yield was put off by the shelter hold; it is owed once the hold ends or the command is not a walk. */
 		boolean yieldOwed;
+		/** Game ticks of the last safety firing (cover, a hazard leave, a retreat, defend moving the body) and the last danger. */
+		long lastSafetyTick = -1L;
+		long lastHazardTick = -1L;
 	}
 
 	/** The agent's own action, as the executor sees it. */
@@ -578,7 +581,11 @@ public final class ReflexEngine {
 		ServerActionRequest active = body.active(agentId);
 		ActionType activeType = active == null ? null : active.type();
 		followCommand(agentId, agent, active, body, now);
-		agent.holding = agent.shelter.tick(ShelterHold.danger(player), ShelterHold.weak(player), player.level().getGameTime());
+		long gameTime = player.level().getGameTime();
+		if (agent.scheduler.current() != null && ShelterHold.shelters(agent.behaviour)) agent.lastSafetyTick = gameTime;
+		if (ShelterHold.danger(player) || player.isInLava() || player.isOnFire()) agent.lastHazardTick = gameTime;
+		agent.holding = agent.shelter.tick(ShelterHold.on(agent.scheduler.current() != null && ShelterHold.shelters(agent.behaviour),
+				agent.lastSafetyTick, agent.lastHazardTick, gameTime), true, gameTime);
 		// The put-off yield is paid once the hold ends, the firing ends, or the command turns out not to be a plain walk
 		// (a fight, escape or spawner back-out takes the body at once).
 		if (agent.yieldOwed && (!agent.holding || agent.scheduler.current() == null || active != null && !ShelterHold.heldWalk(activeType))) {
