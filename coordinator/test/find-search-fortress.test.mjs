@@ -143,3 +143,37 @@ test('remembered blocks after arrival cannot extend the observed floor route', a
 	assert.equal((await searchFor(target, b, options)).reasonCode, 'FIND_BLOCKED');
 	assert.equal(b.calls.length, 1);
 });
+
+// Base1 games (25 Nov): the floor walk read only blocks next to the body and handed back FIND_BLOCKED in 0-12 s while the
+// far rays of the look showed fortress brick 7-62 blocks away.
+test('fortress brick seen far off by a look round is walked to when no floor is in reach', async () => {
+	const observation = sample(); observation.blocks[0] = { ...observation.blocks[0], x: 6, z: 120 };
+	const b = body({ observation });
+	b.look = async () => ({ state: 'SUCCEEDED', survey: {}, samples: [{ landmarks: [{ blockId: 'minecraft:nether_bricks', x: 6, y: 64, z: 150, distance: 30 }, { blockId: 'minecraft:basalt', x: 30, y: 64, z: 119, distance: 24 }] }] });
+	const result = await searchFor(target, b, options);
+	assert.deepEqual([b.calls[0].args.x, b.calls[0].args.y, b.calls[0].args.z, b.calls[0].args.tolerance], [6.5, 65, 150.5, 2]);
+	assert.equal(result.find.covered.walked > 25, true);
+});
+
+test('with a blaze in view the floor nearest it is walked first, not the farthest', async () => {
+	const observation = sample();
+	observation.blocks = [{ blockId: 'minecraft:nether_bricks', x: 5, y: 64, z: 131, placeableFaces: ['up'] }, { blockId: 'minecraft:nether_bricks', x: 15, y: 64, z: 119, placeableFaces: ['up'] }];
+	observation.entities = [{ type: 'minecraft:blaze', x: 20, y: 68, z: 118, perceivedBy: 'sight' }];
+	const plain = sample(); plain.blocks = structuredClone(observation.blocks);
+	const b = body({ observation, discover: true });
+	await searchFor(target, b, options);
+	assert.deepEqual([b.calls[0].args.x, b.calls[0].args.z], [15.5, 119.5]);
+	const c = body({ observation: plain, discover: true });
+	await searchFor(target, c, options);
+	assert.deepEqual([c.calls[0].args.x, c.calls[0].args.z], [5.5, 131.5], 'no blaze: the farthest floor, as before');
+});
+
+test('with nothing new in reach it looks round once from the spot before handing back', async () => {
+	const observation = sample(); observation.blocks[0] = { ...observation.blocks[0], x: 6, z: 120 };
+	const b = body({ observation });
+	let looks = 0; const look = b.look; b.look = async (...args) => { looks++; return look(...args); };
+	const result = await searchFor(target, b, options);
+	assert.equal(result.reasonCode, 'FIND_BLOCKED');
+	assert.equal(b.calls.length, 0);
+	assert.ok(looks >= 1);
+});

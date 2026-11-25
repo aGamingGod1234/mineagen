@@ -715,7 +715,7 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 		}
 	};
 	// What the last look around showed of the ground each way (the runtime's per-heading landmarks), and where it was taken.
-	let ground = null, lookedFrom = null, lastSurvey = null, sweepHostiles = [];
+	let ground = null, lookedFrom = null, lastSurvey = null, sweepHostiles = [], sweepLandmarks = [];
 	const cellOfBody = (at) => (at === null ? null : `${Math.floor(at.x)},${Math.floor(at.y + 0.01)},${Math.floor(at.z)}`);
 	const look = async (pitch) => {
 		// A mob the search fights, close and coming: met before the look turns the body's back on it. Fixture zombie
@@ -731,6 +731,9 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 		// Mobs any heading of the sweep showed: the last frame alone misses one beside a cave seen earlier in the turn.
 		sweepHostiles = (Array.isArray(result?.samples) ? result.samples : []).flatMap((sample) => Array.isArray(sample?.entities) ? sample.entities : [])
 			.map((row) => ({ type: row?.entityType ?? row?.type, ...(row?.position ?? row) })).filter((row) => HOSTILE_TYPE(row.type) && [row.x, row.y, row.z].every(Number.isFinite));
+		// What the far rays of each heading hit: the fortress floor walk reads its distant walkways from these.
+		sweepLandmarks = (Array.isArray(result?.samples) ? result.samples : []).flatMap((sample) => Array.isArray(sample?.landmarks) ? sample.landmarks : [])
+			.filter((row) => typeof row?.blockId === 'string' && [row.x, row.y, row.z].every(Number.isFinite));
 		ground = Array.isArray(result?.ground) ? { at: bodyAt(observation), views: result.ground } : null;
 		noteCaves(null, result?.survey);
 		noteWoods(result?.survey);
@@ -1922,6 +1925,7 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 
 	if (fortressSpawnerSearch(profile, observation)) {
 		return walkFortressFloor({ profile, observation: () => observation, bodyAt, cellOf, insideBoundary, left, leg, settle, look, handBack,
+			farSeen: () => sweepLandmarks, sweepHostiles: () => sweepHostiles,
 			minLegMs: MIN_LEG_MS, buildLeg: BUILD_LEG, buildBudget: BUILD_BUDGET });
 	}
 
