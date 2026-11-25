@@ -240,3 +240,22 @@ test('the beat-the-game plan prompt offers a gold piece before the Nether, warpe
  assert.match(prompt, /Ender pearls come from warped-forest endermen first .*a bastion step is optional, the source of fire resistance, obsidian and spare gold rather than the pearl plan, and nothing waits on it\./);
  assert.doesNotMatch(prompt, /do not label it optional/, 'the plan agrees with AGENTS.md: bastion routing is not the default pearl plan');
 });
+test('a walk that stopped on sight of a spawner meets the seen-spawner step without a block row (real game: the result was the only sighting)', async () => {
+ let now = T0;
+ const views = new LiveTaskViews({ now: () => now });
+ const nether = { dimension: 'minecraft:the_nether' };
+ const plan = { steps: [step('fortress', 'seen:minecraft:spawner', [], 'world'), step('rods', 'has:minecraft:blaze_rod*6', ['fortress'], 'inventory')] };
+ await views.observe(record, sample(now, nether));
+ await views.operate(record, { operation: 'replace', plan });
+ await views.observe(record, sample(now, nether));
+ const before = views.continuity(record).plan;
+ assert.match(before, /^open fortress\[unmet:seen spawner\]/);
+ const walk = (reasonCode, message) => ({ actionId: `walk-${reasonCode}`, goalRevision: 1, worldId: 'w1', dimension: 'minecraft:the_nether', actionType: 'travel_to', state: 'SUCCEEDED', reasonCode, arguments: { x: -380, y: 70, z: -230 }, observedAtEpochMs: now, message });
+ await views.actionReceipt(record, walk('ARRIVED', 'Arrived at -380,70,-230'));
+ await views.actionReceipt(record, walk('TARGET_SEEN', 'minecraft:blaze seen at -385,72,-236, 6 blocks away'));
+ now += 1000; await views.observe(record, sample(now, nether));
+ assert.equal(views.continuity(record).plan, before, 'arrivals and mob sightings are not spawner facts');
+ await views.actionReceipt(record, walk('TARGET_SEEN', 'minecraft:spawner seen at -389,70,-238, 3 blocks away'));
+ now += 1000; await views.observe(record, sample(now, nether));
+ assert.match(views.continuity(record).plan, /^open rods\[.*\]; done fortress/);
+});

@@ -4,7 +4,7 @@ import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { sanitizeDiagnosticText } from './diagnostic-sanitizer.mjs';
 import { readFileInTurn, replaceFile } from './file-turns.mjs';
-import { emptyKnown, restoreKnown, rememberPlanFacts, parsePlanCheck, evaluatePlanCheck, planProgress, placedItems, TOOLS, ARMOR } from './plan-checks.mjs';
+import { emptyKnown, restoreKnown, rememberPlanFacts, rememberSeenResult, parsePlanCheck, evaluatePlanCheck, planProgress, placedItems, TOOLS, ARMOR } from './plan-checks.mjs';
 import { observedBlocks } from './seen-resource-facts.mjs';
 import { FactLifecycle, currentSample, deadSample, directBlockEvidence, evidenceClock, freshEvidence, invalidated, newerEvidence } from './fact-provenance.mjs';
 import { strategyHints } from './minecraft-strategy-reference.mjs';
@@ -281,6 +281,7 @@ export class LiveTaskViews {
    const state = this.#state(record); await this.#load(record, state);
    if (this.#states.get(record.agentId) === state && (!receipt.worldId || receipt.worldId === state.worldId)) {
     rememberResult(state.results, receipt);
+    if (rememberSeenResult(state.known, receipt, receipt.dimension ?? state.liveDimension)) this.#save(state);
     if (receipt.arguments && ['dig_to', 'travel_to', 'move_to', 'navigate_to'].includes(receipt.actionType)) {
      const args = Object.fromEntries(['x', 'y', 'z', 'direction', 'heading', 'targetY', 'yaw', 'distance'].filter(k => Object.hasOwn(receipt.arguments, k)).map(k => [k, receipt.arguments[k]]));
      state.workHeading = { step: state.intent?.step ?? firstUnfinished(state)?.id ?? '', dimension: receipt.dimension ?? state.liveDimension, arguments: args };
