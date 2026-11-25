@@ -72,6 +72,13 @@ export const DIMENSION_REFLEXES = Object.freeze({
 		// body in its water while an angry enderman is within 16 and scoops it back once none is (at most 10 s, less with the
 		// dragon near): left behind, the bucket stayed empty for the next one (dragon room on main: 9 of 14 deaths endermen).
 		{ id: 'default-ender-water', kind: 'trigger', priority: 8, when: [{ type: 'enderman_provoked', within: 8 }], do: { type: 'place', item: 'minecraft:water_bucket', where: 'feet' }, maxMs: 12_000, cooldownMs: 10_000, ttlMs: 3_600_000 },
+		// The dragon landed on the fountain near the body: a player waiting there runs in and swings at its head until it
+		// lifts off. The model's reply (4-5 s) outlasted the landing: in 12 End games, 36 of 75 landings after the last crystal
+		// saw no fight, and the 13 fights that began ran under 10 s before take-off, dragon health flat in 11. The run is the
+		// head-part fight (its approach keeps out of the wing, neck and breath zones) and stands aside for the body's own
+		// fight, shot or flight; a model command takes the body back as from any stance. A stance, not a trigger, so it
+		// comes back after the breath run while the dragon still sits; at 10 health or less it stays out.
+		{ id: 'default-perch-strike', kind: 'stance', priority: 6, when: [{ type: 'dragon_perched', within: 24 }, { type: 'health_below', value: 10, not: true }], do: { type: 'strike_head' }, maxMs: 20_000, cooldownMs: 1_000, ttlMs: 3_600_000 },
 	].map((rule) => Object.freeze(rule))),
 });
 const MOST_DIMENSION_REFLEXES = Math.max(0, ...Object.values(DIMENSION_REFLEXES).map((rules) => rules.length));
@@ -79,7 +86,7 @@ export const DEFAULT_REFLEX_IDS = Object.freeze(new Set([...DEFAULT_REFLEXES, ..
 // The mod runs at most this many rules (ReflexSpec.MAX_RULES): the cap of every rule-set bound on the wire (C24). The
 // model's own rules plus the defaults (with the most any dimension adds) must fit it, so a new default needs a raise on
 // both sides first.
-export const MAX_REFLEX_RULES = 32;
+export const MAX_REFLEX_RULES = 33;
 if (MAX_REFLEXES + DEFAULT_REFLEXES.length + MOST_DIMENSION_REFLEXES > MAX_REFLEX_RULES) throw new Error(`reflex rules ${MAX_REFLEXES} + ${DEFAULT_REFLEXES.length} + ${MOST_DIMENSION_REFLEXES} exceed the mod's ${MAX_REFLEX_RULES}`);
 
 /**
@@ -208,6 +215,8 @@ export const REFLEX_CONDITIONS = Object.freeze({
 	cloud_near: { within: number(0, 4) },
 	// The dragon seen flying at you: its flight line passes within about 10 blocks in the next 3 s.
 	dragon_charging: { within: number(8, 96) },
+	// The dragon seen sitting on the exit fountain within range, the body on the ground near its height.
+	dragon_perched: { within: number(4, 32) },
 	// Digging (midgame): the head inside a solid block, as falling sand or gravel lands on it.
 	suffocating: {},
 	// A mob hurt you within withinS seconds, or a hostile's shot lands within 1 s.
@@ -245,6 +254,8 @@ export const REFLEX_ACTIONS = Object.freeze({
 	defend: {},
 	// No shield in either hand: strafe across a drawn bow's line around release, the other way on the next draw.
 	dodge: {},
+	// Walk to a perched dragon's head and swing at it each recharge until it takes off (fight_target on the head part).
+	strike_head: {},
 });
 
 function codedError(code, message) { return Object.assign(new Error(message), { code }); }
@@ -392,6 +403,7 @@ export function reflexLacks(action, observation) {
 		case 'place_block': return action.item === undefined || has((item) => item.hotbar === true || item.slot === 'mainhand', action.item) ? null : `no ${action.item} in hotbar`;
 		case 'select': return action.item === undefined || has((item) => typeof item.slot === 'number' || item.slot === 'mainhand' || item.slot === 'offhand', action.item) ? null : `no ${action.item} in inventory`;
 		case 'shield': return has((item) => item.slot === 'mainhand' || item.slot === 'offhand', 'minecraft:shield') ? null : 'no shield in either hand';
+		case 'strike_head': return items.some((item) => (item.hotbar === true || item.slot === 'mainhand') && /_(sword|axe)$/.test(item.itemId ?? '')) ? null : 'no sword or axe in hotbar';
 		default: return null;
 	}
 }

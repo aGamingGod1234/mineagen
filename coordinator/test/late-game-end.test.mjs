@@ -11,7 +11,7 @@ import { AgentRegistry } from '../src/agent-registry.mjs';
 const END = 'minecraft:the_end', OVERWORLD = 'minecraft:overworld', NETHER = 'minecraft:the_nether';
 const live = (dimension) => ({ world: { dimension }, player: { health: 20 } });
 const ids = (book) => book.list('a').map((row) => `${row.id}${row.default ? '*' : ''}`);
-const END_IDS = ['default-breath', 'default-end-throw', 'default-gaze', 'default-ender-water'];
+const END_IDS = ['default-breath', 'default-end-throw', 'default-gaze', 'default-ender-water', 'default-perch-strike'];
 
 test('End defaults follow the dimension: armed on entering the End, gone on leaving', () => {
 	const book = new ReflexBook();
@@ -20,7 +20,7 @@ test('End defaults follow the dimension: armed on entering the End, gone on leav
 	const before = book.payload('a').revision;
 	assert.equal(book.observeContext('a', live(END)), true, 'entering the End changes the set');
 	assert.ok(book.payload('a').revision > before);
-	assert.deepEqual(ids(book).slice(-4), ['default-breath*', 'default-end-throw*', 'default-gaze*', 'default-ender-water*']);
+	assert.deepEqual(ids(book).slice(-5), ['default-breath*', 'default-end-throw*', 'default-gaze*', 'default-ender-water*', 'default-perch-strike*']);
 	assert.equal(book.observeContext('a', live(END)), false, 'nothing more while it stays');
 	assert.equal(book.observeContext('a', live(OVERWORLD)), true, 'leaving changes the set');
 	assert.ok(END_IDS.every((id) => !ids(book).some((row) => row.startsWith(id))), 'gone after leaving');

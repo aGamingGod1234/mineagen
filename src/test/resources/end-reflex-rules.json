@@ -78,5 +78,28 @@
 		"cooldownMs": 10000,
 		"ttlMs": 3600000,
 		"coordinatorDefault": true
+	},
+	{
+		"id": "default-perch-strike",
+		"kind": "stance",
+		"priority": 6,
+		"when": [
+			{
+				"type": "dragon_perched",
+				"within": 24
+			},
+			{
+				"type": "health_below",
+				"value": 10,
+				"not": true
+			}
+		],
+		"do": {
+			"type": "strike_head"
+		},
+		"maxMs": 20000,
+		"cooldownMs": 1000,
+		"ttlMs": 3600000,
+		"coordinatorDefault": true
 	}
 ]

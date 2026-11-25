@@ -137,7 +137,9 @@ public final class ReflexEngine {
 	 * (which blocks with the shield itself) waited (skeleton escape room: paused 7 to 30 s of a 30 s window).
 	 */
 	static boolean gatedTruth(ReflexSpec.Rule rule, boolean truth, ActionType activeType, boolean escapingShooter) {
-		return truth && !("defend".equals(rule.action().type()) && (defendStandsAside(activeType) || escapingShooter));
+		// The run to a perched dragon's head stands aside the same way: the body's own fight, shot or flight is its choice.
+		return truth && !("defend".equals(rule.action().type()) && (defendStandsAside(activeType) || escapingShooter))
+				&& !("strike_head".equals(rule.action().type()) && defendStandsAside(activeType));
 	}
 
 	/**
@@ -261,7 +263,7 @@ public final class ReflexEngine {
 	}
 
 	/** Coordinator defaults that exist only in the End (the coordinator arms them there; see reflexes.mjs DIMENSION_REFLEXES). */
-	static final Set<String> END_DEFAULTS = Set.of("default-breath", "default-end-throw", "default-gaze", "default-ender-water");
+	static final Set<String> END_DEFAULTS = Set.of("default-breath", "default-end-throw", "default-gaze", "default-ender-water", "default-perch-strike");
 
 	/** The scheduler's End-only rules, blocked while the body is outside the End. */
 	static Set<String> endOnlyIds(ReflexScheduler scheduler) {
