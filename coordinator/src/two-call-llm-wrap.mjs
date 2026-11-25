@@ -172,8 +172,10 @@ function deathRecoveryFacts(death, observation, dropTicking = null, rebuild = nu
 		}
 	}
 	if (loss === 'lava') parts.push('That death was in lava: drops that fell into it burned.');
-	if (loss !== 'void') { const cost = rebuildCostText(rebuild); if (cost) parts.push(`${cost[0].toUpperCase()}${cost.slice(1)}.`); }
-	parts.push(recoveryPreparation(death, observation));
+	// Once the drop clock is spent, or the kit fell into lava, there is no walk back left to weigh against a rebuild.
+	const spent = Number.isFinite(dropTicking?.tickedSeconds) && dropTicking.tickedSeconds >= 300;
+	if (loss === null && !spent) { const cost = rebuildCostText(rebuild); if (cost) parts.push(`${cost[0].toUpperCase()}${cost.slice(1)}.`); }
+	parts.push(recoveryPreparation(spent || loss === 'void' ? { ...death, setOutFrom: null } : death, observation));
 	const night = nightUnarmed(observation);
 	if (night) parts.push(night);
 	return parts.join(' ');

@@ -34,3 +34,19 @@ test('the wake states the drop clock and offers the death drops as a source of t
 		assert.doesNotMatch(encodedInput, /dropTicking/);
 	}
 });
+
+test('through the production wake, the price of the lost iron kit stays in the trimmed options line after the drops', async () => {
+	// The recorded body held its kit from the first sample, so nothing priced it. Two earlier samples with empty hands
+	// make the iron pickaxe first held 15 min into the run.
+	const c = structuredClone(cases[0]);
+	const [first] = c.state.previousObservations;
+	const empty = { items: [], selectedItem: 'minecraft:air', selectedSlot: 0, tagCounts: {}, food: { items: 0, nutrition: 0 } };
+	const earlier = (ms) => ({ ...structuredClone(first), observedAtEpochMs: first.observedAtEpochMs - ms, inventory: empty });
+	c.state.previousObservations.unshift(earlier(15 * 60_000), earlier(14 * 60_000));
+	for (const entry of c.state.lifecycle) entry.beforeObservation += 2;
+	const { encodedInput } = await renderWake(c, { provider: 'codex', model: 'gpt-6.1-sol' });
+	const payload = JSON.parse(encodedInput.slice(encodedInput.indexOf('\n') + 1));
+	assert.match(payload.data.now.options, /^death drops \d+m E dy-\d+ @119,37,-76: iron_pickaxe[^|]*; making the lost iron_pickaxe took this run 15 min from its start( \||$)/);
+	assert.match(payload.data.observation.recovery.facts, /Making the lost iron_pickaxe took this run 15 min from its start\./);
+	assert.doesNotMatch(encodedInput, /"rebuild"/);
+});

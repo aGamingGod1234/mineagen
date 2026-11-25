@@ -603,13 +603,16 @@ function advanceDropTicking(record, live, at) {
 	record.dropTicking = near === null || clock.lastNear === null ? { nearMs, lastAt: at, lastNear: null } : { nearMs, lastAt: at, lastNear: near };
 }
 
-// What the lost pickaxe cost this run: the game minutes from the first live sample in this world to the first sample
-// holding it. Every other tool waits on the pickaxe tier, so a player weighing a walk back against a rebuild knows the
-// kit took at least that long to make. When later gear (a shield, a lava bucket) was first held says when it was
-// wanted, not what it costs, so only pickaxes are priced.
+// What the lost kit cost this run: the game minutes from the first live sample in this world to the first sample holding
+// it. The iron kit (pickaxe, bucket, flint and steel) is what the next steps wait on, and the earliest of it to be made
+// is the floor a rebuild pays: in three full games that was 12-16 min, while the stone pick lost beside it took 2-3 min
+// and a diamond pickaxe was first held at minute 127. When later gear (a shield, a diamond pickaxe) was first held says
+// when it was wanted, not what it costs, so only a kit with no iron in it falls back to its best pickaxe.
 const MAX_GEAR_CLOCK = 64;
-const PICKAXE_TIER = { netherite: 5, diamond: 4, iron: 3, golden: 1, stone: 2, wooden: 1 };
-const pickaxeTier = (id) => /^minecraft:([a-z]+)_pickaxe$/.exec(id)?.[1];
+const IRON_KIT = new Set(['minecraft:iron_pickaxe', 'minecraft:bucket', 'minecraft:water_bucket', 'minecraft:lava_bucket', 'minecraft:flint_and_steel']);
+const BASIC_PICK_TIER = { stone: 2, wooden: 1, golden: 1 };
+const basicPickTier = (id) => BASIC_PICK_TIER[/^minecraft:([a-z]+)_pickaxe$/.exec(id)?.[1]];
+const priced = (id) => IRON_KIT.has(id) || basicPickTier(id) !== undefined;
 function startGearClock(record, live, at) {
 	if (!Number.isFinite(at)) return;
 	if (record.gearClock === null || record.gearClock === undefined || record.gearClock.worldId !== live.worldId) record.gearClock = { worldId: live.worldId, startedAt: at, firstHeld: {} };
@@ -618,19 +621,20 @@ function noteGearHeld(record, inventory, at) {
 	const clock = record.gearClock;
 	if (!clock || !Number.isFinite(at)) return;
 	for (const { itemId } of inventory) {
-		if (pickaxeTier(itemId) === undefined || clock.firstHeld[itemId] !== undefined || Object.keys(clock.firstHeld).length >= MAX_GEAR_CLOCK) continue;
+		if (!priced(itemId) || clock.firstHeld[itemId] !== undefined || Object.keys(clock.firstHeld).length >= MAX_GEAR_CLOCK) continue;
 		clock.firstHeld[itemId] = at;
 	}
 }
-/** The best lost pickaxe made in this run, with the minutes it took to first hold; null when none was. */
+/** The earliest-made lost iron kit item, else the best lost basic pickaxe, with the minutes to first hold it; null when none was made in this run. */
 function rebuildView(record, lost) {
 	const clock = record?.gearClock;
 	if (!clock || !Array.isArray(lost)) return null;
-	const best = lost.filter(({ itemId, count }) => count > 0 && Number.isFinite(clock.firstHeld[itemId]))
-		.map(({ itemId }) => ({ itemId, tier: PICKAXE_TIER[pickaxeTier(itemId)] ?? 0, minutes: Math.floor((clock.firstHeld[itemId] - clock.startedAt) / 60_000) }))
-		// A pickaxe held from the first sample was not made in this run: its cost is unknown, not zero.
-		.filter(({ minutes }) => minutes >= 1)
-		.sort((a, b) => b.tier - a.tier)[0];
+	const made = lost.filter(({ itemId, count }) => count > 0 && Number.isFinite(clock.firstHeld[itemId]))
+		.map(({ itemId }) => ({ itemId, minutes: Math.floor((clock.firstHeld[itemId] - clock.startedAt) / 60_000) }))
+		// Gear held from the first sample was not made in this run: its cost is unknown, not zero.
+		.filter(({ minutes }) => minutes >= 1);
+	const iron = made.filter(({ itemId }) => IRON_KIT.has(itemId)).sort((a, b) => a.minutes - b.minutes)[0];
+	const best = iron ?? made.filter(({ itemId }) => basicPickTier(itemId) !== undefined).sort((a, b) => basicPickTier(b.itemId) - basicPickTier(a.itemId))[0];
 	return best === undefined ? null : Object.freeze({ itemId: best.itemId, minutes: best.minutes });
 }
 

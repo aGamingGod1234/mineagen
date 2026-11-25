@@ -5,13 +5,13 @@ import { composeTwoCallView } from '../src/two-call-llm-wrap.mjs';
 import { deathDropsLead } from '../src/live-task-view.mjs';
 
 // After a death the wake listed the drops, the distance and the drop clock, and said a stone pick takes 0.36 min from
-// logs and stone. Nothing said what the lost iron kit had cost. In three full games the bot chose to rebuild after 13 of
-// 17 Overworld deaths, and getting the pickaxe and bucket back took 40-66 min when it finished at all. These states are
-// rebuilt from one of those games: start at 400,79,-543, iron pickaxe first held at minute 12.9, drowned at y-39
-// 64 blocks from the respawn point at minute 21.5 with the kit on it.
+// logs and stone. Nothing said what the lost iron kit had cost. In three full games the bot went back for an iron kit
+// (pickaxe, bucket, flint and steel) after 2 of 9 deaths that dropped one outside lava and rebuilt after the rest, and
+// getting the pickaxe and bucket back took 40-66 min when it finished at all. These states are rebuilt from one of those
+// games: iron pickaxe first held at minute 12.9, drowned at y-39 64 blocks from the respawn point at minute 21.5.
 
 const OW = 'minecraft:overworld';
-const T0 = 1_795_541_357_558, MIN = 60_000;
+const T0 = 1_800_000_000_000, MIN = 60_000;
 const items = (...ids) => ({ items: ids.map((id) => ({ itemId: `minecraft:${id}`, count: 1 })) });
 const live = (minute, x, y, z, inventory) => ({ ready: true, observedAtEpochMs: T0 + Math.round(minute * MIN), position: { x, y, z },
 	player: { dead: false, health: 20 }, world: { worldId: 'w', dimension: OW }, inventory });
@@ -55,7 +55,7 @@ test('a lost stone pickaxe is priced as cheap as it was, and picking the pickaxe
 	assert.doesNotMatch(composeTwoCallView(live(9.0, 19.5, 60, 5.5, items('stone_pickaxe')), recovery).recovery.facts ?? '', /Making the lost/);
 });
 
-test('gear held from the first sample, gear other than pickaxes, a void death and a new world give no price', () => {
+test('gear held from the first sample, gear outside the kit, a void death and a new world give no price', () => {
 	// A save point game starts with the kit: its cost in this run is unknown, not zero.
 	const loaded = new RecoveryProgressStore();
 	loaded.remember('a', 1, live(0, 0.5, 64, 0.5, items('iron_pickaxe', 'bucket')));
@@ -65,7 +65,7 @@ test('gear held from the first sample, gear other than pickaxes, a void death an
 	// A shield first held at minute 30 says when it was wanted, not what it costs.
 	const shieldOnly = new RecoveryProgressStore();
 	shieldOnly.remember('a', 1, live(0, 0.5, 64, 0.5, items()));
-	shieldOnly.remember('a', 1, live(30, 40.5, 12, 0.5, items('shield', 'bucket')));
+	shieldOnly.remember('a', 1, live(30, 40.5, 12, 0.5, items('shield', 'iron_sword')));
 	shieldOnly.remember('a', 1, { death: { ...drowned, diedAtEpochMs: T0 + 31 * MIN }, observedAtEpochMs: T0 + 31 * MIN });
 	assert.equal(shieldOnly.remember('a', 1, live(31.2, 0.5, 64, 0.5, items())).rebuild, undefined);
 	// The void keeps nothing, so there is no walk back to weigh.
@@ -78,6 +78,45 @@ test('gear held from the first sample, gear other than pickaxes, a void death an
 	store.remember('a', 1, { ...live(45, 0.5, 64, 0.5, items('iron_pickaxe')), world: { worldId: 'w2', dimension: OW } });
 	store.remember('a', 1, { death: { ...drowned, diedAtEpochMs: T0 + 46 * MIN }, observedAtEpochMs: T0 + 46 * MIN });
 	assert.deepEqual(store.remember('a', 1, { ...live(46.2, 0.5, 64, 0.5, items()), world: { worldId: 'w2', dimension: OW } }).rebuild, { itemId: 'minecraft:iron_pickaxe', minutes: 5 });
+});
+
+// In the games, 4 of those deaths had already lost the iron pickaxe and kept rebuilding with a stone one beside the
+// bucket and flint and steel, and one carried a diamond pickaxe first held at minute 127.
+test('the kit is priced by its earliest-made iron item, not by the stone pick lost beside it or a late diamond pickaxe', () => {
+	const run = (...steps) => {
+		const store = new RecoveryProgressStore();
+		store.remember('a', 1, live(0, 0.5, 64, 0.5, items()));
+		for (const [minute, ids] of steps) store.remember('a', 1, live(minute, 10.5, 40, 0.5, items(...ids)));
+		const diedAt = steps.at(-1)[0] + 1;
+		store.remember('a', 1, { death: { ...drowned, x: 20, y: 40, z: 5, diedAtEpochMs: T0 + diedAt * MIN }, observedAtEpochMs: T0 + diedAt * MIN });
+		return store.remember('a', 1, live(diedAt + 0.1, 0.5, 64, 0.5, items())).rebuild;
+	};
+	// The iron pickaxe broke long ago; the bucket from minute 16 and the flint and steel are what this death costs.
+	assert.deepEqual(run([2.5, ['stone_pickaxe']], [16.2, ['stone_pickaxe', 'bucket']], [40, ['stone_pickaxe', 'flint_and_steel', 'bucket', 'water_bucket']]),
+		{ itemId: 'minecraft:bucket', minutes: 16 });
+	assert.deepEqual(run([3, ['stone_pickaxe']], [16.4, ['iron_pickaxe', 'bucket']], [127.5, ['diamond_pickaxe', 'iron_pickaxe', 'bucket', 'flint_and_steel']]),
+		{ itemId: 'minecraft:iron_pickaxe', minutes: 16 });
+	// A diamond pickaxe lost alone was wanted at minute 127; that is no rebuild cost.
+	assert.equal(run([127.5, ['diamond_pickaxe']]), undefined);
+});
+
+test('a lava death or a spent drop clock gives no price and no invitation to walk out to the drops', () => {
+	const store = playedToDeath();
+	const respawn = { ...live(21.6, 390.5, 74, -546.5, items()), routeMemory: { connected: false, seenResources: [] } };
+	const recovery = store.remember('a', 1, respawn);
+	const lava = { ...recovery, lastDeath: { ...recovery.lastDeath, cause: 'bot tried to swim in lava' } };
+	const lavaView = composeTwoCallView(respawn, lava);
+	assert.doesNotMatch(lavaView.recovery.facts, /Making the lost/);
+	assert.doesNotMatch(deathDropsLead(lavaView.recovery, respawn.position, OW, []), /making the lost/);
+	// What did not burn can still be fetched, so the set-off point stays.
+	assert.match(lavaView.recovery.facts, /The walk out to these drops set off/);
+	const spent = composeTwoCallView(respawn, { ...recovery, dropTicking: { simulationDistance: 6, tickedSeconds: 300, tickingNow: false } });
+	assert.match(spent.recovery.facts, /none of the 5 min left/);
+	assert.doesNotMatch(spent.recovery.facts, /Making the lost|set off/);
+	assert.equal(deathDropsLead(spent.recovery, respawn.position, OW, []), null);
+	// With time left both stay.
+	const ticking = composeTwoCallView(respawn, { ...recovery, dropTicking: { simulationDistance: 6, tickedSeconds: 120, tickingNow: false } });
+	assert.match(ticking.recovery.facts, /Making the lost iron_pickaxe took this run 12 min from its start\..*The walk out to these drops set off/);
 });
 
 test('the price outlives a goal revision taken at the respawn', () => {

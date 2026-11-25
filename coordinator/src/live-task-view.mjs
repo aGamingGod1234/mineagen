@@ -1014,7 +1014,7 @@ export function deathDropsLead(recovery, position, dimension, ids, observation =
  const items = lost.slice(0, 6).map(({ itemId, count }) => `${itemId.replace(/^minecraft:/, '')}${count > 1 ? ` x${count}` : ''}`).join(', ');
  const left = clock ? (clock.tickedSeconds >= 240 ? 'under 1 min' : `~${Math.floor((300 - clock.tickedSeconds) / 60)} min`) + ` of drop time left${clock.tickingNow ? ', ageing' : ', paused while you are away'}` : 'drop time unknown';
  const way = death.dimensionId !== dimension ? wayBackShort(death, observation) : null;
- const cost = recovery.rebuild ? rebuildCostText(recovery.rebuild) : null;
+ const cost = recovery.rebuild && loss !== 'lava' ? rebuildCostText(recovery.rebuild) : null;
  return `death drops ${where}${loss === 'lava' ? ' (died in lava: what fell in burned)' : ''}: ${items}${lost.length > 6 ? ` +${lost.length - 6} more` : ''} (${left})${way ? `; ${way}` : ''}${cost ? `; ${cost}` : ''}`;
 }
 /** The way back through a portal, short: the portal in view or remembered, and where the far side puts you. */
