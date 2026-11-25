@@ -143,6 +143,16 @@ try {
 	const deaths = () => deathCounter(text => s.command(text), 'Probe', { objective: 'deaths', unsetIsZero: true });
 	// The default rules as the coordinator arms them on a body's first live sample (as test-lone-blaze-live.mjs).
 	const book = new ReflexBook();
+	// A death moves the goal revision, so a respawn sent before the new revision arrives is refused: ask again until the
+	// body observes, up to a minute.
+	const respawned = async () => {
+		for (let i = 0; i < 12; i++) {
+			await s.act('respawn', {}, 10000).catch(() => {});
+			if (await s.observeOrNull()) return;
+			await s.clock.sleep(1000);
+		}
+		throw new Error('the body did not respawn after its death');
+	};
 	const arm = async () => {
 		book.observeContext(s.record.agentId, await s.observe());
 		const payload = book.payload(s.record.agentId);
@@ -160,6 +170,8 @@ try {
 		const row = { name, mob, place, kit: kitName, standIn, repeat, startedAt: Date.now(), calls: [] };
 		try {
 			await s.normalRate();
+			// A body left dead by an earlier fight (its respawn refused) is brought back before this one.
+			if (!(await s.observeOrNull())) await respawned();
 			await s.setReflexes([]);
 			await s.command('kill @e[type=!minecraft:player]');
 			await build(place);
@@ -266,10 +278,7 @@ try {
 			row.died = row.deaths === null ? null : row.deaths > 0;
 			row.pass = row.died === false;
 			if (row.died) row.failReason = `died to ${mob} (${place}, ${kitName}, ${standIn})${row.fell ? ' after a fall' : ''}`;
-			if (row.deaths) {
-				await s.act('respawn', {}, 10000).catch(() => {});
-				for (let i = 0; i < 40 && !(await s.observe().then(() => true).catch(() => false)); i++) await s.clock.sleep(500);
-			}
+			if (row.deaths) await respawned();
 		} catch (error) {
 			row.error = String(error?.stack ?? error).slice(0, 1500);
 		}
