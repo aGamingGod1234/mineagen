@@ -8,7 +8,8 @@
 //   open    a flat stone field 100 by 80 blocks with no drop in reach; the mob DIST blocks ahead.
 //   tight   a corridor 2 wide and 3 high, roofed; the mob DIST blocks down it.
 //   ledge   a 3-wide nether-brick bridge 6 above a lava sea; the mob DIST blocks along it.
-//   fort    the same bridge leading back into a walled, roofed nether-brick room 5 blocks behind the body (a fortress
+//   narrow  a one-block-wide nether-brick ledge 6 above a lava sea (a fortress's outer ledge); the mob DIST along it.
+//   fort    the 3-wide bridge leading back into a walled, roofed nether-brick room 5 blocks behind the body (a fortress
 //           corridor's inside), entered by a doorway as wide as the bridge: footing away from every drop to step into.
 // Kits (KITS): iron  iron sword, shield in the off hand, full iron armour, cobblestone 64, cooked beef 8.
 //              none  the same without armour.
@@ -78,7 +79,7 @@ const STANDINS = list('STANDINS', 'fight,idle');
 const REPEATS = Number(process.env.REPEATS ?? 1), DIST = Number(process.env.DIST ?? 8), WINDOW_S = Number(process.env.WINDOW_S ?? 40);
 for (const m of MOB_LIST) if (!MOBS[m]) { console.error(`unknown mob ${m}`); process.exit(2); }
 if (BEHIND && !MOBS[BEHIND]) { console.error(`unknown BEHIND mob ${BEHIND}`); process.exit(2); }
-for (const p of PLACES) if (!['open', 'tight', 'ledge', 'fort'].includes(p)) { console.error(`unknown place ${p}`); process.exit(2); }
+for (const p of PLACES) if (!['open', 'tight', 'ledge', 'fort', 'narrow'].includes(p)) { console.error(`unknown place ${p}`); process.exit(2); }
 for (const k of KITS) if (!['iron', 'none', 'stone'].includes(k)) { console.error(`unknown kit ${k}`); process.exit(2); }
 for (const t of STANDINS) if (!['fight', 'idle', 'walk', 'flee'].includes(t)) { console.error(`unknown stand-in ${t}`); process.exit(2); }
 const planned = MOB_LIST.length * PLACES.length * KITS.length * STANDINS.length * REPEATS;
@@ -115,7 +116,7 @@ async function build(place) {
 		if (place === 'fort') await s.command(`fill ${west} 92 ${Z0 - 8} ${X0 - 7} 93 ${Z0 + 8} minecraft:stone`);
 		await s.command(`fill ${west} 94 ${Z0 - 8} ${X0 + 26} 94 ${Z0 + 8} minecraft:lava`);
 		await s.command(`fill ${west} 95 ${Z0 - 8} ${X0 + 26} 99 ${Z0 + 8} minecraft:air`);
-		await s.command(`fill ${X0 - 4} 100 ${Z0 - 1} ${X0 + 22} 100 ${Z0 + 1} minecraft:nether_bricks`);
+		await s.command(`fill ${X0 - 4} 100 ${Z0 - (place === 'narrow' ? 0 : 1)} ${X0 + 22} 100 ${Z0 + (place === 'narrow' ? 0 : 1)} minecraft:nether_bricks`);
 		if (place === 'fort') {
 			// Shell x -14..-5, z -4..4, y 100..105; inside x -13..-6, z -3..3, 4 high; doorway at x -5, z -1..1, 2 high.
 			await s.command(`fill ${X0 - 14} 100 ${Z0 - 4} ${X0 - 5} 105 ${Z0 + 4} minecraft:nether_bricks`);
@@ -127,7 +128,7 @@ async function build(place) {
 
 const weapon = name => name === 'stone' ? 'stone_sword' : 'iron_sword';
 // The far end of each place a walk heads for, and its start: the walk stand-in goes there and back past the mobs.
-const WALK_END = { open: X0 + 20, tight: X0 + 20, ledge: X0 + 20, fort: X0 + 20 };
+const WALK_END = { open: X0 + 20, tight: X0 + 20, ledge: X0 + 20, fort: X0 + 20, narrow: X0 + 20 };
 
 async function kit(name) {
 	await s.command('clear Probe'); await s.command('effect clear Probe');
