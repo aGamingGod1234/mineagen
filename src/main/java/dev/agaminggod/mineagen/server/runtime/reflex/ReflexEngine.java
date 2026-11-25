@@ -381,6 +381,13 @@ public final class ReflexEngine {
 		final CommandFollower command = new CommandFollower();
 		/** The body was falling at the last tick (read on the bridge thread when a command asks for the body). */
 		boolean falling;
+		final ShelterHold shelter = new ShelterHold();
+		/** A shelter hold is on and the running firing shelters (read on the bridge thread, as {@link #falling}). */
+		volatile boolean sheltering;
+		/** The hold is on (any firing or none). */
+		boolean holding;
+		/** A command's yield was put off by the shelter hold; it is owed once the hold ends or the command is not a walk. */
+		boolean yieldOwed;
 	}
 
 	/** The agent's own action, as the executor sees it. */
@@ -428,7 +435,9 @@ public final class ReflexEngine {
 		long now = now();
 		agent.revision = revision;
 		// A held shield composes with a command that only moves; that is decided once the command has started.
-		if (yield && !clutching(agent)) end(agentId, agent, commandYield(agent.scheduler, agent.command, holdsMoving(agent), now));
+		// Under fire with no shield (or low), a cover or defend firing keeps the body: the command waits (ShelterHold).
+		if (yield && agent.sheltering) agent.yieldOwed = true;
+		else if (yield && !clutching(agent)) end(agentId, agent, commandYield(agent.scheduler, agent.command, holdsMoving(agent), now));
 		end(agentId, agent, agent.scheduler.replace(parsed, now));
 		changed.add(agentId);
 	}
@@ -569,6 +578,13 @@ public final class ReflexEngine {
 		ServerActionRequest active = body.active(agentId);
 		ActionType activeType = active == null ? null : active.type();
 		followCommand(agentId, agent, active, body, now);
+		agent.holding = agent.shelter.tick(ShelterHold.danger(player), ShelterHold.weak(player), player.level().getGameTime());
+		// The put-off yield is paid once the hold ends, the firing ends, or the command turns out not to be a plain walk
+		// (a fight, escape or spawner back-out takes the body at once).
+		if (agent.yieldOwed && (!agent.holding || agent.scheduler.current() == null || active != null && !ShelterHold.heldWalk(activeType))) {
+			agent.yieldOwed = false;
+			if (agent.scheduler.current() != null && !clutching(agent)) end(agentId, agent, commandYield(agent.scheduler, agent.command, holdsMoving(agent), now));
+		}
 		boolean inEnd = player.level().dimension() == net.minecraft.world.level.Level.END;
 		// The End's own defaults stop the tick the body leaves the End, before the coordinator's next rule update.
 		ReflexScheduler.Firing running = agent.scheduler.current();
@@ -691,6 +707,15 @@ public final class ReflexEngine {
 			changed.add(agentId);
 		}
 		end(agentId, agent, corneredHandBack(agent.scheduler, agent.command, active != null, now));
+		agent.sheltering = agent.holding && agent.scheduler.current() != null && ShelterHold.shelters(agent.behaviour);
+		// Between firings a hidden body under the hold waits in its cover: the walk resumes once the danger ends.
+		boolean waitsInCover = agent.holding && active != null && ShelterHold.heldWalk(activeType) && !ShelterHold.shooterSees(player);
+		if (agent.scheduler.current() == null && waitsInCover) {
+			if (agent.controller == null) agent.controller = AgentInputRuntime.controller(player);
+			agent.lease = holdStill(agent.controller, agentId, agent.lease, player.getYRot(), player.getXRot(), player.getInventory().getSelectedSlot());
+			agent.controller.renew(agentId);
+			return true;
+		}
 		if (agent.scheduler.current() == null) {
 			// Between two breath runs a waiting command stays paused and the reflex lease holds still input, so the command's
 			// last forward/sprint/jump does not replay into the cloud; with nothing owed the lease goes.
