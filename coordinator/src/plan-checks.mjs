@@ -157,6 +157,39 @@ function restoreSpawn(v) {
  return null;
 }
 
+// The last action each memory already forgot lava for: a result stays on every observation until the next action.
+const lavaForgotFor = new WeakMap();
+/**
+ * Forget remembered still-lava cells the body's own look shows are gone: a cell now seen as another block
+ * (cast into obsidian, cooled, scooped), and every cell inside the box a cast reported empty of lava sources
+ * after its full look around. Without this the lava check and the route hint keep sending the bot to a pool it
+ * already used up or left hundreds of blocks behind.
+ */
+function forgetGoneLava(known, o, dimension, blocks) {
+ const pools = known.lavaPools.filter(p => p.dimension === dimension && Array.isArray(p.cells));
+ if (!pools.length) return false;
+ const gone = new Set(blocks.filter(b => b.blockId !== 'minecraft:lava' || String(b.state?.level ?? '') !== '0').map(b => `${b.x},${b.y},${b.z}`));
+ let box = null;
+ const r = o.lastResult, at = o.position ?? o.player?.position ?? o.player;
+ const none = r?.present !== false && typeof r?.message === 'string'
+  ? r.message.match(/lava sources seen within (\d+): 0\b/) ?? (r.reasonCode === 'NO_LAVA_IN_REACH' ? r.message.match(/No lava source seen within (\d+) blocks/) : null) : null;
+ if (none && r.actionId != null && lavaForgotFor.get(known) !== r.actionId && [at?.x, at?.y, at?.z].every(Number.isFinite)) {
+  lavaForgotFor.set(known, r.actionId);
+  // The body searches x and z within the radius and y from 6 below to 4 above its feet; keep a block of margin for drift.
+  const reach = Number(none[1]) - 1, fx = Math.floor(at.x), fy = Math.floor(at.y), fz = Math.floor(at.z);
+  box = (x, y, z) => Math.abs(x - fx) <= reach && Math.abs(z - fz) <= reach && y >= fy - 5 && y <= fy + 3;
+ }
+ let changed = false;
+ for (const pool of pools) {
+  const keep = pool.cells.filter(key => { const [x, y, z] = key.split(',').map(Number); return !gone.has(key) && !box?.(x, y, z); });
+  if (keep.length === pool.cells.length) continue;
+  // A pool remembered before cells were kept has sources without cells; a forget sweep leaves only what is still listed.
+  pool.cells = keep; pool.sources = keep.length; changed = true;
+ }
+ if (changed) known.lavaPools = known.lavaPools.filter(p => p.sources > 0);
+ return changed;
+}
+
 /** Spawners, still lava pools and portal frames in view, and the End crystal tally: facts the stage checks read. */
 function rememberStageFacts(known, o, dimension) {
  let changed = false;
@@ -167,6 +200,7 @@ function rememberStageFacts(known, o, dimension) {
   if (!SEEN_BLOCKS.has(b?.blockId) || !Number.isFinite(b.x) || !Number.isFinite(b.z) || known.structuresSeen.some(v => v.id === b.blockId && v.dimension === dimension)) continue;
   known.structuresSeen.push({ id: b.blockId, x: b.x, z: b.z, dimension }); changed = true;
  }
+ if (forgetGoneLava(known, o, dimension, blocks)) changed = true;
  for (const b of blocks) {
   if (b.blockId !== 'minecraft:lava' || String(b.state?.level ?? '') !== '0') continue;
   let pool = known.lavaPools.find(p => p.dimension === dimension && Math.abs(p.x - b.x) <= 12 && Math.abs(p.y - b.y) <= 8 && Math.abs(p.z - b.z) <= 12);
