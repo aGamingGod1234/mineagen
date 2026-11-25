@@ -853,8 +853,8 @@ public final class ServerFightUntilController implements ServerController {
 	/**
 	 * K11: whether a roof stop falls back to the open-ground fight instead of ending the hunt. A failed build or lintel
 	 * (ROOF_NOT_BUILT) and failed walks inside the roof site do; missing blocks (the model can fetch them), a sneak
-	 * failure and the walk back to a model spot still stop. Without armour none falls back: both enderman deaths in the
-	 * Nether games came from that open-ground fight with no armour (7 + 7 + 7), so the call hands back instead.
+	 * failure and the walk back to a model spot still stop. Without armour none falls back: one of the two enderman
+	 * deaths in the Nether games came from that open-ground fight with no armour (7 + 7 + 7), so the call hands back instead.
 	 */
 	static boolean roofFallback(String code, boolean roofSite, boolean armoured) {
 		return armoured && ("ROOF_NOT_BUILT".equals(code) || "SPOT_UNREACHABLE".equals(code) && roofSite);

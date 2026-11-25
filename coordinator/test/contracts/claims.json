@@ -40643,7 +40643,7 @@
       "reason": "d41-big rods: text changed (collect:false waits for no hostile within 16 blocks; default-defend); behaviour reviewed, predicate updated"
     },
     {
-      "predicate": "roof:true (endermen only; other mobs INVALID_FIELD) builds the build_shelter one-cell roofed shelter without a sill on firm seen ground within 2 blocks, doorway toward the nearest seen enderman, places a lintel over the doorway from outside with the most-held carried full solid block (never obsidian), stares a calm enderman hostile from two cells outside, fights from the cell middle with pursue:false, and walks out to collect drops after a kill. Added (issue 2, K11): ROOF_NOT_BUILT (build or lintel) and three failed walks inside the roof site fall back once to the open-ground hunt inside the same call (roofFallback); the result's roof line names the cause and 'fell back to the open-ground fight'; ROOF_BLOCKS_MISSING and SNEAK_* still stop.",
+      "predicate": "roof:true (endermen only; other mobs INVALID_FIELD) builds the build_shelter one-cell roofed shelter without a sill on firm seen ground within 2 blocks, doorway toward the nearest seen enderman, places a lintel over the doorway from outside with the most-held carried full solid block (never obsidian), stares a calm enderman hostile from two cells outside, fights from the cell middle with pursue:false, and walks out to collect drops after a kill. Added (issue 2, K11): ROOF_NOT_BUILT (build or lintel) and three failed walks inside the roof site fall back once to the open-ground hunt inside the same call (roofFallback); the result's roof line names the cause and 'fell back to the open-ground fight'; ROOF_BLOCKS_MISSING and SNEAK_* still stop. Changed: without armour worn none of these falls back; the call ends with the code and says no armour worn. The lintel goes up from the first standable cell with the roof block's doorway face in sight (two out, the doorway, three out, beside two out), moving on after a refusal.",
       "checks": [
         {
           "file": "coordinator/test/schema.test.mjs",
@@ -40661,12 +40661,18 @@
           "test": "verifyRoofFallback",
           "type": "java-behavior",
           "command": "gradlew verifyCore"
+        },
+        {
+          "file": "src/test/java/dev/agaminggod/mineagen/server/runtime/controller/CountFightVerification.java",
+          "test": "verifyLintelStand",
+          "type": "java-behavior",
+          "command": "gradlew verifyCore"
         }
       ],
-      "id": "control:629c87d2f91da4c7:b90bb3dc13fc17b5",
+      "id": "control:629c87d2f91da4c7:8eca49d2c7d1982d",
       "contract": {
-        "id": "control:629c87d2f91da4c7:b90bb3dc13fc17b5",
-        "claim": "`roof:true` against endermen: before provoking, the body builds a one-cell shelter on firm ground where it stands or within 2 blocks (two-high walls on three sides, a roof, and a two-high doorway toward the nearest enderman with a block over it; 9 carried full blocks of one kind, the kind held most, never obsidian). A 2.9-block-tall enderman fits neither the cell nor the doorway, so from the middle of the cell you hit it in the doorway while it cannot reach you (vanilla). A roof hides you from an enderman's stare check, so the body steps two cells out to stare a calm one hostile, walks back in and swings in place; after a kill it walks out to the drop and back. Missing blocks stop it at once with `ROOF_BLOCKS_MISSING` (how many are needed and carried). A failed build or lintel (`ROOF_NOT_BUILT`) or three failed walks inside the shelter site (`SPOT_UNREACHABLE`) no longer ends the call: it goes on as the open-ground hunt for the rest of it, never building again, and the result's roof line says why and `fell back to the open-ground fight`.",
+        "id": "control:629c87d2f91da4c7:8eca49d2c7d1982d",
+        "claim": "`roof:true` against endermen: before provoking, the body builds a one-cell shelter on firm ground where it stands or within 2 blocks (two-high walls on three sides, a roof, and a two-high doorway toward the nearest enderman with a block over it; 9 carried full blocks of one kind, the kind held most, never obsidian). A 2.9-block-tall enderman fits neither the cell nor the doorway, so from the middle of the cell you hit it in the doorway while it cannot reach you (vanilla). A roof hides you from an enderman's stare check, so the body steps two cells out to stare a calm one hostile, walks back in and swings in place; after a kill it walks out to the drop and back. Missing blocks stop it at once with `ROOF_BLOCKS_MISSING` (how many are needed and carried). A failed build or lintel (`ROOF_NOT_BUILT`) or three failed walks inside the shelter site (`SPOT_UNREACHABLE`) no longer ends the call while you wear armour: it goes on as the open-ground hunt for the rest of it, never building again, and the result's roof line says why and `fell back to the open-ground fight`. With no armour worn it ends with that code instead and says `no armour worn`, since three enderman hits kill an unarmoured body; if the lintel's face is hidden from two cells out, the body places it from the doorway or a cell beside instead.",
         "kind": "control-reference",
         "topic": "fight_until"
       },
@@ -54048,14 +54054,14 @@
           "command": "api/fix-slot.sh: STANDIN=roof node scripts/quality/test-warped-pearl-live.mjs evals/d41-micro/checkpoints/warped-<seed>.json evals/d41-fight-count/ender-<n>"
         }
       ],
-      "id": "control:629c87d2f91da4c7:b90bb3dc13fc17b5:result:ROOF_BLOCKS_MISSING",
+      "id": "control:629c87d2f91da4c7:8eca49d2c7d1982d:result:ROOF_BLOCKS_MISSING",
       "contract": {
-        "id": "control:629c87d2f91da4c7:b90bb3dc13fc17b5:result:ROOF_BLOCKS_MISSING",
-        "claim": "`roof:true` against endermen: before provoking, the body builds a one-cell shelter on firm ground where it stands or within 2 blocks (two-high walls on three sides, a roof, and a two-high doorway toward the nearest enderman with a block over it; 9 carried full blocks of one kind, the kind held most, never obsidian). A 2.9-block-tall enderman fits neither the cell nor the doorway, so from the middle of the cell you hit it in the doorway while it cannot reach you (vanilla). A roof hides you from an enderman's stare check, so the body steps two cells out to stare a calm one hostile, walks back in and swings in place; after a kill it walks out to the drop and back. Missing blocks stop it at once with `ROOF_BLOCKS_MISSING` (how many are needed and carried). A failed build or lintel (`ROOF_NOT_BUILT`) or three failed walks inside the shelter site (`SPOT_UNREACHABLE`) no longer ends the call: it goes on as the open-ground hunt for the rest of it, never building again, and the result's roof line says why and `fell back to the open-ground fight`.",
+        "id": "control:629c87d2f91da4c7:8eca49d2c7d1982d:result:ROOF_BLOCKS_MISSING",
+        "claim": "`roof:true` against endermen: before provoking, the body builds a one-cell shelter on firm ground where it stands or within 2 blocks (two-high walls on three sides, a roof, and a two-high doorway toward the nearest enderman with a block over it; 9 carried full blocks of one kind, the kind held most, never obsidian). A 2.9-block-tall enderman fits neither the cell nor the doorway, so from the middle of the cell you hit it in the doorway while it cannot reach you (vanilla). A roof hides you from an enderman's stare check, so the body steps two cells out to stare a calm one hostile, walks back in and swings in place; after a kill it walks out to the drop and back. Missing blocks stop it at once with `ROOF_BLOCKS_MISSING` (how many are needed and carried). A failed build or lintel (`ROOF_NOT_BUILT`) or three failed walks inside the shelter site (`SPOT_UNREACHABLE`) no longer ends the call while you wear armour: it goes on as the open-ground hunt for the rest of it, never building again, and the result's roof line says why and `fell back to the open-ground fight`. With no armour worn it ends with that code instead and says `no armour worn`, since three enderman hits kill an unarmoured body; if the lintel's face is hidden from two cells out, the body places it from the doorway or a cell beside instead.",
         "kind": "result-code",
         "topic": "fight_until",
         "code": "ROOF_BLOCKS_MISSING",
-        "parent": "control:629c87d2f91da4c7:b90bb3dc13fc17b5"
+        "parent": "control:629c87d2f91da4c7:8eca49d2c7d1982d"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -54065,23 +54071,29 @@
       "reason": "Schema and protocol validation are unit-tested; the in-world behaviour is witnessed only by the model-free fixtures named here (no live game yet)."
     },
     {
-      "predicate": "ROOF_NOT_BUILT no longer ends fight_until: a failed shelter build or lintel falls back to the open-ground hunt for the rest of the call (K11); the code appears in the result's roof line.",
+      "predicate": "ROOF_NOT_BUILT no longer ends fight_until: a failed shelter build or lintel falls back to the open-ground hunt for the rest of the call (K11); the code appears in the result's roof line. Without armour worn it ends the call instead, with \"no armour worn\" in the message (roofFallback armoured false).",
       "checks": [
         {
           "file": "src/test/java/dev/agaminggod/mineagen/server/runtime/controller/CountFightVerification.java",
           "test": "verifyRoofFallback",
           "type": "java-behavior",
           "command": "gradlew verifyCore"
+        },
+        {
+          "file": "src/test/java/dev/agaminggod/mineagen/server/runtime/controller/CountFightVerification.java",
+          "test": "verifyLintelStand",
+          "type": "java-behavior",
+          "command": "gradlew verifyCore"
         }
       ],
-      "id": "control:629c87d2f91da4c7:b90bb3dc13fc17b5:result:ROOF_NOT_BUILT",
+      "id": "control:629c87d2f91da4c7:8eca49d2c7d1982d:result:ROOF_NOT_BUILT",
       "contract": {
-        "id": "control:629c87d2f91da4c7:b90bb3dc13fc17b5:result:ROOF_NOT_BUILT",
-        "claim": "`roof:true` against endermen: before provoking, the body builds a one-cell shelter on firm ground where it stands or within 2 blocks (two-high walls on three sides, a roof, and a two-high doorway toward the nearest enderman with a block over it; 9 carried full blocks of one kind, the kind held most, never obsidian). A 2.9-block-tall enderman fits neither the cell nor the doorway, so from the middle of the cell you hit it in the doorway while it cannot reach you (vanilla). A roof hides you from an enderman's stare check, so the body steps two cells out to stare a calm one hostile, walks back in and swings in place; after a kill it walks out to the drop and back. Missing blocks stop it at once with `ROOF_BLOCKS_MISSING` (how many are needed and carried). A failed build or lintel (`ROOF_NOT_BUILT`) or three failed walks inside the shelter site (`SPOT_UNREACHABLE`) no longer ends the call: it goes on as the open-ground hunt for the rest of it, never building again, and the result's roof line says why and `fell back to the open-ground fight`.",
+        "id": "control:629c87d2f91da4c7:8eca49d2c7d1982d:result:ROOF_NOT_BUILT",
+        "claim": "`roof:true` against endermen: before provoking, the body builds a one-cell shelter on firm ground where it stands or within 2 blocks (two-high walls on three sides, a roof, and a two-high doorway toward the nearest enderman with a block over it; 9 carried full blocks of one kind, the kind held most, never obsidian). A 2.9-block-tall enderman fits neither the cell nor the doorway, so from the middle of the cell you hit it in the doorway while it cannot reach you (vanilla). A roof hides you from an enderman's stare check, so the body steps two cells out to stare a calm one hostile, walks back in and swings in place; after a kill it walks out to the drop and back. Missing blocks stop it at once with `ROOF_BLOCKS_MISSING` (how many are needed and carried). A failed build or lintel (`ROOF_NOT_BUILT`) or three failed walks inside the shelter site (`SPOT_UNREACHABLE`) no longer ends the call while you wear armour: it goes on as the open-ground hunt for the rest of it, never building again, and the result's roof line says why and `fell back to the open-ground fight`. With no armour worn it ends with that code instead and says `no armour worn`, since three enderman hits kill an unarmoured body; if the lintel's face is hidden from two cells out, the body places it from the doorway or a cell beside instead.",
         "kind": "result-code",
         "topic": "fight_until",
         "code": "ROOF_NOT_BUILT",
-        "parent": "control:629c87d2f91da4c7:b90bb3dc13fc17b5"
+        "parent": "control:629c87d2f91da4c7:8eca49d2c7d1982d"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
@@ -54090,7 +54102,7 @@
       "status": "checked"
     },
     {
-      "predicate": "Three failed walks inside the roof site fall back to the open-ground hunt (roofFallback with roofSite true); only the walk back to a model spot still ends the call with SPOT_UNREACHABLE (two failures).",
+      "predicate": "Three failed walks inside the roof site fall back to the open-ground hunt (roofFallback with roofSite true); only the walk back to a model spot still ends the call with SPOT_UNREACHABLE (two failures). Without armour worn the three failed site walks end the call with SPOT_UNREACHABLE and \"no armour worn\".",
       "checks": [
         {
           "file": "src/test/java/dev/agaminggod/mineagen/server/runtime/controller/CountFightVerification.java",
@@ -54099,14 +54111,14 @@
           "command": "gradlew verifyCore"
         }
       ],
-      "id": "control:629c87d2f91da4c7:b90bb3dc13fc17b5:result:SPOT_UNREACHABLE",
+      "id": "control:629c87d2f91da4c7:8eca49d2c7d1982d:result:SPOT_UNREACHABLE",
       "contract": {
-        "id": "control:629c87d2f91da4c7:b90bb3dc13fc17b5:result:SPOT_UNREACHABLE",
-        "claim": "`roof:true` against endermen: before provoking, the body builds a one-cell shelter on firm ground where it stands or within 2 blocks (two-high walls on three sides, a roof, and a two-high doorway toward the nearest enderman with a block over it; 9 carried full blocks of one kind, the kind held most, never obsidian). A 2.9-block-tall enderman fits neither the cell nor the doorway, so from the middle of the cell you hit it in the doorway while it cannot reach you (vanilla). A roof hides you from an enderman's stare check, so the body steps two cells out to stare a calm one hostile, walks back in and swings in place; after a kill it walks out to the drop and back. Missing blocks stop it at once with `ROOF_BLOCKS_MISSING` (how many are needed and carried). A failed build or lintel (`ROOF_NOT_BUILT`) or three failed walks inside the shelter site (`SPOT_UNREACHABLE`) no longer ends the call: it goes on as the open-ground hunt for the rest of it, never building again, and the result's roof line says why and `fell back to the open-ground fight`.",
+        "id": "control:629c87d2f91da4c7:8eca49d2c7d1982d:result:SPOT_UNREACHABLE",
+        "claim": "`roof:true` against endermen: before provoking, the body builds a one-cell shelter on firm ground where it stands or within 2 blocks (two-high walls on three sides, a roof, and a two-high doorway toward the nearest enderman with a block over it; 9 carried full blocks of one kind, the kind held most, never obsidian). A 2.9-block-tall enderman fits neither the cell nor the doorway, so from the middle of the cell you hit it in the doorway while it cannot reach you (vanilla). A roof hides you from an enderman's stare check, so the body steps two cells out to stare a calm one hostile, walks back in and swings in place; after a kill it walks out to the drop and back. Missing blocks stop it at once with `ROOF_BLOCKS_MISSING` (how many are needed and carried). A failed build or lintel (`ROOF_NOT_BUILT`) or three failed walks inside the shelter site (`SPOT_UNREACHABLE`) no longer ends the call while you wear armour: it goes on as the open-ground hunt for the rest of it, never building again, and the result's roof line says why and `fell back to the open-ground fight`. With no armour worn it ends with that code instead and says `no armour worn`, since three enderman hits kill an unarmoured body; if the lintel's face is hidden from two cells out, the body places it from the doorway or a cell beside instead.",
         "kind": "result-code",
         "topic": "fight_until",
         "code": "SPOT_UNREACHABLE",
-        "parent": "control:629c87d2f91da4c7:b90bb3dc13fc17b5"
+        "parent": "control:629c87d2f91da4c7:8eca49d2c7d1982d"
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md",
