@@ -100,6 +100,11 @@ public final class ServerFleeController implements ServerController {
 	static final float STUCK_HEALTH = 4.0F;
 	static final double STUCK_MOVE = 3.0D;
 	static final long STUCK_MS = 3_000L;
+	/** A melee chaser this near makes a dead end matter (see {@link #deadEnd}). */
+	static final double DEAD_END_CHASER = 6.0D;
+	/** How often the run room is searched while fleeing. */
+	static final long RUN_ROOM_EVERY_MS = 250L;
+	private long nextRunRoomMs = Long.MIN_VALUE;
 
 	public ServerFleeController(Entity target, double distance, long timeoutMs, long startedAt) {
 		this.target = Objects.requireNonNull(target, "target must not be null");
@@ -150,6 +155,8 @@ public final class ServerFleeController implements ServerController {
 		List<CombatPlanning.FleeThreat> otherThreats = others.stream().map(Other::threat).toList();
 		TickResult pinned = pinned(player, others, nowEpochMs);
 		if (pinned != null) return cornered(player, pinned);
+		TickResult deadEnd = deadEnd(player, others, nowEpochMs);
+		if (deadEnd != null) return cornered(player, deadEnd);
 		int blocker = CombatPlanning.escapeBlocker(otherThreats, distance);
 		boolean targetPresent = target.isAlive() && !target.isRemoved() && target.level() == player.level();
 		if (!targetPresent) {
@@ -244,6 +251,42 @@ public final class ServerFleeController implements ServerController {
 		return finish(TickResult.failed("FLEE_BLOCKED", String.format(Locale.ROOT,
 				"Pinned: a threat stayed within %.0f blocks for %.1f s and %.1f health was lost while fleeing", CONTACT,
 				(now - contactSince) / 1000.0D, lost) + CombatMoveText.supportFacts(player) + covered(player), 0.0D));
+	}
+
+	/**
+	 * A melee chaser near and the seen way away running out (a bridge's end, a tunnel's back wall) within
+	 * {@link CombatPlanning#DEAD_END_GAIN} blocks: running on only turns the body's back until it is pinned at the end,
+	 * where a hit throws it off (fight rooms, 25 Nov: zombie flees on a bridge and in a corridor took 23 to 36 damage and
+	 * died 3 times in 9, pinned at the end). A player turns and fights while there is still room, so the flee stands now.
+	 * Never with a creeper near (the gained blocks are the blast margin) or with only ranged threats near.
+	 */
+	private TickResult deadEnd(ServerPlayer player, List<Other> others, long now) {
+		if (retreatOnly || !player.onGround() || player.isInWater() || now < nextRunRoomMs) return null;
+		nextRunRoomMs = now + RUN_ROOM_EVERY_MS;
+		List<LivingEntity> threats = new ArrayList<>(others.size() + 1);
+		if (target instanceof LivingEntity living && living.isAlive() && target.level() == player.level()) threats.add(living);
+		for (Other other : others) threats.add(other.mob());
+		LivingEntity melee = null;
+		double meleeAt = DEAD_END_CHASER;
+		for (LivingEntity threat : threats) {
+			double away = player.distanceTo(threat);
+			if (threat instanceof Creeper && away < 2.0D * CombatPlanning.CREEPER_SAFE_DISTANCE) return null;
+			if (threat instanceof Mob mob && ThreatPerception.isRanged(mob)) continue;
+			if (away <= meleeAt) {
+				meleeAt = away;
+				melee = threat;
+			}
+		}
+		if (melee == null) return null;
+		List<double[]> at = new ArrayList<>(threats.size());
+		for (LivingEntity threat : threats) at.add(new double[] {threat.getX(), threat.getZ()});
+		GridPosition feet = new GridPosition(Mth.floor(player.getX()), Mth.floor(player.getY() + 0.2D), Mth.floor(player.getZ()));
+		CombatPlanning.RunRoom room = CombatPlanning.runRoom(ObservedTerrain.of(player), feet, at);
+		double nearest = target.isAlive() ? player.distanceTo(target) : meleeAt;
+		if (!room.deadEnd(distance - nearest)) return null;
+		return finish(TickResult.failed("FLEE_BLOCKED", String.format(Locale.ROOT,
+				"Dead end: over seen ground the way away gains only %.1f blocks from %s (%.1f blocks off), with nothing unseen to try",
+				room.gain(), typeOf(melee), meleeAt) + CombatMoveText.supportFacts(player) + covered(player), 0.0D));
 	}
 
 	/**

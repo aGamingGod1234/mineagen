@@ -19,6 +19,7 @@ public final class CombatPlanningVerification {
 		verifyFightPacing();
 		verifyFleeProgress();
 		verifyFleeSteering();
+		verifyRunRoom();
 		verifyDiagonalCornerHazards();
 		verifyFollowThrough();
 		verifyMultiThreatFlee();
@@ -108,6 +109,45 @@ public final class CombatPlanningVerification {
 		}
 		WalkabilityView open = position -> position.y() == 63 ? WalkabilityView.Cell.SAFE_SUPPORT : WalkabilityView.Cell.CLEAR;
 		check(CombatPlanning.canStep(open, feet, -45.0F) && CombatPlanning.canStep(open, feet, 45.0F), "clear diagonals stay usable");
+	}
+
+	private static void verifyRunRoom() {
+		GridPosition feet = new GridPosition(0, 64, 0);
+		List<double[]> zombie = List.<double[]>of(new double[] {6.5D, 0.5D});
+		// A 3-wide bridge (z -1..1) over lava that ends 4 blocks behind the body (x -4), the chaser 6 ahead.
+		WalkabilityView bridge = position -> {
+			boolean deck = position.x() >= -4 && position.x() <= 22 && Math.abs(position.z()) <= 1;
+			if (position.y() == 63) return deck ? WalkabilityView.Cell.SAFE_SUPPORT : WalkabilityView.Cell.CLEAR;
+			if (position.y() < 58) return WalkabilityView.Cell.HAZARD;
+			return WalkabilityView.Cell.CLEAR;
+		};
+		CombatPlanning.RunRoom end = CombatPlanning.runRoom(bridge, feet, zombie);
+		check(!end.unseen() && end.gain() < CombatPlanning.DEAD_END_GAIN && end.deadEnd(14.0D),
+				"a bridge ending 4 blocks behind the body is a dead end (gain " + end.gain() + ")");
+		// A 2-wide corridor in rock with its back wall 3 blocks behind.
+		WalkabilityView corridor = position -> {
+			boolean column = position.x() >= -3 && position.x() <= 22 && position.z() >= 0 && position.z() <= 1;
+			if (column && position.y() == 63) return WalkabilityView.Cell.SAFE_SUPPORT;
+			return column && position.y() >= 64 && position.y() <= 66 ? WalkabilityView.Cell.CLEAR : WalkabilityView.Cell.BLOCKED;
+		};
+		CombatPlanning.RunRoom back = CombatPlanning.runRoom(corridor, feet, zombie);
+		check(back.deadEnd(14.0D), "a corridor whose back wall stands 3 blocks behind is a dead end (gain " + back.gain() + ")");
+		WalkabilityView open = position -> position.y() == 63 ? WalkabilityView.Cell.SAFE_SUPPORT : WalkabilityView.Cell.CLEAR;
+		CombatPlanning.RunRoom field = CombatPlanning.runRoom(open, feet, zombie);
+		check(!field.deadEnd(14.0D) && field.gain() >= CombatPlanning.DEAD_END_GAIN, "open ground is room to run (gain " + field.gain() + ")");
+		// The same bridge, but the ground past x -2 never seen: it may lead on, so it is no dead end.
+		WalkabilityView half = position -> position.x() < -2 ? WalkabilityView.Cell.UNLOADED : bridge.cellAt(position);
+		CombatPlanning.RunRoom unknown = CombatPlanning.runRoom(half, feet, zombie);
+		check(unknown.unseen() && !unknown.deadEnd(14.0D), "unseen ground behind is not called a dead end");
+		check(!end.deadEnd(1.5D) || end.gain() < 1.5D, "a flee that needs less than the room left is no dead end");
+		// A long bridge back the other way is room enough.
+		WalkabilityView long_ = position -> {
+			boolean deck = position.x() >= -30 && position.x() <= 22 && Math.abs(position.z()) <= 1;
+			if (position.y() == 63) return deck ? WalkabilityView.Cell.SAFE_SUPPORT : WalkabilityView.Cell.CLEAR;
+			if (position.y() < 58) return WalkabilityView.Cell.HAZARD;
+			return WalkabilityView.Cell.CLEAR;
+		};
+		check(!CombatPlanning.runRoom(long_, feet, zombie).deadEnd(14.0D), "a long bridge behind is room to run");
 	}
 
 	private static void verifyFleeSteering() {
