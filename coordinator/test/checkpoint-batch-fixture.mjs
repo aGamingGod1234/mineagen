@@ -30,7 +30,13 @@ case $cmd in
     # An OUTAGE_AT_SIGNOFF file starts a 3 s boat outage at the first sign-in removal (an outage as the batch ends).
     if [ -f "$F/OUTAGE_AT_SIGNOFF" ] && printf '%s' "$*" | sed -n 's/.*echo \\([A-Za-z0-9+\/=]*\\) | base64 -d.*/\\1/p' | base64 -d 2>/dev/null | grep -q 'rm -f ~/.codex/auth.json'; then
       rm -f "$F/OUTAGE_AT_SIGNOFF"; touch "$F/OUTAGE"; (sleep 3; rm -f "$F/OUTAGE") > /dev/null 2>&1 < /dev/null & echo "connection refused" >&2; exit 1; fi
-    o=$(cd "$F/$id" && HOME="$F/$id" bash -c "$*"); rc=$?
+    # The fake machines share this host's process table, and test files run side by side: the batch's game.sh lookups
+    # (pgrep -f 'ck/game.sh ...') are narrowed to this machine's home, so they see only its games, as on a real machine.
+    c=$*; b=$(printf '%s' "$c" | sed -n 's/.*echo \\([A-Za-z0-9+\/=]*\\) | base64 -d.*/\\1/p')
+    if [ -n "$b" ]; then
+      b2=$(printf '%s' "$b" | base64 -d | sed "s#\\[c\\]k/game\\.sh #$F/$id/[c]k/game.sh #g; s#pgrep -f 'ck/game\\.sh #pgrep -f '$F/$id/ck/game.sh #g" | base64 | tr -d '\\n')
+      c=\${c/"$b"/"$b2"}; fi
+    o=$(cd "$F/$id" && HOME="$F/$id" bash -c "$c"); rc=$?
     # A DROPSTART file loses the answer to the first game launch there (the game itself starts), as when ssh drops.
     if [ -f "$F/$id/DROPSTART" ] && printf '%s\n' "$o" | grep -qx started; then rm -f "$F/$id/DROPSTART"; exit 255; fi
     printf '%s\n' "$o"; exit $rc;;
