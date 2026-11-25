@@ -241,6 +241,8 @@ public final class ServerFightController implements ServerController {
 	static final int DROP_LOOK_TICKS = 20;
 	static final double DROP_LOOK_BLOCKS = 3.0D, DROP_LOOK_BELOW = 8.0D;
 	private java.util.function.Predicate<ServerPlayer> mayDrop;
+	/** The protection gate on mobs this fight may turn to when they hit the body; null: it never turns to a hitter. */
+	private java.util.function.BiPredicate<ServerPlayer, net.minecraft.world.entity.Entity> mayEngage;
 	private ServerNavigationController clearWalk;
 	private boolean clearBackUnderFire;
 	/** The knockback margin the probe used last; a stall report names what it refused. */
@@ -1153,7 +1155,7 @@ public final class ServerFightController implements ServerController {
 	private void answerHit(ServerPlayer player) {
 		if (strike != target) return;
 		LivingEntity hurtBy = player.getLastHurtByMob();
-		if (hurtBy == null || hurtBy == target || !hurtBy.isAlive()) return;
+		if (mayEngage == null || hurtBy == null || hurtBy == target || !hurtBy.isAlive() || !mayEngage.test(player, hurtBy)) return;
 		int since = player.tickCount - player.getLastHurtByMobTimestamp();
 		var range = player.getAttackRangeWith(player.getMainHandItem());
 		boolean excluded = !(hurtBy instanceof net.minecraft.world.entity.Mob) || hurtBy instanceof Creeper
@@ -1598,6 +1600,12 @@ public final class ServerFightController implements ServerController {
 	/** The model's collect:true: after the kill, walk to its witnessed drops (null filter: leave them). */
 	public ServerFightController collectDrops(java.util.function.BiPredicate<ServerPlayer, net.minecraft.world.entity.Entity> mayTake) {
 		this.collectFilter = mayTake;
+		return this;
+	}
+
+	/** Which mobs that hit the body from sword reach this fight may turn to (the protection gate of fight_target). */
+	public ServerFightController answeringHits(java.util.function.BiPredicate<ServerPlayer, net.minecraft.world.entity.Entity> mayEngage) {
+		this.mayEngage = mayEngage;
 		return this;
 	}
 
