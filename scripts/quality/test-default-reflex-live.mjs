@@ -167,6 +167,47 @@ async function lavaDrop(agent) {
 	const row = { case: 'lava-drop', agent: agent.name, mode: agent.mode, ...(await watch(agent, start)) };
 	return { ...row, tick: await playEnd(play) };
 }
+/**
+ * lava-melee-*: a melee mob comes at a body standing on the pad's last cell, the lava pool one step behind it, as at
+ * the Nether portal ledges and fortress lanes of the 25 Nov games (magma cubes and a hoglin hit the body into lava 4
+ * times). The body holds a stone sword and an off-hand shield, as it did there. The bar: alive and never in lava.
+ */
+const MELEE = {
+	'lava-melee-magma': ['minecraft:magma_cube', '{Size:3}'],
+	'lava-melee-cubes': ['minecraft:magma_cube', '{Size:1}', '{Size:1}'],
+	'lava-melee-hoglin': ['minecraft:hoglin', '{IsImmuneToZombification:1b}'],
+};
+async function lavaMelee(agent, name) {
+	const [type, ...tags] = MELEE[name];
+	// A shore, not a pad: stone inland on three sides so the only lethal edge is the lava the mob's hit throws the body toward.
+	const x0 = agent.ox - 9, x1 = agent.ox + 9;
+	await command(`fill ${x0} 79 -9 ${x1} 79 4 minecraft:stone`);
+	await command(`fill ${x0} 80 -9 ${x1} 84 4 minecraft:air`);
+	await command(`fill ${x0} 80 -9 ${x1} 80 0 minecraft:stone`);
+	await command(`fill ${x0} 80 1 ${x1} 80 3 minecraft:lava`);
+	await command(`fill ${x0} 80 4 ${x1} 81 4 minecraft:stone`);
+	// Walls round the rest: a back-out across the shore meets stone, not the void beyond the room.
+	await command(`fill ${x0 - 1} 79 -10 ${x0 - 1} 83 4 minecraft:stone`);
+	await command(`fill ${x1 + 1} 79 -10 ${x1 + 1} 83 4 minecraft:stone`);
+	await command(`fill ${x0 - 1} 79 -10 ${x1 + 1} 83 -10 minecraft:stone`);
+	await revive(agent);
+	for (const kind of new Set(Object.values(MELEE).map(([t]) => t))) await command(`kill @e[type=${kind},x=${agent.ox},y=80,z=0,distance=..12]`).catch(() => {});
+	await command(`item replace entity ${agent.name} weapon.mainhand with minecraft:stone_sword`);
+	await command(`item replace entity ${agent.name} weapon.offhand with minecraft:shield`);
+	// Facing inland, then the pool behind: a player at a ledge has seen the lava it stands beside.
+	await command(`tp ${agent.name} ${agent.ox + 0.5} 81 0.5 0 40`); await rate.idleSleep(800);
+	await command(`tp ${agent.name} ${agent.ox + 0.5} 81 0.5 180 10`); await rate.idleSleep(800);
+	const start = await pos(agent.name);
+	const play = await playStart(agent);
+	for (const [i, tag] of tags.entries()) await command(`summon ${type} ${agent.ox + 0.5 + i * 1.5 - (tags.length - 1) * 0.75} 81 -3.3 ${tag}`);
+	const row = { case: name, agent: agent.name, mode: agent.mode, ...(await watch(agent, start)) };
+	row.tick = await playEnd(play);
+	for (const kind of new Set(Object.values(MELEE).map(([t]) => t))) await command(`kill @e[type=${kind},x=${agent.ox},y=80,z=0,distance=..12]`).catch(() => {});
+	row.pass = row.alive && !row.entered;
+	row.events = (latest.get(agent.record.agentId)?.reflexes?.events ?? []).slice(-6).map(e => `${e.id} ${e.outcome}: ${e.detail}`);
+	return row;
+}
+
 // edge-control-shield: the same shot with a shield in the offhand, which blocks the hit and its knockback.
 async function edgeControl(agent, shield = false) {
 	await buildBridge(agent.ox); await revive(agent);
@@ -251,6 +292,11 @@ try {
 	if (!only || only.has('shelter-fire')) for (let r = 0; r < repeats; r++) for (const agent of agents) { const row = await shelterFire(agent); console.log(JSON.stringify(row)); results.cases.push(row); await revive(agent); await command(`extinguish ${agent.name}`).catch(() => {}); }
 	if (!only || only.has('edge-control')) for (let r = 0; r < repeats; r++) for (const agent of agents) { const row = await edgeControl(agent); console.log(JSON.stringify(row)); results.cases.push(row); }
 	if (only?.has('edge-control-shield')) for (let r = 0; r < repeats; r++) for (const agent of agents) { const row = await edgeControl(agent, true); console.log(JSON.stringify(row)); results.cases.push(row); }
+	for (const name of Object.keys(MELEE)) if (only?.has(name)) for (let r = 0; r < repeats; r++) for (const agent of agents) {
+		const h = await health(agent.name).catch(() => null);
+		if (h === null || h <= 0) { results.cases.push({ case: name, agent: agent.name, mode: agent.mode, skipped: 'body dead from an earlier case' }); continue; }
+		const row = await lavaMelee(agent, name); console.log(JSON.stringify(row)); results.cases.push(row);
+	}
 	if (!only || only.has('lava')) for (const agent of agents) {
 		for (const run of [lavaKnock, lavaDrop]) for (let r = 0; r < repeats; r++) {
 			const h = await health(agent.name).catch(() => null);
@@ -259,7 +305,7 @@ try {
 		}
 	}
 	const tally = (mode, name) => { const rows = results.cases.filter(c => c.mode === mode && c.case === name && !c.skipped); return `${rows.filter(c => name.startsWith('edge-control') ? !(c.offBridge ?? c.knockedOff) : c.alive).length}/${rows.length}${name.startsWith('edge-control') ? ' stayed on' : ' alive'}${name.startsWith('lava') ? `, entered lava ${rows.filter(c => c.entered).length}/${rows.length}` : ''}`; };
-	results.summary = Object.fromEntries(['defaults', 'none'].map(mode => [mode, Object.fromEntries(['edge-control', 'edge-control-shield', 'lava-knock', 'lava-drop'].map(name => [name, tally(mode, name)]))]));
+	results.summary = Object.fromEntries(['defaults', 'none'].map(mode => [mode, Object.fromEntries(['edge-control', 'edge-control-shield', 'lava-knock', 'lava-drop', ...Object.keys(MELEE)].map(name => [name, tally(mode, name)]))]));
 	results.summary.jar = jarPath;
 	results.tickRate = rate.tickRate;
 	console.log(JSON.stringify(results.summary, null, 2));

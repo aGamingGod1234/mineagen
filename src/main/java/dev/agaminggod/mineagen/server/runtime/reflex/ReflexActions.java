@@ -728,6 +728,73 @@ final class ReflexActions {
 			return Step.running(done + "; stepping inland off the edge to wall in from " + type(shooter));
 		}
 
+		/** Where defend is stepping to, off a brink before a melee mob's hit; null when not stepping. */
+		private Vec3 meleeInland;
+		private int meleeInlandTicks;
+		/** Until this tick defend does not look again for a stand off the brink (none was in reach, or the step failed). */
+		private int meleeRetryTick = Integer.MIN_VALUE;
+		private String meleeNote;
+
+		/** The focus as a melee mob after the body within {@link #CLOSING_RANGE}, or null (one whose target is kept by its brain). */
+		static Mob meleeFocus(ServerPlayer player, Entity focus) {
+			return focus instanceof Mob mob && mob.isAlive() && packMember(mob, player) && ThreatPerception.isHostileTo(mob, player)
+					&& player.distanceTo(mob) <= CLOSING_RANGE ? mob : null;
+		}
+
+		/**
+		 * Off a brink before a melee mob's hit: the hit throws the body away from the mob, so with lava, the void or a killing
+		 * fall within a shove on that side the body steps crouched to the nearest seen stand on its level where no shove from
+		 * the mob finds a drop, facing the mob and swinging when it is in reach. A player steps in from the edge before trading
+		 * blows; five of twelve traced Nether deaths were a magma cube or hoglin knocking the body off a ledge into lava while
+		 * defend fought or held its shield up where it stood. Null when the body may fight where it stands.
+		 */
+		private Step meleeOffBrink(ServerPlayer player, Mob mob, LivingEntity target, Swing swing, int slot, Consumer<AgentInputState> input,
+				String done) {
+			// In the air (a hit's hop) the brink is judged once landed.
+			if (!player.onGround()) return null;
+			if (meleeInland == null) {
+				if (player.tickCount < meleeRetryTick) return null;
+				BlockPos cell = BlockPos.containing(player.getX(), player.getY() + 0.2D, player.getZ());
+				String brink = WallIn.brink(dev.agaminggod.mineagen.server.runtime.controller.BrinkGuard.brinkFrom(player,
+						new Vec3(cell.getX() + 0.5D, player.getY(), cell.getZ() + 0.5D), mob.position()));
+				if (brink == null) return null;
+				meleeInland = dev.agaminggod.mineagen.server.runtime.controller.BrinkGuard.inlandStand(player, INLAND_WITHIN, mob.position());
+				meleeInlandTicks = 0;
+				if (meleeInland == null) {
+					meleeRetryTick = player.tickCount + 20;
+					meleeNote = brink + " behind the body; no stand off it in " + INLAND_WITHIN + " blocks";
+					return null;
+				}
+				meleeNote = brink + " behind the body";
+			}
+			double dx = meleeInland.x - player.getX(), dz = meleeInland.z - player.getZ();
+			if (dx * dx + dz * dz <= 0.15D * 0.15D || ++meleeInlandTicks > INLAND_TICKS || Math.abs(player.getY() - meleeInland.y) > 0.6D) {
+				// Arrived, out of time or knocked onto another level: judge the cell it stands on afresh next tick.
+				if (meleeInlandTicks > INLAND_TICKS) meleeRetryTick = player.tickCount + 40;
+				meleeInland = null;
+				return null;
+			}
+			dev.agaminggod.mineagen.server.runtime.controller.BrinkGuard.braceArmed(player);
+			AgentInputState facing = look(player, target != null ? swing.aim() : ReflexSensors.aimPoint(mob), 0.0F, 0.0F, false, false,
+					target != null ? slot : player.getInventory().getSelectedSlot(), InteractionHand.MAIN_HAND);
+			float[] keys = dev.agaminggod.mineagen.server.runtime.controller.BrinkGuard.keysToward(facing.yaw(), dx, dz);
+			input.accept(new AgentInputState(keys[0], keys[1], false, true, false, false, false, facing.yaw(), facing.pitch(),
+					facing.selectedSlot(), InteractionHand.MAIN_HAND));
+			if (target != null) {
+				var range = player.getAttackRangeWith(player.getMainHandItem());
+				boolean ready = player.getInventory().getSelectedSlot() == slot && !player.isUsingItem()
+						&& player.getAttackStrengthScale(0.5F) >= CombatPlanning.READY_ATTACK_STRENGTH;
+				if (ready && Tracer.rayTrace(player, 1.0F, range.effectiveMaxRange(player), false) instanceof EntityHitResult hit && hit.getEntity() == target) {
+					player.attack(target);
+					ArmSwing.attack(player, InteractionHand.MAIN_HAND);
+					player.resetAttackStrengthTicker();
+					player.resetLastActionTime();
+					hits++;
+				}
+			}
+			return Step.running(done + "; stepping inland off " + meleeNote + " before " + type(mob) + "'s hit");
+		}
+
 		private Step bracing(ServerPlayer player, LivingEntity shooter, Consumer<AgentInputState> input, String done) {
 			braceInPlace = true;
 			input.accept(look(player, ReflexSensors.aimPoint(shooter), 0.0F, 0.0F, false, false, player.getInventory().getSelectedSlot(),
@@ -813,6 +880,12 @@ final class ReflexActions {
 			String done = hits + " hit(s) back" + (guardTicks > 0 ? ", shield up " + Math.round(guardTicks / 2.0D) / 10.0D + " s" : "")
 					+ (selected != startSlot ? ", hotbar slot " + selected + " selected (was " + startSlot + ")" : "")
 					+ (backOutNote != null ? ", " + backOuts + " back-out(s), last " + backOutNote : "");
+			Mob melee = closing != null ? closing : meleeFocus(player, context.focus());
+			if (melee == null || walls != null || cover != null) meleeInland = null;
+			else {
+				Step stepping = meleeOffBrink(player, melee, target, swing, slot, input, done);
+				if (stepping != null) return stepping;
+			}
 			if (target != null) {
 				// Aim at the part of the hitbox the eye can see: round a corner its middle can sit behind the stone.
 				input.accept(look(player, swing.aim(), 0.0F, 0.0F, false, false, slot, InteractionHand.MAIN_HAND));
