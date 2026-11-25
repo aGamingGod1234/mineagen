@@ -146,6 +146,13 @@ public final class CombatPlanningVerification {
 				: position.x() < -2 && position.y() == 63 && position.z() >= 0 && position.z() <= 1 ? WalkabilityView.Cell.SAFE_SUPPORT
 				: corridor.cellAt(position);
 		check(!CombatPlanning.runRoom(lowView, feet, zombie).deadEnd(14.0D), "clear feet under unseen headroom is not called a dead end");
+		// A one-wide diagonal bridge (deck at x == z) over lava running away from a chaser at (4.5, 4.5): room to run.
+		WalkabilityView diagonal = position -> {
+			if (position.y() == 63) return position.x() == position.z() && position.x() >= -20 && position.x() <= 6 ? WalkabilityView.Cell.SAFE_SUPPORT : WalkabilityView.Cell.CLEAR;
+			if (position.y() < 58) return WalkabilityView.Cell.HAZARD;
+			return WalkabilityView.Cell.CLEAR;
+		};
+		check(!CombatPlanning.runRoom(diagonal, feet, List.<double[]>of(new double[] {4.5D, 4.5D})).deadEnd(14.0D), "a diagonal bridge running on is room to run");
 		// The bridge with nothing below its deck ever seen: a drop into the unseen is no way on, so still a dead end.
 		WalkabilityView unseenSides = position -> position.y() < 63 || position.y() == 63 && bridge.cellAt(position) != WalkabilityView.Cell.SAFE_SUPPORT
 				? WalkabilityView.Cell.UNLOADED : bridge.cellAt(position);

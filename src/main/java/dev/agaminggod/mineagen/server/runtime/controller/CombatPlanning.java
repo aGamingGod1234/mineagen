@@ -435,7 +435,7 @@ public final class CombatPlanning {
 	/** How far round the feet the run room is searched; reaching it is room enough. */
 	static final int RUN_ROOM_RADIUS = 12;
 	private static final int RUN_ROOM_NODES = 1_200;
-	private static final int[][] RUN_ROOM_STEPS = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+	private static final int[][] RUN_ROOM_STEPS = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}, {1, 1}, {1, -1}, {-1, 1}, {-1, -1}};
 	private static final GridPosition UNSEEN = new GridPosition(Integer.MIN_VALUE, Integer.MIN_VALUE, Integer.MIN_VALUE);
 
 	/**
@@ -470,6 +470,9 @@ public final class CombatPlanning {
 				int x = at.x() + step[0];
 				int z = at.z() + step[1];
 				if (Math.abs(x - feet.x()) > RUN_ROOM_RADIUS || Math.abs(z - feet.z()) > RUN_ROOM_RADIUS) return new RunRoom(Math.max(gain, RUN_ROOM_RADIUS), unseen);
+				// A diagonal step passes the corner only with both side cells open at the feet and head (a diagonal bridge's
+				// sides are air): a wall corner stops it as it stops the body.
+				if (step[0] != 0 && step[1] != 0 && !(cornerOpen(world, at.x() + step[0], at.y(), at.z()) && cornerOpen(world, at.x(), at.y(), at.z() + step[1]))) continue;
 				GridPosition next = runStep(world, at, x, z);
 				if (next == null) continue;
 				if (next == UNSEEN) {
@@ -483,6 +486,11 @@ public final class CombatPlanning {
 			}
 		}
 		return new RunRoom(gain, unseen);
+	}
+
+	private static boolean cornerOpen(WalkabilityView world, int x, int y, int z) {
+		GridPosition feet = new GridPosition(x, y, z);
+		return open(world, feet) && open(world, feet.above());
 	}
 
 	/** The cell a walk from {@code at} into column (x, z) stands in, {@link #UNSEEN} where the ground there is not known, or null. */
