@@ -2121,6 +2121,7 @@ final class ReflexActions {
 		private int surfacedTicks;
 		private int ticks;
 		private int peekTicks;
+		private boolean backing;
 		private final SwimAirProgress progress = new SwimAirProgress();
 
 		@Override
@@ -2133,6 +2134,23 @@ final class ReflexActions {
 			if (surfacedTicks >= 10 || !inWater) return Step.done("surfaced");
 			ticks++;
 			var surface = airRoute(player);
+			// No seen air: swim back the way the eyes came from their last breath, as a player does, before ducking out or
+			// rising blind (5 of 30 Overworld deaths in the 25 Nov fresh games rose blind into a ceiling with air behind them).
+			var back = surface == null && (backing || !WaterAirFacts.surface(player).searching()) ? WaterAirFacts.wayBack(player) : null;
+			backing = back != null;
+			if (back != null) {
+				BlockPos breath = new BlockPos(back.x(), back.openY(), back.z());
+				if (progress.stalled(breath, SwimAirProgress.remaining(player.getEyePosition(), back.path()), ticks)) {
+					// The way back is blocked: forget it until the next breath and swim on the way it did before.
+					dev.agaminggod.mineagen.server.perception.LastBreath.forget(player);
+					backing = false;
+					back = null;
+				} else {
+					input.accept(EscapeMoves.swimBack(player, back.path().get(1)));
+					return Step.running(String.format(Locale.ROOT, "swimming back to where it last breathed at %d,%d,%d, %d cells",
+							back.x(), back.openY(), back.z(), back.path().size() - 1));
+				}
+			}
 			BlockPos peek = surface == null && peekTicks < WaterAirFacts.PEEK_TICKS ? WaterAirFacts.peekCell(player) : null;
 			switch (swimUpStep(surface != null, peek != null, peekTicks)) {
 				case DUCK_OUT -> {
