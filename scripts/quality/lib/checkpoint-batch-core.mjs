@@ -1,6 +1,7 @@
 // Pure parts of checkpoint-batch.mjs: plan checks, the game list, the start gate and scoring. No I/O here.
 import { randomInt } from 'node:crypto';
 import { stopKind } from '../../../coordinator/src/benchmark/long-run.mjs';
+import { parseStopWhen } from './stop-when.mjs';
 
 const NAME = /^[a-z0-9][a-z0-9-]{0,40}$/;
 
@@ -37,7 +38,9 @@ export function expandPlan(plan, { salt = () => randomInt(-2147483648, 214748364
 		need(Number.isInteger(point.repeats) && point.repeats >= 1, `save point ${name} needs repeats >= 1`);
 		need(Array.isArray(point.targets) && point.targets.length >= 1, `save point ${name} needs targets (long-run milestone ids it should reach)`);
 		need(point.arms === undefined || (Array.isArray(point.arms) && point.arms.length >= 1 && point.arms.every(a => a in (plan.arms ?? {}))), `save point ${name}: arms must list arms of the plan`);
+		if (point.stopWhen !== undefined) try { parseStopWhen(point.stopWhen); } catch (error) { errors.push(`save point ${name}: ${error.message}`); }
 	}
+	if (plan.stopWhen !== undefined) try { parseStopWhen(plan.stopWhen); } catch (error) { errors.push(error.message); }
 	if (errors.length) throw new Error(`bad plan:\n  ${errors.join('\n  ')}`);
 	const armNames = arms.map(([name]) => name);
 	const games = [];
@@ -54,7 +57,9 @@ export function expandPlan(plan, { salt = () => randomInt(-2147483648, 214748364
 			// The arm that starts first alternates per save point from one repeat to the next, so a cut that splits a pair
 			// (the deadline, STOP, the meter, MAX_RUNNING) never always drops the same arm of one save point.
 			const order = (repeat - 1 + points.findIndex(([n]) => n === name)) % 2 ? [...mine].reverse() : mine;
-			for (const arm of order) games.push({ id: `${name}-r${repeat}-${arm}`, savepoint: name, repeat, arm, salt: shared, account: (repeat - 1 + armNames.indexOf(arm) + points.findIndex(([n]) => n === name)) % accounts, attempts: 0, state: 'queued' });
+			// A save point's own stopWhen replaces the plan's; neither leaves the game to play its whole window, as before.
+			const stopWhen = point.stopWhen ?? plan.stopWhen;
+			for (const arm of order) games.push({ id: `${name}-r${repeat}-${arm}`, savepoint: name, repeat, arm, salt: shared, account: (repeat - 1 + armNames.indexOf(arm) + points.findIndex(([n]) => n === name)) % accounts, attempts: 0, state: 'queued', ...(stopWhen ? { stopWhen: parseStopWhen(stopWhen) } : {}) });
 		}
 	}
 	return games;
@@ -107,13 +112,16 @@ export function scoreGame(report, targets, { inheritedMs = 30_000 } = {}) {
 	if (early && [null, 'other'].includes(stopKind(reason))) return { ...unknown('ended early'), endedEarly: true, stopReason: reason };
 	if ((report?.observerErrors ?? []).some(e => LOST_EVIDENCE.test(String(e)))) return unknown('journals lost or damaged');
 	const byId = new Map(timeline.milestones.map(m => [m.id, m]));
+	const answered = typeof reason === 'string' && reason.startsWith('QUESTION_ANSWERED');
 	const result = {};
 	const inherited = [];
 	for (const id of targets) {
 		const m = byId.get(id);
 		if (!m) { result[id] = null; continue; }
 		if (m.reached && Number.isFinite(m.elapsedMs) && m.elapsedMs <= inheritedMs) { inherited.push(id); result[id] = null; continue; }
-		result[id] = m.reached ? Math.round(m.elapsedMs / 600) / 100 : false;
+		// A game stopped because its question was answered (stopWhen) never played on to the targets it had not reached:
+		// they are unobserved, not misses.
+		result[id] = m.reached ? Math.round(m.elapsedMs / 600) / 100 : answered ? null : false;
 	}
 	const deaths = Array.isArray(timeline.deaths) ? timeline.deaths.length + (timeline.unexplainedDeaths ?? 0) : null;
 	return { known: true, targets: result, inherited, deaths, deathCauses: (timeline.deaths ?? []).map(d => d.cause), playedMinutes: Number.isFinite(timeline.playedMs) ? Math.round(timeline.playedMs / 600) / 100 : null,

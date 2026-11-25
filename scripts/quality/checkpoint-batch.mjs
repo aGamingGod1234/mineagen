@@ -36,6 +36,10 @@
 // with that JAR in place of any other Lithium version (named by a fingerprint of the template, so a changed template gets
 // a new copy). "lithium": false in the plan plays on the template as it is (with whatever it holds), and
 // "lithium": "/path/lithium-fabric-VERSION.jar" uses that JAR instead.
+// "stopWhen" (plan-wide, or per save point, which replaces it) ends a game early once its question is answered and hands
+// its machine to the next queued game: { "advancement": "nether/obtain_blaze_rod" }, { "items": { "minecraft:ender_pearl": 12 } }
+// or { "stallMinutes": 30 } (no new advancement, item kind or dimension for that long); see lib/stop-when.mjs. Without it
+// every game plays its whole window. A target not reached by an answered game scores as unobserved, not as a miss.
 // Output: OUT/games/ID/{run.log,done,report/long-run.json,game.tgz (everything, raw journals under raw/)}, OUT/state.json, OUT/summary.json, OUT/summary.txt, OUT/batch.log.
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -254,6 +258,7 @@ rm -rf "$c"; mv "$c.tmp" "$c"; echo "$c" > ~/ck/server-template`, live);
 	}
 	for (const [name, point] of Object.entries(plan.savepoints)) await upload(vm.id, point.fresh ? freshFile : point.file, `ck/sp/${name}.json`, live);
 	await upload(vm.id, gameScript, 'ck/game.sh', live);
+	if (games.some(g => g.stopWhen)) await upload(vm.id, fileURLToPath(new URL('./lib/stop-when.mjs', import.meta.url)), 'ck/stop-when.mjs', live);
 	await remote(vm.id, 'chmod +x ~/ck/game.sh', live);
 	vm.prepared = true;
 }
@@ -562,7 +567,22 @@ mkdir -p ~/ck/games/${game.id}; echo "exit timeout $(date -Is)" > ~/ck/games/${g
 	}
 	// A running game proves the machine launches games: only launches that die in a row count against it.
 	vm.goneInRow = 0;
+	if (/RUNNING/.test(status) && game.stopWhen && !game.stoppedEarly) await stopIfAnswered(vm, game);
 	if (/DONE/.test(status)) { await fetch(vm, game); vm.game = null; vm.goneInRow = 0; }
+}
+// stopWhen: lib/stop-when.mjs reads the game's protocol journal on its machine. Once the question is answered (or the bot
+// is stuck), it records the reason as the game's operator stop and run-long gets a SIGTERM, the hang timeout's path:
+// it saves the recording, writes its report and exits, game.sh writes done, and the next pass copies the game home and
+// gives the machine the next queued game. A check that fails is logged and the game plays on.
+async function stopIfAnswered(vm, game) {
+	const spec = Buffer.from(JSON.stringify(game.stopWhen)).toString('base64');
+	let answer;
+	try { answer = (await remote(vm.id, `node ~/ck/stop-when.mjs ~/ck/games/${game.id} ${spec}`, { timeoutMs: 120_000, ...live })).trim().split('\n').pop(); }
+	catch (error) { await log(`stopWhen check of ${game.id} on ${vm.id} failed: ${error.message.split('\n')[0].slice(0, 200)}; it plays on`); return; }
+	if (!answer.startsWith('STOP ')) return;
+	game.stoppedEarly = answer.slice(5);
+	await remote(vm.id, `pkill -TERM -f "scripts/quality/run-long.mjs .*/ck/games/${game.id}/report" || true`, { timeoutMs: 60_000, ...live });
+	await log(`stopping ${game.id} on ${vm.id} early, ${Math.round((Date.now() - Date.parse(game.startedAt)) / 60_000)} min in: ${game.stoppedEarly}`);
 }
 // Copies home run in parallel (each is one scp of about 100 MB): a wave that ends together comes back in minutes, not
 // one game after another.
