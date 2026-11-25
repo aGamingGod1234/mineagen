@@ -941,10 +941,17 @@ test('pearlHuntLine names the nearest walkable enderman within 16 m while pearls
 	// Not geared: the line says so, and why. An angry one is still fought (fleeing does not work), so it adds nothing.
 	const wooden = [{ itemId: 'minecraft:ender_pearl', count: 1 }, { itemId: 'minecraft:wooden_sword', count: 1 }];
 	assert.equal(pearlHuntLine({ observation: observation([enderman(7, 50)], wooden), position, open }),
-		'enderman 7 m, level, calm; pearls 1/12 open; not geared for it (only a wooden or golden weapon): it hits for 7 and has 40 health, so leave a calm one calm and do not look at it until you are');
-	assert.match(pearlHuntLine({ observation: { ...observation([enderman(7, 50)]), player: { health: 9, armor: 0 } }, position, open }), /not geared for it \(health 9\)/);
+		'enderman 7 m, level, calm; pearls 1/12 open; not geared for an open fight (only a wooden or golden weapon): it hits for 7 and has 40 health; no boat or 5 Overworld planks for a boat trap (keep one boat for the next one), so leave a calm one calm and do not look at it until you have one or are geared');
+	assert.match(pearlHuntLine({ observation: { ...observation([enderman(7, 50)]), player: { health: 9, armor: 0 } }, position, open }), /not geared for an open fight \(health 9\)/);
+	// The boat trap is offered from what the body holds: a boat, or Overworld wood for one (Nether stems make none); not in rain.
+	const trap = (items, world) => pearlHuntLine({ observation: { ...observation([enderman(7, 50)], items), ...(world ? { world } : {}) }, position, open });
+	assert.match(trap([...wooden, { itemId: 'minecraft:oak_boat', count: 1 }]), /trap it in a boat instead \(you hold 1 boat\): .*fight_target pursue:false/);
+	assert.match(trap([...wooden, { itemId: 'minecraft:spruce_planks', count: 5 }]), /you hold wood for a boat \(5 planks' worth/);
+	assert.match(trap([...wooden, { itemId: 'minecraft:birch_log', count: 2 }]), /you hold wood for a boat \(8 planks' worth/);
+	assert.match(trap([...wooden, { itemId: 'minecraft:warped_planks', count: 9 }, { itemId: 'minecraft:oak_planks', count: 4 }]), /no boat or 5 Overworld planks/);
+	assert.match(trap([...wooden, { itemId: 'minecraft:oak_boat', count: 1 }], { raining: true }), /boat trap fails in rain/);
 	const stone = [{ itemId: 'minecraft:stone_sword', count: 1 }];
-	assert.match(pearlHuntLine({ observation: { ...observation([enderman(7, 50)], stone), player: { health: 20, armor: 4 } }, position, open }), /not geared for it \(stone weapon with 4 armour\)/);
+	assert.match(pearlHuntLine({ observation: { ...observation([enderman(7, 50)], stone), player: { health: 20, armor: 4 } }, position, open }), /not geared for an open fight \(stone weapon with 4 armour\)/);
 	assert.doesNotMatch(pearlHuntLine({ observation: { ...observation([enderman(7, 50)], stone), player: { health: 20, armor: 15 } }, position, open }), /not geared/, 'stone with iron armour is enough');
 	assert.equal(pearlHuntLine({ observation: observation([{ ...enderman(5, 50), targetingAgent: true }], []), position, open }), 'enderman 5 m, level, angry at you; pearls 0/12 open');
 });

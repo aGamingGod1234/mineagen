@@ -739,7 +739,27 @@ export function pearlHuntLine({ observation = null, position = null, open = '' }
 	return `enderman ${Math.round(target.distance)} m, ${dy === 0 ? 'level' : dy > 0 ? `${dy} up` : `${-dy} down`}, ${angry ? 'angry at you' : 'calm'}`
 		+ `${others > 0 ? `, ${others} more within ${HUNT_RANGE} m` : ''}; pearls ${held}/${needed} open`
 		+ `${/^(travel_to|navigate_to)$/.test(action ?? '') ? `; your ${action} is still running and does not stop for it` : ''}`
-		+ (unready === null ? '' : `; not geared for it (${unready}): it hits for 7 and has 40 health, so leave a calm one calm and do not look at it until you are`);
+		+ (unready === null ? '' : `; not geared for an open fight (${unready}): it hits for 7 and has 40 health; ${boatTrapLine(observation)}`);
+}
+
+// Boats seat a mob that walks into them; only Overworld wood (and bamboo, as a raft) makes one: Nether stems do not.
+const BOAT_WOOD = '(?:oak|spruce|birch|jungle|acacia|dark_oak|mangrove|cherry|pale_oak|bamboo)';
+const BOAT_ITEM = new RegExp(`^minecraft:${BOAT_WOOD}_(?:chest_)?(?:boat|raft)$`);
+const BOAT_PLANKS = new RegExp(`^minecraft:${BOAT_WOOD}_planks$`);
+const BOAT_LOG = new RegExp(`^minecraft:(?:stripped_)?(?:oak|spruce|birch|jungle|acacia|dark_oak|mangrove|cherry|pale_oak)_(?:log|wood)$|^minecraft:(?:stripped_)?bamboo_block$`);
+
+/**
+ * The boat trap for a body not geared to fight an enderman in the open: what it holds toward one and the method, or why
+ * it is off (rain makes endermen teleport). Knowledge for the model's choice, not a step it must take.
+ */
+export function boatTrapLine(observation) {
+	const items = observation?.inventory?.items ?? [];
+	const count = (pattern) => items.reduce((sum, item) => sum + (pattern.test(item?.itemId ?? '') && item.count > 0 ? item.count : 0), 0);
+	const boats = count(BOAT_ITEM), planks = count(BOAT_PLANKS) + 4 * count(BOAT_LOG);
+	if (observation?.world?.raining === true) return 'a boat trap fails in rain (it teleports), so leave a calm one calm and do not look at it until the rain stops';
+	const kit = boats > 0 ? `you hold ${boats} boat${boats > 1 ? 's' : ''}` : planks >= 5 ? `you hold wood for a boat (${planks} planks' worth; 5 at a crafting table)` : null;
+	if (kit === null) return 'no boat or 5 Overworld planks for a boat trap (keep one boat for the next one), so leave a calm one calm and do not look at it until you have one or are geared';
+	return `trap it in a boat instead (${kit}): place the boat about 3 blocks out on its side, stare at its eyes, look at the boat, and when it sits fight_target pursue:false from where you stand (it cannot teleport or reach you while seated)`;
 }
 
 const SWORD_TIERS = Object.freeze({ wooden: 1, golden: 1, stone: 2, copper: 2, iron: 3, diamond: 4, netherite: 5 });
