@@ -4,7 +4,7 @@
 //   1. a shield stance raised toward a blaze blocks its fireballs;
 //   2. a shield trigger on an incoming skeleton arrow;
 //   3. a pickaxe that breaks mid-mining triggers a hotbar swap to the other pickaxe, and the next break uses it;
-//   4. low air underwater triggers swim up;
+//   4. low air underwater triggers swim up; 4b. (swimBack) air 10 blocks back along a flooded tunnel is swum back to;
 //   5. a running action pauses under a firing (eat) and resumes to success instead of being cancelled;
 //   6. a worn pickaxe (tool_low) is swapped for a fresh one from the main inventory through the inventory screen;
 //   7. mined drops in view are walked to and picked up between and during break actions;
@@ -254,6 +254,43 @@ try {
 		results.swimUp.pass = events(o, 'air').some((row) => row.outcome === 'done' && /surfaced/.test(row.detail ?? '')) && (o.player?.air ?? 0) > lowestAir;
 		await command(`tp ${agent} 0.5 80 0.5 0 0`); await command(`effect give ${agent} minecraft:instant_health 1 3 true`);
 
+	}
+	// 4b. Swim back: the body swims down a flooded shaft and 10 blocks along a one-wide, two-high flooded tunnel under a
+	// stone roof, so the air it breathed is past the 8-block seen-air search. The production default-air rule (the
+	// coordinator's, as a hazard floor) must get it out alive. Copies 5 of 30 Overworld drownings in 8 fresh games (25 Nov):
+	// each ended rising blind into a roof with "no breathable cell seen".
+	if (only.length === 0 || only.includes('swimBack')) {
+		await command('fill 18 60 18 34 74 22 minecraft:stone');
+		await command('fill 19 66 19 21 73 21 minecraft:water'); await command('fill 19 74 19 21 76 21 minecraft:air');
+		await command('fill 22 66 20 32 67 20 minecraft:water');
+		revision += 1;
+		const air = { id: 'default-air', kind: 'trigger', priority: 8, when: [{ type: 'air_below', bubbles: 3 }], do: { type: 'swim_up' }, ttlMs: 3_600_000, coordinatorDefault: true };
+		await bridge.send('reflex_update', record.agentId, { revision, rules: [air], yield: false });
+		for (let index = 0; index < 40; index += 1) { o = await observe(); if (o.reflexes?.revision === revision) break; await sleep(100); }
+		await command(`effect give ${agent} minecraft:instant_health 1 10 true`);
+		await command(`tp ${agent} 20.5 74 20.5 90 0`); await rate.idleSleep(3000);
+		const before = health(await observe());
+		const played = await rate.play();
+		// One block a step, as a swim moves the eyes (a longer jump reads as a teleport and drops the way back).
+		for (let y = 73; y >= 66; y -= 1) { await command(`tp ${agent} 20.5 ${y} 20.5 -90 0`); await sleep(120); }
+		for (let x = 21; x <= 31; x += 1) { await command(`tp ${agent} ${x}.5 66 20.5 -90 0`); await sleep(120); }
+		const deadline = now() + 40000;
+		let lowestAir = 300, lowest = before, died = false, surfaced = false;
+		while (now() < deadline) {
+			o = await observe();
+			lowestAir = Math.min(lowestAir, o.player?.air ?? 300);
+			const h = health(o); if (Number.isFinite(h)) lowest = Math.min(lowest, h);
+			if (o.player?.dead === true || h <= 0) { died = true; break; }
+			if ((o.position?.y ?? 0) >= 73 && (o.player?.air ?? 0) >= 290) { surfaced = true; break; }
+			await rate.clock.sleep(250);
+		}
+		o = await observe();
+		const tick = await played();
+		results.swimBack = { events: events(o, 'default-air'), lowestAir, y: o.position?.y, x: o.position?.x, air: o.player?.air, healthBefore: before, lowest, died, surfaced, tick };
+		results.swimBack.pass = !died && surfaced;
+		if (died) { await command(`mineagen respawn ${agent}`).catch(() => {}); await rate.idleSleep(3000); }
+		await setReflexes([]);
+		await command(`tp ${agent} 0.5 80 0.5 0 0`); await command(`effect give ${agent} minecraft:instant_health 1 3 true`);
 	}
 	// 5. A running action pauses under a firing and resumes: walk 30 blocks; hunger drops mid-walk and the eat trigger fires.
 	if (only.length === 0 || only.includes('resume')) {
