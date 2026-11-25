@@ -150,7 +150,7 @@ const lavaForgotFor = new WeakMap();
 /**
  * Forget remembered still-lava cells the body's own look shows are gone: a cell now seen as another block
  * (cast into obsidian, cooled, scooped), and every cell inside the box a cast reported empty of lava sources
- * after its full look around. Without this the lava check and the route hint keep sending the bot to a pool it
+ * after its full look around (NO_LAVA_IN_REACH; a cast stopped early for another reason looked at nothing new). Without this the lava check and the route hint keep sending the bot to a pool it
  * already used up or left hundreds of blocks behind.
  */
 function forgetGoneLava(known, o, dimension, blocks) {
@@ -160,7 +160,7 @@ function forgetGoneLava(known, o, dimension, blocks) {
  let box = null;
  const r = o.lastResult, at = o.position ?? o.player?.position ?? o.player;
  const none = r?.present !== false && typeof r?.message === 'string'
-  ? r.message.match(/lava sources seen within (\d+): 0\b/) ?? (r.reasonCode === 'NO_LAVA_IN_REACH' ? r.message.match(/No lava source seen within (\d+) blocks/) : null) : null;
+  && r.reasonCode === 'NO_LAVA_IN_REACH' ? r.message.match(/No lava source seen within (\d+) blocks/) : null;
  if (none && r.actionId != null && lavaForgotFor.get(known) !== r.actionId && [at?.x, at?.y, at?.z].every(Number.isFinite)) {
   lavaForgotFor.set(known, r.actionId);
   // The body searches x and z within the radius and y from 6 below to 4 above its feet; keep a block of margin for drift.
