@@ -137,17 +137,19 @@ async function revive(agent) {
 
 async function watch(agent, start) {
 	let minY = start.y, entered = false, last = start, alive = true;
+	const trail = []; let beforeLava = null;
 	for (let i = 0; i < 50; i++) {
 		await rate.clock.sleep(200);
 		const h = await health(agent.name).catch(() => null);
 		if (h === null || h <= 0) { alive = false; break; }
 		last = await pos(agent.name);
 		minY = Math.min(minY, last.y);
+		trail.push([i * 0.2, round(last.x), round(last.y), round(last.z)]); if (trail.length > 12) trail.shift();
 		const sample = latest.get(agent.record.agentId);
-		if (sample?.player?.inLava === true || /passed/i.test(await command(`execute as ${agent.name} at @s if block ~ ~ ~ minecraft:lava`).catch(() => ''))) entered = true;
+		if (sample?.player?.inLava === true || /passed/i.test(await command(`execute as ${agent.name} at @s if block ~ ~ ~ minecraft:lava`).catch(() => ''))) { if (!entered) beforeLava = [...trail]; entered = true; }
 	}
 	const finalHealth = alive ? await health(agent.name) : 0;
-	return { alive, entered, health: finalHealth, end: { x: round(last.x), y: round(last.y), z: round(last.z) }, fell: round(start.y - minY) };
+	return { alive, entered, health: finalHealth, end: { x: round(last.x), y: round(last.y), z: round(last.z) }, fell: round(start.y - minY), ...(beforeLava ? { beforeLava } : {}) };
 }
 
 async function lavaKnock(agent) {
@@ -167,6 +169,75 @@ async function lavaDrop(agent) {
 	const row = { case: 'lava-drop', agent: agent.name, mode: agent.mode, ...(await watch(agent, start)) };
 	return { ...row, tick: await playEnd(play) };
 }
+/**
+ * lava-melee-*: a melee mob comes at a body standing on the pad's last cell, the lava pool one step behind it, as at
+ * the Nether portal ledges and fortress lanes of the 25 Nov games (magma cubes and a hoglin hit the body into lava 4
+ * times). The body holds a stone sword and an off-hand shield, as it did there. The bar: alive and never in lava.
+ */
+const MELEE = {
+	'lava-melee-magma': ['minecraft:magma_cube', '{Size:3}'],
+	'lava-melee-cubes': ['minecraft:magma_cube', '{Size:1}', '{Size:1}'],
+	'lava-melee-hoglin': ['minecraft:hoglin', '{IsImmuneToZombification:1b}'],
+};
+const MELEE_KINDS = [...new Set(Object.values(MELEE).map(([type]) => type))];
+async function meleeCount(agent) {
+	let total = 0;
+	for (const kind of MELEE_KINDS) total += Number((await command(`execute if entity @e[type=${kind},x=${agent.ox},y=80,z=0,distance=..16]`).catch(() => '')).match(/count: (\d+)/i)?.[1] ?? 0);
+	return total;
+}
+// A killed magma cube splits into smaller ones unless it is the smallest: shrink them first, or the next case starts crowded.
+async function clearMelee(agent) {
+	for (let i = 0; i < 6 && await meleeCount(agent) > 0; i++) {
+		await command(`execute as @e[type=minecraft:magma_cube,x=${agent.ox},y=80,z=0,distance=..16] run data merge entity @s {Size:0}`).catch(() => {});
+		for (const kind of MELEE_KINDS) await command(`kill @e[type=${kind},x=${agent.ox},y=80,z=0,distance=..16]`).catch(() => {});
+		await rate.idleSleep(300);
+	}
+}
+async function lavaMelee(agent, name) {
+	const [type, ...tags] = MELEE[name];
+	// A shore, not a pad: stone inland on three sides so the only lethal edge is the lava the mob's hit throws the body toward.
+	const x0 = agent.ox - 9, x1 = agent.ox + 9;
+	await command(`fill ${x0} 79 -9 ${x1} 79 4 minecraft:stone`);
+	await command(`fill ${x0} 80 -9 ${x1} 84 4 minecraft:air`);
+	await command(`fill ${x0} 80 -9 ${x1} 80 0 minecraft:stone`);
+	await command(`fill ${x0} 80 1 ${x1} 80 3 minecraft:lava`);
+	await command(`fill ${x0} 80 4 ${x1} 81 4 minecraft:stone`);
+	// Walls round the rest: a back-out across the shore meets stone, not the void beyond the room.
+	await command(`fill ${x0 - 1} 79 -10 ${x0 - 1} 83 4 minecraft:stone`);
+	await command(`fill ${x1 + 1} 79 -10 ${x1 + 1} 83 4 minecraft:stone`);
+	await command(`fill ${x0 - 1} 79 -10 ${x1 + 1} 83 -10 minecraft:stone`);
+	await revive(agent);
+	// MELEE_HEALTH: start hurt, as the traced deaths did (7 health in one): a throw into lava then kills, not only burns.
+	const hurt = 20 - Number(process.env.MELEE_HEALTH ?? 20);
+	if (hurt > 0) {
+		// Below 18 food nothing heals it back during the case (the traced trips ran on little food).
+		await command(`effect clear ${agent.name} minecraft:saturation`);
+		await command(`effect give ${agent.name} minecraft:hunger 3 255 true`); await rate.idleSleep(3200);
+		await command(`effect clear ${agent.name} minecraft:hunger`);
+		await command(`damage ${agent.name} ${hurt} minecraft:generic`);
+	}
+	await clearMelee(agent);
+	await command(`item replace entity ${agent.name} weapon.mainhand with minecraft:stone_sword`);
+	await command(`item replace entity ${agent.name} weapon.offhand with minecraft:shield`);
+	// Facing inland, then the pool behind: a player at a ledge has seen the lava it stands beside.
+	await command(`tp ${agent.name} ${agent.ox + 0.5} 81 0.5 0 40`); await rate.idleSleep(800);
+	await command(`tp ${agent.name} ${agent.ox + 0.5} 81 0.5 180 10`); await rate.idleSleep(800);
+	const start = await pos(agent.name);
+	const seq0 = Math.max(0, ...(latest.get(agent.record.agentId)?.reflexes?.events ?? []).map(e => e.seq ?? 0));
+	const play = await playStart(agent);
+	for (const [i, tag] of tags.entries()) await command(`summon ${type} ${agent.ox + 0.5 + i * 1.5 - (tags.length - 1) * 0.75} 81 -3.3 ${tag}`);
+	const mobsAtStart = await meleeCount(agent);
+	const startHealth = await health(agent.name).catch(() => null);
+	const row = { case: name, agent: agent.name, mode: agent.mode, mobsAtStart, startHealth, ...(await watch(agent, start)) };
+	row.tick = await playEnd(play);
+	await clearMelee(agent);
+	// Not the room it means to be: a leftover mob, or a body hurt past the asked start.
+	row.valid = mobsAtStart === tags.length && (startHealth ?? 0) >= Number(process.env.MELEE_HEALTH ?? 20) - 1;
+	row.pass = row.alive && !row.entered;
+	row.events = (latest.get(agent.record.agentId)?.reflexes?.events ?? []).filter(e => (e.seq ?? 0) > seq0).slice(-8).map(e => `${e.id} ${e.outcome}: ${e.detail}`);
+	return row;
+}
+
 // edge-control-shield: the same shot with a shield in the offhand, which blocks the hit and its knockback.
 async function edgeControl(agent, shield = false) {
 	await buildBridge(agent.ox); await revive(agent);
@@ -251,6 +322,11 @@ try {
 	if (!only || only.has('shelter-fire')) for (let r = 0; r < repeats; r++) for (const agent of agents) { const row = await shelterFire(agent); console.log(JSON.stringify(row)); results.cases.push(row); await revive(agent); await command(`extinguish ${agent.name}`).catch(() => {}); }
 	if (!only || only.has('edge-control')) for (let r = 0; r < repeats; r++) for (const agent of agents) { const row = await edgeControl(agent); console.log(JSON.stringify(row)); results.cases.push(row); }
 	if (only?.has('edge-control-shield')) for (let r = 0; r < repeats; r++) for (const agent of agents) { const row = await edgeControl(agent, true); console.log(JSON.stringify(row)); results.cases.push(row); }
+	for (const name of Object.keys(MELEE)) if (only?.has(name)) for (let r = 0; r < repeats; r++) for (const agent of agents) {
+		const h = await health(agent.name).catch(() => null);
+		if (h === null || h <= 0) { results.cases.push({ case: name, agent: agent.name, mode: agent.mode, skipped: 'body dead from an earlier case' }); continue; }
+		const row = await lavaMelee(agent, name); console.log(JSON.stringify(row)); results.cases.push(row);
+	}
 	if (!only || only.has('lava')) for (const agent of agents) {
 		for (const run of [lavaKnock, lavaDrop]) for (let r = 0; r < repeats; r++) {
 			const h = await health(agent.name).catch(() => null);
@@ -258,8 +334,9 @@ try {
 			const row = await run(agent); console.log(JSON.stringify(row)); results.cases.push(row);
 		}
 	}
-	const tally = (mode, name) => { const rows = results.cases.filter(c => c.mode === mode && c.case === name && !c.skipped); return `${rows.filter(c => name.startsWith('edge-control') ? !(c.offBridge ?? c.knockedOff) : c.alive).length}/${rows.length}${name.startsWith('edge-control') ? ' stayed on' : ' alive'}${name.startsWith('lava') ? `, entered lava ${rows.filter(c => c.entered).length}/${rows.length}` : ''}`; };
-	results.summary = Object.fromEntries(['defaults', 'none'].map(mode => [mode, Object.fromEntries(['edge-control', 'edge-control-shield', 'lava-knock', 'lava-drop'].map(name => [name, tally(mode, name)]))]));
+	// A melee room that starts crowded or hurt past its ask (valid: false) is left out of the count and shown on its own.
+	const tally = (mode, name) => { const all = results.cases.filter(c => c.mode === mode && c.case === name && !c.skipped), rows = all.filter(c => c.valid !== false), invalid = all.length - rows.length; return `${rows.filter(c => name.startsWith('edge-control') ? !(c.offBridge ?? c.knockedOff) : c.alive).length}/${rows.length}${name.startsWith('edge-control') ? ' stayed on' : ' alive'}${name.startsWith('lava') ? `, entered lava ${rows.filter(c => c.entered).length}/${rows.length}` : ''}${invalid ? `, invalid ${invalid}` : ''}`; };
+	results.summary = Object.fromEntries(['defaults', 'none'].map(mode => [mode, Object.fromEntries(['edge-control', 'edge-control-shield', 'lava-knock', 'lava-drop', ...Object.keys(MELEE)].map(name => [name, tally(mode, name)]))]));
 	results.summary.jar = jarPath;
 	results.tickRate = rate.tickRate;
 	console.log(JSON.stringify(results.summary, null, 2));
