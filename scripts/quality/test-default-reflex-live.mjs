@@ -179,6 +179,19 @@ const MELEE = {
 	'lava-melee-cubes': ['minecraft:magma_cube', '{Size:1}', '{Size:1}'],
 	'lava-melee-hoglin': ['minecraft:hoglin', '{IsImmuneToZombification:1b}'],
 };
+const MELEE_KINDS = [...new Set(Object.values(MELEE).map(([type]) => type))];
+async function meleeCount(agent) {
+	let total = 0;
+	for (const kind of MELEE_KINDS) total += Number((await command(`execute if entity @e[type=${kind},x=${agent.ox},y=80,z=0,distance=..16]`).catch(() => '')).match(/count: (\d+)/i)?.[1] ?? 0);
+	return total;
+}
+// A killed large magma cube splits into smaller ones: kill until none is left, or the next case starts crowded.
+async function clearMelee(agent) {
+	for (let i = 0; i < 6 && await meleeCount(agent) > 0; i++) {
+		for (const kind of MELEE_KINDS) await command(`kill @e[type=${kind},x=${agent.ox},y=80,z=0,distance=..16]`).catch(() => {});
+		await rate.idleSleep(300);
+	}
+}
 async function lavaMelee(agent, name) {
 	const [type, ...tags] = MELEE[name];
 	// A shore, not a pad: stone inland on three sides so the only lethal edge is the lava the mob's hit throws the body toward.
@@ -202,7 +215,7 @@ async function lavaMelee(agent, name) {
 		await command(`effect clear ${agent.name} minecraft:hunger`);
 		await command(`damage ${agent.name} ${hurt} minecraft:generic`);
 	}
-	for (const kind of new Set(Object.values(MELEE).map(([t]) => t))) await command(`kill @e[type=${kind},x=${agent.ox},y=80,z=0,distance=..12]`).catch(() => {});
+	await clearMelee(agent);
 	await command(`item replace entity ${agent.name} weapon.mainhand with minecraft:stone_sword`);
 	await command(`item replace entity ${agent.name} weapon.offhand with minecraft:shield`);
 	// Facing inland, then the pool behind: a player at a ledge has seen the lava it stands beside.
@@ -212,12 +225,13 @@ async function lavaMelee(agent, name) {
 	const seq0 = Math.max(0, ...(latest.get(agent.record.agentId)?.reflexes?.events ?? []).map(e => e.seq ?? 0));
 	const play = await playStart(agent);
 	for (const [i, tag] of tags.entries()) await command(`summon ${type} ${agent.ox + 0.5 + i * 1.5 - (tags.length - 1) * 0.75} 81 -3.3 ${tag}`);
-	const count = async () => Number((await command(`execute if entity @e[type=${type},x=${agent.ox},y=80,z=0,distance=..14]`).catch(() => '')).match(/count: (\d+)/i)?.[1] ?? 0);
-	const mobsAtStart = await count();
+	const mobsAtStart = await meleeCount(agent);
 	const startHealth = await health(agent.name).catch(() => null);
 	const row = { case: name, agent: agent.name, mode: agent.mode, mobsAtStart, startHealth, ...(await watch(agent, start)) };
 	row.tick = await playEnd(play);
-	for (const kind of new Set(Object.values(MELEE).map(([t]) => t))) await command(`kill @e[type=${kind},x=${agent.ox},y=80,z=0,distance=..12]`).catch(() => {});
+	await clearMelee(agent);
+	// Not the room it means to be: a leftover mob, or a body hurt past the asked start.
+	row.valid = mobsAtStart === tags.length && (startHealth ?? 0) >= Number(process.env.MELEE_HEALTH ?? 20) - 1;
 	row.pass = row.alive && !row.entered;
 	row.events = (latest.get(agent.record.agentId)?.reflexes?.events ?? []).filter(e => (e.seq ?? 0) > seq0).slice(-8).map(e => `${e.id} ${e.outcome}: ${e.detail}`);
 	return row;
