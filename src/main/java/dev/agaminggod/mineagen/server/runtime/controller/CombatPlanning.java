@@ -498,9 +498,11 @@ public final class CombatPlanning {
 			return walkable(world, up) && open(world, at.above(2)) && world.canJumpUp(at, up) ? up : null;
 		}
 		if (!open(world, up)) return null;
+		// Seen air over ground not seen: the flee never steps off onto unseen ground (a bridge's side over a lava sea the
+		// body never looked down at), so it is no way on. Unseen ground at the feet's own level is (a tunnel out of view).
 		for (int drop = 1; drop <= LocalPathfinder.MAX_DROP_BLOCKS; drop++) {
 			GridPosition below = level.below(drop);
-			if (world.cellAt(below) == WalkabilityView.Cell.UNLOADED) return UNSEEN;
+			if (world.cellAt(below) == WalkabilityView.Cell.UNLOADED) return null;
 			if (walkable(world, below)) return world.lavaFlowsInto(below) ? null : below;
 			if (!open(world, below)) return null;
 		}

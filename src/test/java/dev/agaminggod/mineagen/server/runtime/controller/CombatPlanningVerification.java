@@ -140,6 +140,10 @@ public final class CombatPlanningVerification {
 		CombatPlanning.RunRoom unknown = CombatPlanning.runRoom(half, feet, zombie);
 		check(unknown.unseen() && !unknown.deadEnd(14.0D), "unseen ground behind is not called a dead end");
 		check(!end.deadEnd(1.5D) || end.gain() < 1.5D, "a flee that needs less than the room left is no dead end");
+		// The bridge with nothing below its deck ever seen: a drop into the unseen is no way on, so still a dead end.
+		WalkabilityView unseenSides = position -> position.y() < 63 || position.y() == 63 && bridge.cellAt(position) != WalkabilityView.Cell.SAFE_SUPPORT
+				? WalkabilityView.Cell.UNLOADED : bridge.cellAt(position);
+		check(CombatPlanning.runRoom(unseenSides, feet, zombie).deadEnd(14.0D), "a bridge whose sides drop into unseen ground is still a dead end");
 		// A long bridge back the other way is room enough.
 		WalkabilityView long_ = position -> {
 			boolean deck = position.x() >= -30 && position.x() <= 22 && Math.abs(position.z()) <= 1;
