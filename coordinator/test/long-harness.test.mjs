@@ -110,4 +110,9 @@ test('the long-run projection keeps kills next to advancements and drops bulky r
 	const advancement = { envelope: { type: 'advancement_granted', agentId: 'agent-a', payload: {} } };
 	assert.deepEqual(longProtocolRow(advancement), advancement);
 	assert.equal(longProtocolRow({ envelope: { type: 'action_progress', agentId: 'agent-a', payload: {} } }), null);
+	const rod = { displayName: 'Blaze Rod', fingerprint: 'f', maxStackSize: 64, itemId: 'minecraft:blaze_rod', count: 2, slot: 'mainhand', tags: ['#c:rods'] };
+	const observation = { observedAtMs: 5, envelope: { type: 'observation', agentId: 'agent-a', payload: { observedAtEpochMs: 4, dimension: 'minecraft:the_nether', blocks: [{}],
+		inventory: { items: [rod, { ...rod, itemId: 'minecraft:air', count: 0 }], selectedItem: 'minecraft:blaze_rod', tagCounts: { '#c:rods': 2 } } } } };
+	assert.deepEqual(longProtocolRow(observation), { observedAtMs: 5, envelope: { type: 'observation', agentId: 'agent-a', payload: { observedAtEpochMs: 4, dimension: 'minecraft:the_nether',
+		inventory: { items: [{ itemId: 'minecraft:blaze_rod', count: 2 }] } } } }, 'an observation the observer holds all game keeps only held item ids and counts');
 });

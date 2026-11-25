@@ -152,7 +152,8 @@ export function stopKind(reason) {
 	// A word that starts with "stall" (STALL, Stalled), not one that only contains it (VERIFIER_NOT_INSTALLED).
 	if (/(?:^|[^a-z])stall/i.test(own)) return 'stall';
 	if (own === 'WALL_CLOCK_BUDGET') return 'window';
-	if (GOAL_STOPS.has(own) || /dragon[ _](?:dead|killed)/i.test(own)) return 'goal';
+	// A checkpoint batch's stopWhen ends a game once the question it was played for is answered (lib/stop-when.mjs).
+	if (GOAL_STOPS.has(own) || /dragon[ _](?:dead|killed)/i.test(own) || own.startsWith('QUESTION_ANSWERED')) return 'goal';
 	return 'other';
 }
 

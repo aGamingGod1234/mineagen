@@ -125,6 +125,23 @@ test('checkpoint batch gives later games the new sign-in when it was refreshed a
 	} finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test('checkpoint batch ends a game once its stopWhen question is answered and scores it as played', posixOnly, () => {
+	const root = setup({ plan: { stopWhen: { advancement: 'nether/obtain_blaze_rod' } } });
+	writeFileSync(path.join(root, 'EARLY'), '');
+	try {
+		const started = Date.now();
+		run(root);
+		// Each fake game would play on for a minute after its blaze rod; four games on two machines end well before that.
+		assert.ok(Date.now() - started < 50_000, `the games were not stopped early (${Date.now() - started} ms)`);
+		const log = readFileSync(path.join(root, 'out/batch.log'), 'utf8');
+		assert.equal(log.match(/stopping \S+ on bx_[a-z]+ early, \d+ min in: QUESTION_ANSWERED: advancement minecraft:nether\/obtain_blaze_rod/g)?.length, 4);
+		const state = JSON.parse(readFileSync(path.join(root, 'out/state.json'), 'utf8'));
+		assert.deepEqual(state.games.map(g => g.state), ['done', 'done', 'done', 'done']);
+		assert.ok(state.games.every(g => g.score.known && g.score.targets.fortress === 2 && g.score.stopReason === 'QUESTION_ANSWERED: advancement minecraft:nether/obtain_blaze_rod'));
+		assert.equal(leftSignIns(root), '0');
+	} finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test('checkpoint batch gives created machines a boat deadline and deletes them at the end', posixOnly, () => {
 	const root = setup({ plan: { vms: [], create: 2, drain: undefined } });
 	try {
