@@ -208,6 +208,8 @@ try {
 			// Once a second: ask for an observation (not awaited: a dead body sends none) and keep the reflex events and
 			// health the last one carried.
 			const seenEvents = new Set();
+			// The observation keeps the last events of earlier fights too: only those after this fight's start count.
+			const seq0 = Math.max(0, ...(s.observation?.reflexes?.events ?? []).map(ev => Number(ev.seq) || 0));
 			row.reflex = []; row.minHealth = null;
 			const watch = () => {
 				const o = s.observation;
@@ -216,9 +218,9 @@ try {
 					if (Number.isFinite(health) && (row.minHealth === null || health < row.minHealth)) row.minHealth = health;
 					for (const ev of o.reflexes?.events ?? []) {
 						const key = `${ev.seq}:${ev.id}:${ev.outcome}`;
-						if (seenEvents.has(key)) continue;
+						if (seenEvents.has(key) || (Number(ev.seq) || 0) <= seq0) continue;
 						seenEvents.add(key);
-						if (row.reflex.length < 60) row.reflex.push({ t: Math.round((s.clock.now() - t0) / 100) / 10, id: ev.id, outcome: ev.outcome, ms: ev.ms, detail: String(ev.detail ?? '').slice(0, 240) });
+						if (row.reflex.length < 60) row.reflex.push({ t: Math.round((s.clock.now() - t0) / 100) / 10, seq: ev.seq, id: ev.id, outcome: ev.outcome, ms: ev.ms, detail: String(ev.detail ?? '').slice(0, 240) });
 					}
 				}
 				s.bridge.send('request_observation', s.record.agentId, { goalRevision: s.record.goalRevision }).catch(() => {});
