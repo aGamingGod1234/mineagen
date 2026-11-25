@@ -349,7 +349,7 @@ function foodSource(o) {
  * hand-back this life (woodStockHandback) released the trip's wood step; diedSincePortal: the body died after it last
  * stood in the Nether, or after the portal stage was first seen (a lit frame or a visit), so the kit comes back first.
  */
-export function routeLine({ observation: o = null, known = null, memory = null, foodHandedBack = false, woodHandedBack = false, kitHandedBack = new Set(), diedSincePortal = false, evaluate, instincts = false } = {}) {
+export function routeLine({ observation: o = null, known = null, memory = null, foodHandedBack = false, woodHandedBack = false, kitHandedBack = new Set(), kitPrepOver = false, diedSincePortal = false, evaluate, instincts = false } = {}) {
 	if (!live(o) || !Array.isArray(o.inventory?.items) || remembered(o, 'inventory') || known === null || typeof evaluate !== 'function') return null;
 	const items = o.inventory.items.filter(i => i?.count > 0);
 	const count = re => items.filter(i => re.test(i.itemId ?? '')).reduce((n, i) => n + i.count, 0);
@@ -411,19 +411,24 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 	// hunt that found no source the food, so the gate can not hold the route. inReach: only put on what is carried (in the
 	// Nether, where a trip back for iron is itself a trip through danger).
 	const kitBefore = (trip, { inReach = false } = {}) => {
+		// Prep time is capped (kitPrep): past it the bot goes in short of what is still missing, so the gate never stalls a game.
+		if (kitPrepOver) return null;
 		const tag = why => `${why}; kit before ${trip}`;
 		const shield = ROUTE.find(r => r.id === 'shield');
 		if (!ok(shield.rekit) && (count(/^minecraft:shield$/) > 0 || !inReach && !kitHandedBack.has('minecraft:shield'))) { const [next, why] = shield.next(kitFacts); return line(next, tag(why)); }
 		const armour = armourStep(kitFacts);
 		// Carried gold the Nether line already names, with the piglins' reason.
 		if (armour !== null && (!inReach || /^equip_item (?!golden_)/.test(armour[0]))) return line(armour[0], tag(armour[1]));
+		// Piglins leave a body in gold alone: one piece worn when gold is held, a carried piece first, else a helmet (5 gold).
+		const goldStep = !inReach && !items.some(i => WORN.has(i.slot) && GOLD_ARMOUR.test(i.itemId)) ? goldPiece(items) : null;
+		if (goldStep !== null && !kitHandedBack.has(`minecraft:${goldStep.id}`)) return line(goldStep.next, tag(goldStep.why));
 		const pick = pickaxeLeft(items);
 		if (!inReach && pick !== null && pick.left < TRIP_USES && !kitHandedBack.has(`minecraft:${pick.make}`)) {
 			return line(`obtain ${pick.make} count ${count(new RegExp(`^minecraft:${pick.make}$`)) + 1}`, tag(`pickaxe ${pick.left} uses left`));
 		}
 		if (inReach) return null;
-		if (food < MEAT && !(foodHandedBack === true && facts.nearbyMeat === null)) {
-			const [next, why] = stockFoodNext(kitFacts, { stock: MEAT, have: food, before: `going to ${trip}`, what: 'food' });
+		if (food < KIT_FOOD && !(foodHandedBack === true && facts.nearbyMeat === null)) {
+			const [next, why] = stockFoodNext(kitFacts, { stock: KIT_FOOD, have: food, before: `going to ${trip}`, what: 'food' });
 			return line(next, tag(why));
 		}
 		// Blocks to bridge a lava gap, wall off a mob or pillar out of a hole, without stopping to dig for them.
@@ -568,9 +573,40 @@ const BLOCK_STOCK = 128;
 const CLUTTER = /^minecraft:(sand|red_sand|sandstone|red_sandstone|calcite|smooth_basalt|dripstone_block|pointed_dripstone|moss_block|clay_ball|snowball|[a-z_]+_carpet|[a-z_]+_sapling|raw_copper|copper_ingot|lapis_lazuli|amethyst_shard|amethyst_block|poisonous_potato|wheat_seeds|beetroot_seeds|cinnabar|sulfur|bone_block|kelp|seagrass|[a-z_]+_flower|dandelion|poppy|short_grass|fern|dead_bush|stick)$/;
 const PLAIN_BLOCK = /^minecraft:(cobblestone|cobbled_deepslate|stone|deepslate|dirt|coarse_dirt|gravel|andesite|diorite|granite|tuff|netherrack|blackstone|basalt|end_stone)$/;
 const SPARE_TOOLS = 2;
+const GOLD_SLOTS = [['helmet', 'head'], ['chestplate', 'chest'], ['leggings', 'legs'], ['boots', 'feet']];
+function goldPiece(items) {
+	const free = slot => !items.some(i => i.slot === slot);
+	for (const [part, slot] of GOLD_SLOTS) {
+		if (free(slot) && items.some(i => i.itemId === `minecraft:golden_${part}` && !WORN.has(i.slot))) return { id: `golden_${part}`, next: `equip_item golden_${part} to ${slot}`, why: `golden_${part} carried, piglins spare gold` };
+	}
+	const gold = items.filter(i => i.itemId === 'minecraft:gold_ingot').reduce((n, i) => n + i.count, 0);
+	if (gold >= 5 && free('head')) return { id: 'golden_helmet', next: 'obtain golden_helmet, then equip_item it to head', why: `gold ${gold} held, piglins spare gold` };
+	return null;
+}
 // A trip into danger digs its way out (a nether path, a fortress wall, a stronghold stair): this many uses at least.
 const TRIP_USES = 32;
-const TRIP_BLOCKS = 16;
+const TRIP_BLOCKS = 32;
+const KIT_FOOD = 3;
+// Most real time the kit gate asks for before one departure; then it lets the bot go in with what it has.
+export const KIT_PREP_MS = 15 * 60_000;
+/**
+ * The prep clock for the kit gate. gate: the last state ({key, since, over} or null); line: the route line just shown;
+ * key: the departure's life and place (world, deaths, dimension); at: the sample's time. A new key restarts the clock,
+ * so every re-entry gets its own prep time; once over, it stays over for that key. Returns the new gate.
+ */
+export function kitPrep(gate, line, { key, at }) {
+	if (gate && gate.key !== key) gate = null;
+	if (gate?.over || !/; kit before [^)]+\)$/.test(String(line ?? '')) || !Number.isFinite(at)) return gate;
+	const since = gate?.since ?? at;
+	return { key, since, over: at - since >= KIT_PREP_MS };
+}
+/** The route line with the prep clock applied: route(over) draws the line; returns {line, gate}. */
+export function cappedRoute(route, gate, { key, at }) {
+	const before = gate && gate.key === key && gate.over === true;
+	const first = route(before);
+	const next = kitPrep(gate, first, { key, at });
+	return { line: next?.over && !before ? route(true) : first, gate: next };
+}
 const PICK_TIER = ['wooden', 'stone', 'copper', 'iron', 'diamond', 'netherite'];
 /** The best pickaxe's uses left, and the pickaxe to make when it is short: iron when 3 iron is held, else stone. */
 function pickaxeLeft(items) {

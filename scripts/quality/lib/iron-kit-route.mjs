@@ -14,8 +14,9 @@ export function entryKit(o) {
 	const items = (o?.inventory?.items ?? []).filter(i => i?.count > 0);
 	const food = items.filter(i => /^minecraft:(cooked_[a-z]+|bread|beef|porkchop|mutton|chicken|rabbit|cod|salmon|apple|baked_potato|carrot|potato|sweet_berries|golden_carrot)$/.test(i.itemId ?? '')).reduce((n, i) => n + i.count, 0);
 	const short = [items.some(i => i.slot === 'offhand' && i.itemId === 'minecraft:shield') ? null : 'shield', items.some(i => i.slot === 'chest') ? null : 'chest',
-		items.some(i => i.slot === 'feet') ? null : 'feet', food >= 4 ? null : 'food'].filter(Boolean);
-	return { kitted: short.length === 0, short, food };
+		items.some(i => i.slot === 'feet') ? null : 'feet', food >= 3 ? null : 'food'].filter(Boolean);
+	const blocks = items.filter(i => /^minecraft:(cobblestone|cobbled_deepslate|stone|deepslate|dirt|coarse_dirt|gravel|andesite|diorite|granite|tuff|netherrack|blackstone|basalt|end_stone)$/.test(i.itemId ?? '')).reduce((n, i) => n + i.count, 0);
+	return { kitted: short.length === 0, short, food, blocks };
 }
 
 /** Time in minutes when a full kit is seen within the lane's budget. */

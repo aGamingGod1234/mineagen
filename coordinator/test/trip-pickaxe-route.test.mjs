@@ -23,11 +23,38 @@ test('a worn pickaxe is replaced before the trip, and a sound one goes as it is'
 	assert.match(route([['iron_pickaxe', 1, null, { usesLeft: 10 }]], new Set(['minecraft:stone_pickaxe'])), RETURN);
 });
 
-test('a trip takes 16 plain blocks, after the food, and any plain kind counts', () => {
+test('a trip takes 32 plain blocks, after the food, and any plain kind counts', () => {
 	const bare = rows => routeLine({ observation: { ready: true, observedAtEpochMs: 10, position: { x: 0, y: 64, z: 0 }, player: { health: 20 }, world: { dimension: 'minecraft:overworld' },
 		inventory: { items: rows.map(([id, count, slot]) => ({ itemId: `minecraft:${id}`, count, ...(slot ? { slot } : {}) })) } }, known: known(), memory, evaluate: evaluatePlanCheck });
 	const kit = [['shield', 1, 'offhand'], ['iron_chestplate', 1, 'chest'], ['iron_boots', 1, 'feet'], ['iron_pickaxe', 1]];
-	assert.match(bare([...kit, ['bread', 8], ['cobblestone', 5]]), /^usual next step: obtain cobblestone count 16 \(plain blocks 5\/16; kit before the Nether\)$/);
-	assert.match(bare([...kit, ['cobblestone', 5]]), /food 0\/4; kit before the Nether/);
-	assert.match(bare([...kit, ['bread', 8], ['dirt', 10], ['andesite', 6]]), RETURN);
+	assert.match(bare([...kit, ['bread', 8], ['cobblestone', 5]]), /^usual next step: obtain cobblestone count 32 \(plain blocks 5\/32; kit before the Nether\)$/);
+	assert.match(bare([...kit, ['cobblestone', 5]]), /food 0\/3; kit before the Nether/);
+	assert.match(bare([...kit, ['bread', 8], ['dirt', 20], ['andesite', 12]]), RETURN);
+});
+
+test('the prep cap lets the bot go in short after 15 minutes, once per life and dimension', async () => {
+	const { cappedRoute, kitPrep, KIT_PREP_MS } = await import('../src/skill-fits.mjs');
+	const rows = [['iron_pickaxe', 1], ['cobblestone', 32], ['bread', 8]];
+	const draw = over => routeLine({ observation: { ready: true, observedAtEpochMs: 10, position: { x: 0, y: 64, z: 0 }, player: { health: 20 }, world: { dimension: 'minecraft:overworld' },
+		inventory: { items: rows.map(([id, count]) => ({ itemId: `minecraft:${id}`, count })) } }, known: known(), memory, kitPrepOver: over, evaluate: evaluatePlanCheck });
+	const key = 'w|0|minecraft:overworld';
+	let step = cappedRoute(draw, null, { key, at: 0 });
+	assert.match(step.line, /kit before the Nether\)$/);
+	step = cappedRoute(draw, step.gate, { key, at: KIT_PREP_MS - 1 });
+	assert.match(step.line, /kit before the Nether\)$/);
+	step = cappedRoute(draw, step.gate, { key, at: KIT_PREP_MS });
+	assert.match(step.line, RETURN);
+	// Over stays over for that key, even after a line with no kit step; a death or a new dimension restarts the clock.
+	assert.match(cappedRoute(draw, step.gate, { key, at: KIT_PREP_MS + 5 }).line, RETURN);
+	assert.equal(kitPrep(step.gate, 'usual next step: return via known Overworld portal', { key, at: KIT_PREP_MS + 9 }).over, true);
+	assert.match(cappedRoute(draw, step.gate, { key: 'w|1|minecraft:overworld', at: KIT_PREP_MS + 10 }).line, /kit before the Nether\)$/);
+});
+
+test('with gold held, one gold piece goes on before the Nether: a carried one first, else a helmet from 5 gold', () => {
+	const go = extra => route([['iron_pickaxe', 1], ...extra]);
+	assert.match(go([['golden_helmet', 1]]), /^usual next step: equip_item golden_helmet to head \(golden_helmet carried, piglins spare gold; kit before the Nether\)$/);
+	assert.match(go([['gold_ingot', 5]]), /^usual next step: obtain golden_helmet, then equip_item it to head \(gold 5 held/);
+	assert.match(go([['gold_ingot', 4]]), RETURN);
+	assert.match(go([['golden_helmet', 1, 'head']]), RETURN);
+	assert.match(route([['iron_pickaxe', 1], ['gold_ingot', 5]], new Set(['minecraft:golden_helmet'])), RETURN);
 });

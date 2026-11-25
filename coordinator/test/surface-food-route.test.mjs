@@ -46,7 +46,7 @@ test('lit portal entry and post-Nether rebuild never acquire a new food quota', 
 	// The kit goes in first (kitBefore), but never the 8 cooked-meat quota: 4 pieces of any food are the kit's food.
 	assert.match(line(observation(), known), /^usual next step: obtain shield, then equip_item it to offhand .*kit before the Nether\)$/);
 	const kitted = [...tools, { itemId: 'minecraft:shield', count: 1, slot: 'offhand' }, { itemId: 'minecraft:iron_chestplate', count: 1, slot: 'chest' }, { itemId: 'minecraft:iron_boots', count: 1, slot: 'feet' }, item('cobblestone', 32)];
-	assert.match(line(observation(kitted), known), /^usual next step: look for nearby cows.*before going to the Nether \(food 0\/4; kit before the Nether\)$/);
+	assert.match(line(observation(kitted), known), /^usual next step: look for nearby cows.*before going to the Nether \(food 0\/3; kit before the Nether\)$/);
 	assert.equal(line(observation([...kitted, item('bread', 4)]), known), `usual next step: ${PORTAL_ENTRY_NEXT} (no bed, 3 matching wool or sheep in reach: no portal bed; shield, armour and food held; eat first if health or hunger is low)`);
 	for (const advanced of [false, true]) {
 	 const k = emptyKnown(), o = observation();

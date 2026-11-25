@@ -20,7 +20,9 @@
 // kit and the portal, such as armour, is done); a lane then passes on reaching it with no death.
 // start: 'lit' gives the kit's leftovers as 'kit' does but no shield, armour or food, and the route remembers a lit portal
 // by the lane's start (as if the model had lit it early). until: 'nether' plays until the line says to go in; a lane then
-// passes when it sets off kitted (shield in the off hand, chestplate and boots worn, 4+ food) with no death.
+// passes when it sets off kitted (shield in the off hand, chestplate and boots worn, 3+ food) with no death. start:
+// 'dead' is the respawn after a death past the portal: nothing held, the lit portal remembered, the re-kit rows on.
+// The kit gate's prep cap (cappedRoute) runs as in the live view; prepCapAt is the minute it let the lane go in short.
 // Exit code (strict, the default): 0 every lane held the kit with no death, 1 one did not, 2 invalid evidence.
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
@@ -81,7 +83,7 @@ async function coordinatorRoot(arg) {
 }
 const arm = await coordinatorRoot(coordinatorArg);
 const load = (file) => import(pathToFileURL(path.join(arm, 'src', file)).href);
-const [{ NativeToolRuntime }, { normalizeMinecraftToolCall }, { adaptObservation }, { InspectionClient }, { DEFAULT_REFLEXES }, { routeLine, foodStockHandback, woodStockHandback = () => false }, { emptyKnown, evaluatePlanCheck, rememberPlanFacts }, { HeadlessRconClient }, { parseSavedWorldSpawn }] = await Promise.all([
+const [{ NativeToolRuntime }, { normalizeMinecraftToolCall }, { adaptObservation }, { InspectionClient }, { DEFAULT_REFLEXES }, { routeLine, foodStockHandback, woodStockHandback = () => false, cappedRoute = route => ({ line: route(false), gate: null }) }, { emptyKnown, evaluatePlanCheck, rememberPlanFacts }, { HeadlessRconClient }, { parseSavedWorldSpawn }] = await Promise.all([
 	load('native-tool-runtime.mjs'), load('native-minecraft-tools.mjs'), load('observation-adapter.mjs'), load('inspection-client.mjs'), load('reflexes.mjs'),
 	load('skill-fits.mjs'), load('plan-checks.mjs'), load('headless-rcon.mjs'), load('headless-world-spawn.mjs')]);
 const armId = coordinatorArg ? path.basename(coordinatorArg) : 'checkout';
@@ -95,7 +97,7 @@ const isNightTime = dayTime => Number.isFinite(dayTime) ? ((dayTime % 24_000) + 
 const lanes = Math.min(plan.lanes ?? 2, 4);
 const budgetMs = (plan.budgetMinutes ?? 45) * 60_000;
 const until = plan.until ?? 'kit';
-if (!['kit', 'portal', 'nether'].includes(until) || ![undefined, 'kit', 'lit'].includes(plan.start)) { console.error("until is 'kit', 'portal' or 'nether'; start is 'kit', 'lit' or absent"); process.exit(2); }
+if (!['kit', 'portal', 'nether'].includes(until) || ![undefined, 'kit', 'lit', 'dead'].includes(plan.start)) { console.error("until is 'kit', 'portal' or 'nether'; start is 'kit', 'lit', 'dead' or absent"); process.exit(2); }
 // Leftovers from the lanes that made the kit from nothing in the iron-kit room (median-ish of 20 such lanes).
 const START_KIT = [['iron_pickaxe', 1], ['stone_pickaxe', 2], ['bucket', 2], ['flint_and_steel', 1], ['cobblestone', 64], ['oak_planks', 8], ['oak_log', 4],
 	['crafting_table', 1], ['furnace', 1], ['cooked_beef', 6], ['raw_iron', 1]];
@@ -285,10 +287,11 @@ async function playLane(s, agent, seed, seedIndex, dir) {
 	const minutes = () => Math.round((Date.now() - t0) / 600) / 100;
 	const remaining = () => budgetMs - (Date.now() - t0);
 	const known = emptyKnown();
-	if (plan.start === 'lit' && start) known.frames.push({ dimension: 'minecraft:overworld', x: Math.floor(start[0]) + 3, y: Math.floor(start[1]), z: Math.floor(start[2]), axis: 'x', obsidian: 10, needed: 10, lit: true });
+	if (['lit', 'dead'].includes(plan.start) && start) known.frames.push({ dimension: 'minecraft:overworld', x: Math.floor(start[0]) + 3, y: Math.floor(start[1]), z: Math.floor(start[2]), axis: 'x', obsidian: 10, needed: 10, lit: true });
 	let foodHandedBack = false, woodHandedBack = false;
 	// A failed kit obtain this life releases that piece on the route line, as the live view does (noteKitHandback).
 	const kitHandedBack = new Set();
+	let kitPrep = null;
 	// Climb and descent tracking on the harness's own clock: a death between going under and coming up is no climb.
 	let under = null, lastDeaths = 0, sampling = true, stepText = '';
 	const sampler = (async () => {
@@ -375,7 +378,12 @@ async function playLane(s, agent, seed, seedIndex, dir) {
 		rememberPlanFacts?.(known, o);
 		result.kitMinutes ??= kitMinutes(o, Date.now() - t0, budgetMs);
 		if ((until === 'kit' && result.kitMinutes !== null) || remaining() <= 0) break;
-		const line = routeLine({ observation: o, known, foodHandedBack, woodHandedBack, kitHandedBack, evaluate: evaluatePlanCheck });
+		// The live view's prep clock (cappedRoute): one key a life and dimension, on the sample's time.
+		const capped = cappedRoute(kitPrepOver => routeLine({ observation: o, known, foodHandedBack, woodHandedBack, kitHandedBack, kitPrepOver, diedSincePortal: plan.start === 'dead', evaluate: evaluatePlanCheck }),
+			kitPrep, { key: `${lastDeaths}|${o.world?.dimension ?? ''}`, at: o.observedAtEpochMs ?? Date.now() });
+		if (capped.gate?.over && !kitPrep?.over) result.prepCapAt ??= minutes();
+		kitPrep = capped.gate;
+		const line = capped.line;
 		if (until === 'portal' && portalReady(o, line)) { result.portalMinutes = minutes(); result.portalLine = line; break; }
 		if (until === 'nether' && /^usual next step: enter the Nether through the lit portal/.test(line ?? '')) {
 			result.netherMinutes = minutes(); result.netherLine = line; result.kitAtEntry = entryKit(o); break;

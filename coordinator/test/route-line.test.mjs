@@ -143,9 +143,9 @@ test('a lit portal suggests entering with optional preparation; the Nether and t
 	known.frames.push({ dimension: 'minecraft:overworld', x: 0, y: 60, z: 0, obsidian: 10, lit: true });
 	const kit = [['iron_pickaxe', 1], ['water_bucket', 1], ['bucket', 1], SHIELD, ['flint_and_steel', 1], ...ARMOUR];
 	// Three matching wool held: the portal bed comes first (C33), crafted from them, with no search.
-	assert.equal(route([...kit, ['cooked_beef', 8], ['cobblestone', 30], ['white_wool', 3]], { health: 15 }, known),
+	assert.equal(route([...kit, ['cooked_beef', 8], ['cobblestone', 32], ['white_wool', 3]], { health: 15 }, known),
 		'usual next step: obtain white_bed, then place_block it by the portal at 0,60,0, interact_block it until "Respawn point set" (by day too), keep it (3 white_wool held)');
-	assert.equal(route([...kit, ['cooked_beef', 8], ['cobblestone', 30], ['white_wool', 2]], { health: 15 }, known), ENTRY_NO_BED);
+	assert.equal(route([...kit, ['cooked_beef', 8], ['cobblestone', 32], ['white_wool', 2]], { health: 15 }, known), ENTRY_NO_BED);
 	assert.equal(route([...kit, ['cooked_beef', 10], ['cobblestone', 64]], {}, known), ENTRY_NO_BED);
 	assert.equal(route([...kit, ['cooked_beef', 22], ['cobblestone', 64]], {}, known), ENTRY_NO_BED);
 	const nether = { dimension: 'minecraft:the_nether' };
@@ -288,7 +288,7 @@ test('retained scoped portal bypasses the tool and food quotas, not the kit take
 	// Without the kit, the missing piece comes first, one at a time.
 	assert.match(recoveryRoute(sample([])), /^usual next step: obtain shield, then equip_item it to offhand .*kit before the Nether\)$/);
 	assert.match(recoveryRoute(sample([SHIELD])), /^usual next step: obtain iron_chestplate, then equip_item it to chest .*kit before the Nether\)$/);
-	assert.match(recoveryRoute(sample([SHIELD, ...ARMOUR])), /^usual next step: look for nearby cows.*\(food 0\/4; kit before the Nether\)$/);
+	assert.match(recoveryRoute(sample([SHIELD, ...ARMOUR])), /^usual next step: look for nearby cows.*\(food 0\/3; kit before the Nether\)$/);
 	for (const options of [{ health: 8, foodLevel: 20 }, { health: 20, foodLevel: 10 }]) {
 		const line = recoveryRoute(sample([['apple', 4], SHIELD, ...ARMOUR], options));
 		assert.match(line, /low health\/hunger, food 4 held: recover first/);
