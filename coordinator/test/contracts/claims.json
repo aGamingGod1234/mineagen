@@ -40340,18 +40340,24 @@
       "status": "checked"
     },
     {
-      "predicate": "Model-requested shielded or fire-resistant blaze pursuit waits on its deck for reach, leaves fire without ending, and reports witnessed drops for remembered-UUID pickup.",
+      "predicate": "Model-requested shielded or fire-resistant blaze pursuit walks to a seen hit spot on its deck or one block up or down (no two-block drop, climb or gap jump; a planned step down is walked upright), waits on its deck for reach when no such spot is seen, keeps the spawner hold defend on its deck, leaves fire without ending, and reports witnessed drops for remembered-UUID pickup.",
       "checks": [
         {
           "type": "live-behavior",
           "command": "slot.sh live node scripts/quality/test-blaze-spawner-live.mjs OUT",
           "predicate": "Three 240-second runs each with gap0, gap5 and requested cover; report inventory rods, deaths and observed positions."
+        },
+        {
+          "file": "src/test/java/dev/agaminggod/mineagen/server/runtime/controller/BlazeApproachVerification.java",
+          "test": "verifyStepDownToHitSpot + verifyStepUpToHitSpot + verifyStillHolds + verifyStepDecisions",
+          "type": "java-behavior",
+          "entryPoint": "verifyCore"
         }
       ],
-      "id": "control:2b6d7c847f390515:5cba8f0bd87491a8",
+      "id": "control:2b6d7c847f390515:543959e11c433504",
       "contract": {
-        "id": "control:2b6d7c847f390515:5cba8f0bd87491a8",
-        "claim": "Against blazes, shield:true holds toward the target at any range between swings. Pursuit keeps the current deck and steps out of a fire cell while continuing the fight. Shielded or fire-resistant fights wait for the blaze to enter reach; unshielded blocked approaches return control. A shield stance covers idle model time; place_block can provide two-block-high cover to break line of sight. Kill receipts report witnessed drop UUIDs and last-seen positions; pick_up_item accepts these remembered UUIDs and uses their last-seen position until visible again.",
+        "id": "control:2b6d7c847f390515:543959e11c433504",
+        "claim": "Against blazes, shield:true holds toward the target at any range between swings. A blaze that sees you sinks to your level but never comes nearer, so pursuit walks behind the raised shield to a seen spot in sword reach on the current deck or one block up or down (never a drop of two or more, a gap jump or a climb toward its height), and steps out of a fire cell while continuing the fight. With no such spot, shielded or fire-resistant fights hold the deck and wait for the blaze to enter reach; unshielded blocked approaches return control. A shield stance covers idle model time; place_block can provide two-block-high cover to break line of sight. Kill receipts report witnessed drop UUIDs and last-seen positions; pick_up_item accepts these remembered UUIDs and uses their last-seen position until visible again.",
         "kind": "control-reference",
         "topic": "fight_target"
       },
@@ -40360,7 +40366,7 @@
         "line": 693
       },
       "status": "partial",
-      "reason": "Runtime paths implement protected waiting and witnessed drop memory; live spawner trials have exposed an idle-stance deck fall, so end-to-end footing and rod bar remain unproven."
+      "reason": "Runtime paths implement protected waiting, the one-block approach and witnessed drop memory; live spawner trials have exposed an idle-stance deck fall, and the one-block approach is proven only by decision tests, so end-to-end footing and rod bar remain unproven."
     },
     {
       "predicate": "Actual action validation and interpreter dispatch accept the advertised fight_target shape, preserve its exact fields, and reject extra/unsupported unsafe values.; Real combat policies rank sword>axe/spear>other, swing only at90%+ charge/in-range/aim/weapon-ready, pace swings with the pure footwork (space outside the target melee reach while recharging, sprint step-in, falling-crit jump on living targets only, irregular circling onto safe footing only, circling off a lethal drop behind with no step back, side-step off unshielded shots, low-health spacing; none under pursue:false), obey explicit fleeAtHealth, opt-in follow-through and unknown-vs-unreachable seen-route verdicts.; Real cancel stores handoff; next real terminal tick inherits weapon/backoff at age0/40, rejects expired/future handoff, consumes stance once and cannot equip a vanished weapon.; Actual applyTargetPolicy preserves the initial target for nine ticks, scans on tick10 and every10ticks thereafter for opted-in policies; named policy never scans for replacement.; Production policy hysteresis/minimum dwell, nearest margin, no creepers/nonattackers, explicit player opt-in, risk ordering/uncapped score and healing safety are exercised.; Actual terminal fight outcomes, current target progress/remaining threats and handoff preserve chosen identity and timing. No-seen-route stalls retain a live fight holding position until the model timeout, whose receipt carries no-seen-route facts. Terminal fight receipts report a bounded bailout retreat outcome or why no attempt was possible; the terminal body is idle afterward. Model-selected sneak/shield options are optional booleans; crouch stays held during fighting and an equipped offhand shield is used between swings once the target is in reach (a pursuing approach does not hold it up). Defaults remain released.; collect false or unset: after the fight the seen drops are walked to only when KillDropCollector.hostileNear finds no hostile within 16 blocks with a line to the body (or that hurt it in the last 3 s), then the body walks back to where it stood; otherwise the result names the hostile and the drops left; The authored combat action attempts existing flee steering for at most five seconds and its remaining timeout, then reports LOW_HEALTH_BAILOUT with the actual retreat outcome and movement facts. Hold-ground choices preserve no movement; blocked retreat starts no new fight or build. A reported attempt does not establish safe escape. Added (issue 2, 1b): a collected drop that does not fit makes room by Q-dropping up to 2 junk stacks (KillDropCollector.junkSlot: dig junk list, 16 junk blocks kept, never to take junk), noted as 'made room'.",
