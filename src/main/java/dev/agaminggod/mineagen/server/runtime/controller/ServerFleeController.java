@@ -156,7 +156,7 @@ public final class ServerFleeController implements ServerController {
 		TickResult pinned = pinned(player, others, nowEpochMs);
 		if (pinned != null) return cornered(player, pinned);
 		TickResult deadEnd = deadEnd(player, others, nowEpochMs);
-		if (deadEnd != null) return cornered(player, deadEnd);
+		if (deadEnd != null) return cornered(player, deadEnd, true);
 		int blocker = CombatPlanning.escapeBlocker(otherThreats, distance);
 		boolean targetPresent = target.isAlive() && !target.isRemoved() && target.level() == player.level();
 		if (!targetPresent) {
@@ -311,9 +311,15 @@ public final class ServerFleeController implements ServerController {
 	 * idling beside its chasers (see {@link CorneredStand}).
 	 */
 	private TickResult cornered(ServerPlayer player, TickResult blocked) {
+		return cornered(player, blocked, false);
+	}
+
+	/** {@code hold}: a dead end met before contact, so the stand lets a coming melee mob walk into reach (see CorneredStand). */
+	private TickResult cornered(ServerPlayer player, TickResult blocked, boolean hold) {
 		if (retreatOnly) return blocked;
 		blockedText = blocked.message().replaceFirst("^body idle; no further retreat performed; ", "");
 		stand = new CorneredStand(target, roofing, player, dev.agaminggod.mineagen.server.runtime.GameClock.nowMs());
+		if (hold) stand.holdGround();
 		return standTick(player, dev.agaminggod.mineagen.server.runtime.GameClock.nowMs());
 	}
 

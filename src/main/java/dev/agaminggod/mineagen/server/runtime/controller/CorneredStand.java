@@ -79,6 +79,18 @@ public final class CorneredStand {
 		this.lastHealth = startHealth;
 	}
 
+	/**
+	 * A stand taken at a dead end before contact holds its spot: a melee mob coming for the body is let walk into reach
+	 * behind the shield instead of chased. Chasing walked the body out of a tunnel's end into a file of three zombies and
+	 * cost 22.5 health a run against 13.8 for a stand at the end (cornered corridor room, 10 runs a side).
+	 */
+	CorneredStand holdGround() {
+		hold = true;
+		return this;
+	}
+
+	private boolean hold;
+
 	public static boolean standing(ServerPlayer player) {
 		return player != null && STANDING.contains(player.getUUID());
 	}
@@ -148,6 +160,12 @@ public final class CorneredStand {
 			if (mob instanceof Creeper || unreachable.containsKey(mob.getUUID())) continue;
 			target = mob;
 			break;
+		}
+		if (target != null && hold && player.distanceTo(target) > MELEE && target instanceof net.minecraft.world.entity.Mob mob
+				&& mob.getTarget() == player && !ThreatPerception.isRanged(mob)) {
+			guard(player, target);
+			guarding = true;
+			return ServerController.TickResult.running(0.5D);
 		}
 		if (target != null) {
 			input.release();
