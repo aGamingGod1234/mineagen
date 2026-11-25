@@ -270,6 +270,9 @@ try {
 		await command(`effect give ${agent} minecraft:instant_health 1 10 true`);
 		await command(`tp ${agent} 20.5 74 20.5 90 0`); await rate.idleSleep(3000);
 		const before = health(await observe());
+		const deaths = async () => Number((/has (-?\d+)/.exec(await command(`scoreboard players get ${agent} sbDeaths`)) ?? [0, 0])[1]);
+		await command('scoreboard objectives add sbDeaths deathCount').catch(() => {});
+		const deathsBefore = await deaths();
 		const played = await rate.play();
 		// One block a step, as a swim moves the eyes (a longer jump reads as a teleport and drops the way back).
 		for (let y = 73; y >= 66; y -= 1) { await command(`tp ${agent} 20.5 ${y} 20.5 -90 0`); await sleep(120); }
@@ -277,16 +280,22 @@ try {
 		const deadline = now() + 40000;
 		let lowestAir = 300, lowest = before, died = false, surfaced = false;
 		while (now() < deadline) {
-			o = await observe();
+			// A dead body sends no ready observation: the vanilla death counter says whether it died.
+			const seen = await observe().catch(() => null);
+			if (seen === null) { died = await deaths() > deathsBefore; if (died) break; continue; }
+			o = seen;
 			lowestAir = Math.min(lowestAir, o.player?.air ?? 300);
 			const h = health(o); if (Number.isFinite(h)) lowest = Math.min(lowest, h);
 			if (o.player?.dead === true || h <= 0) { died = true; break; }
-			if ((o.position?.y ?? 0) >= 73 && (o.player?.air ?? 0) >= 290) { surfaced = true; break; }
+			// Out: the eyes back in the shaft's air (air refilling there), the tunnel left behind.
+			if ((o.position?.x ?? 99) < 22 && (o.player?.air ?? 0) >= 250 && lowestAir < 90) { surfaced = true; break; }
 			await rate.clock.sleep(250);
 		}
-		o = await observe();
+		if (!died) died = await deaths() > deathsBefore;
+		if (died) lowest = 0;
+		else o = await observe();
 		const tick = await played();
-		results.swimBack = { events: events(o, 'default-air'), lowestAir, y: o.position?.y, x: o.position?.x, air: o.player?.air, healthBefore: before, lowest, died, surfaced, tick };
+		results.swimBack = { events: events(o, 'default-air'), lowestAir, y: o.position?.y, x: o.position?.x, air: o.player?.air, healthBefore: before, lowest, healthLost: Math.max(0, before - lowest), died, surfaced, tick };
 		results.swimBack.pass = !died && surfaced;
 		if (died) { await command(`mineagen respawn ${agent}`).catch(() => {}); await rate.idleSleep(3000); }
 		await setReflexes([]);
