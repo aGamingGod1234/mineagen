@@ -580,8 +580,10 @@ async function stopIfAnswered(vm, game) {
 	try { answer = (await remote(vm.id, `node ~/ck/stop-when.mjs ~/ck/games/${game.id} ${spec}`, { timeoutMs: 120_000, ...live })).trim().split('\n').pop(); }
 	catch (error) { await log(`stopWhen check of ${game.id} on ${vm.id} failed: ${error.message.split('\n')[0].slice(0, 200)}; it plays on`); return; }
 	if (!answer.startsWith('STOP ')) return;
+	// Marked only once the signal went out: a failed call is tried again next pass, and the check answers STOP again.
+	try { await remote(vm.id, `pkill -TERM -f "scripts/quality/run-long.mjs .*/ck/games/${game.id}/report" || true`, { timeoutMs: 60_000, ...live }); }
+	catch (error) { await log(`could not stop ${game.id} on ${vm.id} early: ${error.message.split('\n')[0].slice(0, 200)}; trying again next pass`); return; }
 	game.stoppedEarly = answer.slice(5);
-	await remote(vm.id, `pkill -TERM -f "scripts/quality/run-long.mjs .*/ck/games/${game.id}/report" || true`, { timeoutMs: 60_000, ...live });
 	await log(`stopping ${game.id} on ${vm.id} early, ${Math.round((Date.now() - Date.parse(game.startedAt)) / 60_000)} min in: ${game.stoppedEarly}`);
 }
 // Copies home run in parallel (each is one scp of about 100 MB): a wave that ends together comes back in minutes, not

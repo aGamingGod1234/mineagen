@@ -40,6 +40,18 @@ test('only play after the goal start answers the question: setup advancements an
 	const nether = feed(freshState(), [start(10), advancement('minecraft:story/enter_the_nether', 30)], spec);
 	assert.equal(verdict(nether, spec, 31), 'QUESTION_ANSWERED: advancement minecraft:story/enter_the_nether');
 	assert.equal(stopKind('ENDED_EARLY:QUESTION_ANSWERED: advancement minecraft:story/enter_the_nether'), 'goal');
+	const pearls = parseStopWhen({ items: { 'minecraft:ender_pearl': 12 } });
+	const inherited = feed(freshState(), [start(10), seen(11, [['minecraft:ender_pearl', 12]]), seen(12, [['minecraft:ender_pearl', 12]])], pearls);
+	assert.equal(verdict(inherited, pearls, 13), null, 'the 12 pearls the save point started with do not answer');
+	feed(inherited, [seen(14, [['minecraft:ender_pearl', 13]])], pearls);
+	assert.equal(verdict(inherited, pearls, 15), 'QUESTION_ANSWERED: items 12 minecraft:ender_pearl', 'one more than it started with does');
+});
+
+test('in a fresh world the first item is progress: the empty start is the baseline', () => {
+	const spec = parseStopWhen({ stallMinutes: 30 }), min = 60_000;
+	const state = feed(freshState(), [start(0), seen(1, []), seen(29 * min, [['minecraft:cobblestone', 1]])], spec);
+	assert.equal(verdict(state, spec, 31 * min), null);
+	assert.match(verdict(state, spec, 59 * min), /^STALL/);
 });
 
 test('a stall is that long with no new advancement, item kind or dimension, and scores as a stall', () => {

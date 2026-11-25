@@ -1,7 +1,8 @@
 // A plan's early stop (checkpoint-batch.mjs "stopWhen"): ends a game once its question is answered or the bot is stuck,
 // so the machine takes the next queued game instead of playing out the window.
 //   { "advancement": "nether/obtain_blaze_rod" }        any of these advancements (a string or a list), namespace optional
-//   { "items": { "minecraft:ender_pearl": 12 } }         every listed item held at once in at least that count
+//   { "items": { "minecraft:ender_pearl": 12 } }         every listed item held at once in at least that count, and
+//                                                        more than the game started with (a save point's 12 pearls do not answer)
 //   { "stallMinutes": 20 }                               no new advancement, item kind or dimension for that long
 // Keys combine: the first that holds ends the game. Only play after the goal started counts, so a save point's own
 // inventory and the advancements it gives back at setup never answer the question by themselves.
@@ -39,7 +40,7 @@ export function parseStopWhen(spec) {
 	return out;
 }
 
-export const freshState = () => ({ offset: 0, goalAt: null, agentId: null, advancements: [], kinds: [], dimensions: [], progressAt: null, answer: null });
+export const freshState = () => ({ offset: 0, goalAt: null, agentId: null, advancements: [], kinds: [], dimensions: [], baseline: null, progressAt: null, answer: null });
 
 const at = row => { const e = row.envelope ?? row, p = e.payload ?? {}; return p.observedAtEpochMs ?? p.updatedAtEpochMs ?? row.observedAtMs ?? null; };
 
@@ -68,9 +69,12 @@ export function feed(state, rows, spec) {
 			}
 			const held = {};
 			for (const item of p.inventory?.items ?? []) if (item?.count > 0 && typeof item.itemId === 'string') held[item.itemId] = (held[item.itemId] ?? 0) + item.count;
-			const first = state.kinds.length === 0;
+			// The first observation after the goal start is what the game started with (empty in a fresh world): its items
+			// are no progress, and an item count it already holds does not answer the question.
+			const first = state.baseline === null;
+			if (first) state.baseline = held;
 			for (const id of Object.keys(held)) if (!state.kinds.includes(id)) { state.kinds.push(id); if (!first) progress(); }
-			if (!state.answer && spec.items && Object.entries(spec.items).every(([id, n]) => (held[id] ?? 0) >= n))
+			if (!state.answer && spec.items && Object.entries(spec.items).every(([id, n]) => (held[id] ?? 0) >= Math.max(n, (state.baseline[id] ?? 0) + 1)))
 				state.answer = `items ${Object.entries(spec.items).map(([id, n]) => `${n} ${id}`).join(', ')}`;
 		}
 	}
@@ -107,8 +111,10 @@ export function check(gameDir, spec, now = Date.now()) {
 	const state = existsSync(stateFile) ? JSON.parse(readFileSync(stateFile, 'utf8')) : freshState();
 	const log = existsSync(path.join(gameDir, 'run.log')) ? readFileSync(path.join(gameDir, 'run.log'), 'utf8') : '';
 	const raw = [...log.matchAll(/^Running [^:]*: (.+)$/gm)].at(-1)?.[1]?.trim();
-	if (raw) {
-		const read = readFrom(path.join(raw, 'quality-protocol.jsonl'), state.offset);
+	// The whole backlog is read before the verdict, so progress later in it cannot be missed by a stall check.
+	if (raw) for (;;) {
+		const read = readFrom(path.join(raw, 'quality-protocol.jsonl'), state.offset, 64 * 1024 * 1024);
+		if (read.offset === state.offset) break;
 		feed(state, read.rows, spec); state.offset = read.offset;
 	}
 	const reason = verdict(state, spec, now);
