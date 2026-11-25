@@ -155,6 +155,8 @@ const EDIBLE = new RegExp(`${FOOD.source}|${RAW_FOOD.source}|^minecraft:(apple|c
 // only at hunger 18+).
 const MEAT = 4;
 const MEAT_STOCK = 8;
+// An animal this close is on the way: a few seconds' walk, not a hunt.
+const PASSING_MEAT = 16;
 const MEATS = ['beef', 'porkchop', 'mutton', 'chicken', 'rabbit', 'cod', 'salmon'];
 const COOKED_MEAT = /^minecraft:cooked_(beef|porkchop|mutton|chicken|rabbit|cod|salmon)$/;
 const ANIMAL_MEAT = { cow: 'beef', pig: 'porkchop', sheep: 'mutton', chicken: 'chicken', rabbit: 'rabbit' };
@@ -182,12 +184,12 @@ export function woodStockHandback(tool, result) {
 	return /^(log|logs|planks|[a-z_]+_(log|planks|stem))$/.test(id);
 }
 
-function nearbyMeat(o) {
+function nearbyMeat(o, within = 32) {
 	if (remembered(o, 'entities')) return null;
 	const at = o.position ?? o.player;
 	return (o.entities ?? []).filter(row => row?.alive !== false && row.visible !== false && row.perceivedBy !== 'sound' && row.baby !== true && row.appearance?.baby !== true && ANIMAL_MEAT[String(row.type).replace(/^minecraft:/, '')])
 		.map(row => ({ meat: ANIMAL_MEAT[String(row.type).replace(/^minecraft:/, '')], distance: Number.isFinite(row.distance) ? row.distance : Math.hypot(row.x - at?.x, row.y - at?.y, row.z - at?.z) }))
-		.filter(row => row.distance <= 32).sort((a, b) => a.distance - b.distance)[0]?.meat ?? null;
+		.filter(row => row.distance <= within).sort((a, b) => a.distance - b.distance)[0]?.meat ?? null;
 }
 
 function stockFoodNext(f, { stock = MEAT_STOCK, have = f.cookedMeat, before = 'digging below Y40', what = 'cooked meat' } = {}) {
@@ -455,6 +457,18 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 	}
 	const room = packRoom(items);
 	if (room !== null) return line(...room);
+	// Food on the way: an animal close by is taken while the food held is short of the stock, whatever the step, as a
+	// player takes the sheep it passes rather than hunting later. In the 8 fresh games of 25 Nov the body walked past meat
+	// animals at full hunger and then hunted 8 to 41 minutes per game once hungry with nothing to eat (S1's count). Only on
+	// the surface (down a mine the walk is a climb), only with a pickaxe (the first wood comes first), and released by a
+	// food hand-back this life (the animal fled or could not be reached).
+	const passing = nearbyMeat(o, PASSING_MEAT);
+	// Before the first Nether visit the cooked-meat stock row asks for the same animal itself, with the furnace.
+	if (dimension === 'minecraft:overworld' && passing !== null && food < MEAT_STOCK && !facts.below && foodHandedBack !== true
+		&& count(/^minecraft:[a-z]+_pickaxe$/) > 0 && done(ROUTE.find(r => r.id === 'food_stock'))) {
+		const have = count(new RegExp(`^minecraft:(cooked_)?${passing}$`));
+		return line(`obtain ${passing} count ${have + MEAT} from the animal in view`, `on the way: food ${food}/${MEAT_STOCK}, animal within ${PASSING_MEAT} blocks`);
+	}
 	if (dimension === 'minecraft:the_end') {
 		// A queued wake can render an older sample after the live tally has changed.
 		const seen = o.endCrystals;

@@ -69,7 +69,9 @@ test('the stock stays done in the Nether and after a visit, even with an animal 
 	const visited = emptyKnown(); visited.visitedDimensions.push('minecraft:the_nether');
 	for (const o of [sample(TOOLS, { entities: [COW] }), sample(TOOLS, { entities: [COW], dimension: 'minecraft:the_nether' })])
 		assert.doesNotMatch(route(o, { known: visited }), /cooked meat|cooked_beef count 8/);
-	assert.match(route(sample(TOOLS, { entities: [COW] }), { known: visited }), /obtain iron_pickaxe/);
+	// The cow passed on the way is taken (the raw meat a player picks up as it goes), not the cooked quota.
+	assert.match(route(sample(TOOLS, { entities: [COW] }), { known: visited }), /^usual next step: obtain beef count 4 from the animal in view \(on the way: food 0\/8/);
+	assert.match(route(sample([...TOOLS, item('bread', 8)], { entities: [COW] }), { known: visited }), /obtain iron_pickaxe/);
 });
 
 test('only a sourceless food obtain or animal find counts as a hand-back', async () => {
