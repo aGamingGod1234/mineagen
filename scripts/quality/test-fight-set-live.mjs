@@ -5,7 +5,7 @@
 // zombie, drowned, blaze, creeper, spider, piglin, zombified piglin, wither skeleton, magma cube. The score is the sum
 // over the set of deaths and damage taken (vanilla counters), so one fix is judged on every mob at once.
 // Places (PLACES, comma list), each built fresh around the body before its fight:
-//   open    a flat stone field; the mob DIST blocks ahead.
+//   open    a flat stone field 100 by 80 blocks with no drop in reach; the mob DIST blocks ahead.
 //   tight   a corridor 2 wide and 3 high, roofed; the mob DIST blocks down it.
 //   ledge   a 3-wide nether-brick bridge 6 above a lava sea; the mob DIST blocks along it.
 // Kits (KITS): iron  iron sword, shield in the off hand, full iron armour, cobblestone 64, cooked beef 8.
@@ -90,10 +90,14 @@ const alive = async () => {
 };
 const feetY = async () => number(await s.command('data get entity Probe Pos[1]'));
 
+// The open field is wide enough that a back-out or a shove never reaches its rim: a narrow one was a plateau whose edge
+// (natural terrain far below) killed bodies that backed away. Every build clears the whole field's space first.
+const FIELD = { x0: X0 - 40, x1: X0 + 60, z0: Z0 - 40, z1: Z0 + 40 };
+
 async function build(place) {
+	for (let x = FIELD.x0; x <= FIELD.x1; x += 16) await s.command(`fill ${x} 92 ${FIELD.z0} ${Math.min(FIELD.x1, x + 15)} 110 ${FIELD.z1} minecraft:air`);
 	await s.command(`fill ${X0 - 6} 92 ${Z0 - 8} ${X0 + 26} 99 ${Z0 + 8} minecraft:stone`);
-	await s.command(`fill ${X0 - 6} 100 ${Z0 - 8} ${X0 + 26} 110 ${Z0 + 8} minecraft:air`);
-	if (place === 'open') await s.command(`fill ${X0 - 6} 100 ${Z0 - 8} ${X0 + 26} 100 ${Z0 + 8} minecraft:stone`);
+	if (place === 'open') await s.command(`fill ${FIELD.x0} 100 ${FIELD.z0} ${FIELD.x1} 100 ${FIELD.z1} minecraft:stone`);
 	else if (place === 'tight') {
 		// Solid rock with a corridor 2 wide (z 0 and 1) and 3 high cut through it.
 		await s.command(`fill ${X0 - 6} 100 ${Z0 - 3} ${X0 + 26} 105 ${Z0 + 4} minecraft:stone`);
@@ -127,7 +131,7 @@ try {
 	await s.command('gamerule minecraft:spawn_mobs false'); await s.command('difficulty hard');
 	await s.command('time set midnight'); await s.command('gamerule minecraft:advance_time false');
 	await s.command('gamerule minecraft:advance_weather false'); await s.command('weather clear');
-	await s.command(`forceload add ${X0 - 16} ${Z0 - 16} ${X0 + 32} ${Z0 + 16}`);
+	await s.command(`forceload add ${FIELD.x0 - 8} ${FIELD.z0 - 8} ${FIELD.x1 + 8} ${FIELD.z1 + 8}`);
 	const registered = s.inbox.wait('agent_registered'); await s.command('mineagen summon gpt-6.1-sol low Probe');
 	const e = await registered; s.record = { ...(e.payload.record ?? e.payload), agentId: e.agentId };
 	await s.bridge.send('agent_ready', s.record.agentId, { goalRevision: s.record.goalRevision, reconciled: false });
