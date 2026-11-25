@@ -77,6 +77,8 @@ id=$1; dir=$HOME/ck/games/$id; raw=$HOME/ck/arms/runs/$id; mkdir -p "$raw/.codex
 [ -f "$HOME/VANISH_ON_START" ] && { touch "$HOME/VANISH"; sleep 3; }
 [ -f "$HOME/HANG" ] && sleep 300
 cp "$HOME/.codex/auth.json" "$raw/.codex-home/auth.json"; [ -f "$FAKE_BOAT_ROOT/REFRESH" ] && echo refreshed >> "$raw/.codex-home/auth.json"
+# A SOURCE_REFRESH file makes the first game that sees it refresh the sign-in at its source (Codex on the batch's computer).
+[ -f "$FAKE_BOAT_ROOT/SOURCE_REFRESH" ] && rm "$FAKE_BOAT_ROOT/SOURCE_REFRESH" 2>/dev/null && echo refreshed >> "$FAKE_BOAT_ROOT/signin/auth.json"
 echo '{"event":"native_token_usage"}' > "$raw/coordinator.jsonl"
 echo "Running q: $raw" > "$dir/run.log"; echo '{}' > "$dir/ledger.json"
 echo '{"measurementStatus":"INCOMPLETE","timeline":{"startedAt":1795290758148,"playedMs":60000,"stopReason":"WALL_CLOCK_BUDGET","milestones":[{"id":"fortress","reached":true,"elapsedMs":120000}],"deaths":[{"cause":"lava"}]}}' > "$dir/report/long-run.json"
