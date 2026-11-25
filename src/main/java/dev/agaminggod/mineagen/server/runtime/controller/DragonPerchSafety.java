@@ -98,6 +98,19 @@ public final class DragonPerchSafety {
 		return null;
 	}
 
+	/** A leg's point is reached within this (blocks). */
+	static final double ROUND_REACHED = 1.0D;
+
+	/**
+	 * The walk as the body plays it, tick by tick: keep walking to the leg's point until within {@link #ROUND_REACHED} of it
+	 * or it stops being clear (the head turned, a breath landed), then take the next leg. Re-aiming every tick instead hugs
+	 * the zones' edge and on two of the four real perches stopped half way round with no clear point.
+	 */
+	public static Detour holdOrNext(Detour held, Zones zones, double x, double feetY, double z, double centreX, double centreZ, double headX, double headZ) {
+		if (held != null && Math.hypot(held.x() - x, held.z() - z) >= ROUND_REACHED && !zones.unsafe(held.x(), feetY, held.z(), 0.3D)) return held;
+		return roundToHead(zones, x, feetY, z, centreX, centreZ, headX, headZ);
+	}
+
 	/** The point and the straight walk to it, sampled every half block, clear of every zone (a cell's slack round each). */
 	static boolean clearChord(Zones zones, double x, double feetY, double z, double toX, double toZ) {
 		double length = Math.hypot(toX - x, toZ - z);

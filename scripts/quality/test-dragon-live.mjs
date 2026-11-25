@@ -235,7 +235,8 @@ try {
 		return { phase: p, head: (await parts()).head ?? rows.head };
 	};
 	await command(`effect clear ${agent} minecraft:resistance`); await command(`effect give ${agent} minecraft:resistance 1200 2 true`);
-	{
+	// A failure here (a death under Resistance III, a timeout) is recorded and never stops the room's own result below.
+	try {
 		const at = await farSide();
 		const before = await dragonHealth(), hurt0 = await damage().catch(() => null), t0 = Date.now();
 		const r = at.head ? await act('fight_target', { targetId: at.head.uuid, timeoutMs: 20000 }) : null;
@@ -243,8 +244,11 @@ try {
 		results.perchRound = r && { startPhase: at.phase, endPhase: await dragonPhase(), state: r.state, reasonCode: r.reasonCode, healthDrop: before - await dragonHealth(),
 			damageTaken: hurt0 === null || hurt1 === null ? null : hurt1 - hurt0, seconds: Math.round((Date.now() - t0) / 1000),
 			walkedRound: /walked round the perched dragon/.test(r.message ?? ''), message: r.message };
+		await perchStrikeCase();
+	} catch (error) {
+		results.perchFarSideError = String(error?.message ?? error);
 	}
-	{
+	async function perchStrikeCase() {
 		const at = await farSide();
 		const before = await dragonHealth(), hurt0 = await damage().catch(() => null);
 		// The End default as the coordinator arms it (reflexes.mjs default-perch-strike), under a fixture id.
@@ -257,6 +261,7 @@ try {
 			fired: (after.reflexes?.rules ?? []).find(r => r.id === 'perch-strike-room')?.fired ?? null, events: (after.reflexes?.events ?? []).filter(e => e.id === 'perch-strike-room').slice(-4) };
 		await bridge.send('reflex_update', record.agentId, { revision: 4, yield: false, rules: [] });
 	}
+	await command(`effect give ${agent} minecraft:resistance 1200 4 true`).catch(() => {});
 	results.summary = {
 		hiddenCrystalHits: results.hiddenCrystals.filter(x => x.broke).length, hiddenCrystalShots: results.hiddenCrystals.length,
 		flyingHurt: results.flying.filter(x => x.hurt).length, flyingShots: results.flying.filter(x => !x.skipped).length,

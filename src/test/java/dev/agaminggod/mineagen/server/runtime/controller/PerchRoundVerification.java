@@ -61,7 +61,10 @@ public final class PerchRoundVerification {
 
 	public static int verify() {
 		assertions = 0;
-		for (PerchState state : List.of(BEHIND, FAR_EAST, FAR_SOUTHEAST, SOUTH_LOW_HEAD)) walksRoundClear(state);
+		for (PerchState state : List.of(BEHIND, FAR_EAST, FAR_SOUTHEAST, SOUTH_LOW_HEAD)) {
+			walksRoundClear(state);
+			walksRoundTickByTick(state);
+		}
 		// Once there, the head's ground has safe spots in reach (flat ground at the fountain's level, 63): the reach check
 		// finds them as soon as it sees them. These are the two fights that ended "no seen spot ... out of sight".
 		check(!safeReachCells(FAR_EAST, 63).isEmpty(), "far side, east: safe spots in reach of the head on its side");
@@ -92,6 +95,24 @@ public final class PerchRoundVerification {
 		check(legs > 0, s.name() + ": the body starts away from the head's side and walks");
 		check(gap(s, x, z) <= DragonPerchSafety.ROUND_ARRIVED + 1.0E-9, s.name() + ": the walk ends on the head's side (" + legs + " legs)");
 		check(walked <= 45.0D, s.name() + ": the walk round is short (" + Math.round(walked) + " blocks)");
+	}
+
+	/** As the fight plays it: a quarter block a tick toward the held leg's point, asking again every tick. */
+	static void walksRoundTickByTick(PerchState s) {
+		double x = s.x(), z = s.z();
+		DragonPerchSafety.Detour leg = null;
+		int ticks = 0;
+		boolean clear = true;
+		for (; ticks < 800; ticks++) {
+			leg = DragonPerchSafety.holdOrNext(leg, s.zones(), x, s.feetY(), z, s.centreX(), s.centreZ(), s.headX(), s.headZ());
+			if (leg == null) break;
+			double d = Math.hypot(leg.x() - x, leg.z() - z), step = Math.min(0.25D, d);
+			x += (leg.x() - x) / d * step;
+			z += (leg.z() - z) / d * step;
+			clear &= !s.zones().unsafe(x, s.feetY(), z);
+		}
+		check(clear, s.name() + ": walked tick by tick, the body never stands in the head, neck or wings");
+		check(gap(s, x, z) <= DragonPerchSafety.ROUND_ARRIVED + 1.0E-9, s.name() + ": tick by tick it still ends on the head's side (" + ticks + " ticks)");
 	}
 
 	static void alreadyOnTheHeadsSide() {

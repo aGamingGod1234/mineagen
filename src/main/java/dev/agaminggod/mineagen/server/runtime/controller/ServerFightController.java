@@ -210,6 +210,8 @@ public final class ServerFightController implements ServerController {
 	private int perchUnsafeTicks;
 	/** Bearing still to go on a walk round a perched dragon to its head (DragonPerchSafety.roundToHead); its gains are progress. */
 	private double perchRoundGap = Double.MAX_VALUE;
+	/** The leg of that walk being walked now. */
+	private DragonPerchSafety.Detour perchRound;
 	/** Ticks spent walking round a perched dragon toward its head. */
 	private int perchRoundTicks;
 	private List<PathNode> route;
@@ -618,8 +620,9 @@ public final class ServerFightController implements ServerController {
 						CombatMoveText.horizontal(player.position(), waypoint.position().x() + 0.5D, waypoint.position().z() + 0.5D),
 						player.onGround())));
 		// By a perched dragon a jump lifts the body into its neck, head or wing boxes (they start about 2 above the
-		// ground): only a route's step-up whose top stays clear of them.
-		if (jump && perchZones != null && (footwork != null && footwork.jump() || waypoint == null
+		// ground): only a route's (or the walk round's) step-up whose top stays clear of them.
+		// The walk round to the head steps up like a route does (the ground by the fountain is not flat).
+		if (jump && perchZones != null && (footwork != null && footwork.jump() || waypoint == null && round == null
 				|| perchZones.unsafe(player.getX(), player.getY() + DragonPerchSafety.JUMP_RISE, player.getZ()))) jump = false;
 		// Sprint follows the movement actually applied: a vanilla client drops it without forward input.
 		boolean sprint = (step.sprint() && forward > 0.0F && food > 6)
@@ -835,13 +838,16 @@ public final class ServerFightController implements ServerController {
 	 * the ground there once on the head's side. Null when not walking round.
 	 */
 	private DragonPerchSafety.Detour roundToHead(ServerPlayer player) {
-		if (perchZones == null || unseenRoute == null || !(strike instanceof net.minecraft.world.entity.boss.enderdragon.EnderDragonPart part)) {
+		if (perchZones == null || unseenRoute == null || !(strike instanceof net.minecraft.world.entity.boss.enderdragon.EnderDragonPart part)
+				|| !"head".equals(part.name)) {
 			perchRoundGap = Double.MAX_VALUE;
+			perchRound = null;
 			return null;
 		}
 		var dragon = part.parentMob;
-		DragonPerchSafety.Detour round = DragonPerchSafety.roundToHead(perchZones, player.getX(), player.getY(), player.getZ(),
+		DragonPerchSafety.Detour round = DragonPerchSafety.holdOrNext(perchRound, perchZones, player.getX(), player.getY(), player.getZ(),
 				dragon.getX(), dragon.getZ(), strike.getX(), strike.getZ());
+		perchRound = round;
 		if (round == null) {
 			perchRoundGap = Double.MAX_VALUE;
 			return null;
