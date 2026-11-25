@@ -62,14 +62,19 @@ const MOBS = {
 	magma_cube: { nbt: ',Size:1', count: 2 },
 };
 const GROUP = process.env.GROUP === undefined ? null : Number(process.env.GROUP);
+// BEHIND: one more mob (any kind above, the same kind too) summoned 2 blocks behind the body, facing away from it: the
+// second attacker that hits from behind while the body fights, flees or walks from the group ahead. The stand-ins still
+// name only the group ahead. Its hits are told apart in the danger log by its uuid (row.behindId).
+const BEHIND = process.env.BEHIND || null;
 // START_HEALTH: the body's health when the fight starts (real fights mostly began part-hurt); the setup's own damage is
 // read before the fight's counter starts, so it is not counted.
 const START_HEALTH = Number(process.env.START_HEALTH ?? 20);
 const list = (name, fallback) => (process.env[name] ?? fallback).split(',').map(x => x.trim()).filter(Boolean);
-const MOB_LIST = list('MOBS', Object.keys(MOBS)), PLACES = list('PLACES', 'open,tight,ledge'), KITS = list('KITS', 'iron,none');
+const MOB_LIST = list('MOBS', Object.keys(MOBS).join(',')), PLACES = list('PLACES', 'open,tight,ledge'), KITS = list('KITS', 'iron,none');
 const STANDINS = list('STANDINS', 'fight,idle');
 const REPEATS = Number(process.env.REPEATS ?? 1), DIST = Number(process.env.DIST ?? 8), WINDOW_S = Number(process.env.WINDOW_S ?? 40);
 for (const m of MOB_LIST) if (!MOBS[m]) { console.error(`unknown mob ${m}`); process.exit(2); }
+if (BEHIND && !MOBS[BEHIND]) { console.error(`unknown BEHIND mob ${BEHIND}`); process.exit(2); }
 for (const p of PLACES) if (!['open', 'tight', 'ledge'].includes(p)) { console.error(`unknown place ${p}`); process.exit(2); }
 for (const k of KITS) if (!['iron', 'none', 'stone'].includes(k)) { console.error(`unknown kit ${k}`); process.exit(2); }
 for (const t of STANDINS) if (!['fight', 'idle', 'walk', 'flee'].includes(t)) { console.error(`unknown stand-in ${t}`); process.exit(2); }
@@ -77,7 +82,7 @@ const planned = MOB_LIST.length * PLACES.length * KITS.length * STANDINS.length 
 
 const hash = createHash('sha256'); for await (const chunk of createReadStream(jar)) hash.update(chunk);
 await mkdir(out, { recursive: true });
-const results = { kind: 'provider-free mixed fight set', jar, jarSha256: hash.digest('hex'), mobs: MOB_LIST, places: PLACES, kits: KITS, standIns: STANDINS, repeats: REPEATS, dist: DIST, windowS: WINDOW_S, tickRate: TICK_RATE, fights: [] };
+const results = { kind: 'provider-free mixed fight set', jar, jarSha256: hash.digest('hex'), mobs: MOB_LIST, behind: BEHIND, places: PLACES, kits: KITS, standIns: STANDINS, repeats: REPEATS, dist: DIST, windowS: WINDOW_S, tickRate: TICK_RATE, fights: [] };
 const save = () => writeFile(join(out, 'fight-set.json'), JSON.stringify(results, null, 1));
 const number = text => { const m = /(-?[\d.]+)[fd]?\s*$/.exec(String(text ?? '').trim()); return m ? Number(m[1]) : null; };
 // Floor (walking surface) at feet y 101 everywhere; the ledge's lava sea lies 6 below it.
@@ -166,8 +171,8 @@ try {
 		throw new Error(`default reflexes (revision ${s.revision}) never echoed with default-defend`);
 	};
 	for (const standIn of STANDINS) for (const kitName of KITS) for (const place of PLACES) for (const mob of MOB_LIST) for (let repeat = 1; repeat <= REPEATS; repeat++) {
-		const name = `${mob}-${place}-${kitName}-${standIn}${REPEATS > 1 ? `-${repeat}` : ''}`;
-		const row = { name, mob, place, kit: kitName, standIn, repeat, startedAt: Date.now(), calls: [] };
+		const name = `${mob}${BEHIND ? `+${BEHIND}` : ''}-${place}-${kitName}-${standIn}${REPEATS > 1 ? `-${repeat}` : ''}`;
+		const row = { name, mob, behind: BEHIND, place, kit: kitName, standIn, repeat, startedAt: Date.now(), calls: [] };
 		try {
 			await s.normalRate();
 			// A body left dead by an earlier fight (its respawn refused) is brought back before this one.
@@ -185,10 +190,20 @@ try {
 			for (let i = 0; i < count; i++) {
 				await s.command(`summon minecraft:${mob} ${X0 + DIST + 0.5 + i} ${FEET + (spec.hover ?? 0)} ${Z0 + 0.5 + (i % 2)} {Tags:["fightset"],PersistenceRequired:1b${spec.nbt}}`);
 			}
+			let total = count;
+			if (BEHIND) {
+				const back = MOBS[BEHIND];
+				await s.command(`summon minecraft:${BEHIND} ${X0 - 1.5} ${FEET + (back.hover ?? 0)} ${Z0 + 0.5} {Tags:["fightset","fightbehind"],PersistenceRequired:1b,Rotation:[90f,0f]${back.nbt}}`);
+				const ints = /\[I;\s*(-?\d+),\s*(-?\d+),\s*(-?\d+),\s*(-?\d+)\]/.exec(String(await s.command('data get entity @e[tag=fightbehind,limit=1] UUID') ?? ''));
+				if (!ints) throw new Error('could not read the mob behind\'s UUID');
+				const hex = ints.slice(1).map(n => (Number(n) >>> 0).toString(16).padStart(8, '0')).join('');
+				row.behindId = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+				total++;
+			}
 			// Summoned by command a mob carries nothing: the weapon it spawns with in a real world is given above.
 			// A neutral mob is angered at the body as a hit from it would: its anger target and time set on it (both the
 			// older and the newer save names), then read back.
-			if (spec.provoke) {
+			if (spec.provoke || (BEHIND && MOBS[BEHIND].provoke)) {
 				const uuid = /\[I;\s*(-?\d+),\s*(-?\d+),\s*(-?\d+),\s*(-?\d+)\]/.exec(String(await s.command('data get entity Probe UUID') ?? ''));
 				if (!uuid) throw new Error('could not read the body\'s UUID to anger the mob');
 				const ints = `[I;${uuid.slice(1).join(',')}]`;
@@ -199,8 +214,8 @@ try {
 			if (START_HEALTH < 20) await s.command(`damage Probe ${20 - START_HEALTH} minecraft:generic`);
 			await arm();
 			const damageBefore = await readDamage(), deathsBefore = await deaths().catch(() => null);
-			row.count = count;
-			if ((await alive()) !== count) throw new Error(`summoned ${count} ${mob}, ${await alive()} alive at the start`);
+			row.count = total;
+			if ((await alive()) !== total) throw new Error(`summoned ${total} mobs, ${await alive()} alive at the start`);
 			let lowest = await feetY();
 			await s.fastRate();
 			const t0 = s.clock.now();
@@ -242,7 +257,7 @@ try {
 						const o = await s.observe().catch(() => null);
 						if (!o) continue;
 						// The nearest of the fight's mobs, as a model names the one closing in.
-						const target = (o.entities ?? []).filter(x => x.type === `minecraft:${mob}`).sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
+						const target = (o.entities ?? []).filter(x => x.type === `minecraft:${mob}` && x.uuid !== row.behindId).sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
 						if (!target) { await s.clock.sleep(500); continue; }
 						await s.act('select_item', { itemId: `minecraft:${weapon(kitName)}` }).catch(() => {});
 						const left = Math.max(2000, Math.min(15000, WINDOW_S * 1000 - (s.clock.now() - t0)));
@@ -252,14 +267,14 @@ try {
 						// There and back along the place, past the mobs, as a travel that does not stop for them.
 						const o = await s.observe().catch(() => null);
 						if (!o) { await s.clock.sleep(500); continue; }
-						const x = (o.player?.x ?? X0) < (X0 + WALK_END[place]) / 2 ? WALK_END[place] : X0;
+						const x = (o.position?.x ?? X0) < (X0 + WALK_END[place]) / 2 ? WALK_END[place] : X0;
 						const left = Math.max(2000, Math.min(12000, WINDOW_S * 1000 - (s.clock.now() - t0)));
 						const r = await s.act('navigate_to', { x: x + 0.5, y: FEET, z: Z0 + 0.5, tolerance: 1, sprint: false, timeoutMs: left }, left + 15000).catch(error => ({ state: 'ERROR', message: String(error?.message ?? error) }));
 						row.calls.push({ state: r.state, reasonCode: r.reasonCode, message: String(r.message ?? '').slice(0, 300) });
 					} else if (standIn === 'flee') {
 						const o = await s.observe().catch(() => null);
 						if (!o) { await s.clock.sleep(500); continue; }
-						const target = (o.entities ?? []).filter(x => x.type === `minecraft:${mob}`).sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
+						const target = (o.entities ?? []).filter(x => x.type === `minecraft:${mob}` && x.uuid !== row.behindId).sort((a, b) => (a.distance ?? 99) - (b.distance ?? 99))[0];
 						if (!target) { await s.clock.sleep(500); continue; }
 						const r = await s.act('flee_from', { targetId: target.uuid, distance: 14, timeoutMs: 8000 }, 23000).catch(error => ({ state: 'ERROR', message: String(error?.message ?? error) }));
 						row.calls.push({ state: r.state, reasonCode: r.reasonCode, message: String(r.message ?? '').slice(0, 300) });
@@ -271,16 +286,24 @@ try {
 			await s.normalRate();
 			const left = await alive();
 			if (left === null) throw new Error('could not count the fight\'s mobs');
-			row.killed = left === 0; row.mobsKilled = count - left;
+			row.killed = left === 0; row.mobsKilled = total - left;
+			if (BEHIND) row.behindKilled = (await s.command('execute if entity @e[tag=fightbehind]').then(t => /passed/.test(t)).catch(() => null)) === false;
 			row.lowestFeetY = lowest;
 			row.fell = lowest !== null && lowest < FEET - 2;
 			recordDamageEvidence(row, damageBefore, await readDamage());
 			recordDeathEvidence(row, deathsBefore, await deaths().catch(() => null));
 			if (lowest === null) (row.integrity ??= []).push({ file: 'feet', error: 'no feet position read during the fight' });
 			row.died = row.deaths === null ? null : row.deaths > 0;
+			// The last sample before a death is stale: a dead body sends no observation.
+			if (row.died) row.minHealth = 0;
+			// A stand-in that never ran a call measured idle reflexes, not itself: the row is invalid, not a pass.
+			if (standIn !== 'idle' && !row.calls.some(c => c.state && c.state !== 'ERROR' && c.state !== 'REJECTED')) {
+				throw new Error(`the ${standIn} stand-in ran no call (${row.calls.length} refused or failed)`);
+			}
 			row.pass = row.died === false;
 			if (row.died) row.failReason = `died to ${mob} (${place}, ${kitName}, ${standIn})${row.fell ? ' after a fall' : ''}`;
-			if (row.deaths) await respawned();
+			// A failed respawn here keeps the measured death: the next fight respawns the body again before it starts.
+			if (row.deaths) await respawned().catch(error => { row.respawnError = String(error?.message ?? error); });
 		} catch (error) {
 			row.error = String(error?.stack ?? error).slice(0, 1500);
 		}
