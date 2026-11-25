@@ -1923,7 +1923,8 @@ public final class ServerActionExecutor {
 				.collectDrops(arguments.has("collect") && bool(arguments, "collect") ? protection::mayTakeEntity : null)
 				// collect false or unset: the drops are walked to only once no hostile is within 16 blocks (ExamplePlayer, Oct 29).
 				.collectWhenClear(arguments.has("collect") && bool(arguments, "collect") ? null : protection::mayTakeEntity)
-				.makingRoom(protection::mayDropItem));
+				.makingRoom(protection::mayDropItem)
+				.answeringHits(protection::mayInteractWithEntity));
 	}
 
 	/**

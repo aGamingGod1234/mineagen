@@ -19,8 +19,10 @@ public final class CombatPlanningVerification {
 		verifyFightPacing();
 		verifyFleeProgress();
 		verifyFleeSteering();
+		verifyRunRoom();
 		verifyDiagonalCornerHazards();
 		verifyFollowThrough();
+		verifyAnswerHit();
 		verifyMultiThreatFlee();
 		verifyWater();
 		return assertions;
@@ -110,6 +112,66 @@ public final class CombatPlanningVerification {
 		check(CombatPlanning.canStep(open, feet, -45.0F) && CombatPlanning.canStep(open, feet, 45.0F), "clear diagonals stay usable");
 	}
 
+	private static void verifyRunRoom() {
+		GridPosition feet = new GridPosition(0, 64, 0);
+		List<double[]> zombie = List.<double[]>of(new double[] {6.5D, 0.5D});
+		// A 3-wide bridge (z -1..1) over lava that ends 4 blocks behind the body (x -4), the chaser 6 ahead.
+		WalkabilityView bridge = position -> {
+			boolean deck = position.x() >= -4 && position.x() <= 22 && Math.abs(position.z()) <= 1;
+			if (position.y() == 63) return deck ? WalkabilityView.Cell.SAFE_SUPPORT : WalkabilityView.Cell.CLEAR;
+			if (position.y() < 58) return WalkabilityView.Cell.HAZARD;
+			return WalkabilityView.Cell.CLEAR;
+		};
+		CombatPlanning.RunRoom end = CombatPlanning.runRoom(bridge, feet, zombie);
+		check(!end.unseen() && end.gain() < CombatPlanning.DEAD_END_GAIN && end.deadEnd(14.0D),
+				"a bridge ending 4 blocks behind the body is a dead end (gain " + end.gain() + ")");
+		// A 2-wide corridor in rock with its back wall 3 blocks behind.
+		WalkabilityView corridor = position -> {
+			boolean column = position.x() >= -3 && position.x() <= 22 && position.z() >= 0 && position.z() <= 1;
+			if (column && position.y() == 63) return WalkabilityView.Cell.SAFE_SUPPORT;
+			return column && position.y() >= 64 && position.y() <= 66 ? WalkabilityView.Cell.CLEAR : WalkabilityView.Cell.BLOCKED;
+		};
+		CombatPlanning.RunRoom back = CombatPlanning.runRoom(corridor, feet, zombie);
+		check(back.deadEnd(14.0D), "a corridor whose back wall stands 3 blocks behind is a dead end (gain " + back.gain() + ")");
+		WalkabilityView open = position -> position.y() == 63 ? WalkabilityView.Cell.SAFE_SUPPORT : WalkabilityView.Cell.CLEAR;
+		CombatPlanning.RunRoom field = CombatPlanning.runRoom(open, feet, zombie);
+		check(!field.deadEnd(14.0D) && field.gain() >= CombatPlanning.DEAD_END_GAIN, "open ground is room to run (gain " + field.gain() + ")");
+		// The same bridge, but the ground past x -2 never seen: it may lead on, so it is no dead end.
+		WalkabilityView half = position -> position.x() < -2 ? WalkabilityView.Cell.UNLOADED : bridge.cellAt(position);
+		CombatPlanning.RunRoom unknown = CombatPlanning.runRoom(half, feet, zombie);
+		check(unknown.unseen() && !unknown.deadEnd(14.0D), "unseen ground behind is not called a dead end");
+		check(!end.deadEnd(1.5D) || end.gain() < 1.5D, "a flee that needs less than the room left is no dead end");
+		// The corridor with one feet cell 2 blocks toward the chaser never seen: the run may not go that way, so the back
+		// wall still makes it a dead end.
+		WalkabilityView ahead = position -> position.x() == 2 && position.z() == 0 && position.y() == 64 ? WalkabilityView.Cell.UNLOADED : corridor.cellAt(position);
+		check(CombatPlanning.runRoom(ahead, feet, zombie).deadEnd(14.0D), "unseen ground toward the chaser does not open a dead end");
+		// The corridor's feet cells past x -2 seen clear, its headroom there not yet seen: a way that may go on.
+		WalkabilityView lowView = position -> position.x() < -2 && position.y() >= 65 ? WalkabilityView.Cell.UNLOADED
+				: position.x() < -2 && position.y() == 64 && position.z() >= 0 && position.z() <= 1 ? WalkabilityView.Cell.CLEAR
+				: position.x() < -2 && position.y() == 63 && position.z() >= 0 && position.z() <= 1 ? WalkabilityView.Cell.SAFE_SUPPORT
+				: corridor.cellAt(position);
+		check(!CombatPlanning.runRoom(lowView, feet, zombie).deadEnd(14.0D), "clear feet under unseen headroom is not called a dead end");
+		// A one-wide diagonal bridge (deck at x == z) over lava running away from a chaser at (4.5, 4.5): room to run.
+		WalkabilityView diagonal = position -> {
+			if (position.y() == 63) return position.x() == position.z() && position.x() >= -20 && position.x() <= 6 ? WalkabilityView.Cell.SAFE_SUPPORT : WalkabilityView.Cell.CLEAR;
+			if (position.y() < 58) return WalkabilityView.Cell.HAZARD;
+			return WalkabilityView.Cell.CLEAR;
+		};
+		check(!CombatPlanning.runRoom(diagonal, feet, List.<double[]>of(new double[] {4.5D, 4.5D})).deadEnd(14.0D), "a diagonal bridge running on is room to run");
+		// The bridge with nothing below its deck ever seen: a drop into the unseen is no way on, so still a dead end.
+		WalkabilityView unseenSides = position -> position.y() < 63 || position.y() == 63 && bridge.cellAt(position) != WalkabilityView.Cell.SAFE_SUPPORT
+				? WalkabilityView.Cell.UNLOADED : bridge.cellAt(position);
+		check(CombatPlanning.runRoom(unseenSides, feet, zombie).deadEnd(14.0D), "a bridge whose sides drop into unseen ground is still a dead end");
+		// A long bridge back the other way is room enough.
+		WalkabilityView long_ = position -> {
+			boolean deck = position.x() >= -30 && position.x() <= 22 && Math.abs(position.z()) <= 1;
+			if (position.y() == 63) return deck ? WalkabilityView.Cell.SAFE_SUPPORT : WalkabilityView.Cell.CLEAR;
+			if (position.y() < 58) return WalkabilityView.Cell.HAZARD;
+			return WalkabilityView.Cell.CLEAR;
+		};
+		check(!CombatPlanning.runRoom(long_, feet, zombie).deadEnd(14.0D), "a long bridge behind is room to run");
+	}
+
 	private static void verifyFleeSteering() {
 		// Flat floor at y=63 with a wall straight south (+z) of the agent: fleeing south must detour.
 		Set<GridPosition> walls = new HashSet<>();
@@ -196,6 +258,16 @@ public final class CombatPlanningVerification {
 		check(CombatPlanning.nextAttacker(List.of(new CombatPlanning.AttackerCandidate(CombatPlanning.THREAT_RANGE + 1.0D, true, false, false))) < 0,
 				"an attacker beyond the threat range is left for the model");
 		check(CombatPlanning.nextAttacker(List.of()) < 0, "with no attackers left the fight ends");
+	}
+
+	private static void verifyAnswerHit() {
+		check(CombatPlanning.answerHit(true, true, true, false, false, false), "a fresh hit from sword reach while the target is out of reach turns the fight");
+		check(CombatPlanning.answerHit(true, true, true, false, true, false), "a fresh hit from reach while the target in reach is not hitting turns the fight");
+		check(!CombatPlanning.answerHit(true, true, true, false, true, true), "the target in reach and still hitting keeps the fight on it");
+		check(!CombatPlanning.answerHit(false, true, true, false, false, false), "an old hit does not turn the fight");
+		check(!CombatPlanning.answerHit(true, false, true, false, false, false), "an attacker out of reach is never chased (a shooter, a mob across a drop)");
+		check(!CombatPlanning.answerHit(true, true, false, false, false, false), "an attacker out of view is not swung at");
+		check(!CombatPlanning.answerHit(true, true, true, true, false, false), "a creeper or a player is left to the model or a back-off");
 	}
 
 	private static void verifyMultiThreatFlee() {

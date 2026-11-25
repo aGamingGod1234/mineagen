@@ -262,6 +262,7 @@ public final class ReflexSensors {
 			case "exposed" -> exposed(player, condition.ids("mobs"), condition.number("within", 16.0D));
 			case "cloud_near" -> cloud(player, condition.number("within", 1.0D));
 			case "dragon_charging" -> dragonCharging(player, condition.number("within", DRAGON_CHARGE_RANGE), frame);
+			case "dragon_perched" -> dragonPerched(player, condition.number("within", DRAGON_PERCH_RANGE), frame);
 			// The in-wall view (the block's texture fills the screen) and its damage every half second.
 			case "attacked" -> attacked(player, condition.number("withinS", 4.0D));
 			case "suffocating" -> flag(!ReflexActions.DigOut.stuckCells(player).isEmpty());
@@ -659,6 +660,60 @@ public final class ReflexSensors {
 			}
 		}
 		return Reading.FALSE;
+	}
+
+	/** Default range of {@code dragon_perched}: a perched dragon stays while a player is within 20 blocks of it. */
+	static final double DRAGON_PERCH_RANGE = 24.0D;
+	/**
+	 * How far below and above the perched dragon's feet the body may stand: it sits about 3-5 blocks over the island floor
+	 * round the fountain (12 End games: the dragon at y 66.8-67.8 perched, bodies near it 2-8 below). On a pillar, a tower
+	 * or down a pit the run to the head is not this one.
+	 */
+	static final double DRAGON_PERCH_BELOW = 8.0D, DRAGON_PERCH_ABOVE = 3.0D;
+
+	/**
+	 * The dragon seen sitting on the exit fountain within {@code within} of the body, the body on the ground within
+	 * {@link #DRAGON_PERCH_BELOW} below to {@link #DRAGON_PERCH_ABOVE} above its height. The focus is its head (the part a player swings at), else the dragon.
+	 */
+	private static Reading dragonPerched(ServerPlayer player, double within, ObservationVisibility.Frame frame) {
+		if (!player.onGround() && !inStep(player.getDeltaMovement().y, player.fallDistance)) return Reading.FALSE;
+		for (net.minecraft.world.entity.boss.enderdragon.EnderDragon dragon : player.level().getEntitiesOfClass(
+				net.minecraft.world.entity.boss.enderdragon.EnderDragon.class, player.getBoundingBox().inflate(within),
+				net.minecraft.world.entity.boss.enderdragon.EnderDragon::isAlive)) {
+			if (!perchedOnFountain(dragon, player, within)) continue;
+			net.minecraft.world.entity.boss.enderdragon.EnderDragonPart head = null;
+			boolean seen = false;
+			for (var part : dragon.getSubEntities()) {
+				if ("head".equals(part.name)) head = part;
+				if (!seen && frame.hasLineOfSight(part)) seen = true;
+			}
+			if (seen) return new Reading(true, head != null ? head : dragon);
+		}
+		return Reading.FALSE;
+	}
+
+	/** Rising faster than this is a throw, not a jump (a jump leaves the ground at 0.42 blocks a tick). */
+	static final double STEP_RISE = 0.6D;
+	/** Fallen this far is a fall, not a step down. */
+	static final double STEP_DROP = 3.0D;
+
+	/**
+	 * Off the ground in a step of its own walk (a jump up a block, a short drop) rather than thrown or falling. Requiring
+	 * the ground outright ended the head run mid-step on the approach's own step-ups (review on #273).
+	 */
+	static boolean inStep(double riseY, double fallDistance) {
+		return riseY < STEP_RISE && fallDistance < STEP_DROP;
+	}
+
+	/** Sitting (scanning, roaring or breathing on the fountain), within range and about level with the body. */
+	static boolean perchedOnFountain(net.minecraft.world.entity.boss.enderdragon.EnderDragon dragon, ServerPlayer player, double within) {
+		return dragon.getPhaseManager().getCurrentPhase().isSitting() && player.distanceTo(dragon) <= within
+				&& perchLevel(player.getY(), dragon.getY());
+	}
+
+	/** Feet at {@code bodyY} stand on the island round a dragon perched with its feet at {@code dragonY}. */
+	static boolean perchLevel(double bodyY, double dragonY) {
+		return bodyY >= dragonY - DRAGON_PERCH_BELOW && bodyY <= dragonY + DRAGON_PERCH_ABOVE;
 	}
 
 	/** Whether a flier at {@code at} moving {@code velocity} a tick comes within the pass distance of {@code body} soon. */

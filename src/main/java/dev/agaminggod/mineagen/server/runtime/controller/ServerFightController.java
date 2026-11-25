@@ -177,6 +177,8 @@ public final class ServerFightController implements ServerController {
 	private boolean dragonSat;
 	private int policyCountdown = CombatPlanning.POLICY_INTERVAL_TICKS;
 	private int policySwitches;
+	/** Turns to a mob that hit the body from sword reach ({@link #answerHit}). */
+	private int answeredHits;
 	private boolean handoffChecked;
 	private final long timeoutMs;
 	private final Map<String, Integer> kills = new LinkedHashMap<>();
@@ -239,6 +241,8 @@ public final class ServerFightController implements ServerController {
 	static final int DROP_LOOK_TICKS = 20;
 	static final double DROP_LOOK_BLOCKS = 3.0D, DROP_LOOK_BELOW = 8.0D;
 	private java.util.function.Predicate<ServerPlayer> mayDrop;
+	/** The protection gate on mobs this fight may turn to when they hit the body; null: it never turns to a hitter. */
+	private java.util.function.BiPredicate<ServerPlayer, net.minecraft.world.entity.Entity> mayEngage;
 	private ServerNavigationController clearWalk;
 	private boolean clearBackUnderFire;
 	/** The knockback margin the probe used last; a stall report names what it refused. */
@@ -419,6 +423,7 @@ public final class ServerFightController implements ServerController {
 		shieldChecked = true;
 		if (!engineTargets) applyTargetPolicy(player);
 		if (blazeFight && !engineTargets) strikeAttackerInReach(player);
+		else if (!engineTargets) answerHit(player);
 		ticksOnTarget++;
 		if (strike instanceof net.minecraft.world.entity.boss.enderdragon.EnderDragonPart dragonPart) {
 			var phase = dragonPart.parentMob.getPhaseManager().getCurrentPhase();
@@ -822,6 +827,11 @@ public final class ServerFightController implements ServerController {
 		return routeRefusal == null ? aligned : 0.0F;
 	}
 
+	/** A retreat (low health, or a dragon lifting off) has taken over the fight. */
+	public boolean bailingOut() {
+		return bailout != null;
+	}
+
 	public ServerFightController strikingPart(net.minecraft.world.entity.boss.enderdragon.EnderDragonPart part) {
 		if (part.parentMob != target) throw new IllegalArgumentException("part must belong to the fight target");
 		this.strike = part;
@@ -1142,6 +1152,29 @@ public final class ServerFightController implements ServerController {
 		clock.switched(player.distanceTo(strike));
 	}
 
+	/**
+	 * Every tick: a mob this fight is not on hurt the body from inside sword reach within {@link CombatPlanning#HIT_ANSWER_TICKS}
+	 * ({@link CombatPlanning#answerHit}): the fight turns to it at once and names it. Arrows credit their shooter, which
+	 * stands out of reach, so a shot never pulls the fight toward a shooter.
+	 */
+	private void answerHit(ServerPlayer player) {
+		if (strike != target) return;
+		LivingEntity hurtBy = player.getLastHurtByMob();
+		if (mayEngage == null || hurtBy == null || hurtBy == target || !hurtBy.isAlive() || !mayEngage.test(player, hurtBy)) return;
+		int since = player.tickCount - player.getLastHurtByMobTimestamp();
+		var range = player.getAttackRangeWith(player.getMainHandItem());
+		boolean excluded = !(hurtBy instanceof net.minecraft.world.entity.Mob) || hurtBy instanceof Creeper
+				|| !ThreatPerception.isActiveThreat(player, hurtBy);
+		if (!CombatPlanning.answerHit(since >= 0 && since <= CombatPlanning.HIT_ANSWER_TICKS,
+				range.isInRange(player, hurtBy.getBoundingBox(), 0.0D),
+				dev.agaminggod.mineagen.server.perception.ObservationVisibility.canSeeEntity(player, hurtBy), excluded,
+				range.isInRange(player, target.getBoundingBox(), 0.0D),
+				RiskAssessment.hitWithin(player, target, CombatPlanning.TARGET_HITTING_TICKS))) return;
+		answeredHits++;
+		switchTo(hurtBy, "hit the body from sword reach " + since + " tick(s) before");
+		clock.switched(player.distanceTo(strike));
+	}
+
 	private List<CombatPlanning.PolicyCandidate> policyCandidates(ServerPlayer player, List<LivingEntity> hostiles) {
 		List<CombatPlanning.PolicyCandidate> candidates = new ArrayList<>(hostiles.size());
 		for (LivingEntity hostile : hostiles) {
@@ -1380,6 +1413,7 @@ public final class ServerFightController implements ServerController {
 	/** Sensed hostiles still around (creepers included), nearest first, so the model can choose what is next. */
 	private String remainingThreats(ServerPlayer player) {
 		String switches = policySwitches == 0 ? "" : "; " + targetPolicy.wireName() + " switched target " + policySwitches + "x";
+		if (answeredHits > 0) switches += "; turned to a mob hitting from sword reach " + answeredHits + "x";
 		List<LivingEntity> remaining = new ArrayList<>();
 		// Reported to the model even when they are not switch candidates: it can still choose to fight them.
 		for (LivingEntity hostile : player.level().getEntitiesOfClass(LivingEntity.class,
@@ -1571,6 +1605,12 @@ public final class ServerFightController implements ServerController {
 	/** The model's collect:true: after the kill, walk to its witnessed drops (null filter: leave them). */
 	public ServerFightController collectDrops(java.util.function.BiPredicate<ServerPlayer, net.minecraft.world.entity.Entity> mayTake) {
 		this.collectFilter = mayTake;
+		return this;
+	}
+
+	/** Which mobs that hit the body from sword reach this fight may turn to (the protection gate of fight_target). */
+	public ServerFightController answeringHits(java.util.function.BiPredicate<ServerPlayer, net.minecraft.world.entity.Entity> mayEngage) {
+		this.mayEngage = mayEngage;
 		return this;
 	}
 
