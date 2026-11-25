@@ -492,6 +492,8 @@ public final class CombatPlanning {
 		if (world.lavaFlowsInto(level)) return null;
 		if (walkable(world, level)) return level;
 		GridPosition up = level.above();
+		// Clear feet under headroom not seen yet is a way that may go on: unseen, not a wall.
+		if (open(world, level) && world.cellAt(up) == WalkabilityView.Cell.UNLOADED) return UNSEEN;
 		if (!open(world, level)) {
 			// A wall, or a one-block step up onto it.
 			if (world.cellAt(up) == WalkabilityView.Cell.UNLOADED) return UNSEEN;
