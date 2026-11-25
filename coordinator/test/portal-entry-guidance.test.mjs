@@ -8,14 +8,16 @@ import { presentNativeToolResult } from '../src/codex-service.mjs';
 import { decodeModelFacts } from '../src/model-fact-encoding.mjs';
 
 const record = { agentId: 'portal-entry', provider: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'low', goalRevision: 1 };
+// The kit taken into the Nether (skill-fits.mjs kitBefore): armour worn and food held, with the shield above.
+const KIT = [{ itemId: 'minecraft:iron_chestplate', count: 1, slot: 'chest' }, { itemId: 'minecraft:iron_boots', count: 1, slot: 'feet' }, { itemId: 'minecraft:cooked_beef', count: 4 }];
 const sample = (health = 20, foodLevel = 20) => ({ ready: true, observedAtEpochMs: 1,
 	world: { dimension: 'minecraft:overworld' }, player: { x: 229.5, y: -55, z: 7.5, health, foodLevel },
 	inventory: { items: [{ itemId: 'minecraft:iron_pickaxe', count: 1 }, { itemId: 'minecraft:shield', count: 1, slot: 'offhand' },
-		{ itemId: 'minecraft:bucket', count: 2 }, { itemId: 'minecraft:flint_and_steel', count: 1 }, { itemId: 'minecraft:white_wool', count: 2 }] },
+		{ itemId: 'minecraft:bucket', count: 2 }, { itemId: 'minecraft:flint_and_steel', count: 1 }, { itemId: 'minecraft:white_wool', count: 2 }, ...KIT] },
 });
 const assertEntry = (message) => {
 	assert.match(message, /enter the Nether through the lit portal now/);
-	assert.match(message, /food stocks are optional unless health or hunger is low/);
+	assert.match(message, /shield, armour and food held|go in with the shield in the off hand, the armour worn and food held/);
 };
 
 for (const [health, hunger] of [[20, 20], [15, 20], [5, 20], [20, 6], [5, 6]]) test(`lit portal route names entry with recovery exception at health${health}/hunger${hunger}`, () => {
@@ -31,7 +33,7 @@ test('a lit portal names entry even when casting supplies are no longer held', (
 	const known = emptyKnown();
 	known.frames.push({ dimension: 'minecraft:overworld', x: 229, y: -55, z: 7, obsidian: 10, lit: true });
 	const observation = sample();
-	observation.inventory.items = [{ itemId: 'minecraft:iron_pickaxe', count: 1 }];
+	observation.inventory.items = [{ itemId: 'minecraft:iron_pickaxe', count: 1 }, { itemId: 'minecraft:shield', count: 1, slot: 'offhand' }, ...KIT];
 	assertEntry(routeLine({ observation, known, evaluate: evaluatePlanCheck }));
 	assert.doesNotMatch(routeLine({ observation, known: emptyKnown(), evaluate: evaluatePlanCheck }), /enter the Nether/);
 });

@@ -25,7 +25,7 @@ const MEAT = [['beef', 4]];
 // Wood for the trip down, carried: a crafting table and logs enough for the kit's crafts and smelting.
 const TRIP = [['crafting_table', 1], ['oak_log', 8]];
 // Nothing for a bed in reach at a lit portal: entry, with the reason the portal bed is skipped.
-const ENTRY_NO_BED = 'usual next step: enter the Nether through the lit portal now (no bed, 3 matching wool or sheep in reach: no portal bed; food stocks are optional unless health or hunger is low)';
+const ENTRY_NO_BED = 'usual next step: enter the Nether through the lit portal now (no bed, 3 matching wool or sheep in reach: no portal bed; shield, armour and food held; eat first if health or hunger is low)';
 
 test('the route walks the usual Overworld order from nothing to a lit portal', () => {
 	assert.equal(route([]), 'usual next step: obtain wooden_pickaxe (no tools yet)');
@@ -141,7 +141,7 @@ test('stock eight cooked meat before descent; later hunger advice keeps its thre
 test('a lit portal suggests entering with optional preparation; the Nether and the End have their own steps', () => {
 	const known = emptyKnown();
 	known.frames.push({ dimension: 'minecraft:overworld', x: 0, y: 60, z: 0, obsidian: 10, lit: true });
-	const kit = [['iron_pickaxe', 1], ['water_bucket', 1], ['bucket', 1], SHIELD, ['flint_and_steel', 1]];
+	const kit = [['iron_pickaxe', 1], ['water_bucket', 1], ['bucket', 1], SHIELD, ['flint_and_steel', 1], ...ARMOUR];
 	// Three matching wool held: the portal bed comes first (C33), crafted from them, with no search.
 	assert.equal(route([...kit, ['cooked_beef', 8], ['cobblestone', 30], ['white_wool', 3]], { health: 15 }, known),
 		'usual next step: obtain white_bed, then place_block it by the portal at 0,60,0, interact_block it until "Respawn point set" (by day too), keep it (3 white_wool held)');
@@ -159,7 +159,7 @@ test('a lit portal suggests entering with optional preparation; the Nether and t
 });
 
 // The Overworld kit after the first Nether visit: an iron pickaxe and food, so the eye steps are reached.
-const KIT = [['iron_pickaxe', 1], ['cooked_beef', 16]];
+const KIT = [['iron_pickaxe', 1], ['cooked_beef', 16], SHIELD, ...ARMOUR];
 const visitedNether = () => { const known = emptyKnown(); known.visitedDimensions.push('minecraft:the_nether'); return known; };
 const withFrames = (items, filled, total = 12) => ({ ...sample(items), blocks: Array.from({ length: total }, (_, index) => ({ blockId: 'minecraft:end_portal_frame', x: index, y: 30, z: 0, state: { eye: index < filled ? 'true' : 'false' } })) });
 const routeAt = (observation, known = visitedNether()) => routeLine({ observation, known, evaluate: evaluatePlanCheck });
@@ -255,12 +255,16 @@ test('offhand:<id> holds only for the item in the off hand slot', () => {
 	assert.equal(evaluatePlanCheck('offhand:minecraft:shield', { ...sample([SHIELD]), ready: false }, emptyKnown()).ok, null);
 });
 
-test('review: a shield lost after the portal is lit or the Nether visited does not hold the route back', () => {
+test('a shield lost after the portal is lit is asked for again before the entry, not as a route stage', () => {
 	const known = emptyKnown();
 	known.frames.push({ dimension: 'minecraft:overworld', x: 0, y: 60, z: 0, obsidian: 10, lit: true });
-	const kit = [['iron_pickaxe', 1], ['bucket', 2], ['flint_and_steel', 1]];
-	assert.equal(route([...kit, ['cooked_beef', 10], ['cobblestone', 64]], {}, known), ENTRY_NO_BED);
-	assert.doesNotMatch(route([...kit, ['totem_of_undying', 1, 'offhand'], ['cooked_beef', 10], ['cobblestone', 64]], {}, known), /shield/);
+	const kit = [['iron_pickaxe', 1], ['bucket', 2], ['flint_and_steel', 1], ...ARMOUR, ['cooked_beef', 10], ['cobblestone', 64]];
+	assert.equal(route([...kit, SHIELD], {}, known), ENTRY_NO_BED);
+	// Before: the lit frame ended the shield row and the line said to go in without one.
+	assert.equal(route(kit, {}, known), 'usual next step: obtain shield, then equip_item it to offhand (iron 0 held, shield takes 1; kit before the Nether)');
+	assert.match(route([...kit, ['shield', 1], ['totem_of_undying', 1, 'offhand']], {}, known), /^usual next step: equip_item shield to offhand/);
+	// An obtain handed back this life releases it: the entry follows.
+	assert.equal(routeLine({ observation: sample(kit), known, kitHandedBack: new Set(['minecraft:shield']), evaluate: evaluatePlanCheck }), ENTRY_NO_BED);
 });
 
 // Synthetic offline cases. Live restore and first-wake proof belong to the parent gameplay lane.
@@ -268,44 +272,51 @@ const portal = { blockId: 'minecraft:nether_portal', x: 30, y: -20, z: 7 };
 const portalMemory = (extra = {}) => ({ position: { x: 0, y: 64, z: 0 }, known: {
 	sightings: [{ what: portal.blockId, kind: 'portal', x: portal.x, y: portal.y, z: portal.z, tick: 100 }], blocks: [], ...extra,
 } });
-const recoveryRoute = (observation = sample([]), memory = portalMemory(), known = visitedNether()) =>
+// The kit taken back through the portal (kitBefore): the shield, the armour and 4 food.
+const READY = [SHIELD, ...ARMOUR, ['bread', 4]];
+const recoveryRoute = (observation = sample(READY), memory = portalMemory(), known = visitedNether()) =>
 	routeLine({ observation, memory, known, evaluate: evaluatePlanCheck });
 
-test('retained scoped portal bypasses kit and food quotas with only route tools left to decide', () => {
+test('retained scoped portal bypasses the tool and food quotas, not the kit taken through it', () => {
 	for (const items of [[], [['wooden_pickaxe', 1]], [['stone_pickaxe', 1]], KIT]) {
-		const line = recoveryRoute(sample(items));
+		const line = recoveryRoute(sample([...items, ...READY]));
 		assert.match(line, /return via known Overworld portal at 30,-20,7 to the Nether/);
 		assert.match(line, /active portal needs no iron pick or ignition; use held tools/);
-		assert.match(line, /food stocking optional while healthy/);
 		assert.doesNotMatch(line, /obtain|iron_pickaxe|furnace|count|bed/);
 		assert.ok(Buffer.byteLength(line) <= ROUTE_BYTES);
 	}
+	// Without the kit, the missing piece comes first, one at a time.
+	assert.match(recoveryRoute(sample([])), /^usual next step: obtain shield, then equip_item it to offhand .*kit before the Nether\)$/);
+	assert.match(recoveryRoute(sample([SHIELD])), /^usual next step: obtain iron_chestplate, then equip_item it to chest .*kit before the Nether\)$/);
+	assert.match(recoveryRoute(sample([SHIELD, ...ARMOUR])), /^usual next step: look for nearby cows.*\(food 0\/4; kit before the Nether\)$/);
 	for (const options of [{ health: 8, foodLevel: 20 }, { health: 20, foodLevel: 10 }]) {
-		const line = recoveryRoute(sample([['apple', 2]], options));
-		assert.match(line, /low health\/hunger, food 2 held: recover first/);
+		const line = recoveryRoute(sample([['apple', 4], SHIELD, ...ARMOUR], options));
+		assert.match(line, /low health\/hunger, food 4 held: recover first/);
 		assert.doesNotMatch(line, /stocking optional/);
 		assert.doesNotMatch(line, /quota|count|bed|iron_pickaxe/);
 		assert.ok(Buffer.byteLength(line) <= ROUTE_BYTES);
 	}
-	assert.match(recoveryRoute(sample([]), { known: { blocks: [portal], sightings: [] } }), /at 30,-20,7/);
-	const large = recoveryRoute(sample([], { health: 8 }), { known: { blocks: [{ ...portal, x: -30000000, y: -2048, z: -30000000 }] } });
+	assert.match(recoveryRoute(sample(READY), { known: { blocks: [portal], sightings: [] } }), /at 30,-20,7/);
+	const large = recoveryRoute(sample(READY, { health: 8 }), { known: { blocks: [{ ...portal, x: -30000000, y: -2048, z: -30000000 }] } });
 	assert.ok(Buffer.byteLength(large, 'utf8') <= ROUTE_BYTES);
 	assert.equal(Buffer.from(large).toString('utf8'), large);
 });
 
 test('canonical or bare entry advancement recovers a lost visit flag without inventing portal coordinates', () => {
 	for (const id of ['story/enter_the_nether', 'minecraft:story/enter_the_nether']) {
-		assert.match(recoveryRoute({ ...sample([]), advancements: [id] }, portalMemory(), emptyKnown()), /at 30,-20,7/);
+		assert.match(recoveryRoute({ ...sample(READY), advancements: [id] }, portalMemory(), emptyKnown()), /at 30,-20,7/);
 		const known = emptyKnown(); known.advancements = [id];
-		assert.match(recoveryRoute(sample([]), portalMemory(), known), /at 30,-20,7/);
+		assert.match(recoveryRoute(sample(READY), portalMemory(), known), /at 30,-20,7/);
 	}
-	assert.doesNotMatch(recoveryRoute(sample([]), portalMemory(), emptyKnown()), /known Overworld portal/);
+	assert.doesNotMatch(recoveryRoute(sample(READY), portalMemory(), emptyKnown()), /known Overworld portal/);
 });
 
-test('End portal and capped frames with a held eye take priority even with no kit and a remembered Nether portal', () => {
-	const open = { ...sample([], { health: 8 }), blocks: [{ blockId: 'minecraft:end_portal', x: 1, y: 30, z: 1 }] };
+test('End portal and capped frames with a held eye take priority over a remembered Nether portal; the kit goes in first', () => {
+	const open = { ...sample(READY, { health: 8 }), blocks: [{ blockId: 'minecraft:end_portal', x: 1, y: 30, z: 1 }] };
 	// The End kit note (end-readiness.mjs) rides behind the head; the head stays the portal.
 	assert.match(recoveryRoute(open), /^usual next step: enter the End portal \(portal open; End kit lacks /);
+	// With no shield, armour or food, that kit comes before the End.
+	assert.match(recoveryRoute({ ...open, ...sample([], { health: 8 }), blocks: open.blocks }), /^usual next step: obtain shield, .*kit before the End\)$/);
 	const capped = withFrames([['ender_eye', 1]], 8, 8);
 	assert.match(recoveryRoute(capped), /set the ender_eyes in the empty End portal frames/);
 	assert.doesNotMatch(recoveryRoute(capped), /Nether|rebuild/);
@@ -314,7 +325,7 @@ test('End portal and capped frames with a held eye take priority even with no ki
 });
 
 test('unknown, wrong-scope and remembered-only locations cannot become recovery coordinates', () => {
-	const o = { ...sample([]), world: { worldId: 'w', dimension: 'minecraft:overworld' }, blocks: [portal],
+	const o = { ...sample(READY), world: { worldId: 'w', dimension: 'minecraft:overworld' }, blocks: [portal],
 		sighted: { poi: [portal] } };
 	const known = visitedNether(); known.frames = [{ ...portal, dimension: 'minecraft:overworld', lit: true }];
 	for (const memory of [
@@ -334,7 +345,7 @@ test('production restored memory reaches the encoded wake and withdrawn portals 
 	t.after(() => rm(directory, { recursive: true, force: true }));
 	const record = { agentId: 'recovery-route', currentGoal: 'beat the game', goalRevision: 1,
 		currentGoalSpec: { predicate: { type: 'entity_killed_by_agent', entityType: 'minecraft:ender_dragon', afterGoalStart: true } } };
-	const obs = (tick, extra = {}) => ({ ...sample([]), observedAtEpochMs: tick * 50,
+	const obs = (tick, extra = {}) => ({ ...sample(READY), observedAtEpochMs: tick * 50,
 		world: { worldId: 'w', dimension: 'minecraft:overworld', gameTime: tick }, advancements: ['story/enter_the_nether'], ...extra });
 	const saved = new ObservedMemoryStore({ directory });
 	saved.ingest(record.agentId, obs(100, { sighted: { poi: [portal] } }));
@@ -367,7 +378,7 @@ test('block-only remembered portal reaches the encoded recovery route and respec
  const memory = new ObservedMemoryStore();
  const views = new LiveTaskViews({sources:(r,o,p)=>memory.knownSources(r.agentId,o,p)});
  const wake = async (tick, blocks=[]) => {
-  const o = {...sample([]), world:{worldId:'block-world',dimension:'minecraft:overworld',gameTime:tick}, observedAtEpochMs:tick*50, advancements:['story/enter_the_nether'], blocks};
+  const o = {...sample(READY), world:{worldId:'block-world',dimension:'minecraft:overworld',gameTime:tick}, observedAtEpochMs:tick*50, advancements:['story/enter_the_nether'], blocks};
   memory.ingest(record.agentId,o); await views.observe(record,o);
   const continuity=views.continuity(record);
   const encoded=encodeNativeEventInput(buildNativeEventInput(record,{event:'observation',trigger:'start',newContext:true,observation:o,continuity}),new ModelObservationViews());

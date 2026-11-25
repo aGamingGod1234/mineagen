@@ -24,8 +24,9 @@ const TOOLS = [['iron_pickaxe', 1], ['furnace', 1]];
 const RETURN = /^usual next step: return via known Overworld portal at 30,-20,7 to the Nether/;
 
 test('a respawn after a Nether death with a known portal re-kits before the portal return', () => {
-	// Before: the empty-handed respawn was sent straight back ("active portal needs no iron pick").
-	assert.match(route([], { died: false }), RETURN);
+	// With no death, the tools are not re-kitted ("active portal needs no iron pick"), but the kit taken through is.
+	assert.match(route([], { died: false }), /^usual next step: obtain shield, then equip_item it to offhand .*kit before the Nether\)$/);
+	assert.match(route([SHIELD, ...ARMOUR, ['bread', 4]], { died: false }), RETURN);
 	// After: the kit rows in route order, each tagged as the re-kit.
 	assert.equal(route([]), 'usual next step: obtain wooden_pickaxe (no tools yet; re-kit after a death)');
 	assert.match(route([['wooden_pickaxe', 1]]), /^usual next step: obtain stone_pickaxe \(wooden pickaxe, no stone tools; re-kit after a death\)$/);
@@ -38,16 +39,17 @@ test('a respawn after a Nether death with a known portal re-kits before the port
 	assert.match(route([...TOOLS, SHIELD, ARMOUR[0]]), /^usual next step: obtain iron_boots, then equip_item it to feet \(iron 0 held; iron_boots takes 4/);
 	assert.match(route([...TOOLS, SHIELD, ['iron_boots', 1]], {}), /^usual next step: equip_item iron_boots to feet/);
 	// The whole kit back on: the portal return, as before.
-	assert.match(route([...TOOLS, SHIELD, ...ARMOUR]), RETURN);
+	assert.match(route([...TOOLS, SHIELD, ...ARMOUR, ['bread', 4]]), RETURN);
 	// A keepInventory-style respawn (or drops recovered) has nothing to re-kit.
-	assert.match(route([['diamond_pickaxe', 1], SHIELD, ['diamond_chestplate', 1, 'chest'], ['golden_boots', 1, 'feet']]), RETURN);
+	assert.match(route([['diamond_pickaxe', 1], SHIELD, ['diamond_chestplate', 1, 'chest'], ['golden_boots', 1, 'feet'], ['bread', 4]]), RETURN);
 });
 
 test('without a known portal the rebuild goes on past the iron pickaxe to the shield and armour after a death', () => {
 	const none = { memory: null };
 	// No death: the old rebuild, iron pickaxe and no further.
 	assert.match(route([], { ...none, died: false }), /rebuild after the Nether visit/);
-	assert.doesNotMatch(route(TOOLS, { ...none, died: false }), /shield|chestplate|re-kit/);
+	assert.doesNotMatch(route(TOOLS, { ...none, died: false }), /re-kit/);
+	assert.match(route(TOOLS, { ...none, died: false }), /kit before the Nether\)$/);
 	assert.match(route([], none), /^usual next step: obtain wooden_pickaxe \(no tools yet; re-kit after a death\)$/);
 	assert.match(route(TOOLS, none), /^usual next step: obtain shield, then equip_item it to offhand/);
 	assert.match(route([...TOOLS, SHIELD], none), /^usual next step: obtain iron_chestplate/);
@@ -56,10 +58,10 @@ test('without a known portal the rebuild goes on past the iron pickaxe to the sh
 
 test('a death after lighting the portal, before entering, re-kits before the entry', () => {
 	const ENTRY = /^usual next step: enter the Nether through the lit portal now/;
-	assert.match(route([], { died: false, known: litFrame(), memory: null }), ENTRY);
+	assert.match(route([SHIELD, ...ARMOUR, ['bread', 4]], { died: false, known: litFrame(), memory: null }), ENTRY);
 	assert.equal(route([], { known: litFrame(), memory: null }), 'usual next step: obtain wooden_pickaxe (no tools yet; re-kit after a death)');
 	assert.match(route(TOOLS, { known: litFrame(), memory: null }), /^usual next step: obtain shield/);
-	assert.match(route([...TOOLS, SHIELD, ...ARMOUR], { known: litFrame(), memory: null }), ENTRY);
+	assert.match(route([...TOOLS, SHIELD, ...ARMOUR, ['bread', 4]], { known: litFrame(), memory: null }), ENTRY);
 });
 
 test('food on a re-kit is the hunger check the portal return makes, not the cooked-meat quota', () => {
@@ -72,7 +74,7 @@ test('food on a re-kit is the hunger check the portal return makes, not the cook
 	const hungry = route(TOOLS, { foodLevel: 10 });
 	assert.match(hungry, /^usual next step: obtain shield, then equip_item it to offhand; low hunger\/health, food 0 held: obtain cooked_beef on the way \(.*re-kit after a death\)$/);
 	// The kit back on while hungry: the portal return says to recover first, as it did.
-	assert.match(route([...TOOLS, SHIELD, ...ARMOUR, ['apple', 2]], { foodLevel: 10 }), /return via known Overworld portal.*low health\/hunger, food 2 held: recover first/);
+	assert.match(route([...TOOLS, SHIELD, ...ARMOUR, ['apple', 4]], { foodLevel: 10 }), /return via known Overworld portal.*low health\/hunger, food 4 held: recover first/);
 });
 
 test('the instincts arm re-kits its weapon too, and every re-kit line keeps its tag within the byte budget', () => {
@@ -110,7 +112,7 @@ test('live view: a Nether death and an empty Overworld respawn get the re-kit, n
 	const memory = new ObservedMemoryStore();
 	const views = new LiveTaskViews({ sources: (rec, o, p) => memory.knownSources(rec.agentId, o, p) });
 	const step = async o => { memory.ingest(r.agentId, o); await views.observe(r, o); return views.continuity(r).route; };
-	const FULL = [...TOOLS, SHIELD, ...ARMOUR];
+	const FULL = [...TOOLS, SHIELD, ...ARMOUR, ['bread', 4]];
 	const first = live(100, FULL, { blocks: [{ ...portal, visible: true }] });
 	assert.doesNotMatch(await step(first), /re-kit/);
 	assert.match(await step(live(200, FULL, { dimension: 'minecraft:the_nether' })), /find a fortress/);
@@ -125,7 +127,10 @@ test('live view: a Nether death and an empty Overworld respawn get the re-kit, n
 	await step(live(600, FULL, { dimension: 'minecraft:the_nether' }));
 	// A wake queued from the empty-handed respawn and delivered after re-entry keeps that sample's mark: still the re-kit.
 	assert.match(views.continuity(r, { observation: respawn }).route, /re-kit after a death\)$/);
-	assert.match(await step(live(700, [])), /return via known Overworld portal at 30,-20,7/);
+	// Home alive with nothing: no re-kit of the tools, but the kit taken back through the portal comes first.
+	const home = await step(live(700, []));
+	assert.doesNotMatch(home, /re-kit/);
+	assert.match(home, /kit before the Nether\)$/);
 	// A second death (in the Overworld this time) brings it back again.
 	await step(corpse(800, 'minecraft:overworld'));
 	assert.match(await step(live(900, [])), /re-kit after a death\)$/);

@@ -133,7 +133,7 @@ test('a save point holding 14 eyes and the granted Nether visit is routed to the
 	const route = advancements => {
 		const o = structuredClone(scenarios[0].observation);
 		o.world.dimension = 'minecraft:overworld'; o.ready = true; o.blocks = []; o.advancements = advancements;
-		o.inventory.items = [item('iron_pickaxe'), item('iron_sword'), item('bow'), item('arrow', 64), item('cooked_beef', 24), item('water_bucket'), item('cobblestone', 64), item('ender_eye', 14)];
+		o.inventory.items = [item('iron_pickaxe'), item('iron_sword'), item('bow'), item('arrow', 64), item('cooked_beef', 24), item('water_bucket'), item('cobblestone', 64), item('ender_eye', 14), { ...item('shield'), slot: 'offhand' }, { ...item('iron_chestplate'), slot: 'chest' }, { ...item('iron_boots'), slot: 'feet' }];
 		return String(routeLine({ observation: o, known: emptyKnown(), evaluate: evaluatePlanCheck }));
 	};
 	// The bridge reports the granted advancement as the player's own (namespaced id).
