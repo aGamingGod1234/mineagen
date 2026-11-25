@@ -2141,11 +2141,15 @@ final class ReflexActions {
 			if (back != null) {
 				BlockPos breath = new BlockPos(back.x(), back.openY(), back.z());
 				if (progress.stalled(breath, SwimAirProgress.remaining(player.getEyePosition(), back.path()), ticks)) {
-					return Step.failed(String.format(Locale.ROOT, "no progress swimming back to the last breath at %d,%d,%d", back.x(), back.openY(), back.z()));
+					// The way back is blocked: forget it until the next breath and swim on the way it did before.
+					dev.agaminggod.mineagen.server.perception.LastBreath.forget(player);
+					backing = false;
+					back = null;
+				} else {
+					input.accept(EscapeMoves.swimBack(player, back.path().get(1)));
+					return Step.running(String.format(Locale.ROOT, "swimming back to where it last breathed at %d,%d,%d, %d cells",
+							back.x(), back.openY(), back.z(), back.path().size() - 1));
 				}
-				input.accept(EscapeMoves.swimBack(player, back.path().get(1)));
-				return Step.running(String.format(Locale.ROOT, "swimming back to where it last breathed at %d,%d,%d, %d cells",
-						back.x(), back.openY(), back.z(), back.path().size() - 1));
 			}
 			BlockPos peek = surface == null && peekTicks < WaterAirFacts.PEEK_TICKS ? WaterAirFacts.peekCell(player) : null;
 			switch (swimUpStep(surface != null, peek != null, peekTicks)) {

@@ -45,6 +45,19 @@ public final class LastBreath {
 		return memory.wayBack(BlockPos.containing(player.getEyePosition()), player.level().dimension().identifier().toString());
 	}
 
+	/**
+	 * Drops the way back until the next breath: a swim back that stalled (gravel fell into the passage, a mob blocks it)
+	 * would only be chosen again by the next firing, while the duck-out or the rise beside the ceiling is never tried.
+	 */
+	public static void forget(ServerPlayer player) {
+		LastBreath memory = PLAYERS.get(player.getUUID());
+		if (memory != null) memory.forget();
+	}
+
+	void forget() {
+		trail.clear();
+	}
+
 	private void observe(ServerPlayer player) {
 		if (!player.isAlive()) { trail.clear(); return; }
 		step(BlockPos.containing(player.getEyePosition()), player.isUnderWater(), player.level().dimension().identifier().toString());
