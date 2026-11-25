@@ -775,7 +775,9 @@ public final class ServerFightUntilController implements ServerController {
 				if (roofCenter == null) {
 					roofCenter = spot != null ? BlockPos.containing(spot) : player.blockPosition();
 					roofOpening = openingToward(player);
-					if (spot == null) chooseSite(player);
+					// A model spot is where to start looking, not a checked site: in the full games every roof:true call
+					// named one, and all six built a shelter whose outside cell the body then could not walk to.
+					chooseSite(player);
 					roofItem = roofing.blockItem(player);
 				}
 				int needed = ForestRoof.blocksNeeded(cellsToPlace(player), forest != null, PERCH_HEIGHT);
@@ -1021,8 +1023,23 @@ public final class ServerFightUntilController implements ServerController {
 			var state = seen.known(at.getX(), at.getY(), at.getZ());
 			return state != null && state.getCollisionShape(player.level(), at).isEmpty() && state.getFluidState().isEmpty();
 		};
-		BlockPos start = roofCenter;
-		Direction toward = roofOpening;
+		Site site = siteFor(roofCenter, roofOpening, solid, open);
+		if (site == null) { note("no firm shelter site within 2 blocks; building at the start cell"); return; }
+		if (!site.center().equals(roofCenter) || site.opening() != roofOpening)
+			note("shelter site " + site.center().toShortString() + " doorway " + site.opening().getSerializedName() + " (asked " + roofCenter.toShortString() + ")");
+		roofCenter = site.center();
+		roofOpening = site.opening();
+	}
+
+	/** A shelter cell and its doorway side. */
+	record Site(BlockPos center, Direction opening) {
+	}
+
+	/**
+	 * The search behind {@link #chooseSite}, on seen terrain given as predicates: the start cell or a neighbour within 2
+	 * blocks whose interior, doorway and the open cell beyond it stand on seen floor with headroom. Null when none does.
+	 */
+	static Site siteFor(BlockPos start, Direction toward, java.util.function.Predicate<BlockPos> solid, java.util.function.Predicate<BlockPos> open) {
 		BlockPos bestCenter = null;
 		Direction bestOpening = null;
 		double best = Double.MAX_VALUE;
@@ -1047,9 +1064,7 @@ public final class ServerFightUntilController implements ServerController {
 				if (score < best) { best = score; bestCenter = center; bestOpening = opening; }
 			}
 		}
-		if (bestCenter == null) { note("no firm shelter site within 2 blocks; building at the start cell"); return; }
-		roofCenter = bestCenter;
-		roofOpening = bestOpening;
+		return bestCenter == null ? null : new Site(bestCenter, bestOpening);
 	}
 
 	/** Shelter cells the body has not seen solid yet (each takes one carried block). */

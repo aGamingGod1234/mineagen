@@ -24,7 +24,28 @@ public final class CountFightVerification {
 		verifyStationaryStance();
 		verifyRound3Gates();
 		verifyRoofFallback();
+		verifyRoofSite();
 		return assertions;
+	}
+
+	/**
+	 * roof:true with a model spot on a bank: the doorway faced the enderman over a drop, the body built the shelter and
+	 * then could not walk out to place the lintel (6 of 6 in the full games). The site search now checks a model spot too.
+	 */
+	private static void verifyRoofSite() {
+		net.minecraft.core.BlockPos spot = new net.minecraft.core.BlockPos(0, 64, 0);
+		java.util.function.Predicate<net.minecraft.core.BlockPos> air = at -> at.getY() >= 64;
+		// Floor at y 63 for x < 2; east of that the bank drops away.
+		java.util.function.Predicate<net.minecraft.core.BlockPos> bank = at -> at.getY() < 63 || at.getY() == 63 && at.getX() < 2;
+		ServerFightUntilController.Site site = ServerFightUntilController.siteFor(spot, net.minecraft.core.Direction.EAST, bank, air);
+		check(site != null, "a bank spot with firm ground behind it has a site");
+		for (int step = 0; step <= 2; step++)
+			check(bank.test(site.center().relative(site.opening(), step).below()), "the interior, doorway and outside cell all stand on floor (" + step + ")");
+		check(!(site.center().equals(spot) && site.opening() == net.minecraft.core.Direction.EAST), "the doorway no longer opens over the drop");
+		java.util.function.Predicate<net.minecraft.core.BlockPos> flat = at -> at.getY() < 64;
+		ServerFightUntilController.Site same = ServerFightUntilController.siteFor(spot, net.minecraft.core.Direction.EAST, flat, air);
+		check(same != null && same.center().equals(spot) && same.opening() == net.minecraft.core.Direction.EAST, "firm ground keeps the model's spot and the doorway toward the enderman");
+		check(ServerFightUntilController.siteFor(spot, net.minecraft.core.Direction.EAST, at -> false, air) == null, "no seen floor: no site, the spot stays as before");
 	}
 
 	/** K11: a failed roof falls back to the open-ground hunt; missing blocks, sneak failures and the spot walk-back still stop. */
