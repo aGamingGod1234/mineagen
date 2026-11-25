@@ -101,7 +101,7 @@ export function dependentChain(plan, id) {
  * ({ active: [ids], lastFired: text }) shown as-is; `annotate(intent, { contradicted, since, evidence })` lets a
  * shared provenance layer word validity. Neither may choose a replacement intent.
  */
-export function composeContinuityHeader({ goal, intent = null, evidence = null, since = null, progress = null, route = null, stepProgress = null, repeats = null, search = null, hunt = null, options = null, craft = null, known = null, mining = null, light = null, up = null, sleep = null, casting = null, frame = null, tools = null, results = [], running = null, effect = null, orders = null, guardInstalled = undefined, guardCoverage = null, guardThreatsNear = 0, guardThreatsTargeting = 0, annotate = null }) {
+export function composeContinuityHeader({ goal, intent = null, evidence = null, since = null, progress = null, route = null, stepProgress = null, repeats = null, search = null, hunt = null, options = null, craft = null, known = null, mining = null, light = null, up = null, sleep = null, night = null, casting = null, frame = null, tools = null, results = [], running = null, effect = null, orders = null, guardInstalled = undefined, guardCoverage = null, guardThreatsNear = 0, guardThreatsTargeting = 0, annotate = null }) {
 	// The event's own goal field carries the goal; the header starts at the intent.
 	if (typeof goal !== 'string' || goal.length === 0) return null;
 	const header = {};
@@ -152,6 +152,8 @@ export function composeContinuityHeader({ goal, intent = null, evidence = null, 
 	if (typeof up === 'string' && up.length) header.up = up;
 	if (typeof casting === 'string' && casting.length) header.casting = casting;
 	if (typeof frame === 'string' && frame.length) header.frame = frame;
+	// Night with underground work next (night-cover.mjs nightWorkLine): the step is the cover, beside the sleep line.
+	if (typeof night === 'string' && night.length) header.night = night;
 	if (typeof sleep === 'string' && sleep.length) header.sleep = sleep;
 	if (typeof tools === 'string' && tools.length) header.tools = tools;
 	return Object.keys(header).length === 0 ? null : header;

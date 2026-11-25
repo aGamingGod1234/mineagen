@@ -19,6 +19,7 @@ import { KIT_ITEMS } from './end-readiness.mjs';
 import { beatsTheGame } from './goal-spec-translator.mjs';
 import { dropLoss, recoveryRoute } from './respawn-recovery.mjs';
 import { lightLine, upLine, toolsLine, picksLine, sleepLine, spawnLine, castingLine, frameLine } from './wake-body-facts.mjs';
+import { nightWorkLine } from './night-cover.mjs';
 import { noteIntent, noteRepeat, noteSearch, progressFacts, resetProgress, takeProgressWake, trackProgress } from './step-progress.mjs';
 
 const ROUTE_SOURCE_BLOCKS = new RegExp(`${SOURCE_BLOCKS.source}|^minecraft:nether_portal$`, SOURCE_BLOCKS.flags);
@@ -867,7 +868,8 @@ export class LiveTaskViews {
   const sleep = sleepLine(observation) ?? spawnLine(observation, state.known?.spawn ?? null);
   const casting = castingLine(observation, { goal: `${record.currentGoal} ${activity}` });
   const light = lightLine(observation), up = upLine(observation, state.openSky ?? null), tools = toolsLine(observation, { activity }), frame = frameLine(observation);
-  return { ...(hunt === null ? {} : { hunt }), ...(craft === null ? {} : { craft }), ...(casting === null ? {} : { casting }), ...(frame === null ? {} : { frame }), ...(known === null ? {} : { known }), ...(options === null ? {} : { options }), ...(mining === null ? {} : { mining }), ...(light === null ? {} : { light }), ...(up === null ? {} : { up }), ...(sleep === null ? {} : { sleep }), ...(tools === null ? {} : { tools }) };
+  const night = deadSample(observation) ? null : nightWorkLine(observation, step);
+  return { ...(night === null ? {} : { night }), ...(hunt === null ? {} : { hunt }), ...(craft === null ? {} : { craft }), ...(casting === null ? {} : { casting }), ...(frame === null ? {} : { frame }), ...(known === null ? {} : { known }), ...(options === null ? {} : { options }), ...(mining === null ? {} : { mining }), ...(light === null ? {} : { light }), ...(up === null ? {} : { up }), ...(sleep === null ? {} : { sleep }), ...(tools === null ? {} : { tools }) };
  }
  /**
   * Pearl sources while pearls (or eyes) are an open plan need but not the first unfinished step's: in the Nether, or in

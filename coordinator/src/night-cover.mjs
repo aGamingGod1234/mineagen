@@ -99,3 +99,43 @@ export function nightMoveStop(observation, actionType, args = {}, { environment 
 	}
 	return null;
 }
+
+/** Iron ore is most common around here (and mineable from stone tools); the plan's iron step ends at the first vein. */
+const IRON_DEPTH = 16;
+/** Below this, cave air turns to lava: where a lava pool for casting is found. */
+const LAVA_DEPTH = -54;
+const PICKAXE = /^minecraft:([a-z]+)_pickaxe$/;
+const STONE_PLUS = new Set(['stone', 'copper', 'iron', 'golden', 'diamond', 'netherite']);
+const SURFACE_Y = 50;
+
+/** The underground dig the plan step `check` asks for, or null when the step is not work done below ground. */
+function undergroundWork(check, at, items) {
+	const picks = (items ?? []).filter(row => row?.count > 0 && PICKAXE.test(row.itemId ?? '')).map(row => PICKAXE.exec(row.itemId)[1]);
+	if (!picks.length) return null;
+	const depth = /\by<=(-?\d+)/.exec(check);
+	if (depth && at.y > Number(depth[1])) return { y: Number(depth[1]), what: `reach y ${depth[1]}`, seen: null };
+	if (/\blava:\d+/.test(check) && at.y > LAVA_DEPTH) return { y: LAVA_DEPTH, what: 'a lava pool for casting', seen: 'minecraft:lava' };
+	if (/\btool:pickaxe:iron\+/.test(check) && picks.some(tier => STONE_PLUS.has(tier)) && at.y > IRON_DEPTH) return { y: IRON_DEPTH, what: 'iron ore', seen: 'minecraft:iron_ore' };
+	return null;
+}
+
+/**
+ * At dusk or night near the surface without armour, when the plan's next step is work done underground, the step itself
+ * is the night's cover. Measure games on main (25 Nov, 8 games) spent 47 minutes waiting out nights at the surface with
+ * health and food at 14+ while the next step was to dig down for lava or iron; a player goes down and works instead.
+ * Returns the fact for the continuity header, or null.
+ */
+export function nightWorkLine(observation, step) {
+	const phase = nightFor(observation);
+	if (phase === null || typeof step?.check !== 'string') return null;
+	const player = observation.player ?? {}, at = bodyAt(observation);
+	if (at === null || player.inWater === true || player.underWater === true) return null;
+	if (!(player.skyOpen === true || at.y >= SURFACE_Y)) return null;
+	if (observation.continuity?.rememberedSections?.includes('inventory') || !Array.isArray(observation.inventory?.items)) return null;
+	const work = undergroundWork(step.check, at, observation.inventory.items);
+	if (work === null) return null;
+	const tick = tickOf(observation.world.dayTime);
+	const dawn = Math.max(1, Math.round(((NIGHT_UNTIL - tick + DAY_TICKS) % DAY_TICKS) / 1_200));
+	const dig = `dig_to y ${work.y}${work.seen ? ` stopWhenSeen ${work.seen}` : ''}`;
+	return `${phase === 'dusk' ? 'dusk, then night' : 'night'} until dawn in ~${dawn}m; plan step ${step.id ?? 'next'} is ${work.what}, underground work the night does not reach: ${dig} now instead of waiting out the night up here`;
+}
