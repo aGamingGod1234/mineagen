@@ -14,21 +14,26 @@
 // deaths and damage taken (vanilla counters), lowest feet y, and whether the body left its pad in drop2 (droppedTwo).
 // Env: ARENA_JAR, CASES (default up,down,drop2), TRIALS (default 5), CALLS (default 4), BLAZE_AI, DIST (default 5).
 // Launch under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME set.
+// A trial passes when the blaze dies (up, down) or the body stays on its pad (drop2); result.json carries the verdicts.
 import { mkdir, writeFile } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { resolve, join } from 'node:path';
-import { boot, fixtureTickRate } from './watch-replay.mjs';
+import { boot, unshownTickRate } from './watch-replay.mjs';
+import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 import { ReflexBook } from '../../coordinator/src/reflexes.mjs';
 import { damageCounter, recordDamageEvidence, deathCounter, recordDeathEvidence } from './lib/damage-counter.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 
 const root = resolve(import.meta.dirname, '../..');
-const out = resolve(process.argv[2] ?? ''), jar = resolve(process.env.ARENA_JAR ?? join(root, MOD_JAR));
-if (!process.argv[2] || !process.env.ARENA_HEADLESS_SERVER_TEMPLATE || !process.env.SLOT_PORT_BASE || !process.env.JAVA_HOME) {
- console.error('usage: node scripts/quality/test-lone-blaze-live.mjs OUT_DIR (under slot.sh live, ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME set)');
- process.exit(2);
-}
+const USAGE = 'usage: node scripts/quality/test-lone-blaze-live.mjs OUT_DIR [--descriptive] (under slot.sh live, ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME set)';
+const cli = process.argv.slice(2);
+if (cli.includes('--help')) { console.log(USAGE + '\n' + EDIT_LOOP_HELP + '\n' + FIXTURE_OUTCOME_HELP); process.exit(0); }
+const strict = !cli.includes('--descriptive');
+const outArg = cli.find(arg => !arg.startsWith('--'));
+if (!outArg || !process.env.ARENA_HEADLESS_SERVER_TEMPLATE || !process.env.SLOT_PORT_BASE || !process.env.JAVA_HOME) { console.error(USAGE); process.exit(2); }
+const out = resolve(outArg), jar = resolve(process.env.ARENA_JAR ?? join(root, MOD_JAR));
+const TICK_RATE = unshownTickRate('a new fixture, not yet in a 20 vs 60 TPS A/B');
 const CASES = (process.env.CASES ?? 'up,down,drop2').split(',').filter(Boolean);
 const TRIALS = Number(process.env.TRIALS ?? 5), CALLS = Number(process.env.CALLS ?? 4), DIST = Number(process.env.DIST ?? 5);
 const BLAZE_AI = process.env.BLAZE_AI !== '0';
@@ -37,7 +42,7 @@ const GEOMETRY = { up: { body: 101, blaze: 102 }, down: { body: 102, blaze: 101 
 for (const c of CASES) if (!GEOMETRY[c]) throw new Error(`unknown case ${c}`);
 const hash = createHash('sha256'); for await (const chunk of createReadStream(jar)) hash.update(chunk);
 await mkdir(out, { recursive: true });
-const results = { kind: 'provider-free lone blaze sword fight', jar, jarSha256: hash.digest('hex'), blazeAI: BLAZE_AI, dist: DIST, tickRate: fixtureTickRate(), trials: [] };
+const results = { kind: 'provider-free lone blaze sword fight', jar, jarSha256: hash.digest('hex'), blazeAI: BLAZE_AI, dist: DIST, tickRate: TICK_RATE, trials: [] };
 const save = () => writeFile(join(out, 'lone-blaze.json'), JSON.stringify(results, null, 1));
 const number = text => { const m = /(-?[\d.]+)[fd]?\s*$/.exec(String(text ?? '').trim()); return m ? Number(m[1]) : null; };
 let s;
@@ -46,7 +51,7 @@ const feetY = async () => number(await s.command('data get entity Probe Pos[1]')
 // "Found 2 matching item(s) on player Probe": the first number; "No items were found" has none.
 const rods = async () => Number(/(\d+)/.exec(String(await s.command('clear Probe minecraft:blaze_rod 0') ?? ''))?.[1] ?? 0);
 try {
- s = await boot(out, { jar, template: process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port: Number(process.env.SLOT_PORT_BASE), seed: 20261125, tickRate: fixtureTickRate() });
+ s = await boot(out, { jar, template: process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port: Number(process.env.SLOT_PORT_BASE), seed: 20261125, tickRate: TICK_RATE });
  await s.command('gamerule minecraft:spawn_mobs false'); await s.command('difficulty hard');
  await s.command('time set noon'); await s.command('gamerule minecraft:advance_time false');
  await s.command('forceload add -16 -16 32 16');
@@ -96,7 +101,7 @@ try {
    const bx = -0.5 + DIST;
    await s.command(`summon minecraft:blaze ${bx} ${g.blaze + 0.5} 0.5 {Tags:["lone"],PersistenceRequired:1b${BLAZE_AI ? '' : ',NoAI:1b'}}`);
    await arm();
-   const row = { kase, trial, calls: [], deaths: 0 };
+   const row = { name: `${kase}-${trial + 1}`, kase, trial, calls: [], deaths: 0, startedAt: Date.now() };
    const damageBefore = await readDamage(), deathsBefore = await deaths().catch(() => null), rodsBefore = await rods();
    const startHealth = await blazeHealth();
    await s.fastRate();
@@ -126,11 +131,17 @@ try {
    row.droppedTwo = kase === 'drop2' && lowest !== null && lowest < g.body - 0.5;
    recordDamageEvidence(row, damageBefore, await readDamage());
    recordDeathEvidence(row, deathsBefore, await deaths().catch(() => null));
+   row.pass = kase === 'drop2' ? !row.droppedTwo : row.kill;
+   if (!row.pass) row.failReason = kase === 'drop2' ? `dropped to feet ${lowest}` : `blaze alive, ${row.hits} hit(s), lost ${row.blazeHealthLost}`;
+   row.finishedAt = Date.now();
    results.trials.push(row); await save();
    console.log(JSON.stringify({ kase, trial, kill: row.kill, hits: row.hits, lost: row.blazeHealthLost, rods: row.rodsPicked, deaths: row.deaths, damage: row.damageTaken, lowest, droppedTwo: row.droppedTwo, codes: row.calls.map(c => c.reasonCode) }));
    if (row.deaths) await s.act('respawn', {}, 10000).catch(() => {});
   }
  }
+} catch (error) {
+ console.error(error);
+ results.error = String(error?.stack ?? error).slice(0, 1500);
 } finally { await s?.stop().catch(() => {}); await save(); }
 const summary = {};
 for (const kase of CASES) {
@@ -140,3 +151,7 @@ for (const kase of CASES) {
 }
 results.summary = summary;
 await save(); console.log(JSON.stringify(summary));
+const rows = results.error && !results.trials.length ? [{ name: 'boot', error: results.error, startedAt: Date.now(), finishedAt: Date.now() }] : results.trials;
+const report = await finishRun(rows, { file: join(out, 'result.json'), planned: CASES.length * TRIALS, strict });
+console.log(`[lone-blaze] ${report.line}`);
+process.exit(report.exitCode);
