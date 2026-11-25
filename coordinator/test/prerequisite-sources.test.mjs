@@ -287,7 +287,7 @@ test('full game: empty-bucket checks stay literal while reporting the filled cap
  assert.equal((await views.operate(record, { operation: 'read' })).plan.steps[0].status, 'lost');
 });
 
-test('portal bed advice needs local supplies and yields to an open portal', async () => {
+test('portal bed advice needs local supplies and stays offered at an open portal', async () => {
  const views = new LiveTaskViews();
  views.suggest(record.agentId, record.currentGoal, { steps: [step('nether', 'visited:minecraft:the_nether')] });
  const kit = [['iron_pickaxe'], ['water_bucket'], ['flint_and_steel'], ['obsidian', 10]];
@@ -296,7 +296,8 @@ test('portal bed advice needs local supplies and yields to an open portal', asyn
  await views.observe(record, sample(2, [...kit, ['white_bed']]));
  assert.match(views.continuity(record).options, /option quick respawn bed, after the available stage: the bed carried/);
  await views.observe(record, { ...sample(3, [...kit, ['white_bed']]), blocks: [{ blockId: 'minecraft:nether_portal', x: 1, y: 64, z: 0 }] });
- assert.doesNotMatch(views.continuity(record).options ?? '', /option quick respawn bed/);
+ // The bed by the portal is offered at the portal itself: an open portal in view keeps it (8 measure games showed it 0 times).
+ assert.match(views.continuity(record).options, /option quick respawn bed, after the available stage: the bed carried/);
  const end = new LiveTaskViews();
  end.suggest(record.agentId, record.currentGoal, { steps: [step('end', 'in:minecraft:the_end')] });
  await end.observe(record, sample(1, [['iron_pickaxe'], ['ender_eye', 12]]));
