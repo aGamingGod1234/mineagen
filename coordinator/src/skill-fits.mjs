@@ -463,6 +463,23 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 		// A death since the visit lost the kit: it comes back before the portal return or the rebuild below.
 		const again = rekit();
 		if (again !== null) return again;
+		// Eyes in hand: no trip back to the Nether until they are set. A player follows the eyes to the stronghold, finds the
+		// portal room and sets every eye before counting what is still short, since a portal often comes with eyes already
+		// set and a found stronghold makes the return a single trip. Eight eyes-to-dragon games (26 Nov): three went back
+		// at 9-11 eyes before seeing the stronghold and one after it (three of the four died in the Nether, none came back with
+		// more); the two that reached the End never turned back.
+		if (eyesHeld > 0 && (rodsMissing > 0 || pearlsMissing > 0)) {
+			const short = `${eyeFacts}; ${eyesNeeded} short only if no frame is set`;
+			const hold = (known.structuresSeen ?? []).find(v => v.id === 'minecraft:stronghold' && v.dimension === 'minecraft:overworld');
+			if (!hold && !ok('seen:minecraft:stronghold'))
+				return line(`find structure stronghold follows thrown eyes and digs down; then find block end_portal_frame; set the eyes and count the set frames before going back${first}`, short);
+			// Its masonry in view: the find walks the passages seen (the line below the portal return).
+			if (frames.some(b => /^minecraft:(?:(?:mossy_|cracked_)?stone_bricks|iron_bars)$/.test(b?.blockId ?? '')))
+				return line('find block end_portal_frame walks observed passages to the portal room; resume after handling danger or a blocked doorway', eyeFacts);
+			const at = o.position ?? o.player?.position ?? o.player;
+			const far = hold && [at?.x, at?.z].every(Number.isFinite) && Math.hypot(at.x - hold.x, at.z - hold.z) > 48;
+			return line(`${far ? `go to the stronghold seen at ${Math.round(hold.x)},${Math.round(hold.z)}, then ` : ''}find block end_portal_frame walks its passages to the portal room; set the eyes held, then count the set frames before going back${first}`, short);
+		}
 		const portal = overworldPortal(o, memory);
 		if ((rodsMissing > 0 || pearlsMissing > 0) && portal) {
 			const survival = foodAdviceNeeded(o) ? `low health/hunger, food ${food} held: recover first; ` : 'food stocking optional while healthy; ';
