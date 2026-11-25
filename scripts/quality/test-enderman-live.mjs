@@ -11,12 +11,17 @@ import { MOD_JAR } from './mod-jar.mjs';
 import { installTickRate, fixtureTickRate } from './watch-replay.mjs';
 import { damageCounter, recordDamageEvidence } from './lib/damage-counter.mjs';
 import { watchObservations } from './lib/fixture-play.mjs';
-import { finishRun, roomVerdict } from './lib/fixture-run.mjs';
+import { EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP, finishRun, roomVerdict } from './lib/fixture-run.mjs';
 
+if (process.argv.includes('--help')) {
+	console.log(`Usage: [REFLEX_ONLY=name,...] [ENDER_FIGHTS=3] [BOAT_TRIALS=3] [ARENA_JAR=JAR] slot.sh live node scripts/quality/test-enderman-live.mjs OUT\n${FIXTURE_OUTCOME_HELP}\n${EDIT_LOOP_HELP}`);
+	process.exit(0);
+}
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const out = resolve(process.argv[2] ?? 'runtime/enderman-live');
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE;
-if (!template || !process.env.SLOT_PORT_BASE) throw new Error('Set ARENA_HEADLESS_SERVER_TEMPLATE and launch under slot.sh live');
+// Nothing can be measured without a slot and a server template: invalid evidence (exit 2), never a pass.
+if (!template || !process.env.SLOT_PORT_BASE) { console.error('Set ARENA_HEADLESS_SERVER_TEMPLATE and launch under slot.sh live'); process.exit(2); }
 const jar = resolve(process.env.ARENA_JAR ?? join(root, MOD_JAR));
 const port = Number(process.env.SLOT_PORT_BASE), server = join(out, 'server');
 await mkdir(out, { recursive: true });
