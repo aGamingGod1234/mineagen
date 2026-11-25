@@ -62,6 +62,53 @@ public final class DragonPerchSafety {
 		public boolean unsafeCell(GridPosition cell) { return unsafe(cell.x() + 0.5D, cell.y(), cell.z() + 0.5D, 0.5D); }
 	}
 
+	/** On the head's side once the bearing round the dragon's centre is within this of the head's (radians, 30 degrees). */
+	static final double ROUND_ARRIVED = Math.toRadians(30.0D);
+	/** Each leg of the walk round turns this far about the centre (radians, 25 degrees): a short chord, outside the boxes. */
+	static final double ROUND_STEP = Math.toRadians(25.0D);
+	/**
+	 * Never closer to the centre than the fountain's bedrock rim. Each leg tries from this much inside the body's radius
+	 * outward, so the walk keeps close to the dragon instead of spiralling out (the real states: 12-28 blocks, not 14-55).
+	 */
+	static final double ROUND_MIN_RADIUS = 4.5D, ROUND_CLOSER = 2.0D, ROUND_WIDEN = 10.0D;
+
+	/** The next point of a walk round a perched dragon (x, z at the body's height) and the bearing still to go. */
+	public record Detour(double x, double z, double gap) { }
+
+	/**
+	 * With no seen spot in reach of a perched dragon's head (the fountain hides the ground beyond it), a player walks round
+	 * the fountain to the head's side and looks again. The next point on that walk: {@link #ROUND_STEP} round the dragon's
+	 * centre the short way toward the head's bearing, from a little inside the body's radius as far out as it takes for the point and the
+	 * chord to it to clear every contact and breath zone. Null once on the head's side (the reach check then sees the ground
+	 * there) or when no clear point is found.
+	 */
+	public static Detour roundToHead(Zones zones, double x, double feetY, double z, double centreX, double centreZ, double headX, double headZ) {
+		double body = Math.atan2(x - centreX, z - centreZ), head = Math.atan2(headX - centreX, headZ - centreZ);
+		double turn = Math.atan2(Math.sin(head - body), Math.cos(head - body));
+		double gap = Math.abs(turn);
+		if (gap <= ROUND_ARRIVED) return null;
+		double next = body + Math.signum(turn) * Math.min(gap, ROUND_STEP);
+		double from = Math.max(ROUND_MIN_RADIUS, Math.hypot(x - centreX, z - centreZ) - ROUND_CLOSER);
+		for (double radius = from; radius <= from + ROUND_WIDEN; radius += 1.0D) {
+			double px = centreX + Math.sin(next) * radius, pz = centreZ + Math.cos(next) * radius;
+			if (clearChord(zones, x, feetY, z, px, pz)) {
+				return new Detour(px, pz, Math.abs(Math.atan2(Math.sin(head - next), Math.cos(head - next))));
+			}
+		}
+		return null;
+	}
+
+	/** The point and the straight walk to it, sampled every half block, clear of every zone (a cell's slack round each). */
+	static boolean clearChord(Zones zones, double x, double feetY, double z, double toX, double toZ) {
+		double length = Math.hypot(toX - x, toZ - z);
+		int samples = Math.max(1, (int) Math.ceil(length / 0.5D));
+		for (int i = 1; i <= samples; i++) {
+			double t = (double) i / samples;
+			if (zones.unsafe(x + (toX - x) * t, feetY, z + (toZ - z) * t, 0.3D)) return false;
+		}
+		return true;
+	}
+
 	private DragonPerchSafety() { }
 
 	/** The dragon of a struck part while it sits on the fountain, else null. */

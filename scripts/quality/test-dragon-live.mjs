@@ -217,13 +217,56 @@ try {
 			fired: (after.reflexes?.rules ?? []).find(r => r.id === 'perch-melee')?.fired ?? null, events: (after.reflexes?.events ?? []).filter(e => e.id === 'perch-melee').slice(-4) };
 		await bridge.send('reflex_update', record.agentId, { revision: 2, yield: false, rules: [] });
 	}
+	// 2e/2f. The fountain hides the head: the body stands on the far side of it from the head (the real End fights that
+	// ended "no seen spot to stand within reach ... out of sight"). 2e: the model's head fight walks round to it; 2f: no
+	// command, only the End's perch-strike stance armed. Resistance III (not V) so contact hits show as damage taken.
+	const farSide = async () => {
+		await end('data merge entity @e[type=minecraft:ender_dragon,limit=1] {DragonPhase:3}');
+		let p = -1;
+		for (let i = 0; i < 60 && ![5, 6, 7].includes(p); i++) { await sleep(500); p = await dragonPhase(); }
+		await command(`item replace entity ${agent} weapon.mainhand with minecraft:iron_sword`);
+		await end(`tp ${agent} 6.5 ${Math.floor(results.start.surfaceY) + 1} 0.5 facing 0.5 68 0.5`); await sleep(500);
+		const rows = await parts();
+		if (!rows.head) return { phase: p, head: null };
+		const { x, z } = rows.head.position, len = Math.hypot(x, z) || 1;
+		// Opposite the head, 11 out from the centre, facing the fountain.
+		await end(`tp ${agent} ${(-x / len * 11).toFixed(1)} ${Math.floor(results.start.surfaceY) + 1} ${(-z / len * 11).toFixed(1)} facing 0.5 66 0.5`);
+		await sleep(1200);
+		return { phase: p, head: (await parts()).head ?? rows.head };
+	};
+	await command(`effect clear ${agent} minecraft:resistance`); await command(`effect give ${agent} minecraft:resistance 1200 2 true`);
+	{
+		const at = await farSide();
+		const before = await dragonHealth(), hurt0 = await damage().catch(() => null), t0 = Date.now();
+		const r = at.head ? await act('fight_target', { targetId: at.head.uuid, timeoutMs: 20000 }) : null;
+		const hurt1 = await damage().catch(() => null);
+		results.perchRound = r && { startPhase: at.phase, endPhase: await dragonPhase(), state: r.state, reasonCode: r.reasonCode, healthDrop: before - await dragonHealth(),
+			damageTaken: hurt0 === null || hurt1 === null ? null : hurt1 - hurt0, seconds: Math.round((Date.now() - t0) / 1000),
+			walkedRound: /walked round the perched dragon/.test(r.message ?? ''), message: r.message };
+	}
+	{
+		const at = await farSide();
+		const before = await dragonHealth(), hurt0 = await damage().catch(() => null);
+		// The End default as the coordinator arms it (reflexes.mjs default-perch-strike), under a fixture id.
+		await bridge.send('reflex_update', record.agentId, { revision: 3, yield: false, rules: normalizeReflexEntries([{ id: 'perch-strike-room', kind: 'stance', priority: 6,
+			when: [{ type: 'dragon_perched', within: 24 }, { type: 'health_below', value: 10, not: true }], do: { type: 'strike_head' }, ttlS: 120, maxS: 20, cooldownS: 1, wake: false }]) });
+		await sleep(15000);
+		const after = await observe(), hurt1 = await damage().catch(() => null);
+		results.perchStrike = at.head && { startPhase: at.phase, endPhase: await dragonPhase(), healthDrop: before - await dragonHealth(),
+			damageTaken: hurt0 === null || hurt1 === null ? null : hurt1 - hurt0,
+			fired: (after.reflexes?.rules ?? []).find(r => r.id === 'perch-strike-room')?.fired ?? null, events: (after.reflexes?.events ?? []).filter(e => e.id === 'perch-strike-room').slice(-4) };
+		await bridge.send('reflex_update', record.agentId, { revision: 4, yield: false, rules: [] });
+	}
 	results.summary = {
 		hiddenCrystalHits: results.hiddenCrystals.filter(x => x.broke).length, hiddenCrystalShots: results.hiddenCrystals.length,
 		flyingHurt: results.flying.filter(x => x.hurt).length, flyingShots: results.flying.filter(x => !x.skipped).length,
 		flyingHealthDrop: results.flying.reduce((s, x) => s + (Number.isFinite(x.healthDrop) ? x.healthDrop : 0), 0),
 		perchedArrowBounced: results.perchedArrow?.bounced ?? null, perchedMeleeHealthDrop: results.perchedMelee?.healthDrop ?? null,
 		perchedMotion: results.perchedRow?.motion ?? null, perchedSpeed: results.perchedRow?.velocity ? Math.hypot(results.perchedRow.velocity.x, results.perchedRow.velocity.z) : null,
-		reflexMeleeHealthDrop: results.reflexMelee?.healthDrop ?? null, jar: jarPath,
+		reflexMeleeHealthDrop: results.reflexMelee?.healthDrop ?? null,
+		perchRoundHealthDrop: results.perchRound?.healthDrop ?? null, perchRoundCode: results.perchRound?.reasonCode ?? null, perchRoundWalked: results.perchRound?.walkedRound ?? null,
+		perchRoundDamageTaken: results.perchRound?.damageTaken ?? null, perchStrikeFired: results.perchStrike?.fired ?? null,
+		perchStrikeHealthDrop: results.perchStrike?.healthDrop ?? null, perchStrikeDamageTaken: results.perchStrike?.damageTaken ?? null, jar: jarPath,
 	};
 	// Resistance keeps the body alive, so the room is judged on its shots: the crystals hidden behind pillar tops break,
 	// one miss allowed. Hurting the dragon in flight is recorded, not judged.

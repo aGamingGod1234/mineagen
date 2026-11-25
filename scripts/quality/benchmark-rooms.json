@@ -2097,10 +2097,10 @@
    "skill": "combat",
    "skill2": null,
    "line": "ARENA_JAR=$JAR node scripts/quality/test-dragon-live.mjs $OUT",
-   "estMinutes": 5,
+   "estMinutes": 6,
    "tickRate": 20,
    "bar": "none",
-   "reads": "no pass bar: OUT/dragon.json summary (hidden crystal hits, flying hurt, perched melee damage); exit 0"
+   "reads": "no pass bar: OUT/dragon.json summary (hidden crystal hits, flying hurt, perched melee damage; far side of the fountain: perchRound* for a head fight walking round, perchStrike* for the End perch-strike stance alone); exit 0"
   },
   {
    "room": "dragon-fight-bow",

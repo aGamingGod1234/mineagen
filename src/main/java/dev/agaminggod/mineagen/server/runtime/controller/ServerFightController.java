@@ -208,6 +208,10 @@ public final class ServerFightController implements ServerController {
 	private int perchBreathSeen = Integer.MIN_VALUE;
 	/** Ticks the body stood in a perched dragon's contact or breath zone and was sent out of it. */
 	private int perchUnsafeTicks;
+	/** Bearing still to go on a walk round a perched dragon to its head (DragonPerchSafety.roundToHead); its gains are progress. */
+	private double perchRoundGap = Double.MAX_VALUE;
+	/** Ticks spent walking round a perched dragon toward its head. */
+	private int perchRoundTicks;
 	private List<PathNode> route;
 	private boolean keepBlazeRouteLevel;
 	/** The spawner hold's defend: its blaze approach stays on the cell's deck (no one-block steps). */
@@ -507,7 +511,9 @@ public final class ServerFightController implements ServerController {
 		}
 
 		PathNode waypoint = pursue && !canHit && backoffTicks == 0 ? routeWaypoint(player) : null;
-		ServerLookController.Angles goal = (waypoint == null || blazeWait) && aim != null ? aim
+		DragonPerchSafety.Detour round = waypoint == null && pursue && !canHit && !blazeWait ? roundToHead(player) : null;
+		ServerLookController.Angles goal = round != null ? ServerLookController.anglesTo(eye, new Vec3(round.x(), eye.y, round.z()))
+				: (waypoint == null || blazeWait) && aim != null ? aim
 				: ServerLookController.anglesTo(eye, waypoint == null || blazeWait ? aimBox.getCenter()
 						: new Vec3(waypoint.position().x() + 0.5D, waypoint.position().y() + 1.0D, waypoint.position().z() + 0.5D));
 		float yaw = AgentInputStates.turnYaw(player.getYRot(), goal.yaw());
@@ -546,7 +552,8 @@ public final class ServerFightController implements ServerController {
 			backoffTicks = 0;
 			step = new CombatPlanning.FightStep(footwork.forward(), footwork.sprint(), canSwing && footwork.swing(), 0);
 		}
-		float forward = !pursue || holdingForReach ? 0.0F : footwork != null ? CombatPlanning.alignedForward(footwork.forward(), yawError)
+		float forward = !pursue || holdingForReach && round == null ? 0.0F : round != null ? safeForward(player, 1.0F, yaw, yawError)
+				: footwork != null ? CombatPlanning.alignedForward(footwork.forward(), yawError)
 				: waypoint != null && step.forward() > 0.0F ? routeForward(player, waypoint, step.forward(), yawError)
 				: safeForward(player, step.forward(), yaw, yawError);
 		float strafe = footwork == null ? 0.0F : footwork.strafe();
@@ -820,6 +827,32 @@ public final class ServerFightController implements ServerController {
 		routeRefusal = CombatPlanning.routeMarginRefusal(ObservedTerrain.of(player), CombatMoveText.feet(player),
 				waypoint.position(), waypoint.traversal(), margin);
 		return routeRefusal == null ? aligned : 0.0F;
+	}
+
+	/**
+	 * The walk round a perched dragon while its reach check finds no seen spot in reach (the fountain hides the ground by
+	 * the head): each leg that brings the head's bearing nearer counts as progress and asks for a fresh check, which sees
+	 * the ground there once on the head's side. Null when not walking round.
+	 */
+	private DragonPerchSafety.Detour roundToHead(ServerPlayer player) {
+		if (perchZones == null || unseenRoute == null || !(strike instanceof net.minecraft.world.entity.boss.enderdragon.EnderDragonPart part)) {
+			perchRoundGap = Double.MAX_VALUE;
+			return null;
+		}
+		var dragon = part.parentMob;
+		DragonPerchSafety.Detour round = DragonPerchSafety.roundToHead(perchZones, player.getX(), player.getY(), player.getZ(),
+				dragon.getX(), dragon.getZ(), strike.getX(), strike.getZ());
+		if (round == null) {
+			perchRoundGap = Double.MAX_VALUE;
+			return null;
+		}
+		perchRoundTicks++;
+		if (round.gap() < perchRoundGap - DragonPerchSafety.ROUND_STEP * 0.2D) {
+			perchRoundGap = round.gap();
+			clock.progressed();
+			recheckRequested = true;
+		}
+		return round;
 	}
 
 	public ServerFightController strikingPart(net.minecraft.world.entity.boss.enderdragon.EnderDragonPart part) {
@@ -1417,7 +1450,8 @@ public final class ServerFightController implements ServerController {
 		CombatPlanning.Refusal refusal = routeRefusal != null ? routeRefusal
 				: CombatPlanning.refusal(ObservedTerrain.of(player), CombatMoveText.feet(player), approachYaw, margin);
 		return (refusal == null ? "" : "; approach: " + CombatMoveText.refusal(player, refusal))
-				+ "; headroom " + CombatMoveText.headroom(player, CombatMoveText.feet(player));
+				+ "; headroom " + CombatMoveText.headroom(player, CombatMoveText.feet(player))
+				+ (perchRoundTicks == 0 ? "" : String.format(Locale.ROOT, "; walked round the perched dragon toward its head %.1f s", perchRoundTicks / 20.0D));
 	}
 
 	private RetryState retryState(ServerPlayer player) {
