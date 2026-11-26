@@ -1,4 +1,6 @@
 import { foodAdviceNeeded, quickBedSource } from './survival-advice.mjs';
+import { PEARL_PLAN } from './eye-plan.mjs';
+import { getSwitch } from './switches.mjs';
 // For an open step's needs: the base resource each comes from, the remembered places that could supply it, and the
 // vanilla ways to get it with typical yields. Facts only; the model weighs them and chooses where to go.
 import { headingOf, notableBuilt, sightingKind } from './search-coverage.mjs';
@@ -503,7 +505,7 @@ export function obsidianOptions({ position, known = null, placed = [], items = [
 
 function resourceText(resource, known, position, placed, cap, context = {}) {
 	if (resource.name === 'obsidian' && position !== null) return obsidianOptions({ position, known, placed, ...context, cap });
-	if (resource.name === 'ender_pearl' && position !== null) return boundBytes(pearlOptions({ position, known, items: context.items, observation: context.observation, needed: context.pearls ?? 12 }), cap);
+	if (resource.name === 'ender_pearl' && position !== null) return boundBytes(pearlOptions({ position, known, items: context.items, observation: context.observation, needed: context.pearls ?? pearlTarget('') }), cap);
 	const seen = position === null ? [] : knownRows(resource, known, position, placed);
 	const ways = `; ways (typical): ${resource.ways}`;
 	if (!seen.length) return `${resource.name}: seen none remembered${ways}`;
@@ -721,7 +723,7 @@ export function pearlHuntLine({ observation = null, position = null, open = '' }
 	if (position === null || !/\bender_(pearl|eye)\b|\b(ender )?pearls?\b|\beyes? of ender\b/i.test(open ?? '')) return null;
 	const items = observation?.inventory?.items;
 	if (!Array.isArray(items) || observation.continuity?.rememberedSections?.includes('inventory')) return null;
-	const needed = pearlsWanted(open) ?? 12;
+	const needed = pearlTarget(open);
 	const held = items.reduce((sum, item) => sum + (/^minecraft:ender_(pearl|eye)$/.test(item?.itemId ?? '') && item.count > 0 ? item.count : 0), 0);
 	if (held >= needed) return null;
 	const near = (observation.entities ?? []).filter((row) => row?.type === 'minecraft:enderman' && row.alive !== false && Number.isFinite(row.distance)
@@ -774,6 +776,17 @@ export function pearlSourceInView(observation) {
 }
 
 /** The pearl count a plan check or step text asks for (pearls or eyes), or null when it names none. */
+/**
+ * How many pearls a pearl line counts toward: the eye plan's margin (eye-plan.mjs, 15), or more when the step asks for
+ * more. A step check naming the frame's 12 eyes used to set the count to 12 while the route line asked for 15, so the
+ * hunt stopped short and thrown eyes left the portal unfilled. MINEAGEN_ROUTE_PEARL_PLAN=off keeps the step's own count
+ * (12 when it names none) (switch route.pearlPlan).
+ */
+export function pearlTarget(text, environment = process.env) {
+	const asked = pearlsWanted(text);
+	return getSwitch('route.pearlPlan', environment).value ? Math.max(asked ?? 0, PEARL_PLAN) : asked ?? 12;
+}
+
 export function pearlsWanted(text) {
 	const value = String(text ?? '');
 	const check = /ender_(?:pearl|eye)[a-z_:|#]*\*(\d+)/.exec(value), words = /\b(\d+) (?:ender )?(?:pearls|eyes of ender|ender eyes)\b/i.exec(value);

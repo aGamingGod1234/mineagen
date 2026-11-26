@@ -151,6 +151,7 @@ const READS = [
 	['instincts', 'coordinator/src/reflexes.mjs', "getSwitch('instincts', environment)"],
 	['end.fallCatch', 'coordinator/src/reflexes.mjs', "getSwitch('end.fallCatch', environment)"],
 	['end.highDescent', 'coordinator/src/dragon-fight-facts.mjs', "getSwitch('end.highDescent', environment)"],
+	['route.pearlPlan', 'coordinator/src/need-sources.mjs', "getSwitch('route.pearlPlan', environment)"],
 	['instincts', 'src/main/java/dev/agaminggod/mineagen/server/runtime/reflex/Instincts.java', 'Switches.get("instincts")'],
 	['travel.walkAround', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerTravelController.java', 'Switches.get("travel.walkAround")'],
 	['travel.shallowShore', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerTravelController.java', 'Switches.get("travel.shallowShore")'],
