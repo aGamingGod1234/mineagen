@@ -14,7 +14,18 @@ const PORTAL = { blockId: 'minecraft:end_portal', x: 1, y: 30, z: 1 };
 const sample = (items, { blocks = [PORTAL], world = 'w1', at = 10 } = {}) => ({ ready: true, observedAtEpochMs: at, world: { worldId: world, dimension: 'minecraft:overworld' },
 	position: { x: 0, y: 30, z: 0 }, player: { x: 0, y: 30, z: 0, health: 20, foodLevel: 20 }, inventory: { items }, entities: [], blocks });
 const visited = () => { const known = emptyKnown(); known.visitedDimensions.push('minecraft:the_nether'); return known; };
-const route = (o, kitHandedBack) => routeLine({ observation: o, known: visited(), evaluate: evaluatePlanCheck, ...(kitHandedBack ? { kitHandedBack } : {}) });
+// The kit every trip into danger takes (skill-fits.mjs kitBefore), added where a slot or the food is empty: the End
+// kit below is about the rest.
+const kitted = o => {
+	const items = o.inventory.items, add = [];
+	if (!items.some(i => i.slot === 'offhand')) add.push(item('shield', 1, 'offhand'));
+	if (!items.some(i => i.slot === 'chest')) add.push(item('iron_chestplate', 1, 'chest'));
+	if (!items.some(i => i.slot === 'feet')) add.push(item('iron_boots', 1, 'feet'));
+	if (!items.some(i => /cooked_|bread/.test(i.itemId))) add.push(item('bread', 4));
+	if (!items.some(i => i.itemId === 'minecraft:cobblestone')) add.push(item('cobblestone', 32));
+	return { ...o, inventory: { items: [...items, ...add] } };
+};
+const route = (o, kitHandedBack) => routeLine({ observation: kitted(o), known: visited(), evaluate: evaluatePlanCheck, ...(kitHandedBack ? { kitHandedBack } : {}) });
 
 test('a full kit adds no note: the head is the portal alone', () => {
 	assert.deepEqual(endKit(sample(FULL)).missing, []);
@@ -22,7 +33,13 @@ test('a full kit adds no note: the head is the portal alone', () => {
 	assert.equal(route(sample(FULL)), 'usual next step: enter the End portal (portal open)');
 });
 
-test('the head stays "enter the End portal" whatever is missing (non-gating)', () => {
+test('the shield, armour and food go in first; the End kit itself stays a note', () => {
+	const o = sample([item('bow'), item('arrow', 40)]);
+	assert.match(routeLine({ observation: o, known: visited(), evaluate: evaluatePlanCheck }), /^usual next step: obtain shield, then equip_item it to offhand .*kit before the End\)$/);
+	assert.match(route(o), /^usual next step: enter the End portal/);
+});
+
+test('the head stays "enter the End portal" whatever End kit is missing (non-gating)', () => {
 	for (const items of [[], [item('bow')], FULL.filter(i => i.itemId !== 'minecraft:water_bucket'), [item('string', 3), item('stick', 3), item('bucket')]]) {
 		assert.match(route(sample(items)), /^usual next step: enter the End portal[ ;(]/);
 	}
@@ -63,8 +80,8 @@ test('the release is wired: a failed bow obtain this life drops the bow fix from
 	const r = { agentId: 'kit', currentGoal: 'beat the game', currentGoalSpec: spec, goalRevision: 1 };
 	const views = new LiveTaskViews();
 	// The Nether was visited earlier this world.
-	await views.observe(r, { ...sample([item('string', 3), item('stick', 3)], { at: 5 }), world: { worldId: 'w1', dimension: 'minecraft:the_nether' } });
-	await views.observe(r, sample([item('string', 3), item('stick', 3)]));
+	await views.observe(r, { ...kitted(sample([item('string', 3), item('stick', 3)], { at: 5 })), world: { worldId: 'w1', dimension: 'minecraft:the_nether' } });
+	await views.observe(r, kitted(sample([item('string', 3), item('stick', 3)])));
 	const before = views.continuity(r).route;
 	assert.match(before ?? '', /in reach first: obtain bow/, before);
 	// A danger stop is no release.

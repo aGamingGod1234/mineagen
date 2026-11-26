@@ -253,6 +253,14 @@ test('an iron tool\'s trip mines the rest of the kit\'s iron at the ore too; non
 	assert.equal(kitIronExtra({ ...o, world: { dimension: 'minecraft:the_nether' } }, plan), 0);
 });
 
+test('a top-up at the ore takes the armour iron too: chestplate 8 and boots 4 beyond the kit, less armour already held', async () => {
+	const { kitAndArmourIronShort } = await import('../src/obtain-runner.mjs');
+	const inv = (...rows) => ({ inventory: { items: rows.map(([id, count]) => ({ itemId: `minecraft:${id}`, count })) } });
+	assert.equal(kitAndArmourIronShort(inv(['iron_pickaxe', 1], ['iron_ingot', 3])), 8 + 12 - 3, 'shield, buckets, flint and steel, then the armour');
+	assert.equal(kitAndArmourIronShort(inv(['iron_pickaxe', 1], ['shield', 1], ['bucket', 2], ['flint_and_steel', 1], ['iron_chestplate', 1])), 4, 'only the boots left');
+	assert.equal(kitAndArmourIronShort(inv(['iron_pickaxe', 1], ['shield', 1], ['bucket', 2], ['flint_and_steel', 1], ['golden_chestplate', 1], ['iron_boots', 1])), 0, 'any chestplate counts');
+});
+
 test('the chest is opened by the face toward the body, and another face when that one is blocked', async () => {
 	const { facesToward } = await import('../src/loot-step.mjs');
 	assert.deepEqual(facesToward({ x: 311, y: 77, z: -237 }, { x: 311.5, y: 77, z: -240.5 }).slice(0, 2), ['north', 'west']);

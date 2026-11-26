@@ -104,9 +104,8 @@ function tier(id) { return ['wooden', 'golden', 'stone', 'copper', 'iron', 'diam
 // may take or ignore, and starts nothing.
 export const ROUTE_BYTES = 220;
 export const PORTAL_ENTRY_NEXT = 'enter the Nether through the lit portal now';
-const ENTRY_FOOD = 'food stocks are optional unless health or hunger is low';
-// Also the PORTAL_LIT result's hint, which cannot see the inventory, so it names the bed step's condition.
-export const PORTAL_ENTRY_PREP = `place and use a bed by the portal first if a bed, 3 matching wool or sheep are in reach; ${ENTRY_FOOD}`;
+// Also the PORTAL_LIT result's hint, which cannot see the inventory, so it names the kit and the bed step's condition.
+export const PORTAL_ENTRY_PREP = 'go in with the shield in the off hand, the armour worn and food held (the usual next step names what is missing); place and use a bed by the portal first if a bed, 3 matching wool or sheep are in reach';
 // A respawn set this close to the portal already brings a Nether death back to it.
 const BED_NEAR = 24;
 // Height counts: a surface bed above an underground portal is still a long way back from a Nether death.
@@ -156,6 +155,8 @@ const EDIBLE = new RegExp(`${FOOD.source}|${RAW_FOOD.source}|^minecraft:(apple|c
 // only at hunger 18+).
 const MEAT = 4;
 const MEAT_STOCK = 8;
+// An animal this close is on the way: a few seconds' walk, not a hunt.
+const PASSING_MEAT = 16;
 const MEATS = ['beef', 'porkchop', 'mutton', 'chicken', 'rabbit', 'cod', 'salmon'];
 const COOKED_MEAT = /^minecraft:cooked_(beef|porkchop|mutton|chicken|rabbit|cod|salmon)$/;
 const ANIMAL_MEAT = { cow: 'beef', pig: 'porkchop', sheep: 'mutton', chicken: 'chicken', rabbit: 'rabbit' };
@@ -183,23 +184,23 @@ export function woodStockHandback(tool, result) {
 	return /^(log|logs|planks|[a-z_]+_(log|planks|stem))$/.test(id);
 }
 
-function nearbyMeat(o) {
+function nearbyMeat(o, within = 32) {
 	if (remembered(o, 'entities')) return null;
 	const at = o.position ?? o.player;
 	return (o.entities ?? []).filter(row => row?.alive !== false && row.visible !== false && row.perceivedBy !== 'sound' && row.baby !== true && row.appearance?.baby !== true && ANIMAL_MEAT[String(row.type).replace(/^minecraft:/, '')])
 		.map(row => ({ meat: ANIMAL_MEAT[String(row.type).replace(/^minecraft:/, '')], distance: Number.isFinite(row.distance) ? row.distance : Math.hypot(row.x - at?.x, row.y - at?.y, row.z - at?.z) }))
-		.filter(row => row.distance <= 32).sort((a, b) => a.distance - b.distance)[0]?.meat ?? null;
+		.filter(row => row.distance <= within).sort((a, b) => a.distance - b.distance)[0]?.meat ?? null;
 }
 
-function stockFoodNext(f) {
+function stockFoodNext(f, { stock = MEAT_STOCK, have = f.cookedMeat, before = 'digging below Y40', what = 'cooked meat' } = {}) {
 	const exact = meat => f.count(new RegExp('^minecraft:' + meat + '$'));
 	const raw = MEATS.find(meat => exact(meat) > 0);
 	const meat = raw ?? f.nearbyMeat;
-	const why = `cooked meat ${f.cookedMeat}/${MEAT_STOCK}`;
-	if (meat === null || meat === undefined) return ['look for nearby cows/pigs/sheep/chickens, then obtain cooked meat with a furnace before digging below Y40', why];
+	const why = `${what} ${have}/${stock}`;
+	if (meat === null || meat === undefined) return [`look for nearby cows/pigs/sheep/chickens, then obtain cooked meat with a furnace before ${before}`, why];
 	// Obtain counts are totals of this cooked type; cook held raw meat before hunting for more.
-	const total = exact('cooked_' + meat) + Math.min(MEAT_STOCK - f.cookedMeat, raw ? exact(raw) : MEAT_STOCK);
-	return [`obtain cooked_${meat} count ${total} using a furnace before digging below Y40`, `${why}; ${raw ? 'raw meat held' : 'animal seen nearby'}`];
+	const total = exact('cooked_' + meat) + Math.min(stock - have, raw ? exact(raw) : stock);
+	return [`obtain cooked_${meat} count ${total} using a furnace before ${before}`, `${why}; ${raw ? 'raw meat held' : 'animal seen nearby'}`];
 }
 // The blocks a cast frame's mould is made of: plain full blocks that neither burn nor fall (planks would catch fire).
 const MOULD = /^minecraft:(cobblestone|cobbled_deepslate|dirt|stone|deepslate|andesite|diorite|granite|tuff|blackstone|basalt|end_stone)$/;
@@ -213,7 +214,7 @@ function armourStep(f) {
 	// The carried piece's own id: a golden chestplate in the pack is put on as it is, not named as the iron one.
 	const carried = missing.map(piece => ({ piece, id: f.carriedId(piece.part) })).find(c => c.id);
 	if (carried) return [`equip_item ${carried.id} to ${carried.piece.slot}`, `${carried.id} carried, not worn`];
-	const next = missing.find(piece => !f.count(piece.part));
+	const next = missing.find(piece => !f.count(piece.part) && !f.handedBack?.has(`minecraft:${piece.id}`));
 	if (!next) return null;
 	// Before the kit is done, only from iron it leaves (the kit habit's rule); after it, the step mines its own. A re-kit
 	// after a death mines its own too: the buckets and light it lost are not needed to go back through a lit portal.
@@ -348,7 +349,7 @@ function foodSource(o) {
  * hand-back this life (woodStockHandback) released the trip's wood step; diedSincePortal: the body died after it last
  * stood in the Nether, or after the portal stage was first seen (a lit frame or a visit), so the kit comes back first.
  */
-export function routeLine({ observation: o = null, known = null, memory = null, foodHandedBack = false, woodHandedBack = false, kitHandedBack = new Set(), diedSincePortal = false, evaluate, instincts = false } = {}) {
+export function routeLine({ observation: o = null, known = null, memory = null, foodHandedBack = false, woodHandedBack = false, kitHandedBack: kitHandedBackAll = new Set(), prepHandedBack = null, kitPrepOver = false, diedSincePortal = false, evaluate, instincts = false } = {}) {
 	if (!live(o) || !Array.isArray(o.inventory?.items) || remembered(o, 'inventory') || known === null || typeof evaluate !== 'function') return null;
 	const items = o.inventory.items.filter(i => i?.count > 0);
 	const count = re => items.filter(i => re.test(i.itemId ?? '')).reduce((n, i) => n + i.count, 0);
@@ -379,9 +380,15 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 		below: belowGround(o), woodHandedBack: woodHandedBack === true, logs: count(/^minecraft:[a-z_]+_log$/), ingots: count(/^minecraft:iron_ingot$/) };
 	const worn = new Set(items.filter(i => ['head', 'chest', 'legs', 'feet'].includes(i.slot)).map(i => i.slot));
 	const carriedId = re => items.find(i => !['head', 'chest', 'legs', 'feet'].includes(i.slot) && re.test(i.itemId ?? ''))?.itemId?.replace(/^minecraft:/, '') ?? null;
-	Object.assign(facts, { worn, carriedId });
+	Object.assign(facts, { worn, carriedId, handedBack: prepHandedBack ?? kitHandedBackAll });
 	const kit = kitLeft(count);
-	Object.assign(facts, { kitIron: kit.iron, kitParts: kit.parts, kitOther: kit.other });
+	// The trip that mines the kit's iron also mines the armour's: a player at the ore takes the iron it will wear. Mined
+	// as its own step after the kit, the armour's 8 iron with 0 to 5 held was a second trip down, and none of 30 Overworld
+	// deaths in 8 fresh games (25 Nov) wore armour. Only while the iron held is short of the kit, so a trip down is due
+	// anyway; with the kit's iron in hand the kit is crafted first and the armour row asks after it.
+	const armourLeft = kit.iron > facts.iron ? KIT_ARMOUR.filter(piece => !worn.has(piece.slot) && !count(piece.part)) : [];
+	const armourIron = armourLeft.reduce((n, piece) => n + piece.iron, 0);
+	Object.assign(facts, { kitIron: kit.iron + armourIron, kitParts: [kit.parts, ...armourLeft.map(piece => `${piece.id.replace(/^iron_/, '')} ${piece.iron}`)].join(', '), kitOther: kit.other });
 	// Planned only when the route reaches the step: a whole-kit obtain plan per wake is not free.
 	Object.defineProperty(facts, 'tripLogs', { get: () => tripLogs(o, kit) });
 	// The re-kit after a death past the portal stage: the kit rows in route order, each ended by its rekit condition.
@@ -396,6 +403,47 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 		const restock = row.id !== 'food' && foodNote === '' && (facts.below ? food === 0 : food < 10) && foodAdviceNeeded(o) ? `; low hunger/health, food ${food} held: obtain cooked_beef on the way` : '';
 		return line(`${next}${restock}`, `${why}; re-kit after a death`);
 	};
+	// The kit a player takes on every trip into danger (the Nether, the End, back through a portal, a stronghold dig): the
+	// shield in the off hand, the armour worn and food. Asked for when the body sets off, from what it holds now, not by
+	// route stage: the shield and armour rows end at the lit frame, and in all 6 checkpoint games of 25 Nov that reached
+	// the Nether the model lit the portal while the route still asked for the chestplate, so the next line sent it in with
+	// no armour (armour 0 in every Nether death that day). An obtain handed back this life releases its piece, and a food
+	// hunt that found no source the food, so the gate can not hold the route. inReach: only put on what is carried (in the
+	// Nether, where a trip back for iron is itself a trip through danger).
+	const kitBefore = (trip, { inReach = false } = {}) => {
+		const tag = why => `${why}; kit before ${trip}`;
+		// Prep time is capped (kitPrep): past it the bot goes in short of what it would have to get, so the gate never stalls
+		// a game; putting on what it carries costs nothing and still happens.
+		if (kitPrepOver) {
+			if (count(/^minecraft:shield$/) > 0 && !items.some(i => i.slot === 'offhand' && i.itemId === 'minecraft:shield')) return line('equip_item shield to offhand', tag('shield carried, not worn'));
+			const worn = [armourStep(kitFacts), inReach ? null : goldPiece(items) && [goldPiece(items).next, goldPiece(items).why]].find(step => step && /^equip_item /.test(step[0]));
+			return worn ? line(worn[0], tag(worn[1])) : null;
+		}
+		// A failed obtain releases its piece for this prep window only (prepHandedBack); a later departure asks again.
+		const kitHandedBack = prepHandedBack ?? kitHandedBackAll;
+		const shield = ROUTE.find(r => r.id === 'shield');
+		if (!ok(shield.rekit) && (count(/^minecraft:shield$/) > 0 || !inReach && !kitHandedBack.has('minecraft:shield'))) { const [next, why] = shield.next(kitFacts); return line(next, tag(why)); }
+		const armour = armourStep(kitFacts);
+		// Carried gold the Nether line already names, with the piglins' reason.
+		if (armour !== null && (!inReach || /^equip_item (?!golden_)/.test(armour[0]))) return line(armour[0], tag(armour[1]));
+		// Piglins leave a body in gold alone: one piece worn when gold is held, a carried piece first, else a helmet (5 gold).
+		const goldStep = !inReach && !items.some(i => WORN.has(i.slot) && GOLD_ARMOUR.test(i.itemId)) ? goldPiece(items) : null;
+		if (goldStep !== null && !kitHandedBack.has(`minecraft:${goldStep.id}`)) return line(goldStep.next, tag(goldStep.why));
+		const pick = pickaxeLeft(items);
+		if (!inReach && pick !== null && pick.left < TRIP_USES && !kitHandedBack.has(`minecraft:${pick.make}`)) {
+			return line(`obtain ${pick.make} count ${count(new RegExp(`^minecraft:${pick.make}$`)) + 1}`, tag(`pickaxe ${pick.left} uses left`));
+		}
+		if (inReach) return null;
+		if (food < KIT_FOOD && !(foodHandedBack === true && facts.nearbyMeat === null)) {
+			const [next, why] = stockFoodNext(kitFacts, { stock: KIT_FOOD, have: food, before: `going to ${trip}`, what: 'food' });
+			return line(next, tag(why));
+		}
+		// Blocks to bridge a lava gap, wall off a mob or pillar out of a hole, without stopping to dig for them.
+		const blocks = count(PLAIN_BLOCK);
+		if (blocks >= TRIP_BLOCKS || pick === null || kitHandedBack.has('minecraft:cobblestone')) return null;
+		return line(`obtain cobblestone count ${count(/^minecraft:cobblestone$/) + TRIP_BLOCKS - blocks}`, tag(`plain blocks ${blocks}/${TRIP_BLOCKS}`));
+	};
+	const depart = (trip, next, why, options) => kitBefore(trip, options) ?? line(next, why);
 	// Instincts arm: food first in every dimension (C27), before more resource travel.
 	let foodNote = '';
 	if (instincts === true) {
@@ -421,13 +469,29 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 	function line(next, why) {
 		const text = `usual next step: ${foodNote}${next} (${why})`;
 		if (Buffer.byteLength(text) <= ROUTE_BYTES) return text;
+		// A clipped kit line keeps its "; kit before <trip>)" tag: the prep clock and the portal kit check read it.
+		const tail = text.match(/; kit before [^)]+\)$/)?.[0] ?? '';
 		let clipped = '', used = 0;
-		for (const char of text) {
+		for (const char of text.slice(0, text.length - tail.length)) {
 			const bytes = Buffer.byteLength(char);
-			if (used + bytes > ROUTE_BYTES - 3) break;
+			if (used + bytes > ROUTE_BYTES - 3 - Buffer.byteLength(tail)) break;
 			clipped += char; used += bytes;
 		}
-		return `${clipped}…`;
+		return `${clipped}…${tail}`;
+	}
+	const room = packRoom(items);
+	if (room !== null) return line(...room);
+	// Food on the way: an animal close by is taken while the food held is short of the stock, whatever the step, as a
+	// player takes the sheep it passes rather than hunting later. In the 8 fresh games of 25 Nov the body walked past meat
+	// animals at full hunger and then hunted 8 to 41 minutes per game once hungry with nothing to eat (S1's count). Only on
+	// the surface (down a mine the walk is a climb), only with a pickaxe (the first wood comes first), and released by a
+	// food hand-back this life (the animal fled or could not be reached).
+	const passing = nearbyMeat(o, PASSING_MEAT);
+	// Before the first Nether visit the cooked-meat stock row asks for the same animal itself, with the furnace.
+	if (dimension === 'minecraft:overworld' && passing !== null && food < MEAT_STOCK && !facts.below && foodHandedBack !== true
+		&& count(/^minecraft:[a-z]+_pickaxe$/) > 0 && done(ROUTE.find(r => r.id === 'food_stock'))) {
+		const have = count(new RegExp(`^minecraft:(cooked_)?${passing}$`));
+		return line(`obtain ${passing} count ${have + MEAT} from the animal in view`, `on the way: food ${food}/${MEAT_STOCK}, animal within ${PASSING_MEAT} blocks`);
 	}
 	if (dimension === 'minecraft:the_end') {
 		// A queued wake can render an older sample after the live tally has changed.
@@ -441,10 +505,10 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 	if (dimension === 'minecraft:the_nether') {
 		if (rodsShort > 0) {
 			const fortress = `find a fortress and fight_until ${rodsPlanned} blaze_rods`;
-			if (items.some(i => WORN.has(i.slot) && GOLD_ARMOUR.test(i.itemId))) return line(fortress, planFacts);
+			if (items.some(i => WORN.has(i.slot) && GOLD_ARMOUR.test(i.itemId))) return depart('the fortress', fortress, planFacts, { inReach: true });
 			const gold = items.find(i => GOLD_ARMOUR.test(i.itemId));
 			const prep = gold ? `consider equip_item ${gold.itemId.slice(10)} before searching` : 'consider gold armour if safely nearby; skip a gold hunt';
-			return line(`${prep}; ${fortress}`, `no gold worn; ${planFacts}`);
+			return depart('the fortress', `${prep}; ${fortress}`, `no gold worn; ${planFacts}`, { inReach: true });
 		}
 		if (pearlsShort > 0) return line(`get ${eyesPlanned} ender_pearls: warped-forest endermen, or barter_until with gold`, planFacts);
 		return line('return home through the portal', planFacts);
@@ -453,10 +517,10 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 		.some(id => /^(minecraft:)?story\/enter_the_nether$/.test(id));
 	if (visitedNether) {
 		// End readiness (end-readiness.mjs): a note behind the head, never the head; fixes only from what is in reach.
-		const kit = endKit(o, { handedBack: kitHandedBack });
+		const kit = endKit(o, { handedBack: kitHandedBackAll });
 		const first = kit?.fixes.length ? `; in reach first: ${kit.fixes.join(', ')}` : '';
 		const lacks = kit?.missing.length ? `; End kit lacks ${kit.missing.join(', ')}` : '';
-		if (portalOpen) return line(`enter the End portal${first}`, `portal open${lacks}`);
+		if (portalOpen) return depart('the End', `enter the End portal${first}`, `portal open${lacks}`);
 		// At the frames with eyes in hand, set them first: an observation lists at most 8 blocks of a kind, so the filled
 		// count seen here is a lower bound and must not send the agent back to the Nether while it still holds eyes.
 		if (eyesHeld > 0 && frames.some(b => b?.blockId === 'minecraft:end_portal_frame')) return line(`set the ender_eyes in the empty End portal frames${first}`, `${eyeFacts}${lacks}`);
@@ -465,8 +529,8 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 		if (again !== null) return again;
 		const portal = overworldPortal(o, memory);
 		if ((rodsMissing > 0 || pearlsMissing > 0) && portal) {
-			const survival = foodAdviceNeeded(o) ? `low health/hunger, food ${food} held: recover first; ` : 'food stocking optional while healthy; ';
-			return line(`return via known Overworld portal at ${portal.x},${portal.y},${portal.z} to the Nether`, `${survival}active portal needs no iron pick or ignition; use held tools`);
+			const survival = foodAdviceNeeded(o) ? `low health/hunger, food ${food} held: recover first; ` : '';
+			return depart('the Nether', `return via known Overworld portal at ${portal.x},${portal.y},${portal.z} to the Nether`, `${survival}active portal needs no iron pick or ignition; use held tools`);
 		}
 		// Without a retained portal, keep the existing preparation route; no coordinates are inferred from history.
 		const rebuild = ROUTE.slice(0, ROUTE.findIndex(row => row.id === 'iron_pickaxe') + 1).find(row => !['food_stock', 'trip_wood', 'iron_trip'].includes(row.id) && !done(row));
@@ -474,14 +538,14 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 		if (foodAdviceNeeded(o) && food < 10) return line(`obtain cooked_beef count ${20 - food} before going on (food ${food}/10)`, eyeFacts);
 		if (frames.some(b => /^minecraft:(?:(?:mossy_|cracked_)?stone_bricks|iron_bars)$/.test(b?.blockId ?? '')))
 			return line('find block end_portal_frame walks observed passages to the portal room; resume after handling danger or a blocked doorway', eyeFacts);
-		if (rodsMissing > 0 || pearlsMissing > 0) return line(`go back to the Nether for ${[rodsMissing ? `${rodsMissing} blaze_rods` : null, pearlsMissing ? `${pearlsMissing} ender_pearls` : null].filter(Boolean).join(' and ')}`, eyeFacts);
+		if (rodsMissing > 0 || pearlsMissing > 0) return depart('the Nether', `go back to the Nether for ${[rodsMissing ? `${rodsMissing} blaze_rods` : null, pearlsMissing ? `${pearlsMissing} ender_pearls` : null].filter(Boolean).join(' and ')}`, eyeFacts);
 		// Craft to the eye plan from what is held (the margin pays for throws and lost drops), never fewer than the frame needs.
 		const craftable = Math.min(pearls, count(/^minecraft:blaze_powder$/) + 2 * rods);
 		const craft = Math.max(eyesNeeded, Math.min(craftable, Math.max(0, EYE_PLAN - eyesHeld - filled)));
 		if (eyesNeeded > 0) return line(`craft ${craft} ender_eyes from pearls and blaze powder${first}`, `${eyeFacts}${lacks}`);
 		if (filled > 0 || frames.some(b => b?.blockId === 'minecraft:end_portal_frame')) return line(`set the ender_eyes in the empty End portal frames${first}`, `${eyeFacts}${lacks}`);
-		if (craft > 0 && !portalOpen) return line(`craft ${craft} spare ender_eyes from the pearls and blaze powder held, then find structure stronghold`, `${eyeFacts}; throws break 1 in 5`);
-		return line(`find structure stronghold follows thrown eyes and digs down; then find block end_portal_frame walks passages; resume after danger${first}`, eyeFacts);
+		if (craft > 0 && !portalOpen) return depart('the stronghold', `craft ${craft} spare ender_eyes from the pearls and blaze powder held, then find structure stronghold`, `${eyeFacts}; throws break 1 in 5`);
+		return depart('the stronghold', `find structure stronghold follows thrown eyes and digs down; then find block end_portal_frame walks passages; resume after danger${first}`, eyeFacts);
 	}
 	// Round1 games6/8 lit portals, then spent the rest of the game on optional surface preparation; the portal bed is the
 	// one step allowed there, and only from what is in reach.
@@ -489,7 +553,9 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 		const again = rekit();
 		if (again !== null) return again;
 		const bed = portalBed(o, known, { lit: true, frame: litFrame(o, known) });
-		return bed.step ? line(...bed.step) : line(PORTAL_ENTRY_NEXT, `${bed.skip}; ${ENTRY_FOOD}`);
+		const kit = kitBefore('the Nether');
+		if (kit !== null) return kit;
+		return bed.step ? line(...bed.step) : line(PORTAL_ENTRY_NEXT, `${bed.skip}; shield, armour and food held; eat first if health or hunger is low`);
 	}
 	const stage = (instincts === true ? INSTINCT_ROUTE : ROUTE).find(row => !done(row));
 	if (stage !== undefined) {
@@ -503,6 +569,90 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 		return line(`${next}${restock}`, why);
 	}
 	return null;
+}
+
+// Room in the pack. A full pack takes no drops: g1 of the 25 Nov fresh games carried 36 of 36 slots (521 cobblestone,
+// andesite, granite, cinnabar, 7 stone pickaxes) for its last hour, its digs stopped INVENTORY_FULL, and at minute 348 it
+// found sweet berries and could not pick one up, starving through a 50-minute food hunt. A player throws the clutter out
+// once the pack is nearly full. Clutter is what no route step uses; plain blocks beyond the block stock (the End kit's
+// 64, a stack spare for bridges and casting) and stone or wooden tools past two spares once a better one is held.
+const PACK_SLOTS = 36;
+const PACK_ROOM = 3;
+const BLOCK_STOCK = 128;
+const CLUTTER = /^minecraft:(sand|red_sand|sandstone|red_sandstone|calcite|smooth_basalt|dripstone_block|pointed_dripstone|moss_block|clay_ball|snowball|[a-z_]+_carpet|[a-z_]+_sapling|raw_copper|copper_ingot|lapis_lazuli|amethyst_shard|amethyst_block|poisonous_potato|wheat_seeds|beetroot_seeds|cinnabar|sulfur|bone_block|kelp|seagrass|[a-z_]+_flower|dandelion|poppy|short_grass|fern|dead_bush|stick)$/;
+const PLAIN_BLOCK = /^minecraft:(cobblestone|cobbled_deepslate|stone|deepslate|dirt|coarse_dirt|gravel|andesite|diorite|granite|tuff|netherrack|blackstone|basalt|end_stone)$/;
+const SPARE_TOOLS = 2;
+const GOLD_SLOTS = [['helmet', 'head'], ['chestplate', 'chest'], ['leggings', 'legs'], ['boots', 'feet']];
+function goldPiece(items) {
+	const free = slot => !items.some(i => i.slot === slot);
+	for (const [part, slot] of GOLD_SLOTS) {
+		if (free(slot) && items.some(i => i.itemId === `minecraft:golden_${part}` && !WORN.has(i.slot))) return { id: `golden_${part}`, next: `equip_item golden_${part} to ${slot}`, why: `golden_${part} carried, piglins spare gold` };
+	}
+	const gold = items.filter(i => i.itemId === 'minecraft:gold_ingot').reduce((n, i) => n + i.count, 0);
+	if (gold >= 5 && free('head')) return { id: 'golden_helmet', next: 'obtain golden_helmet, then equip_item it to head', why: `gold ${gold} held, piglins spare gold` };
+	return null;
+}
+// A trip into danger digs its way out (a nether path, a fortress wall, a stronghold stair): this many uses at least.
+const TRIP_USES = 32;
+const TRIP_BLOCKS = 32;
+const KIT_FOOD = 3;
+// Most real time the kit gate asks for before one departure; then it lets the bot go in with what it has.
+export const KIT_PREP_MS = 15 * 60_000;
+/**
+ * The prep clock for the kit gate. gate: the last state ({key, since, over} or null); line: the route line just shown;
+ * key: the departure's life and place (world, deaths, dimension); at: the sample's time. A new key restarts the clock,
+ * so every re-entry gets its own prep time; once over, it stays over for that key. Returns the new gate.
+ */
+export function kitPrep(gate, line, { key, at }) {
+	if (gate && gate.key !== key) gate = null;
+	if (gate?.over || !/; kit before [^)]+\)$/.test(String(line ?? '')) || !Number.isFinite(at)) return gate;
+	const since = gate?.since ?? at;
+	return { key, since, over: at - since >= KIT_PREP_MS };
+}
+/** The route line with the prep clock applied: route(over) draws the line; returns {line, gate}. */
+export function cappedRoute(route, gate, { key, at }) {
+	const before = gate && gate.key === key && gate.over === true;
+	const first = route(before);
+	const next = kitPrep(gate, first, { key, at });
+	return { line: next?.over && !before ? route(true) : first, gate: next };
+}
+const PICK_TIER = ['wooden', 'stone', 'copper', 'iron', 'diamond', 'netherite'];
+/** The best pickaxe's uses left, and the pickaxe to make when it is short: iron when 3 iron is held, else stone. */
+function pickaxeLeft(items) {
+	const picks = items.map(i => ({ m: String(i.itemId ?? '').match(/^minecraft:([a-z]+)_pickaxe$/), i })).filter(r => r.m && r.i.count > 0)
+		.map(({ m, i }) => ({ tier: PICK_TIER.indexOf(m[1]), left: Number.isFinite(i.usesLeft) ? i.usesLeft : i.maxDamage > 0 && Number.isFinite(i.damage) ? i.maxDamage - i.damage : Infinity }));
+	const sound = picks.filter(p => p.tier >= 1);
+	if (sound.length === 0) return null;
+	const left = Math.max(...sound.map(p => p.left));
+	const iron = items.filter(i => i.itemId === 'minecraft:iron_ingot').reduce((n, i) => n + i.count, 0);
+	return { left, make: iron >= 3 ? 'iron_pickaxe' : 'stone_pickaxe' };
+}
+
+function packRoom(items) {
+	const stacks = items.filter(i => Number.isInteger(i.slot) && i.slot >= 0 && i.slot < PACK_SLOTS);
+	const free = PACK_SLOTS - new Set(stacks.map(i => i.slot)).size;
+	if (free >= PACK_ROOM || stacks.length === 0) return null;
+	const want = PACK_ROOM + 1 - free;
+	const drops = [];
+	// Sticks: two stacks' worth stay (tools and torches), the rest is clutter.
+	const sticks = stacks.filter(i => i.itemId === 'minecraft:stick').sort((a, b) => b.count - a.count);
+	drops.push(...stacks.filter(i => CLUTTER.test(i.itemId) && !(i.itemId === 'minecraft:stick' && i === sticks[0])));
+	// Plain blocks: cobblestone kept first (it casts, bridges and pillars), the odd stone kinds and dirt dropped first.
+	let blocks = stacks.filter(i => PLAIN_BLOCK.test(i.itemId)).reduce((n, i) => n + i.count, 0);
+	const order = id => /cobble/.test(id) ? 2 : /netherrack|blackstone|stone$|deepslate|end_stone/.test(id) ? 1 : 0;
+	for (const i of stacks.filter(i => PLAIN_BLOCK.test(i.itemId)).sort((a, b) => order(a.itemId) - order(b.itemId) || a.count - b.count))
+		if (blocks - i.count >= BLOCK_STOCK) { drops.push(i); blocks -= i.count; }
+	// Lower tools past the spares once a better one of the kind is held: the pickaxes obtain makes on the way pile up.
+	for (const kind of ['pickaxe', 'axe', 'shovel', 'sword', 'hoe']) {
+		const tools = items.filter(i => new RegExp(`^minecraft:[a-z]+_${kind}$`).test(i.itemId ?? ''));
+		const best = Math.max(-1, ...tools.map(i => tier(i.itemId)));
+		const lower = tools.filter(i => tier(i.itemId) < best && Number.isInteger(i.slot) && i.slot < PACK_SLOTS).sort((a, b) => tier(a.itemId) - tier(b.itemId));
+		drops.push(...lower.slice(0, Math.max(0, lower.length - (kind === 'pickaxe' ? SPARE_TOOLS : 0))));
+	}
+	if (drops.length === 0) return null;
+	const named = drops.slice(0, Math.min(want, 3));
+	const next = named.map(i => `drop_item slot:${i.slot} count:${i.count}`).join(', then ');
+	return [next, `pack ${PACK_SLOTS - free}/${PACK_SLOTS}, a full pack loses drops; spare ${named.map(i => i.itemId.slice(10)).join(', ')}`];
 }
 
 // Down a mine: under the sky and below this height. Cave and tunnel floors are under it; a spawn on dry land is not.

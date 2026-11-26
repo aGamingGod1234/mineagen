@@ -69,7 +69,9 @@ test('the stock stays done in the Nether and after a visit, even with an animal 
 	const visited = emptyKnown(); visited.visitedDimensions.push('minecraft:the_nether');
 	for (const o of [sample(TOOLS, { entities: [COW] }), sample(TOOLS, { entities: [COW], dimension: 'minecraft:the_nether' })])
 		assert.doesNotMatch(route(o, { known: visited }), /cooked meat|cooked_beef count 8/);
-	assert.match(route(sample(TOOLS, { entities: [COW] }), { known: visited }), /obtain iron_pickaxe/);
+	// The cow passed on the way is taken (the raw meat a player picks up as it goes), not the cooked quota.
+	assert.match(route(sample(TOOLS, { entities: [COW] }), { known: visited }), /^usual next step: obtain beef count 4 from the animal in view \(on the way: food 0\/8/);
+	assert.match(route(sample([...TOOLS, item('bread', 8)], { entities: [COW] }), { known: visited }), /obtain iron_pickaxe/);
 });
 
 test('only a sourceless food obtain or animal find counts as a hand-back', async () => {
@@ -152,7 +154,7 @@ test('a wood obtain that found no source lets the trip go down with the wood it 
 	const stocked = [...TOOLS, item('cooked_beef', 8)];
 	assert.match(route(sample(stocked)), /^usual next step: obtain log count \d+ before going down/);
 	// Room kit-1001: under cover at spawn the log obtain could not climb out, and the step held the route for 55 minutes.
-	assert.match(route(sample(stocked), { woodHandedBack: true }), /^usual next step: obtain iron_ingot count 11 in one trip/);
+	assert.match(route(sample(stocked), { woodHandedBack: true }), /^usual next step: obtain iron_ingot count 23 in one trip/);
 	const obtain = item => ({ kind: 'obtain', arguments: { item, count: 4 } });
 	for (const id of ['log', 'oak_log', 'minecraft:spruce_log', 'planks', 'birch_planks', '#logs'])
 		assert.equal(woodStockHandback(obtain(id), { state: 'FAILED', reasonCode: 'NO_SOURCE' }), true, id);
@@ -170,7 +172,7 @@ test('the production view releases the trip wood after a failed wood obtain, unt
 	assert.match(views.continuity(r).route, /obtain log count/);
 	assert.equal(views.noteFoodHandback(r, { kind: 'obtain', arguments: { item: 'log', count: 5 } }, { state: 'FAILED', reasonCode: 'NO_SOURCE' }), true);
 	await views.observe(r, sample(stocked, { at: 2000 }));
-	assert.match(views.continuity(r).route, /obtain iron_ingot count 11/);
+	assert.match(views.continuity(r).route, /obtain iron_ingot count 23/);
 	await views.observe(r, sample([], { at: 3000, dead: true }));
 	await views.observe(r, sample(stocked, { at: 4000 }));
 	assert.match(views.continuity(r).route, /obtain log count/, 'a new life asks for the trip wood again');

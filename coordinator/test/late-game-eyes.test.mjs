@@ -283,7 +283,7 @@ test('an eye lost from view and not found at its estimated drop is named as left
 test('the Overworld crafts the margin it brought home, not only the 12 the frame needs', () => {
 	const known = emptyKnown(); known.visitedDimensions.push('minecraft:the_nether');
 	const route = (items) => routeLine({ observation: { ready: true, observedAtEpochMs: 10, world: { worldId: 'w', dimension: 'minecraft:overworld' }, position: { x: 0, y: 64, z: 0 },
-		player: { health: 20, foodLevel: 20 }, inventory: { items: [['iron_pickaxe', 1], ['cooked_beef', 16], ...items].map(([id, count]) => ({ itemId: `minecraft:${id}`, count })) }, entities: [], blocks: [] },
+		player: { health: 20, foodLevel: 20 }, inventory: { items: [['iron_pickaxe', 1], ['cooked_beef', 16], ['shield', 1, 'offhand'], ['iron_chestplate', 1, 'chest'], ['iron_boots', 1, 'feet'], ['cobblestone', 32], ...items].map(([id, count, slot]) => ({ itemId: `minecraft:${id}`, count, ...(slot ? { slot } : {}) })) }, entities: [], blocks: [] },
 		known, evaluate: evaluatePlanCheck });
 	assert.match(route([['blaze_rod', 8], ['ender_pearl', 15]]), /^usual next step: craft 15 ender_eyes/);
 	assert.match(route([['blaze_rod', 7], ['ender_pearl', 12]]), /^usual next step: craft 12 ender_eyes/);

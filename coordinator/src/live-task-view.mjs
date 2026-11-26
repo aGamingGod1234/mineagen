@@ -14,8 +14,10 @@ import { armorMaterialNeed, chainText, howtoChain, howtoHeldRecipe, howtoHolding
 import { fortressSearchOption } from './nether-regions.mjs';
 import { NETHER_OPTIONS_BYTES, SOURCE_BLOCKS, bedSpawnOption, descentRespawnFact, knownLine, needOptions, netherReadiness, netherRouteOption, pearlHuntLine, pearlOptions, pearlSourceInView, pearlsWanted, pickaxeTier, portalAtHand, progressionGoal, textResources } from './need-sources.mjs';
 import { VILLAGE_POI, headingOf, sightingKind } from './search-coverage.mjs';
-import { foodStockHandback, portalDeathMark, routeLine, skillFitsLine, woodStockHandback } from './skill-fits.mjs';
+import { foodStockHandback, portalDeathMark, routeLine, cappedRoute, skillFitsLine, woodStockHandback } from './skill-fits.mjs';
 import { KIT_ITEMS } from './end-readiness.mjs';
+// A kit line older than this no longer guards the portal: the header was not drawn since.
+const PORTAL_KIT_FRESH_MS = 5 * 60_000;
 import { beatsTheGame } from './goal-spec-translator.mjs';
 import { dropLoss, recoveryRoute } from './respawn-recovery.mjs';
 import { lightLine, upLine, toolsLine, picksLine, sleepLine, spawnLine, castingLine, frameLine } from './wake-body-facts.mjs';
@@ -274,7 +276,8 @@ export class LiveTaskViews {
   if (!KIT_ITEMS.test(item)) return;
   const state = this.#state(record);
   if (!state.worldId) return;
-  state.kitHandbacks = [...(state.kitHandbacks ?? []).filter(row => row.item !== item), { item, worldId: state.worldId, deaths: state.deaths }];
+  const at = Number.isFinite(state.observation?.observedAtEpochMs) ? state.observation.observedAtEpochMs : this.#now();
+  state.kitHandbacks = [...(state.kitHandbacks ?? []).filter(row => row.item !== item), { item, worldId: state.worldId, deaths: state.deaths, at }];
  }
  async actionReceipt(record, receipt) {
   if (receipt.goalRevision === record.goalRevision) {
@@ -578,6 +581,11 @@ export class LiveTaskViews {
   * The plan's open counted needs in plan order (the next unfinished step first): { id, have, need, step, label } for
   * each has: term not yet met. frame:true adds an open Nether entry's 10-obsidian frame need.
   */
+ /** The kit line and the known portals while the route asks for kit before the Nether, or null (#portalKitGate). */
+ portalKitGate(record) {
+  const gate = this.#states.get(record.agentId)?.portalKit ?? null;
+  return gate !== null && this.#now() - gate.at <= PORTAL_KIT_FRESH_MS ? gate : null;
+ }
  openNeeds(record, { frame = false } = {}) {
   if (!record.currentGoal) return [];
   const state = this.#state(record), facts = planProgress(state.plan);
@@ -727,7 +735,24 @@ export class LiveTaskViews {
   const foodHandedBack = released(current.foodHandback), woodHandedBack = released(current.woodHandback);
   const kitHandedBack = new Set((current.kitHandbacks ?? []).filter(row => row.worldId === current.worldId && row.deaths === state.deaths).map(row => row.item));
   const diedSincePortal = Number.isSafeInteger(state.portalDeaths) && state.deaths > state.portalDeaths;
-  const route = beatsTheGame(record.currentGoalSpec) ? routeLine({ observation: state.observation, known: state.known, memory: this.#memory(record, state, ROUTE_SOURCE_BLOCKS), foodHandedBack, woodHandedBack, kitHandedBack, diedSincePortal, evaluate: evaluatePlanCheck, instincts: this.#instincts }) : null;
+  let route = null;
+  if (beatsTheGame(record.currentGoalSpec)) {
+   const memory = this.#memory(record, state, ROUTE_SOURCE_BLOCKS);
+   const key = `${current.worldId}|${state.deaths}|${state.liveDimension ?? ''}`;
+   // Inside a prep window, only the hand-backs since it opened release a kit piece (kitPrep in skill-fits.mjs).
+   const prepSince = current.kitPrep?.key === key ? current.kitPrep.since : null;
+   const prepHandedBack = prepSince === null ? new Set() : new Set((current.kitHandbacks ?? []).filter(row => row.worldId === current.worldId && row.deaths === state.deaths && Number.isFinite(row.at) && row.at >= prepSince).map(row => row.item));
+   const capped = cappedRoute(kitPrepOver => routeLine({ observation: state.observation, known: state.known, memory, foodHandedBack, woodHandedBack, kitHandedBack, prepHandedBack, kitPrepOver, diedSincePortal, evaluate: evaluatePlanCheck, instincts: this.#instincts }),
+    current.kitPrep ?? null, { key, at: state.observation?.observedAtEpochMs });
+   current.kitPrep = capped.gate; route = capped.line;
+   // The portal kit check (native-tool-runtime.mjs #portalKitGate) reads this: the kit line and the portals it guards.
+   const portals = state.liveDimension === 'minecraft:overworld' && /; kit before the Nether\)$/.test(route ?? '') ? [
+    ...(state.known?.frames ?? []).filter(f => f?.lit === true && f.dimension === 'minecraft:overworld'),
+    ...(memory?.known?.sightings ?? []).filter(row => row?.kind === 'portal' && /nether_portal/.test(String(row.what ?? ''))),
+    ...(state.observation?.blocks ?? []).filter(b => b?.blockId === 'minecraft:nether_portal'),
+   ].filter(p => [p.x, p.z].every(Number.isFinite)).map(p => ({ x: p.x, y: p.y, z: p.z })) : [];
+   current.portalKit = portals.length > 0 ? { line: route, portals, at: this.#now() } : null;
+  }
   return composeContinuityHeader({ goal: record.currentGoal, intent: state.intent, evidence: intentEvidence(state), since, progress: this.#progressLine(state), route, stepProgress: stepProgress.progress ?? null, repeats: stepProgress.repeats ?? null, search: stepProgress.search ?? null, ...this.#memoryFacts(record, state, shown, observation?.recovery ?? null), results: state.results, running, effect: state.effect, orders, guardInstalled, guardCoverage, guardThreatsNear, guardThreatsTargeting, annotate });
  }
  /** The trigger for a no-progress or repeated-result fact not yet woken for ('no_progress' | 'repeated_result'), once. */

@@ -2328,3 +2328,37 @@ test('an iron pickaxe trip mines the next vein at hand for the kit once its own 
 	assert.ok((body.inv.get('raw_iron') ?? 0) + (body.inv.get('iron_ingot') ?? 0) >= 5, 'iron for the kit kept beside the pickaxe');
 	assert.equal(body.calls.filter(([type]) => type === 'search').length, 0, 'no fresh search for the kit');
 });
+
+// 25 Nov save-point games: 0 of 5 wore a chestplate. The route's iron trip (obtain iron_ingot for the whole kit) mined
+// no extra for the kit, so the armour's iron was never taken at the ore, and topped-up raw iron is not what the kit
+// habit crafts armour from.
+test('the route\'s iron trip with a big vein in view also takes the armour\'s iron and smelts it before it ends', async () => {
+	const body = simulatedBody({ start: { stone_pickaxe: 1, furnace: 1, crafting_table: 1, oak_planks: 30, cobblestone: 8 } });
+	const observe = body.observe;
+	body.observe = async () => { const o = await observe(); for (let i = 0; i < 10; i++) o.blocks.push({ blockId: 'minecraft:iron_ore', x: 4 + i, y: 64, z: 4 }); return o; };
+	const mine = body.mine;
+	body.mine = async (args) => { if (!args.vein) return mine(args); body.calls.push(['mine', args]); body.inv.set('raw_iron', (body.inv.get('raw_iron') ?? 0) + 4); return { state: 'SUCCEEDED' }; };
+	const result = await runObtain({ item: 'iron_ingot', count: 11 }, body, { now: ticking() });
+	assert.equal(result.state, 'SUCCEEDED', result.message + ' :: ' + result.steps.join(' | '));
+	assert.ok((body.inv.get('iron_ingot') ?? 0) >= 11 + 12, `kit 11 (pickaxe 3, shield 1, buckets 6, flint and steel 1) and armour 12 as ingots: ${body.inv.get('iron_ingot')} :: ${result.steps.join(' | ')}`);
+	assert.equal(body.inv.get('raw_iron') ?? 0, 0, 'no raw iron left unsmelted');
+	const { nextKitStep } = await import('../src/kit-habit.mjs');
+	const items = [...body.inv].filter(([, n]) => n > 0).map(([id, count], slot) => ({ itemId: `minecraft:${id}`, count, slot: slot + 9 }));
+	const withKit = [...items, { itemId: 'minecraft:iron_pickaxe', count: 1, slot: 0 }, { itemId: 'minecraft:shield', count: 1, slot: 'offhand' }, { itemId: 'minecraft:bucket', count: 2, slot: 1 }, { itemId: 'minecraft:flint_and_steel', count: 1, slot: 2 }];
+	const step = nextKitStep({ world: { dimension: 'minecraft:overworld' }, player: { health: 20, skyOpen: true }, inventory: { selectedSlot: 0, items: withKit }, equipment: {} });
+	assert.equal(step?.itemId, 'minecraft:iron_chestplate', JSON.stringify(step));
+});
+
+test('an iron trip whose vein runs out ends at the target, never a fresh search for the armour\'s iron', async () => {
+	const body = simulatedBody({ start: { stone_pickaxe: 1, furnace: 1, crafting_table: 1, oak_planks: 30 } });
+	let veins = 0;
+	const observe = body.observe;
+	body.observe = async () => { const o = await observe(); if (veins < 1) o.blocks.push({ blockId: 'minecraft:iron_ore', x: 4, y: 64, z: 4 }); return o; };
+	const mine = body.mine;
+	body.mine = async (args) => { if (!args.vein) return mine(args); veins++; body.calls.push(['mine', args]); body.inv.set('raw_iron', (body.inv.get('raw_iron') ?? 0) + 8); return { state: 'SUCCEEDED' }; };
+	const result = await runObtain({ item: 'iron_ingot', count: 3 }, body, { now: ticking() });
+	assert.equal(result.state, 'SUCCEEDED', result.message + ' :: ' + result.steps.join(' | '));
+	assert.equal(body.calls.filter(([type]) => type === 'search' || type === 'find').length, 0, 'no search');
+	assert.equal(body.inv.get('raw_iron') ?? 0, 0, 'the vein\'s spare raw iron is smelted too');
+	assert.match(result.message, /still \d+ iron short/);
+});

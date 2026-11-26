@@ -1,5 +1,5 @@
 // Provider-free route room: node scripts/quality/test-iron-kit-live.mjs SEEDS.json OUT_DIR [JAR] [--coordinator TGZ|DIR] [--descriptive]
-// SEEDS.json: { seeds: [<seed>...], lanes: 2, budgetMinutes: 45, start?: 'kit', until?: 'kit'|'portal' }. KIT_SEEDS=a,b plays only those seeds. One fresh
+// SEEDS.json: { seeds: [<seed>...], lanes: 2, budgetMinutes: 45, start?: 'kit'|'lit', until?: 'kit'|'portal'|'nether' }. KIT_SEEDS=a,b plays only those seeds. One fresh
 // normal-difficulty server per seed with monsters on; each lane is a body that starts with nothing at the world spawn or
 // on dry soil 200+ blocks from the other lanes, and plays until it holds the full iron kit (an iron pickaxe, a shield, two
 // buckets and flint and steel) or its budget runs out.
@@ -18,6 +18,11 @@
 // the shield worn, two spare stone pickaxes, a stack of cobblestone, some wood, a table, a furnace, food and 1 raw iron).
 // until: 'portal' plays on past the kit until the route's line reaches the portal (whatever the route puts between the
 // kit and the portal, such as armour, is done); a lane then passes on reaching it with no death.
+// start: 'lit' gives the kit's leftovers as 'kit' does but no shield, armour or food, and the route remembers a lit portal
+// by the lane's start (as if the model had lit it early). until: 'nether' plays until the line says to go in; a lane then
+// passes when it sets off kitted (shield in the off hand, chestplate and boots worn, 3+ food) with no death. start:
+// 'dead' is the respawn after a death past the portal: nothing held, the lit portal remembered, the re-kit rows on.
+// The kit gate's prep cap (cappedRoute) runs as in the live view; prepCapAt is the minute it let the lane go in short.
 // Exit code (strict, the default): 0 every lane held the kit with no death, 1 one did not, 2 invalid evidence.
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
@@ -30,7 +35,7 @@ import { callObtain } from './obtain-handbacks.mjs';
 import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 import { deathCounter, deathEvidence } from './lib/damage-counter.mjs';
-import { kitHeld, kitMinutes, kitStatTotal, portalReady, routeCall, routeToolTimeout } from './lib/iron-kit-route.mjs';
+import { entryKit, kitHeld, kitMinutes, kitStatTotal, portalReady, routeCall, routeToolTimeout } from './lib/iron-kit-route.mjs';
 import { getSwitch } from '../../coordinator/src/switches.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
@@ -78,7 +83,7 @@ async function coordinatorRoot(arg) {
 }
 const arm = await coordinatorRoot(coordinatorArg);
 const load = (file) => import(pathToFileURL(path.join(arm, 'src', file)).href);
-const [{ NativeToolRuntime }, { normalizeMinecraftToolCall }, { adaptObservation }, { InspectionClient }, { DEFAULT_REFLEXES }, { routeLine, foodStockHandback, woodStockHandback = () => false }, { emptyKnown, evaluatePlanCheck, rememberPlanFacts }, { HeadlessRconClient }, { parseSavedWorldSpawn }] = await Promise.all([
+const [{ NativeToolRuntime }, { normalizeMinecraftToolCall }, { adaptObservation }, { InspectionClient }, { DEFAULT_REFLEXES }, { routeLine, foodStockHandback, woodStockHandback = () => false, cappedRoute = route => ({ line: route(false), gate: null }), KIT_PREP_MS = Infinity }, { emptyKnown, evaluatePlanCheck, rememberPlanFacts }, { HeadlessRconClient }, { parseSavedWorldSpawn }] = await Promise.all([
 	load('native-tool-runtime.mjs'), load('native-minecraft-tools.mjs'), load('observation-adapter.mjs'), load('inspection-client.mjs'), load('reflexes.mjs'),
 	load('skill-fits.mjs'), load('plan-checks.mjs'), load('headless-rcon.mjs'), load('headless-world-spawn.mjs')]);
 const armId = coordinatorArg ? path.basename(coordinatorArg) : 'checkout';
@@ -92,10 +97,11 @@ const isNightTime = dayTime => Number.isFinite(dayTime) ? ((dayTime % 24_000) + 
 const lanes = Math.min(plan.lanes ?? 2, 4);
 const budgetMs = (plan.budgetMinutes ?? 45) * 60_000;
 const until = plan.until ?? 'kit';
-if (!['kit', 'portal'].includes(until) || ![undefined, 'kit'].includes(plan.start)) { console.error("until is 'kit' or 'portal'; start is 'kit' or absent"); process.exit(2); }
+if (!['kit', 'portal', 'nether'].includes(until) || ![undefined, 'kit', 'lit', 'dead'].includes(plan.start)) { console.error("until is 'kit', 'portal' or 'nether'; start is 'kit', 'lit', 'dead' or absent"); process.exit(2); }
 // Leftovers from the lanes that made the kit from nothing in the iron-kit room (median-ish of 20 such lanes).
 const START_KIT = [['iron_pickaxe', 1], ['stone_pickaxe', 2], ['bucket', 2], ['flint_and_steel', 1], ['cobblestone', 64], ['oak_planks', 8], ['oak_log', 4],
 	['crafting_table', 1], ['furnace', 1], ['cooked_beef', 6], ['raw_iron', 1]];
+const START_LIT = START_KIT.filter(([item]) => item !== 'cooked_beef');
 const only = new Set(String(process.env.KIT_SEEDS ?? '').split(',').map(s => s.trim()).filter(Boolean));
 const seeds = plan.seeds.map(String).filter(seed => only.size === 0 || only.has(seed));
 const results = [];
@@ -164,10 +170,10 @@ for (const [seedIndex, seed] of seeds.entries()) {
 	if (row.error || played.length < lanes) row.error ??= `${lanes - played.length} lane(s) did not play`;
 	if (played.some(lane => lane.deaths === null)) (row.integrity ??= []).push({ file: 'deaths', error: 'Missing or decreasing vanilla death counter' });
 	for (const lane of played) for (const flaw of lane.integrity ?? []) (row.integrity ??= []).push({ ...flaw, lane: lane.lane });
-	row.pass = !row.error && played.every(lane => (until === 'portal' ? lane.portalMinutes !== null : lane.kitMinutes !== null) && lane.deaths === 0);
+	row.pass = !row.error && played.every(lane => (until === 'portal' ? lane.portalMinutes !== null : until === 'nether' ? lane.netherMinutes != null && lane.kitAtEntry?.kitted === true : lane.kitMinutes !== null) && lane.deaths === 0);
 	results.push(row);
 	await appendFile(rowsFile, `${JSON.stringify(row)}\n`);
-	for (const lane of row.lanes) console.log(`[${seed} L${lane.lane}] kit ${lane.kitMinutes ?? '-'} min, portal-ready ${lane.portalMinutes ?? '-'} min, armour worn ${lane.firsts?.armorWorn ?? '-'} min, climbs ${lane.climbs?.length ?? '?'}, descents ${lane.descents ?? '?'}, deaths ${lane.deaths ?? '?'}, mined ${lane.mined ?? '?'}${lane.error ? ` ERROR ${lane.error.split('\n')[0]}` : ''}`);
+	for (const lane of row.lanes) console.log(`[${seed} L${lane.lane}] kit ${lane.kitMinutes ?? '-'} min, portal-ready ${lane.portalMinutes ?? '-'} min, sets off ${lane.netherMinutes ?? '-'} min ${lane.kitAtEntry ? (lane.kitAtEntry.kitted ? 'kitted' : `short ${lane.kitAtEntry.short.join('/')}`) : ''}, armour worn ${lane.firsts?.armorWorn ?? '-'} min, climbs ${lane.climbs?.length ?? '?'}, descents ${lane.descents ?? '?'}, deaths ${lane.deaths ?? '?'}, mined ${lane.mined ?? '?'}${lane.error ? ` ERROR ${lane.error.split('\n')[0]}` : ''}`);
 }
 const report = await finishRun(results, { file: path.join(out, 'result.json'), planned: seeds.length, strict });
 console.log(JSON.stringify(report));
@@ -264,6 +270,10 @@ async function playLane(s, agent, seed, seedIndex, dir) {
 	await s.command(`effect give ${name} minecraft:instant_health 1 20 true`);
 	await s.command(`effect give ${name} minecraft:saturation 2 20 true`);
 	for (let i = 0; i < 300 && !(agent.latest()?.ready && (agent.latest()?.inventory?.items?.length ?? 0) === 0); i++) await sleep(100);
+	if (plan.start === 'lit') {
+		for (const [item, count] of START_LIT) await s.command(`give ${name} minecraft:${item} ${count}`);
+		for (let i = 0; i < 100 && !((agent.latest() ? adaptObservation(agent.latest()) : null)?.inventory?.items ?? []).some(i => i.itemId === 'minecraft:raw_iron'); i++) { await agent.observe().catch(() => null); await sleep(200); }
+	}
 	if (plan.start === 'kit') {
 		for (const [item, count] of START_KIT) await s.command(`give ${name} minecraft:${item} ${count}`);
 		await s.command(`item replace entity ${name} weapon.offhand with minecraft:shield`);
@@ -277,7 +287,11 @@ async function playLane(s, agent, seed, seedIndex, dir) {
 	const minutes = () => Math.round((Date.now() - t0) / 600) / 100;
 	const remaining = () => budgetMs - (Date.now() - t0);
 	const known = emptyKnown();
+	if (['lit', 'dead'].includes(plan.start) && start) known.frames.push({ dimension: 'minecraft:overworld', x: Math.floor(start[0]) + 3, y: Math.floor(start[1]), z: Math.floor(start[2]), axis: 'x', obsidian: 10, needed: 10, lit: true });
 	let foodHandedBack = false, woodHandedBack = false;
+	// A failed kit obtain this life releases that piece on the route line, as the live view does (noteKitHandback).
+	const kitHandedBack = new Set(), kitHandbackAt = new Map();
+	let kitPrep = null, prepStartedAt = Date.now();
 	// Climb and descent tracking on the harness's own clock: a death between going under and coming up is no climb.
 	let under = null, lastDeaths = 0, sampling = true, stepText = '';
 	const sampler = (async () => {
@@ -364,8 +378,20 @@ async function playLane(s, agent, seed, seedIndex, dir) {
 		rememberPlanFacts?.(known, o);
 		result.kitMinutes ??= kitMinutes(o, Date.now() - t0, budgetMs);
 		if ((until === 'kit' && result.kitMinutes !== null) || remaining() <= 0) break;
-		const line = routeLine({ observation: o, known, foodHandedBack, woodHandedBack, evaluate: evaluatePlanCheck });
+		// The live view's prep clock (cappedRoute): one key a life and dimension, on the sample's time.
+		const prepKey = `${lastDeaths}|${o.world?.dimension ?? ''}`;
+		const prepSince = kitPrep?.key === prepKey ? kitPrep.since : null;
+		const prepHandedBack = new Set([...kitHandbackAt].filter(([, at]) => prepSince !== null && at >= prepSince).map(([item]) => item));
+		const capped = cappedRoute(kitPrepOver => routeLine({ observation: o, known, foodHandedBack, woodHandedBack, kitHandedBack, prepHandedBack, kitPrepOver, diedSincePortal: plan.start === 'dead', evaluate: evaluatePlanCheck }),
+			kitPrep, { key: prepKey, at: o.observedAtEpochMs ?? Date.now() });
+		if (capped.gate?.over && !kitPrep?.over) result.prepCapAt ??= minutes();
+		if (capped.gate && capped.gate.since !== kitPrep?.since) prepStartedAt = Date.now();
+		kitPrep = capped.gate;
+		const line = capped.line;
 		if (until === 'portal' && portalReady(o, line)) { result.portalMinutes = minutes(); result.portalLine = line; break; }
+		if (until === 'nether' && /^usual next step: enter the Nether through the lit portal/.test(line ?? '')) {
+			result.netherMinutes = minutes(); result.netherLine = line; result.kitAtEntry = entryKit(o); break;
+		}
 		let call = hunt ?? routeCall(line);
 		hunt = null;
 		const key = call ? JSON.stringify(call) : null;
@@ -394,6 +420,11 @@ async function playLane(s, agent, seed, seedIndex, dir) {
 			const mob = near ? String(near.type).replace(/^minecraft:/, '') : ['cow', 'pig', 'sheep', 'chicken'][turn % 4];
 			tool = (timeoutMs) => normalizeMinecraftToolCall('do_step', { verb: 'find', target: { mob, within: 96, timeoutMs }, why: 'route: look for an animal' });
 			call = { ...call, mob };
+		} else if (call.kind === 'rest') {
+			// The model's answer to a night that stops the search: rest under cover until day.
+			tool = (timeoutMs) => normalizeMinecraftToolCall('do_step', { verb: 'rest', target: { timeoutMs }, why: 'route: wait out the night' });
+		} else if (call.kind === 'drop') {
+			tool = () => normalizeMinecraftToolCall('act', { actionType: 'drop_item', arguments: { slot: call.slot, count: call.count } });
 		} else if (call.kind === 'equip') {
 			const piece = (o.inventory?.items ?? []).find(i => i.itemId === `minecraft:${call.item}` && Number.isInteger(i.slot));
 			if (!piece || !call.slot) { await sleep(1000); continue; }
@@ -403,7 +434,9 @@ async function playLane(s, agent, seed, seedIndex, dir) {
 		const ran = await callObtain({
 			mode: 'answer', budgetMs: budgetMs - (begun - t0), started: begun,
 			execute: async (attempt, left) => {
-				const timeoutMs = routeToolTimeout(call.kind, left);
+				// A kit step gets no more than the prep time left (at least the obtain tool's minute), as the cap promises.
+				const prepLeft = kitPrep && !kitPrep.over && /; kit before [^)]+\)$/.test(line ?? '') ? Math.max(60_000, KIT_PREP_MS - (Date.now() - prepStartedAt)) : Infinity;
+				const timeoutMs = routeToolTimeout(call.kind, Math.min(left, prepLeft));
 				if (timeoutMs === null) return { state: 'TIMED_OUT', reasonCode: 'LANE_BUDGET' };
 				return execute(tool(timeoutMs), `${turn}-${attempt}`);
 			},
@@ -417,7 +450,12 @@ async function playLane(s, agent, seed, seedIndex, dir) {
 		if ((until === 'kit' && result.kitMinutes !== null) || remaining() <= 0 || done?.reasonCode === 'LANE_BUDGET') break;
 		if (call.kind === 'obtain' && foodStockHandback({ kind: 'obtain', arguments: { item: call.item } }, done)) foodHandedBack = true;
 		if (call.kind === 'find_animal' && foodStockHandback({ kind: 'find', arguments: { mob: call.mob } }, done)) foodHandedBack = true;
+		if (call.kind === 'obtain' && ['FAILED', 'TIMED_OUT'].includes(done?.state) && done?.reasonCode !== 'OBSERVATION_UNAVAILABLE' && !/DANGER|HEALTH|CANCEL|INTERRUPT/.test(done?.reasonCode ?? '')
+			&& ['shield', 'iron_chestplate', 'iron_boots', 'stone_pickaxe', 'iron_pickaxe', 'golden_helmet', 'cobblestone'].includes(call.item)) {
+			kitHandedBack.add(`minecraft:${call.item}`); kitHandbackAt.set(`minecraft:${call.item}`, adaptObservation(agent.latest())?.observedAtEpochMs ?? Date.now());
+		}
 		if (call.kind === 'obtain' && woodStockHandback({ kind: 'obtain', arguments: { item: call.item } }, done)) woodHandedBack = true;
+		if (call.kind === 'find_animal' && done?.reasonCode === 'FIND_NIGHT') hunt = { kind: 'rest' };
 		if (call.kind === 'find_animal' && done?.state === 'SUCCEEDED' && MEATS[call.mob]) hunt = { kind: 'obtain', item: `cooked_${MEATS[call.mob]}`, count: 8 };
 		const inventory = JSON.stringify((adaptObservation(agent.latest())?.inventory?.items ?? []).map(i => [i.itemId, i.count]).sort());
 		if (done?.state === 'SUCCEEDED' && key === same.key && inventory === same.inventory) same.times += 1;

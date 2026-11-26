@@ -16,7 +16,7 @@ import { REGEN_RESUME_HEALTH, bodyDanger, eatCalls, lowHealthFork } from './fork
 import { heldCounts, heldOf, keepPickaxeMakings, planObtain, readyTimes, resolveObtainItem, searchCost, seenRowCost, shortId, OBTAIN_STATIONS } from './obtain-plan.mjs';
 import { JOB_BLOCK, houseYield, lootSources, structureReach } from './loot-sources.mjs';
 import { lootChest } from './loot-step.mjs';
-import { kitLeft } from './skill-fits.mjs';
+import { KIT_ARMOUR, kitLeft } from './skill-fits.mjs';
 import { getSwitch } from './switches.mjs';
 
 export const OBTAIN_DEFAULT_TIMEOUT_MS = 900_000;
@@ -173,11 +173,34 @@ export function kitIronExtra(o, plan) {
 	return Math.max(0, kitLeft(count).iron - count(/^minecraft:(iron_ingot|raw_iron)$/) - mining);
 }
 
+/** Rounds an end-of-trip smelt of the raw iron held may take before the call ends anyway. */
+const SMELT_ROUNDS = 6;
+const SMELT_AT_LEAST = 4;
+
+/** Whether this plan mines raw iron in the Overworld: a trip down to the ore. */
+export function minesOverworldIron(o, plan) {
+	return (o?.world?.dimension ?? 'minecraft:overworld') === 'minecraft:overworld'
+		&& plan.needs.some((need) => need.kind === 'mine' && need.accept.includes('raw_iron') && need.count > 0);
+}
+
 /** Iron (ingots and raw) the route's kit still lacks beyond what is held. */
 export function kitIronShort(o) {
 	const items = (o?.inventory?.items ?? []).filter((row) => row?.count > 0);
 	const count = (re) => items.filter((row) => re.test(row.itemId ?? '')).reduce((n, row) => n + row.count, 0);
 	return Math.max(0, kitLeft(count).iron - count(/^minecraft:(iron_ingot|raw_iron)$/));
+}
+
+/**
+ * Iron the kit and the route's armour (KIT_ARMOUR pieces not held) still lack beyond what is held: what a top-up at the
+ * ore takes. A player at a vein takes the iron it will wear too. The armour row alone asked for 8 iron with 0 to 5 held,
+ * a second trip down, and 0 of 30 Overworld deaths in 8 fresh games (25 Nov) wore armour. Never a fresh search: the
+ * top-up mines only ore in view or known within reach.
+ */
+export function kitAndArmourIronShort(o) {
+	const items = (o?.inventory?.items ?? []).filter((row) => row?.count > 0);
+	const count = (re) => items.filter((row) => re.test(row.itemId ?? '')).reduce((n, row) => n + row.count, 0);
+	const armour = KIT_ARMOUR.filter((piece) => !count(piece.part)).reduce((n, piece) => n + piece.iron, 0);
+	return Math.max(0, kitLeft(count).iron + armour - count(/^minecraft:(iron_ingot|raw_iron)$/));
 }
 
 /** Armour points worn and the best sword or axe tier held (-1 none): whether a built mob's fight is a way. */
@@ -704,7 +727,7 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 	// A non-food obtain recovers at low health itself; while it recovers (active) the coordinator folds the low-health wakes.
 	if (!food) rawBody.recovering?.('armed');
 	// The food hunt's flee line, set once from the health at the first hunt: later rounds never lower it.
-	let foodFlee = null, lastWeighed = null, kitTrip = false, lastPlan = null;
+	let foodFlee = null, lastWeighed = null, kitTrip = false, lastPlan = null, smeltLeft = false, smeltTried = false, smeltFrom = 0;
 	let lastFailure = null, fuelDiagnostic = null, approachStop = null;
 	const fuelMembers = (group) => (typeof group === 'string' ? index.tags[group] ?? [] : group);
 	const smeltsPer = (itemId) => (index.fuels?.[bare(itemId)] ?? 0) / 200;
@@ -2019,13 +2042,29 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		const unsafe = bodyDanger(o);
 		if (unsafe !== null) { danger ??= unsafe; continue; }
 		// On a kit-iron trip (an iron tool's call that took on the rest of the kit's iron), the target alone does not end
-		// it: the kit's iron still short is mined from ore at hand first, while raw-iron tries and time are left.
-		const kitShort = kitTrip ? kitIronShort(o) : 0;
+		// it: the kit's iron still short, and the armour's, is mined from ore at hand first, while raw-iron tries and time are left.
+		const kitShort = kitTrip ? kitAndArmourIronShort(o) : 0;
 		// "At the ore": only while iron ore is in view or known within reach, never a fresh search after the target is held.
 		const topUp = have >= count && kitShort > 0 && (failures.get('need:raw_iron') ?? 0) < 5 && left() > 60_000
 			&& inView({ kind: 'mine', blocks: ['iron_ore', 'deepslate_iron_ore'], mobs: [] }, o, { ...budget, topUp: true }) !== null;
 		budget.topUp = topUp;
-		if (have >= count && !topUp) return end('SUCCEEDED', 'OBTAINED', `Obtained ${label}${kitTrip && kitShort > 0 ? `; the kit is still ${kitShort} iron short` : ''}`);
+		// The top-up mines raw iron, and the kit habit crafts armour from ingots only: before the trip ends, the raw iron
+		// held is smelted, once, when that needs nothing gathered (a furnace and fuel held or in reach) and it is at least the
+		// boots' 4: a raw iron or two waits for the next furnace rather than a furnace placed for it.
+		const rawHeld = counts.get('raw_iron') ?? 0;
+		// The target is already held: a smelt that stalls (fuel, a furnace in the way) never turns the call into a failure.
+		if (smeltLeft && (rawHeld === 0 || rounds - smeltFrom > SMELT_ROUNDS || left() <= 30_000)) smeltLeft = false;
+		if (have >= count && !topUp && kitTrip && !smeltTried && rawHeld >= SMELT_AT_LEAST && left() > 60_000) {
+			smeltTried = true;
+			try {
+				const smelt = planObtain({ ids: ['iron_ingot'], count: (counts.get('iron_ingot') ?? 0) + rawHeld }, { held: counts, index, dimension: o.world?.dimension,
+					stations: Object.fromEntries(OBTAIN_STATIONS.map((kind) => [kind, nearStation(o, kind, placed, removed) !== null])) });
+				smeltLeft = smelt.needs.length === 0 && smelt.unreachable.length === 0;
+			} catch { smeltLeft = false; }
+			smeltFrom = rounds;
+			if (smeltLeft) step(`smelt the ${rawHeld} raw_iron held, for the kit and its armour`);
+		}
+		if (have >= count && !topUp && !smeltLeft) return end('SUCCEEDED', 'OBTAINED', `Obtained ${label}${kitTrip && kitShort > 0 ? `; the kit and its armour are still ${kitShort} iron short` : ''}`);
 		if (now() - startedAt >= timeoutMs) return end('TIMED_OUT', 'OBTAIN_TIMEOUT', `timeoutMs ${timeoutMs} ran out`);
 		if (capacityStop !== null) return end('FAILED', 'OBTAIN_STUCK', capacityStop);
 		if (nightStop !== null) return end('INTERRUPTED', 'NIGHT', `Waiting for morning: ${nightStop}; call obtain again at dawn or from under cover`);
@@ -2042,7 +2081,8 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		// Output an earlier call left in a furnace comes out first: the plan counts only the inventory.
 		if (loads.length > 0) { await collectLoads(); continue; }
 		// A filled bucket: an empty one first (the plan below makes it), then a source to fill it at.
-		const goal = topUp ? { ids: ['raw_iron'], count: (counts.get('raw_iron') ?? 0) + kitShort }
+		const goal = topUp ? { ids: ['raw_iron'], count: rawHeld + kitShort }
+			: smeltLeft ? { ids: ['iron_ingot'], count: (counts.get('iron_ingot') ?? 0) + rawHeld }
 			: fluid === null ? { ids: target.ids, count } : (held.get('bucket') ?? 0) > 0 ? null : { ids: ['bucket'], count: 1 };
 		if (goal === null) {
 			if (placed.length > 0) await cleanup();
@@ -2077,7 +2117,9 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 			// At the ore for an iron tool, the rest of the route's kit iron comes in the same trip: a second trip down for
 			// the shield's, buckets' and flint and steel's iron costs the whole descent again.
 			const extra = OBTAIN_COSTS && !topUp ? kitIronExtra(o, plan) : 0;
-			if (extra > 0) kitTrip = true;
+			// Any Overworld trip down for iron is at the ore: the route's own iron trip (obtain iron_ingot for the whole kit)
+			// mines no extra for the kit, yet the armour's iron is still in the same vein.
+			if (extra > 0 || (OBTAIN_COSTS && !topUp && !smeltLeft && minesOverworldIron(o, plan))) kitTrip = true;
 			if (extra > 0) plan = planObtain({ ...goal, also: [{ ids: ['raw_iron'], count: extra }] }, { held, seen, stations, index, coalFirst, dimension: o.world?.dimension, loot, gear: gearOf(o), places, food: foodShort });
 			// The wood kept back for the next pickaxes never sends the body up for wood from under cover: there it is spent
 			// on what this call needs (a table, sticks, a shield). On the surface a log is near and the reserve holds.
