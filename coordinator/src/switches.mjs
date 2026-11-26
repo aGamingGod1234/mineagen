@@ -122,6 +122,10 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'obtain.fillLegs', env: 'MINEAGEN_OBTAIN_FILL_LEGS', side: 'coordinator', default: true, parser: OFF_EXACT, status: 'default-on',
 		reason: 'A walk to water goes in 10 s legs and fills at the first source in reach; off is the one 90 s walk to the sighting, for A/B rooms.',
 		readers: ['coordinator/src/obtain-runner.mjs FILL_LEGS (module load, process.env only)'] }),
+	// coordinator/src/skill-fits.mjs routeLine: per route line.
+	entry({ name: 'route.forestPearls', env: 'MINEAGEN_ROUTE_FOREST_PEARLS', side: 'coordinator', default: true, parser: OFF_EXACT, status: 'default-on',
+		reason: 'In the Nether, standing in a warped forest with pearls short, the route line names the enderman hunt there before the fortress.',
+		readers: ['coordinator/src/skill-fits.mjs routeLine (per call, process.env)'] }),
 	// coordinator/src/obtain-runner.mjs FILL_EDGE: read once at module load.
 	entry({ name: 'obtain.fillEdge', env: 'MINEAGEN_OBTAIN_FILL_EDGE', side: 'coordinator', default: true, parser: OFF_EXACT, status: 'default-on',
 		reason: 'A walk to water that ends at an edge over water 3-8 blocks below digs down beside the drop and fills there (room kit-gate-6); off is the A/B off arm.',
@@ -181,6 +185,14 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'travel.skipBuried', property: 'mineagen.travel.skipBuried', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
 		reason: 'Retrace passes a remembered footstep that is now filled with solid blocks (often its own stair steps placed over an old tunnel) and heads for the next open one. In 8 fresh games 32 of 37 one-minute retrace stalls (about 39 min) had the body 1-6 blocks above a nearby footstep; false keeps aiming at them.',
 		readers: ['ServerRetraceController.java skipBuriedEnabled (per call)'] }),
+	// ServerTravelController.java GAZE_GUARD: read once at class load.
+	entry({ name: 'travel.gazeGuard', property: 'mineagen.travel.gazeGuard', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
+		reason: 'travel_to scans, peeks and bridges with its own looks, which skipped the calm-enderman gaze guard its walking legs already have; in a warped forest a scan can meet an enderman\'s eyes and provoke it mid-walk.',
+		readers: ['ServerTravelController.java GAZE_GUARD (class load)'] }),
+	// ServerTravelController.java ENDERMAN_FIGHT: read once at class load.
+	entry({ name: 'travel.endermanFight', property: 'mineagen.travel.endermanFight', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
+		reason: 'An angry enderman that hits or closes on the body during travel_to is fought there (sword or axe, health above two of its hits) instead of stopping the trip, so the body does not stand still through the next model turn while it keeps hitting.',
+		readers: ['ServerTravelController.java ENDERMAN_FIGHT (class load)'] }),
 	// ServerFightUntilController.java CHARGE_GUARD: static final, class load.
 	entry({ name: 'fight.chargeGuard', property: 'mineagen.fight.chargeGuard', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
 		reason: 'Raises the shield before a charged blaze\'s volley; false is the fixture A/B off arm.',
