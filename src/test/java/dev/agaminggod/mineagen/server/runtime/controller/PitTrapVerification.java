@@ -50,6 +50,9 @@ public final class PitTrapVerification {
 		check(PitTrap.site(new Grid().set(FEET.east(), Kind.LAVA), FEET) == null, "lava at ground level beside the body: no pit");
 		check(PitTrap.site(new Grid().set(FEET.below().south(), Kind.LAVA), FEET) == null, "lava in the rim: no pit");
 		check(PitTrap.site(new Grid().set(FEET.below(4), Kind.LAVA), FEET) == null, "lava right under the floor: no pit");
+		Grid hole = new Grid();
+		for (Direction d : Direction.Plane.HORIZONTAL) hole.set(FEET.relative(d), Kind.SOLID);
+		check(PitTrap.site(hole, FEET) == null, "walled in at the feet (an old stance it left): no window, no pit");
 		Grid cave = new Grid().set(FEET.below(2), Kind.OPEN);
 		BlockPos near = PitTrap.nearestSite(cave, FEET);
 		check(near != null && near.getY() == FEET.getY() && Math.abs(near.getX()) == 1 && Math.abs(near.getZ()) == 1,
@@ -97,6 +100,10 @@ public final class PitTrapVerification {
 		check(PitTrap.returning(PitTrap.Phase.AWAY, 1) && PitTrap.returning(PitTrap.Phase.BACK, 5), "out for a pearl short of 12: the count waits until the body is back under the cap");
 		check(!PitTrap.returning(PitTrap.Phase.AWAY, PitTrap.LEAVE_AT), "12 pearls held: the count ends where the body is");
 		check(!PitTrap.returning(PitTrap.Phase.STANCE, 1) && !PitTrap.returning(PitTrap.Phase.PIT, 1), "inside the trap: the count ends there");
+		check(PitTrap.digsIn(PitTrap.DIG_RANGE, false) && !PitTrap.digsIn(PitTrap.DIG_RANGE + 1.0D, false), "a calm enderman within dig range: dig in; farther: walk on first");
+		check(!PitTrap.digsIn(Double.MAX_VALUE, false) && PitTrap.digsIn(Double.MAX_VALUE, true), "none to stare at: no pit; one already after the body: dig in");
+		check(!PitTrap.moves(PitTrap.RELOCATE_MS - 1, false) && PitTrap.moves(PitTrap.RELOCATE_MS, false), "an empty stance for the relocate spell: leave it for a new spot");
+		check(!PitTrap.moves(PitTrap.RELOCATE_MS * 10, true), "one after the body: stay in the trap");
 		PitTrap trap = new PitTrap(FEET, Direction.NORTH, PitTrap.Phase.STANCE);
 		check(trap.cap().equals(FEET.above()) && trap.pit().equals(FEET.below(2)) && trap.high().equals(FEET.north().above()),
 				"the cap is one over the ground cell, the pit two under, the support beside the cap");

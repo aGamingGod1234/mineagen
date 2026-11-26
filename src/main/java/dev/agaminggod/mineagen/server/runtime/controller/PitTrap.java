@@ -32,6 +32,10 @@ final class PitTrap {
 	static final long UNSEEN_MS = 10_000L;
 	/** In the stance with no calm enderman to stare at for this long, the call hands back. */
 	static final long QUIET_MS = 60_000L;
+	/** In the stance with no calm enderman to stare at for this long, it opens the cap and walks on to the last one seen. */
+	static final long RELOCATE_MS = 20_000L;
+	/** It digs in only with a calm enderman to stare at this near, or one already after it: an empty pit catches none. */
+	static final double DIG_RANGE = 32.0D;
 	/** Each placement or break gets this many ticks before the trap is dropped. */
 	static final int STEP_TICKS = 80;
 	/** An already angry enderman this near at the start is fought as main fights it; the trap waits. */
@@ -40,8 +44,21 @@ final class PitTrap {
 	/** Pearls held at which a finished call opens the trap to walk on (12 eyes of ender); short of it the body stays in. */
 	static final int LEAVE_AT = 12;
 
-	/** LOOT opens the cap for a pearl lying in view, AWAY collects it, BACK walks into the stance again (then CAP). */
-	enum Phase { SUPPORT_LOW, SUPPORT_HIGH, DIG_STANCE, CAP, STANCE, DROP, PIT, RISE, LOOT, AWAY, BACK, EXIT, DONE }
+	/**
+	 * LOOT opens the cap for a pearl lying in view, AWAY collects it, BACK walks into the stance again (then CAP). MOVE
+	 * opens the cap of an empty trap and leaves it, so the hunt walks on and digs in again where endermen are.
+	 */
+	enum Phase { SUPPORT_LOW, SUPPORT_HIGH, DIG_STANCE, CAP, STANCE, DROP, PIT, RISE, LOOT, AWAY, BACK, EXIT, MOVE, DONE }
+
+	/** Whether the hunt digs a new trap here: a calm enderman to stare at within DIG_RANGE, or one already after the body. */
+	static boolean digsIn(double calmDistance, boolean angryNear) {
+		return angryNear || calmDistance <= DIG_RANGE;
+	}
+
+	/** Whether the stance, empty of calm endermen for {@code quietMs} with none after the body, is left for a new spot. */
+	static boolean moves(long quietMs, boolean angryNear) {
+		return !angryNear && quietMs >= RELOCATE_MS;
+	}
 
 	/** A pearl lying this near the trap and in view from the stance is fetched once none hunts the body. */
 	static final double LOOT_RANGE = 8.0D;
@@ -96,6 +113,10 @@ final class PitTrap {
 	 */
 	static Direction site(Cells cells, BlockPos ground) {
 		if (!cells.open(ground) || !cells.open(ground.above())) return null;
+		// Walled in at its own height (an old stance, a one-wide hole): no window to stare out of.
+		boolean window = false;
+		for (Direction d : Direction.Plane.HORIZONTAL) if (cells.open(ground.relative(d))) window = true;
+		if (!window) return null;
 		BlockPos stance = ground.below(), pit = ground.below(2), floor = ground.below(3);
 		if (!cells.solid(stance) || !cells.solid(pit) || !cells.solid(floor) || cells.hazard(floor.below())) return null;
 		for (int dx = -1; dx <= 1; dx++) {

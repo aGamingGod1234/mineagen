@@ -417,6 +417,7 @@ public final class ServerFightUntilController implements ServerController {
 	private int trapShots;
 	private Vec3 trapKillAt;
 	private int trapKillLook;
+	private int trapMoves;
 
 	public ServerFightUntilController(ServerPlayer player, JsonObject arguments, ServerProtectionPolicy protection, long now) {
 		this(player, arguments, protection, now, "fight_until", null, null);
@@ -1375,6 +1376,13 @@ public final class ServerFightUntilController implements ServerController {
 			if (melee != null || volley != null) return null;
 			// One already after the body close by is fought first, as main does: there is no time to dig in.
 			if (angryEnderman(player, PitTrap.START_CLEAR) != null) return null;
+			if (trapSite == null) {
+				// An empty pit catches none: with no enderman to stare at near, main's hunt walks on to the last ones seen.
+				LivingEntity calm = trapStareTarget(player);
+				if (!PitTrap.digsIn(calm == null ? Double.MAX_VALUE : player.distanceTo(calm), angryEnderman(player, PitTrap.DANGER_RANGE) != null)) return null;
+			}
+			if (hunt != null) { hunt.cancel(player); hunt = null; }
+			if (walk != null) { walk.cancel(player); walk = null; }
 			if (!player.onGround()) return TickResult.running(progress(player));
 			PitTrap.Cells cells = cells(player);
 			BlockPos feet = player.blockPosition();
@@ -1448,6 +1456,23 @@ public final class ServerFightUntilController implements ServerController {
 			case LOOT: return trapLoot(player, now);
 			case AWAY: return trapAway(player, now, elapsed);
 			case BACK: return trapBack(player, now);
+			case MOVE: {
+				if (trap.inPit(feet)) return trapRise(player, now, PitTrap.Phase.MOVE);
+				if (cells(player).open(trap.cap()) || trap.ticks > PitTrap.STEP_TICKS) {
+					if (trapDig != null) { trapDig.cancel(player); trapDig = null; }
+					note("pit trap: left the empty trap at " + trap.ground.toShortString() + " to dig in again where endermen are");
+					trapMoves++;
+					trap = null;
+					trapSite = null;
+					trapKillAt = null;
+					return TickResult.running(progress(player));
+				}
+				if (trapDig == null) trapDig = roofing.clear(player, trap.cap(), 4_000L);
+				if (trapDig == null) { trap.ticks = PitTrap.STEP_TICKS + 1; return TickResult.running(progress(player)); }
+				TickResult opened = trapDig.tick(player, now);
+				if (opened.state() != State.RUNNING) { trapDig.cancel(player); trapDig = null; }
+				return TickResult.running(progress(player));
+			}
 			case EXIT: {
 				if (trap.inPit(feet)) return trapRise(player, now, PitTrap.Phase.EXIT);
 				int held = count(player, untilItem);
@@ -1556,6 +1581,12 @@ public final class ServerFightUntilController implements ServerController {
 		LivingEntity calm = trapStareTarget(player);
 		if (calm == null) {
 			provoking = null;
+			if (PitTrap.moves(elapsed - trapQuietSince, false)) {
+				if (look != null) { look.cancel(player); look = null; }
+				note(String.format(Locale.ROOT, "pit trap: no calm %s in view for %.0f s; opening the cap to walk on", mobId, PitTrap.RELOCATE_MS / 1000.0D));
+				trap.to(PitTrap.Phase.MOVE);
+				return TickResult.running(progress(player));
+			}
 			if (elapsed - trapQuietSince >= PitTrap.QUIET_MS)
 				return stop(player, TickResult.failed("NO_TARGET_SEEN", String.format(Locale.ROOT,
 						"No calm %s in view to stare at from the pit trap for %.0f s", mobId, PitTrap.QUIET_MS / 1000.0D), progress(player)));
@@ -2899,6 +2930,7 @@ public final class ServerFightUntilController implements ServerController {
 				"; hunt: walked toward %d enderm%s you saw in the area (%d walks reached the spot, %d found an enderman on the way, %d had no route)",
 				leads.tried(), leads.tried() == 1 ? "an" : "en", leads.reached(), huntFinds, leads.noRoute()));
 		if (forest != null) text.append("; ").append(forest.summary()).append("; shelters built: ").append(roofBuilds);
+		if (trapMoves > 0) text.append("; left ").append(trapMoves).append(" empty pit trap").append(trapMoves == 1 ? "" : "s").append(" to dig in where endermen were");
 		if (trap != null) text.append("; ").append(trap.summary()).append(trapLoots > 0 ? ", " + trapLoots + " pearl fetch" + (trapLoots == 1 ? "" : "es") + " out of it" : "").append(trapLeave(player));
 		else if (trapDropped != null) text.append("; pit trap not used: ").append(trapDropped);
 		if (!endings.isEmpty()) text.append("; endings: ").append(endings);
