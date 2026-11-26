@@ -14,17 +14,20 @@ import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { ReflexBook } from '../../coordinator/src/reflexes.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
-import { installTickRate, fixtureTickRate } from './watch-replay.mjs';
+import { installTickRate, unshownTickRate } from './watch-replay.mjs';
+import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 import { damageCounter, recordDamageEvidence, deathCounter, recordDeathEvidence } from './lib/damage-counter.mjs';
 
+const USAGE = 'Usage: slot.sh live node scripts/quality/test-end-knockoff-live.mjs OUT (ARENA_JAR names the jar; KNOCKOFF_RULES=main leaves out default-end-fall)';
+if (process.argv.includes('--help')) { console.log(USAGE + '\n' + EDIT_LOOP_HELP + '\n' + FIXTURE_OUTCOME_HELP); process.exit(0); }
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const jarPath = resolve(process.env.ARENA_JAR ?? join(root, MOD_JAR));
 const out = resolve(process.argv[2] ?? 'runtime/end-knockoff-live');
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE;
-if (!template || !process.env.SLOT_PORT_BASE) throw new Error('Set ARENA_HEADLESS_SERVER_TEMPLATE and launch under slot.sh live');
+if (!template || !process.env.SLOT_PORT_BASE || !process.env.JAVA_HOME) { console.error(USAGE); process.exit(2); }
 const port = Number(process.env.SLOT_PORT_BASE), server = join(out, 'server');
 await mkdir(out, { recursive: true });
-if ((await readdir(out)).length) throw new Error('Use a fresh output directory');
+if ((await readdir(out)).length) { console.error('Use a fresh output directory'); process.exit(2); }
 await writeFile(join(out, 'manifest.json'), JSON.stringify({ kind: 'provider-free live mechanics', aiPerformanceMeasured: false, fixtureSetupUsesOperatorCommands: true, jarSha256: createHash('sha256').update(await readFile(jarPath)).digest('hex'), node: process.version }, null, 2));
 await cp(template, server, { recursive: true });
 for (const name of await readdir(join(server, 'mods'))) if (name.startsWith('mineagen-')) await unlink(join(server, 'mods', name));
@@ -52,13 +55,13 @@ const end = s => command(`execute in minecraft:the_end run ${s}`);
 async function observe() { const seq = observation?.eventSequence ?? 0; const next = inbox.wait('observation', e => e.agentId === record.agentId && e.payload.ready && e.payload.eventSequence > seq); await bridge.send('request_observation', record.agentId, { goalRevision: record.goalRevision }); return (await next).payload; }
 const number = text => Number((/(-?\d+(?:\.\d+)?)[fdb]?\s*$/.exec(text.trim()) ?? [])[1]);
 const health = async () => number(await command(`data get entity ${agent} Health`));
-const results = { rules: null, falls: [] };
+const results = { rules: null, falls: [], startedAt: Date.now() };
 // The island is far south of the main island (no dragon there); the column stands at its centre.
 const GROUND = 56, TOP = 78, CX = 0, CZ = 300;
 const arm = process.env.KNOCKOFF_RULES === 'main' ? 'main' : 'branch';
 try {
 	for (let i = 0; i < 150; i++) { try { rcon = new HeadlessRconClient({ host: '127.0.0.1', port: port + 1, password: secret, connectTimeoutMs: 500, commandTimeoutMs: 5000 }); await rcon.connect(); break; } catch (e) { await rcon?.close(); if (i === 149) throw e; await sleep(1000); } }
-	rate = installTickRate({ command: text => command(text) }, fixtureTickRate());
+	rate = installTickRate({ command: text => command(text) }, unshownTickRate('not played in the 20 v 60 TPS A/B'));
 	bridge = new MultiplexedServerBridge({ port, secret }, {}); inbox = new Inbox(bridge);
 	bridge.on('observation', e => { rate.clock.observe(e.payload?.world?.gameTime); if (e.agentId === record?.agentId && e.payload.ready) observation = e.payload; });
 	bridge.on('goal_spec_request', e => { bridge.send('goal_spec_proposal', e.agentId, { requestId: e.payload.requestId, summary: 'Controlled live mechanics fixture', predicate: { type: 'survive_duration', ticks: 24000 } }).catch(() => {}); });
@@ -165,14 +168,17 @@ try {
 	results.pass = valid.length === results.falls.length && valid.every(row => row.caught);
 	await writeFile(join(out, 'end-knockoff.json'), JSON.stringify(results, null, 2));
 	console.log(JSON.stringify(results.summary, null, 2));
-	process.exitCode = results.pass ? 0 : 1;
 } catch (error) {
 	results.error = String(error?.stack ?? error);
-	process.exitCode = 2;
-	throw error;
+	console.error(results.error);
 } finally {
+	results.finishedAt = Date.now();
 	await writeFile(join(out, 'end-knockoff.json'), JSON.stringify(results, null, 2)).catch(() => {});
 	if (rcon) await command('stop').catch(() => {});
 	bridge?.stop(); await rcon?.close();
 	await Promise.race([new Promise(r => child.once('exit', r)), sleep(10000)]); if (child.exitCode === null) child.kill('SIGTERM'); await log.close();
 }
+// One row for the room: an error or an unexercised throw is invalid evidence (exit 2), a missed catch a fail (exit 1).
+const { falls, rules, ...room } = results;
+const report = await finishRun([{ name: 'end-knockoff', ...room }], { file: join(out, 'acceptance.json'), planned: 1 });
+process.exit(report.exitCode);
