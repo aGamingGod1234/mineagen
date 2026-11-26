@@ -57,7 +57,8 @@ const number = text => Number((/(-?\d+(?:\.\d+)?)[fdb]?\s*$/.exec(text.trim()) ?
 const health = async () => number(await command(`data get entity ${agent} Health`));
 const results = { rules: null, falls: [], startedAt: Date.now() };
 // The island is far south of the main island (no dragon there); the column stands at its centre.
-const GROUND = 56, TOP = 78, CX = 0, CZ = 300;
+// KNOCKOFF_TOP raises the column (default 78, cage height; the bot climbs to about y105-110 to shoot over the last crystals).
+const GROUND = 56, TOP = Number(process.env.KNOCKOFF_TOP ?? 78), CX = 0, CZ = 300;
 const arm = process.env.KNOCKOFF_RULES === 'main' ? 'main' : 'branch';
 try {
 	for (let i = 0; i < 150; i++) { try { rcon = new HeadlessRconClient({ host: '127.0.0.1', port: port + 1, password: secret, connectTimeoutMs: 500, commandTimeoutMs: 5000 }); await rcon.connect(); break; } catch (e) { await rcon?.close(); if (i === 149) throw e; await sleep(1000); } }
