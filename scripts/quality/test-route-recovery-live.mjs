@@ -36,7 +36,7 @@ async function act(s,type,args,wait=125000) {
 const control=(yaw,ticks,jump=false)=>({forward:1,strafe:0,jump,sneak:false,sprint:false,attack:false,use:false,yaw,pitch:25,selectedSlot:0,hand:'main',ticks,instantLook:true});
 async function walk(s,x,y,z){const r=await act(s,'travel_to',{x,y,z,tolerance:1,build:false,timeoutMs:60000});if(r.state!=='SUCCEEDED')throw Error(`outbound: ${JSON.stringify(r)}`);return r;}
 async function dim(s,target){for(let i=0;i<50;i++){const o=await observe(s);if(o.world.dimension===target)return o;await sleep(200);}throw Error(`no ${target}`);}
-for(const scenario of (only==='ladder'?['ladder']:['cave','nether','end']).filter(x=>!only||x===only)) {
+for(const scenario of (only==='ladder'?['ladder']:only==='buried'?['buried']:['cave','nether','end']).filter(x=>!only||x===only)) {
  const dir=join(out,scenario);await mkdir(dir,{recursive:true});
  const s=server=await boot(dir,{jar,template,port,seed:20261024,tickRate:fixtureTickRate()});
  try {
@@ -44,14 +44,14 @@ for(const scenario of (only==='ladder'?['ladder']:['cave','nether','end']).filte
   const now=()=>s.clock.now();
   await s.command('difficulty peaceful');await s.command('time set 1000');
   await s.command('forceload add -16 -16 64 64');await s.idleSleep(1000);
-  const y=['cave','ladder'].includes(scenario)?-30:100;
+  const y=['cave','ladder','buried'].includes(scenario)?-30:100;
   if(scenario==='ladder') {
    await s.command('fill -3 -30 -3 4 -6 3 minecraft:air');
    await s.command('fill -3 -31 -3 4 -31 3 minecraft:stone');
    await s.command('fill -1 -30 -1 -1 -9 1 minecraft:stone');
    await s.command('fill 0 -30 0 0 -10 0 minecraft:ladder[facing=east]');
    await s.command('fill 1 -11 -2 4 -11 2 minecraft:stone');
-  } else if(scenario==='cave') {
+  } else if(scenario==='cave'||scenario==='buried') {
    await s.command('fill -3 -32 -3 29 -27 29 minecraft:stone');
    await s.command('fill -1 -30 -1 25 -28 1 minecraft:air');
    await s.command('fill 23 -30 -1 25 -28 25 minecraft:air');
@@ -87,7 +87,7 @@ for(const scenario of (only==='ladder'?['ladder']:['cave','nether','end']).filte
      if(climbed.reasonCode==='REACHED_FRONTIER') {result.steps.push(await act(s,'control',{...control(-90,1),forward:0,pitch:25}));climbed=await climb();result.steps.push(climbed);}
      if(climbed.state!=='SUCCEEDED')throw Error(`ladder outbound: ${JSON.stringify(climbed)}`);
     }
-    else if(scenario==='cave') {await walk(s,24.5,y,0.5);await walk(s,24.5,y,24.5);}
+    else if(scenario==='cave'||scenario==='buried') {await walk(s,24.5,y,0.5);await walk(s,24.5,y,24.5);}
     else {
      await walk(s,6.5,y,0.5);await observe(s);
      if(scenario==='end') result.steps.push(await act(s,'control',control(-90,30,true)));
@@ -112,6 +112,14 @@ for(const scenario of (only==='ladder'?['ladder']:['cave','nether','end']).filte
       await s.command(`execute in ${N} run fill ${base.x+19} ${base.y} ${base.z+19} ${base.x+31} ${base.y+5} ${base.z+31} minecraft:air`);
       destination={x:base.x+24.5,y:base.y,z:base.z+24.5};await walk(s,destination.x,base.y,base.z+0.5);await walk(s,destination.x,base.y,destination.z);
      }
+    }
+    if(scenario==='buried') {
+     // The walked corner is filled two blocks deep with a step up on each side, as the bot's own stair steps cover its
+     // old tunnel floor: the remembered footsteps there are inside blocks and the way on runs over the top.
+     await s.command('fill 20 -30 -2 26 -25 4 minecraft:air');
+     await s.command('fill 22 -30 -1 25 -29 2 minecraft:stone');
+     await s.command('fill 21 -30 -1 21 -30 1 minecraft:stone');
+     await s.command('fill 23 -30 3 25 -30 3 minecraft:stone');
     }
     const before=await observe(s);console.log('outbound',scenario,before.position,before.routeMemory);result.deathPosition=before.position;destination={...before.position};result.destination=destination;
     await s.clock.sleep(3500);recordDamageEvidence(result, damage0,await readDamage(), 'outboundDamageTaken');

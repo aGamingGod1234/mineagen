@@ -3,6 +3,8 @@ import test from 'node:test';
 import { ROUTE_BYTES, routeLine } from '../src/skill-fits.mjs';
 import { emptyKnown, evaluatePlanCheck } from '../src/plan-checks.mjs';
 import { portalBedSource, quickBedSource } from '../src/survival-advice.mjs';
+// These cases are the stock.foodFloor off arm (the route before the food floor); food-floor-route.test.mjs has the on arm.
+process.env.MINEAGEN_FOOD_FLOOR = 'off';
 
 // C33: a respawn bed by the Overworld portal before the first Nether entry, only from what is in reach right now.
 
