@@ -191,7 +191,7 @@ export const SWITCHES = Object.freeze([
 		readers: ['ServerTravelController.java GAZE_GUARD (class load)'] }),
 	// ServerTravelController.java ENDERMAN_FIGHT: read once at class load.
 	entry({ name: 'travel.endermanFight', property: 'mineagen.travel.endermanFight', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
-		reason: 'An angry enderman that hits or closes on the body during travel_to is fought there (sword or axe, health above two of its hits) instead of stopping the trip, so the body does not stand still through the next model turn while it keeps hitting.',
+		reason: 'An angry enderman that hits or closes on the body during travel_to is fought there (sword or axe, health above minHealth and one of its hits) instead of stopping the trip, so the body does not stand still through the next model turn while it keeps hitting.',
 		readers: ['ServerTravelController.java ENDERMAN_FIGHT (class load)'] }),
 	// ServerFightUntilController.java CHARGE_GUARD: static final, class load.
 	entry({ name: 'fight.chargeGuard', property: 'mineagen.fight.chargeGuard', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
