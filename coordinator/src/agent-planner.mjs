@@ -386,9 +386,15 @@ export class AgentPlanner {
 									pending.deadline = Math.max(pending.deadline, this.#now() + durationMs + TOOL_SETTLEMENT_GRACE_MS);
 									renewToolLease();
 								};
+								// A habit the runtime runs before the call (respawn.restFirst) renews the call's own lease once it is done.
+								const renewCallLease = () => {
+									if (!pendingTools.has(pending)) return;
+									pending.deadline = Math.max(pending.deadline, this.#now() + leaseMs);
+									renewToolLease();
+								};
 								try {
 									if (signal.aborted) throw signal.reason;
-									const toolResult = await executeTool({ ...request, extendLease });
+									const toolResult = await executeTool({ ...request, extendLease, renewLease: renewCallLease });
 									this.#traceNativeTiming(record, 'native_tool_executed', {
 										traceId, callId: request?.callId ?? null, toolKind: request?.tool?.kind ?? 'unknown',
 										executeMs: elapsed(executorEnteredAt, this.#now()), state: typeof toolResult?.state === 'string' ? toolResult.state.slice(0, 64) : null,

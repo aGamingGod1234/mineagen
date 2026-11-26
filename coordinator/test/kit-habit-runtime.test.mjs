@@ -92,6 +92,14 @@ test('with the habit off, or with the body hurt, obtain hands back exactly as be
 });
 
 test('iron the route still needs is not spent on armour; spare iron is', async () => {
+	// kit.rekit: the second bucket waits for the chestplate, so 11 iron leaves 7 - 1 (flint and steel) = 6 spare: boots.
+	let { result } = await obtainBucket({ kitHabit: true, iron: 11 });
+	assert.deepEqual(result.kit, ['crafted shield', 'wore shield (offhand)', 'crafted iron_boots', 'wore iron_boots (feet)']);
+	process.env.MINEAGEN_REKIT = 'off';
+	try { await routeIronOff(); } finally { delete process.env.MINEAGEN_REKIT; }
+});
+
+async function routeIronOff() {
 	// 11 iron: bucket 3 leaves 8; shield 1 leaves 7; the second bucket (3) and flint and steel (1) are still owed, so 3
 	// spare: too little for any piece.
 	let { result } = await obtainBucket({ kitHabit: true, iron: 11 });
@@ -102,7 +110,7 @@ test('iron the route still needs is not spent on armour; spare iron is', async (
 	// 16 iron leaves 12 after the bucket and shield: 4 owed, 8 spare, enough for a chestplate.
 	({ result } = await obtainBucket({ kitHabit: true, iron: 16 }));
 	assert.deepEqual(result.kit, ['crafted shield', 'wore shield (offhand)', 'crafted iron_chestplate', 'wore iron_chestplate (chest)']);
-});
+}
 
 const row = (itemId, slot, count = 1) => ({ itemId: `minecraft:${itemId}`, slot, count });
 // Every body call that would search, travel or mine: kit upkeep makes none of them.

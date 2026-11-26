@@ -88,6 +88,11 @@ final class ShelterHold {
 				|| behaviour instanceof ReflexActions.SprintAway || behaviour instanceof ReflexActions.Defend defend && defend.movingBody();
 	}
 
+	/** A run a model command waits for under reflex.holdRun: a safety firing, or defend whether it moves the body or hits back. */
+	static boolean holdsRun(ReflexActions.Behaviour behaviour) {
+		return shelters(behaviour) || behaviour instanceof ReflexActions.Defend;
+	}
+
 	static boolean heldWalk(ActionType type) {
 		return type != null && HELD_WALKS.contains(type);
 	}

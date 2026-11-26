@@ -519,6 +519,20 @@ public final class ReflexScheduler {
 	}
 
 	/**
+	 * A command kept waiting until a safety run ended now takes the body with no firing left to end: the rules that would
+	 * take it straight back (defend still under attack, a retreat still low) wait as a yield leaves them, until their
+	 * condition clears once or the command ends. Floor rules still fire. A queued trigger edge stays queued (cover after a
+	 * retreat).
+	 */
+	public void yieldAfterRun() {
+		for (State state : states.values()) {
+			if (state.floor || !state.lastTruth) continue;
+			if (state.rule.kind() == ReflexSpec.Kind.STANCE) state.suppressed = true;
+			else state.yieldedTrigger = true;
+		}
+	}
+
+	/**
 	 * A command asked for the body a floor firing held, so the stances that would take it now (default-defend under attack)
 	 * yield to it too, as they would have had they held the body when it came. Floor rules still fire.
 	 */
@@ -653,7 +667,19 @@ public final class ReflexScheduler {
 		// floor is only level-triggered: a queued edge (a rearm after another firing) never starts it once the cloud has cleared.
 		if (state.rule.kind() == ReflexSpec.Kind.TRIGGER && state.releasesCornered) return state.lastTruth && !state.yieldedTrigger;
 		if (state.rule.kind() == ReflexSpec.Kind.TRIGGER) return state.pendingUntil >= now || state.floor && state.lastTruth && !state.yieldedTrigger;
-		return state.lastTruth && !state.suppressed;
+		return state.lastTruth && (!state.suppressed || eatsThrough(state.rule));
+	}
+
+	/**
+	 * reflex.eatThrough: the coordinator's eat stance is not put down by a model command. Suppressed for the whole of each
+	 * command, it slept through long errands while hunger sat at 12-17 (health regrows only at 18+): in the 8 fresh games on
+	 * main 069e471 about 19 of 31 deaths read had no food eaten, several with food carried. It still waits for a hostile to be
+	 * out of reach, its cooldown and every higher rule, and the command resumes once the meal is down.
+	 */
+	static boolean eatThrough = dev.agaminggod.mineagen.server.Switches.get("reflex.eatThrough");
+
+	static boolean eatsThrough(ReflexSpec.Rule rule) {
+		return eatThrough && rule.coordinatorDefault() && rule.kind() == ReflexSpec.Kind.STANCE && "eat".equals(rule.action().type());
 	}
 
 	private void recordEnd(State state, Outcome outcome, long now, String detail) {
