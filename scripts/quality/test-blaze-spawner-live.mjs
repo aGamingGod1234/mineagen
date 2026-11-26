@@ -60,13 +60,15 @@ const RANGED = process.env.RANGED ?? 'none';
 // STANDIN=until (d41 fight-until): the stand-in makes one fight_until call (blaze -> UNTIL rods, WEAPON) and repeats it
 // only after the skill hands back, eating below 10 health; LOW_HP=1 sets fleeAtHealth 14 to exercise the health stop.
 // KIT=arrival: the kit real fortress arrivals carried (see kit()); default: this room's armoured kit.
+// PICKAXE=1 (KIT=arrival): add a stone pickaxe; the 26 Nov fortress save points carried 3-7 pickaxes each.
 const KIT = process.env.KIT ?? 'default';
 if (!['default', 'arrival'].includes(KIT)) throw new Error('KIT must be default or arrival');
+const PICKAXE = process.env.PICKAXE === '1';
 const STANDIN = process.env.STANDIN ?? 'script', UNTIL = Number(process.env.UNTIL ?? 3), WEAPON = process.env.WEAPON ?? 'auto';
 const LOW_HP = process.env.LOW_HP === '1';
 // CALL_SHAPE=game (STANDIN=until): the fight_until real games make at a fortress spawner (26 Nov, 270 Nether blaze calls):
 // the spawner block as the spot (x, y, z), radius 12, fleeAtHealth 14, sword, collect, 90 s, called again after each hand-back.
-const CALL_SHAPE = process.env.CALL_SHAPE ?? 'plain';
+const CALL_SHAPE = process.env.CALL_SHAPE ?? 'plain', GAME_FLEE = Number(process.env.GAME_FLEE ?? 14);
 // STANDIN=count (d41 fight-count): the same loop, but the call is fight_target on the nearest seen blaze with
 // untilItem blaze_rod + untilCount UNTIL (count mode); no blaze in view -> fight_until. DEFAULTS=1 also arms the default
 // survival reflexes beside the shield rules. Rooms must play with the defaults a real game has: the production
@@ -240,6 +242,7 @@ async function kit() {
 		await command(`item replace entity ${agent} hotbar.0 with minecraft:stone_sword`);
 		await command(`item replace entity ${agent} hotbar.1 with minecraft:cobblestone 64`);
 		await command(`item replace entity ${agent} hotbar.2 with minecraft:cooked_beef 4`);
+		if (PICKAXE) await command(`item replace entity ${agent} hotbar.3 with minecraft:stone_pickaxe`);
 		await command(`item replace entity ${agent} weapon.offhand with minecraft:shield`);
 		return;
 	}
@@ -498,7 +501,7 @@ try {
 						else { type = 'wait'; args = { durationMs: 1000 }; }
 					}
 					else if (STANDIN === 'count' && blaze && blaze.perceivedBy !== 'sound' && blaze.distance <= 24) { type = 'fight_target'; args = { targetId: blaze.uuid, untilItem: 'minecraft:blaze_rod', untilCount: UNTIL, fleeAtHealth: LOW_HP ? 14 : 6, timeoutMs: Math.max(1000, Math.min(600000, runDeadline - now())) }; }
-					else if (CALL_SHAPE === 'game') { type = 'fight_until'; args = { mob: 'minecraft:blaze', untilItem: 'minecraft:blaze_rod', untilCount: UNTIL, weapon: 'sword', collect: true, fleeAtHealth: 14, x: SPAWNER[0], y: SPAWNER[1], z: SPAWNER[2], radius: 12, timeoutMs: Math.max(1000, Math.min(90000, runDeadline - now())) }; }
+					else if (CALL_SHAPE === 'game') { type = 'fight_until'; args = { mob: 'minecraft:blaze', untilItem: 'minecraft:blaze_rod', untilCount: UNTIL, weapon: 'sword', collect: true, fleeAtHealth: GAME_FLEE, x: SPAWNER[0], y: SPAWNER[1], z: SPAWNER[2], radius: 12, timeoutMs: Math.max(1000, Math.min(90000, runDeadline - now())) }; }
 					else { type = 'fight_until'; args = { mob: 'minecraft:blaze', untilItem: 'minecraft:blaze_rod', untilCount: UNTIL, weapon: WEAPON, fleeAtHealth: LOW_HP ? 14 : 6, timeoutMs: Math.max(1000, Math.min(600000, runDeadline - now())) }; }
 					const res = await act(type, args, Math.max(1000, runDeadline - now(), type === 'fight_target' ? 180000 : 0) + 20000);
 					if (refusedBeforeRunning(res)) run.refused = (run.refused ?? 0) + 1; else run.calls[type] = (run.calls[type] ?? 0) + 1;
