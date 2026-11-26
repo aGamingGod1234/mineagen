@@ -153,6 +153,7 @@ const READS = [
 	['end.highDescent', 'coordinator/src/dragon-fight-facts.mjs', "getSwitch('end.highDescent', environment)"],
 	['instincts', 'src/main/java/dev/agaminggod/mineagen/server/runtime/reflex/Instincts.java', 'Switches.get("instincts")'],
 	['travel.walkAround', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerTravelController.java', 'Switches.get("travel.walkAround")'],
+	['travel.shallowShore', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerTravelController.java', 'Switches.get("travel.shallowShore")'],
 	['fight.chargeGuard', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerFightUntilController.java', 'static final boolean CHARGE_GUARD = dev.agaminggod.mineagen.server.Switches.get("fight.chargeGuard");'],
 	['fight.recover', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerFightUntilController.java', 'static final boolean RECOVER = dev.agaminggod.mineagen.server.Switches.get("fight.recover");'],
 	['dig.floorLavaGuard', 'src/main/java/dev/agaminggod/mineagen/server/runtime/ServerActionExecutor.java', 'static boolean FLOOR_LAVA_GUARD = dev.agaminggod.mineagen.server.Switches.get("dig.floorLavaGuard");'],
@@ -186,6 +187,8 @@ test('every reader reads its switch through the registry, and no switch variable
 	const cases = {
 		'travel.walkAround': { env: 'MINEAGEN_TRAVEL_WALK_AROUND', property: 'mineagen.travel.walkAround', table: [[undefined, false], [' ON ', true], ['true', false]],
 			properties: [[undefined, false], ['TRUE', true], [' true', false], ['on', false]] },
+		'travel.shallowShore': { env: 'MINEAGEN_TRAVEL_SHALLOW_SHORE', property: 'mineagen.travel.shallowShore', table: [[undefined, true], [' FALSE ', false], ['off', true]],
+			properties: [[undefined, true], ['false', false], ['FALSE', true]] },
 		'instincts': { env: 'MINEAGEN_INSTINCTS', property: 'mineagen.instincts', table: [[undefined, true], ['instincts', true], ['x, instincts', true], ['Instincts', false], ['off', false], ['', false]],
 			properties: [[undefined, true], ['True', true], ['false', false], ['1', false]] },
 		'fight.chargeGuard': { property: 'mineagen.fight.chargeGuard', properties: [[undefined, true], ['false', false], ['FALSE', true], ['no', true]] },
@@ -301,7 +304,11 @@ public class SwitchesParity {
 				|| (listed == null && p.get("mineagen.instincts") == null);
 		boolean walkAround = "true".equalsIgnoreCase(p.get("mineagen.travel.walkAround"))
 				|| "on".equalsIgnoreCase(String.valueOf(env.get("MINEAGEN_TRAVEL_WALK_AROUND")).trim());
-		boolean[] values = { instincts, walkAround,
+		String shoreEnv = env.get("MINEAGEN_TRAVEL_SHALLOW_SHORE"), shoreProperty = p.get("mineagen.travel.shallowShore");
+		Boolean shoreFromEnv = shoreEnv == null ? null : !"false".equalsIgnoreCase(shoreEnv.trim());
+		Boolean shoreFromProperty = shoreProperty == null ? null : !"false".equals(shoreProperty);
+		boolean shallowShore = Boolean.TRUE.equals(shoreFromEnv) || Boolean.TRUE.equals(shoreFromProperty) || shoreFromEnv == null && shoreFromProperty == null;
+		boolean[] values = { instincts, walkAround, shallowShore,
 				!"false".equals(p.get("mineagen.fight.chargeGuard")),
 				!"false".equals(p.get("mineagen.fight.recover")),
 				!"false".equals(p.get("mineagen.dig.floorLavaGuard")),
@@ -312,7 +319,7 @@ public class SwitchesParity {
 				!"false".equals(p.get("mineagen.fight.skipUnreachable")),
 				!"false".equalsIgnoreCase(p.getOrDefault("mineagen.killPosition", "true").trim()),
 				"true".equalsIgnoreCase(p.getOrDefault("mineagen.watch", "false").trim()) };
-		String[] names = { "instincts", "travel.walkAround", "fight.chargeGuard", "fight.recover", "dig.floorLavaGuard", "fight.spawnerHold", "fight.spawnerHoldOpen",
+		String[] names = { "instincts", "travel.walkAround", "travel.shallowShore", "fight.chargeGuard", "fight.recover", "dig.floorLavaGuard", "fight.spawnerHold", "fight.spawnerHoldOpen",
 				"fight.forestHunt", "fight.fullIds", "fight.skipUnreachable", "killPosition", "watch" };
 		StringBuilder line = new StringBuilder("switches");
 		for (int i = 0; i < names.length; i++) line.append(' ').append(names[i]).append('=').append(values[i] ? "on" : "off");

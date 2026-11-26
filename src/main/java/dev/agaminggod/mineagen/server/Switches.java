@@ -66,6 +66,8 @@ public final class Switches {
 		new Switch("instincts", "MINEAGEN_INSTINCTS", "mineagen.instincts", "both", true, LIST_HAS_INSTINCTS, JAVA_GET_BOOLEAN, "default-on"),
 		// ServerTravelController.java walkAroundEnabled(): per call; property or env.
 		new Switch("travel.walkAround", "MINEAGEN_TRAVEL_WALK_AROUND", "mineagen.travel.walkAround", "server", false, ON_WORD, JAVA_GET_BOOLEAN, "default-off"),
+		// ServerTravelController.java shallowShoreEnabled(): per call; property or env.
+		new Switch("travel.shallowShore", "MINEAGEN_TRAVEL_SHALLOW_SHORE", "mineagen.travel.shallowShore", "server", true, NOT_FALSE_WORD, JAVA_NOT_FALSE_EXACT, "default-on"),
 		// ServerFightUntilController.java CHARGE_GUARD: class load.
 		new Switch("fight.chargeGuard", null, "mineagen.fight.chargeGuard", "server", true, JAVA_NOT_FALSE_EXACT, null, "default-on"),
 		// ServerFightUntilController.java RECOVER: class load.
