@@ -2,7 +2,7 @@
 
 - **Problem:** A bot that died at night came back with nothing and walked straight back into the mobs that had killed it, ignoring the advice to rest first.
 - **Solution:** The first errand after a night respawn now digs in and waits for morning first; the model's command then runs at dawn.
-- **Result:** Before, measured on 8 fresh games: 5 of 42 deaths followed a night respawn that went straight back out. After: from the checkpoint A/B (see the pull request).
+- **Result:** Before, measured on 8 fresh games: 5 of 42 deaths followed a night respawn that went straight back out. After: the habit never fired in the checkpoint A/B, because no game died at night (6 save points, 18 minutes each). Its proof is decision tests so far.
 
 - **Problem:** Cornered in a 1-wide tunnel by a lit creeper, the bot did nothing and took the full blast.
 - **Solution:** With nowhere to run it raises its shield toward the creeper, or hits it to knock it back.
