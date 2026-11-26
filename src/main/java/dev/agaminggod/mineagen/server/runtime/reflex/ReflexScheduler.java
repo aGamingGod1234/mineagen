@@ -417,7 +417,7 @@ public final class ReflexScheduler {
 			else if (now - current.startTick() >= current.maxTicks()) outcome = Outcome.TIMEOUT;
 			else {
 				// A firing that only holds on after its goal (decision 13: a burn running out) yields to any ready rule.
-				State challenger = best(now, settledHold ? Integer.MIN_VALUE : state.rule.priority());
+				State challenger = best(now, settledHold ? Integer.MIN_VALUE : rank(state.rule));
 				if (challenger != null) {
 					outcome = Outcome.PREEMPTED;
 					reason = "by " + challenger.rule.id();
@@ -625,13 +625,24 @@ public final class ReflexScheduler {
 		return new Decision(ended, Outcome.YIELDED, null);
 	}
 
-	private State best(long now, int abovePriority) {
+	private State best(long now, int aboveRank) {
 		State best = null;
 		for (State state : states.values()) {
-			if (state.rule.priority() <= abovePriority || !ready(state, now)) continue;
-			if (best == null || state.rule.priority() > best.rule.priority()) best = state;
+			if (rank(state.rule) <= aboveRank || !ready(state, now)) continue;
+			if (best == null || rank(state.rule) > rank(best.rule)) best = state;
 		}
 		return best;
+	}
+
+	/**
+	 * Priority, with a fall catch first among equals: in the air nothing else a rule does helps, and the catch has about a
+	 * second. A running breath hold at the same priority kept the End's water catch from firing and the body died of the
+	 * fall (real-model End game, knocked off the cage column with a water bucket in the hotbar).
+	 */
+	static int rank(ReflexSpec.Rule rule) {
+		boolean catchesFall = false;
+		for (ReflexSpec.Condition condition : rule.when()) catchesFall |= !condition.negated() && condition.type().equals("falling");
+		return rule.priority() * 2 + (catchesFall ? 1 : 0);
 	}
 
 	private boolean ready(State state, long now) {
