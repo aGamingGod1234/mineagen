@@ -168,6 +168,11 @@ export const SWITCHES = Object.freeze([
 		propertyParser: JAVA_GET_BOOLEAN, status: 'default-off',
 		reason: 'Practice rooms 21 Nov (Nether courses): pickaxe uses per 100 blocks gained 69.8 on against 60.2 off (50 runs each), and 148.6 against 141.8 (34 each) (#68).',
 		readers: ['ServerTravelController.java walkAroundEnabled (per call)'] }),
+	// ServerTravelController.java shallowShoreEnabled(): per call; property or env.
+	entry({ name: 'travel.shallowShore', env: 'MINEAGEN_TRAVEL_SHALLOW_SHORE', property: 'mineagen.travel.shallowShore', side: 'server', default: true,
+		parser: flag({ token: 'false', means: 'off', trim: true, anyCase: true }), propertyParser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
+		reason: 'A swimmer over a one-deep shallow bank stops treading water and stands on the bed. In 8 fresh games 40 of 47 travel water timeouts (NO_ROUTE, about 39 min) ended bobbing over such a bank; false keeps the held jump.',
+		readers: ['ServerTravelController.java shallowShoreEnabled (per call)'] }),
 	// ServerFightUntilController.java CHARGE_GUARD: static final, class load.
 	entry({ name: 'fight.chargeGuard', property: 'mineagen.fight.chargeGuard', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
 		reason: 'Raises the shield before a charged blaze\'s volley; false is the fixture A/B off arm.',

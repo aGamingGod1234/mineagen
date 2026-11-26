@@ -241,6 +241,18 @@ public final class ServerTravelController implements ServerController {
 		return dev.agaminggod.mineagen.server.Switches.get("travel.walkAround");
 	}
 	static final double WALK_AROUND_MIN_LEFT = 8.0D;
+	/**
+	 * On unless -Dmineagen.travel.shallowShore=false or MINEAGEN_TRAVEL_SHALLOW_SHORE=false: a swimmer over a shallow
+	 * bank stops treading water and stands on the bed (swimTick). Off keeps the old held jump.
+	 */
+	/** Over the chosen bank (within 0.6 blocks of its middle), eyes in air, its floor at or under the feet: let go of jump. */
+	static boolean settleOnBank(boolean eyesUnder, double offBank, int bankFeetY, double bodyY) {
+		return !eyesUnder && offBank < 0.6D && bankFeetY <= bodyY + 0.01D;
+	}
+
+	static boolean shallowShoreEnabled() {
+		return dev.agaminggod.mineagen.server.Switches.get("travel.shallowShore");
+	}
 	private int walkArounds, walkedAround;
 	/** How far from the target the body was when this run of walks round began: only getting past it resets the count. */
 	private double aroundFromLeft = Double.NaN;
@@ -718,7 +730,7 @@ public final class ServerTravelController implements ServerController {
 		}
 		if (shore == null || ticks % 10 == 0) shore = nearestShore(player, world);
 		float yaw = player.getYRot(), pitch = 0.0F;
-		boolean forward = false;
+		boolean forward = false, settle = false;
 		var lookup = eyesUnder ? dev.agaminggod.mineagen.server.perception.WaterAirFacts.surface(player) : null;
 		var surface = lookup == null ? null : lookup.surface();
 		int air = player.getAirSupply();
@@ -773,6 +785,12 @@ public final class ServerTravelController implements ServerController {
 			} else nearShoreSince = 0L;
 			if (off > 0.05D) yaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
 			forward = off > 0.35D;
+			// Over a bank whose floor is at or under the feet (a one-deep shallow, read as standing room over its bed):
+			// stop treading water and let the body sink onto the bed, as a player lets go of jump. Held jump kept it
+			// bobbing at the surface, never on the ground, so it never counted as out: 40 of 47 water timeouts in
+			// 8 fresh games ended over such a bank ("shore at x,62,z not reached" with the body in that column).
+			settle = shallowShoreEnabled() && settleOnBank(eyesUnder, off, shore.y(), player.getY());
+			if (settle) forward = false;
 			pitch = eyesUnder ? SwimPlanning.SURFACING_PITCH : 0.0F;
 			// A bank whose way leads out of the water over a drop the walking code would not take is not swum to.
 			if (forward && dropAhead(world, player.getX(), Mth.floor(player.getY()), player.getZ(), yaw)) {
@@ -793,7 +811,7 @@ public final class ServerTravelController implements ServerController {
 			forward = true;
 			pitch = eyesUnder ? SwimPlanning.SURFACING_PITCH : 0.0F;
 		}
-		boolean jump = SwimPlanning.floatJump(inWater, player.onGround(), eyesUnder) || forward && player.horizontalCollision;
+		boolean jump = !settle && (SwimPlanning.floatJump(inWater, player.onGround(), eyesUnder) || forward && player.horizontalCollision);
 		boolean sprint = SwimPlanning.swimSprint(inWater, eyesUnder, forward ? 1.0F : 0.0F, player.getFoodData().getFoodLevel());
 		apply(player, new AgentInputStates.MotorTarget(net.minecraft.util.Mth.wrapDegrees(yaw), pitch, forward, jump, sprint), false, false, false, nowEpochMs);
 		return TickResult.running(progress(player));

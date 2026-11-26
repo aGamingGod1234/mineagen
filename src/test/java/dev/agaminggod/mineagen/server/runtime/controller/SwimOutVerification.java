@@ -14,6 +14,13 @@ public final class SwimOutVerification {
 
 	public static int verify() {
 		assertions = 0;
+		// Recorded beaches (8 fresh games): the bank cell at y62 is a one-deep shallow; the body bobbed at y62.5-63.1 in
+		// its column with jump held and never landed, so it never counted as out.
+		check(ServerTravelController.settleOnBank(false, 0.3D, 62, 62.5D), "bobbing over a shallow bank: let go of jump and stand on the bed");
+		check(ServerTravelController.settleOnBank(false, 0.5D, 62, 62.0D), "on the bed of the bank: stay down");
+		check(!ServerTravelController.settleOnBank(false, 0.3D, 63, 62.5D), "a bank a block above the feet is climbed: keep jumping");
+		check(!ServerTravelController.settleOnBank(true, 0.3D, 62, 62.5D), "eyes under water: rise first");
+		check(!ServerTravelController.settleOnBank(false, 1.2D, 62, 62.5D), "not over the bank yet: keep swimming to it");
 		check(ServerTravelController.underWater(300, false, 3.0D, false, 8.0D, false) == ServerTravelController.SwimStep.AIR,
 				"a known route to air comes before a low bank under a roof");
 		check(ServerTravelController.underWater(300, false, 0.0D, false, 2.0D, false) == ServerTravelController.SwimStep.AIR,
