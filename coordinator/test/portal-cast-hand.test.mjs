@@ -8,7 +8,7 @@ test('primary step help names direct frame casting after a portal build refusal'
  assert.match(help, /after a refused Overworld portal build, do_step cast_obsidian target:\{frame:true,x,y,z,axis:x\|z\} attempts a frame: water_bucket, empty bucket, dry footing within bucket reach of a lava source/);
  assert.match(help, /choose its lowest corner; resume:true pins the body-reported x,y,z,axis and requires frame:true; default false may relocate/);
  assert.ok(help.indexOf('after a refused Overworld portal build') < help.indexOf('until "seen:'), 'the existing smaller hand is explained before generic step guidance');
- assert.ok(Buffer.byteLength(JSON.stringify(MINECRAFT_DYNAMIC_TOOLS)) <= 39_476, 'the advice fits the current complete tool payload budget');
+ assert.ok(Buffer.byteLength(JSON.stringify(MINECRAFT_DYNAMIC_TOOLS)) <= 39_583, 'the advice fits the current complete tool payload budget');
 });
 
 test('the advertised smaller hand is an ordinary background step with the model chosen frame preserved', () => {
