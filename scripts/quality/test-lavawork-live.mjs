@@ -193,10 +193,11 @@ try {
 		await set('0 81 2 minecraft:lava');
 		await command(`tp ${agent} 0.5 80 0.5 0 20`); await rate.idleSleep(1500); await lookAround(20);
 	};
-	const opened = async (name, rules, rescueAt) => {
+	const opened = async (name, rules, rescueAt, extra) => {
 		try {
 			await reset(); await tunnel();
 			await give(0, 'minecraft:diamond_pickaxe'); await act('select_item', { itemId: 'minecraft:diamond_pickaxe' });
+			if (extra) await extra();
 			if (rules.length) o = await setReflexes(rules);
 			o = await observe(); const before = health(o);
 			since = Math.max(0, ...(o.reflexes?.events ?? []).map((row) => row.seq ?? 0));
@@ -221,6 +222,21 @@ try {
 	if (want('opened-armed')) {
 		const result = await opened('opened-armed', [{ id: 'lava', priority: 9, when: { type: 'in_lava' }, do: { type: 'leave_lava' }, maxS: 4, wake: true }], 0);
 		if (result) { result.pass = !result.died && !result.final?.inLava && result.reflexEvents.some((row) => /out of lava/.test(row.detail ?? '')); await settle('opened-armed'); }
+	}
+
+	// The same opening with the default flow rule armed and blocks in the hotbar: a player puts the block back before the
+	// lava gets in (g3 161m, a fresh-game death: the bot backed off down its stairs, the flow followed it). With
+	// reflex.plugInflow the reflex plugs the opening; without it the reflex backs off and the tunnel fills.
+	if (want('opened-plug')) {
+		const result = await opened('opened-plug', [{ id: 'lava', priority: 9, when: { type: 'in_lava' }, do: { type: 'leave_lava' }, maxS: 4, wake: true },
+			{ id: 'lava-flow', priority: 9, when: { type: 'lava_flowing', withinS: 4 }, do: { type: 'leave_lava' }, maxS: 6, wake: true }], 10,
+			async () => { await give(1, 'minecraft:cobblestone 16'); });
+		if (result) {
+			result.plugged = await isBlock(0, 81, 1, 'minecraft:cobblestone');
+			result.tunnelDry = await isBlock(0, 80, 0, 'minecraft:air') && await isBlock(0, 81, 0, 'minecraft:air') && await isBlock(0, 80, -1, 'minecraft:air');
+			result.pass = result.plugged && result.tunnelDry && !result.died && result.inLavaSamples === 0 && result.minHealth >= result.healthBefore;
+			await settle('opened-plug');
+		}
 	}
 
 	// Cast obsidian left on a deeper lava cell, the rest of the pool already cleared to its stone floor: standing on it
