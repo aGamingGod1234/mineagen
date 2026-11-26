@@ -200,6 +200,10 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'killPosition', property: 'mineagen.killPosition', side: 'server', default: true, parser: flag({ token: 'false', means: 'off', trim: true, anyCase: true }), status: 'default-on',
 		reason: 'Sends where a seen kill died; false withholds it from the wire as an A/B arm (#25).',
 		readers: ['KillSighting.java enabled (per call)'] }),
+	// ReflexEngine.java holdRun: static, class load (tests reassign it).
+	entry({ name: 'reflex.holdRun', env: 'MINEAGEN_REFLEX_HOLD_RUN', side: 'server', default: true, parser: OFF_WORD, status: 'default-on',
+		reason: 'Retreat, cover and defend finish their run (10 s at most) before any model command takes the body, as lava, air and creeper do. In 21 of 42 deaths of 8 fresh games on main 069e471 the next command ended one mid-run; off is the A/B off arm.',
+		readers: ['ReflexEngine.java holdRun (class load)'] }),
 	// Watcher.java enabled(): per call.
 	entry({ name: 'watch', property: 'mineagen.watch', side: 'server', default: false, parser: flag({ token: 'true', means: 'on', trim: true, anyCase: true }), status: 'diagnostic',
 		reason: 'Writes the arena-watch progress and danger logs the quality reports read; off on players\' servers because it scans the world every few ticks.',

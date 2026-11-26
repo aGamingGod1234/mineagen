@@ -519,6 +519,20 @@ public final class ReflexScheduler {
 	}
 
 	/**
+	 * A command kept waiting until a safety run ended now takes the body with no firing left to end: the rules that would
+	 * take it straight back (defend still under attack, a retreat still low) wait as a yield leaves them, until their
+	 * condition clears once or the command ends. Floor rules still fire. A queued trigger edge stays queued (cover after a
+	 * retreat).
+	 */
+	public void yieldAfterRun() {
+		for (State state : states.values()) {
+			if (state.floor || !state.lastTruth) continue;
+			if (state.rule.kind() == ReflexSpec.Kind.STANCE) state.suppressed = true;
+			else state.yieldedTrigger = true;
+		}
+	}
+
+	/**
 	 * A command asked for the body a floor firing held, so the stances that would take it now (default-defend under attack)
 	 * yield to it too, as they would have had they held the body when it came. Floor rules still fire.
 	 */

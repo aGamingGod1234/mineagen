@@ -58,6 +58,7 @@ public final class Switches {
 	static final Flag TRUE_WORD = new Flag("true", true, true, true, false);
 	static final Flag NOT_FALSE_WORD = new Flag("false", false, true, true, false);
 	static final Flag ON_WORD = new Flag("on", true, true, true, false);
+	static final Flag OFF_WORD = new Flag("off", false, true, true, false);
 	static final Flag LIST_HAS_INSTINCTS = new Flag("instincts", true, false, false, true);
 
 	/** Server and both-side switches; the reason, numbers and readers for each are in coordinator/src/switches.mjs. */
@@ -82,6 +83,8 @@ public final class Switches {
 		new Switch("fight.skipUnreachable", null, "mineagen.fight.skipUnreachable", "server", true, JAVA_NOT_FALSE_EXACT, null, "default-on"),
 		// KillSighting.java enabled(): per call.
 		new Switch("killPosition", null, "mineagen.killPosition", "server", true, NOT_FALSE_WORD, null, "default-on"),
+		// ReflexEngine.java holdRun: class load (tests reassign it).
+		new Switch("reflex.holdRun", "MINEAGEN_REFLEX_HOLD_RUN", null, "server", true, OFF_WORD, null, "default-on"),
 		// Watcher.java enabled(): per call.
 		new Switch("watch", null, "mineagen.watch", "server", false, TRUE_WORD, null, "diagnostic")
 	);

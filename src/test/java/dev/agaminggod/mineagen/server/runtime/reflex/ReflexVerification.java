@@ -43,6 +43,7 @@ public final class ReflexVerification {
 		flappingDisables();
 		expiry();
 		yieldSuppressesStanceUntilConditionClears();
+		runHoldHandsBackAfterTheRun();
 		replaceKeepsUnchangedState();
 		stanceFlipKeepsTheFiring();
 		retreatPaceCheck();
@@ -407,6 +408,29 @@ public final class ReflexVerification {
 		check(scheduler.step(40, sense("s", true), RUNNING, "", true).started() == null, "the stance stays down while its situation persists");
 		scheduler.step(41, sense("s", false), RUNNING, "", true);
 		check("s".equals(scheduler.step(52, sense("s", true), RUNNING, "", true).started()), "and re-arms once it clears");
+	}
+
+	/**
+	 * reflex.holdRun: a command kept waiting until a retreat, cover or defend run ends takes the body then, and the rules
+	 * that would take it straight back wait as a mid-run yield leaves them. Floors still fire; a queued trigger edge stays.
+	 */
+	private static void runHoldHandsBackAfterTheRun() {
+		check(ReflexEngine.owedPaid(false, true, true, true), "a run hold's yield is paid once the run is over");
+		check(!ReflexEngine.owedPaid(true, true, false, true), "a run hold keeps any command waiting while the run goes on, walk or not");
+		check(ReflexEngine.owedPaid(true, false, true, true), "without a run hold a non-walk command takes the body at once (#275)");
+		check(!ReflexEngine.owedPaid(true, false, true, false) && ReflexEngine.owedPaid(true, false, false, false),
+				"without a run hold a walk waits for the shelter hold only (#275)");
+		check(ReflexEngine.RUN_HOLD_MAX_TICKS <= 200L, "a run hold never keeps a command past 10 s");
+		ReflexScheduler scheduler = new ReflexScheduler();
+		scheduler.replace(rules("[{\"id\":\"d\",\"kind\":\"stance\",\"when\":{\"type\":\"attacked\",\"withinS\":4},\"do\":{\"type\":\"defend\"}},"
+				+ "{\"id\":\"lava\",\"priority\":9,\"when\":{\"type\":\"in_lava\"},\"do\":{\"type\":\"leave_lava\"},\"coordinatorDefault\":true}]"), 0);
+		scheduler.step(1, sense("d", true, "lava", false), RUNNING, "", true);
+		scheduler.step(2, sense("d", true, "lava", false), ReflexScheduler.ActionStatus.DONE, "", true);
+		check(scheduler.current() == null, "the run ended on its own");
+		scheduler.yieldAfterRun();
+		check(scheduler.anySuppressed(), "defend still under attack waits for the command");
+		check(scheduler.step(40, sense("d", true, "lava", false), RUNNING, "", true).started() == null, "it does not take the body back while attacked");
+		check("lava".equals(scheduler.step(41, sense("d", true, "lava", true), RUNNING, "", true).started()), "a floor still fires under the command");
 	}
 
 	private static void replaceKeepsUnchangedState() {
