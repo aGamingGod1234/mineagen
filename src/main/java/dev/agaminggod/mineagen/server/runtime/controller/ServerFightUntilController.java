@@ -188,6 +188,15 @@ public final class ServerFightUntilController implements ServerController {
 	static boolean staysInForest(boolean switchOn, boolean forestMode, boolean enderman, boolean pearls, String biomeAtFeet) {
 		return switchOn && !forestMode && enderman && pearls && WarpedForestHunt.BIOME.equals(biomeAtFeet);
 	}
+
+	/**
+	 * A mob other than the hunted kind hurt the body within HURT_TURN_TICKS: the stay ends and the usual hand-back follows,
+	 * so the model can answer it. Smoke room (seed 8675309): a piglin took a waiting body to 0.9 health over 477 s.
+	 */
+	private boolean hurtByOther(ServerPlayer player) {
+		LivingEntity by = player.getLastHurtByMob();
+		return by != null && by.getType() != mob && player.tickCount - player.getLastHurtByMobTimestamp() <= HURT_TURN_TICKS;
+	}
 	private final int untilCount;
 	private final Weapon weapon;
 	private final boolean collect;
@@ -755,7 +764,7 @@ public final class ServerFightUntilController implements ServerController {
 			TickResult moving = tickForest(player, elapsed, nowEpochMs, false);
 			if (moving != null) return moving;
 		}
-		boolean waitsOn = stays && WarpedForestHunt.inForest(player);
+		boolean waitsOn = stays && WarpedForestHunt.inForest(player) && !hurtByOther(player);
 		if (forest == null && !waitsOn && elapsed - lastTargetMs >= NO_TARGET_MS) {
 			return stop(player, TickResult.failed("NO_TARGET_SEEN", String.format(Locale.ROOT,
 					"No %s seen within %.0f blocks of %s for %.0f s%s", mobId, radius, cell(center), NO_TARGET_MS / 1000.0D, seenOutside(player, elapsed)), progress(player)));

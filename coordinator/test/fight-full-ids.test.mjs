@@ -7,7 +7,7 @@ import test from 'node:test';
 const source = readFileSync(new URL('../../src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerFightUntilController.java', import.meta.url), 'utf8');
 
 test('fight_until matches remembered drops only through wantsDrop', () => {
-	assert.equal(source.match(/\.equals\(untilItemId\)/g)?.length ?? 0, 1, 'besides wantsDrop, only the forest-mode check compares untilItemId');
+	assert.equal(source.match(/\.equals\(untilItemId\)/g)?.length ?? 0, 2, 'besides wantsDrop, only the forest-mode and forest-stay checks compare untilItemId');
 	assert.match(source, /boolean wantsDrop\(String dropItem\) \{\s*return untilItemId\.equals\(dropItem\);/);
 	const uses = source.match(/wantsDrop\(drop\.item\(\)\)/g) ?? [];
 	assert.equal(uses.length, 3, 'the ledge fetch, the collect-when-clear list and the lying count');
