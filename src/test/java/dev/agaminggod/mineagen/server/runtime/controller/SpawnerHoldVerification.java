@@ -57,6 +57,13 @@ public final class SpawnerHoldVerification {
 		check(!SpawnerHold.applies(true, true, null, false), "no seen spawner: the open-ground fight");
 		check(!SpawnerHold.applies(true, false, null, true), "another mob: the open-ground fight");
 		check(!SpawnerHold.applies(false, true, null, true), "outside the Nether: the open-ground fight");
+		BlockPos spawner = new BlockPos(-389, 70, -238);
+		check(SpawnerHold.spotAtSpawner(spawner, -389.0D, 70.0D, -238.0D), "a spot on the spawner block asks for the fight at the spawner");
+		check(SpawnerHold.spotAtSpawner(spawner, -385.0D, 66.0D, -230.0D), "a spot on the deck beside it does too");
+		check(SpawnerHold.spotAtSpawner(spawner, -389.0D, null, -216.0D), "no y: the spawner's height counts");
+		check(!SpawnerHold.spotAtSpawner(spawner, -389.0D, 70.0D, -210.0D), "a spot 28 blocks off keeps the ordinary fight there");
+		check(!SpawnerHold.spotAtSpawner(null, -389.0D, 70.0D, -238.0D), "no seen spawner: the spot keeps the ordinary fight");
+		check(!SpawnerHold.spotAtSpawner(spawner, -389.0D, 70.0D, null), "a spot without z is not one");
 	}
 
 	private static SpawnerHold.Sense sense(int held, float health, int hunger, boolean food, long elapsed, boolean gone, long quiet, boolean inCell,

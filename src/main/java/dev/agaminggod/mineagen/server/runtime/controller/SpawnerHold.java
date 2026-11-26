@@ -1,5 +1,6 @@
 package dev.agaminggod.mineagen.server.runtime.controller;
 
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 
 /**
@@ -73,6 +74,19 @@ public final class SpawnerHold {
 	/** Whether fight_until starts a spawner hold instead of the open-ground fight. roof:false keeps the open fight. */
 	public static boolean applies(boolean nether, boolean blaze, Boolean roofArgument, boolean spawnerNear) {
 		return nether && blaze && spawnerNear && !Boolean.FALSE.equals(roofArgument);
+	}
+
+	/**
+	 * A fight_until spot (x, y, z) that names the seen spawner's own ground: within {@link #SCAN} blocks of it. Such a spot
+	 * asks for the fight at the spawner, so the hold takes it and picks its own cell; a spot farther off keeps the ordinary
+	 * fight there. A missing y counts as the spawner's height; a spot without x or z is not one. Real games (26 Nov, 55
+	 * games): 240 of 270 Nether blaze fight_until calls named a spot, which turned the hold off; 56 of them were made
+	 * within 24 blocks of a spawner the body had seen, 30 on the spawner block itself, and none of those fights got a rod.
+	 */
+	public static boolean spotAtSpawner(BlockPos spawner, Double x, Double y, Double z) {
+		if (spawner == null || x == null || z == null) return false;
+		double dx = x - (spawner.getX() + 0.5D), dz = z - (spawner.getZ() + 0.5D), dy = y == null ? 0.0D : y - spawner.getY();
+		return dx * dx + dy * dy + dz * dz <= SCAN * SCAN;
 	}
 
 	/** True when a mob of this height cannot pass a gap of that many blocks (a block over a two-high doorway). */
