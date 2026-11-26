@@ -89,6 +89,8 @@ try {
 	};
 	await command('scoreboard objectives add fixture_deaths deathCount');
 	const deaths = () => deathCounter(command, agent, { objective: 'fixture_deaths', unsetIsZero: true });
+	// Vanilla's damage_taken counter judges each landing: net health read 3 s later can hide a hit under saturation's healing.
+	const damage = await damageCounter(command, agent);
 	await clearIsland();
 	// The rules the coordinator arms on entering the End: the survival defaults plus the End's own.
 	const book = new ReflexBook();
@@ -130,6 +132,7 @@ try {
 			row.breathFiring = o.reflexes?.firing?.id === 'default-breath';
 		}
 		const before = await health();
+		const damage0 = await damage();
 		const o = await observe();
 		row.before = before;
 		row.startY = Math.round(o.position.y * 10) / 10;
@@ -147,10 +150,12 @@ try {
 		const after = row.dead ? null : await observe().catch(() => null);
 		row.after = row.dead ? 0 : await health();
 		row.lost = row.dead ? before : Math.round((before - row.after) * 10) / 10;
+		if (!row.dead) recordDamageEvidence(row, damage0, await damage(), 'damage');
 		row.endY = row.dead ? null : Math.round((after?.position?.y ?? await at()) * 10) / 10;
 		row.fell = row.dead || row.endY < GROUND + 3 && row.startY - row.endY >= 15;
 		if (!row.fell && !row.dead) row.notExercised = `the body did not fall off the column (ended at y ${row.endY})`;
-		row.caught = row.fell && !row.dead && row.lost < 2;
+		else if (!row.dead && row.damage === null) row.notExercised = 'the vanilla damage counter was unreadable or went down';
+		row.caught = row.fell && !row.dead && Number.isFinite(row.damage) && row.damage < 2;
 		row.bucketBack = (await command(`data get entity ${agent} Inventory[{Slot:3b}].id`)).includes('water_bucket');
 		row.reflex = after ? reflexEvents(after, tick0) : null;
 		row.firingAtThrow = o.reflexes?.firing?.id ?? null;
@@ -161,7 +166,7 @@ try {
 	for (let i = 0; i < 3; i++) { results.falls.push(await fall(true)); await clearIsland(); }
 	const valid = results.falls.filter(row => !row.notExercised);
 	results.deaths = valid.filter(row => row.dead).length;
-	results.damageTaken = Math.round(valid.reduce((sum, row) => sum + (row.lost ?? 0), 0) * 10) / 10;
+	results.damageTaken = Math.round(valid.reduce((sum, row) => sum + (row.dead ? row.before : row.damage), 0) * 10) / 10;
 	results.summary = { arm, falls: valid.length, caught: valid.filter(row => row.caught).length, breathCaught: valid.filter(row => row.breath && row.caught).length,
 		bucketBack: valid.filter(row => row.bucketBack).length, deaths: results.deaths, jar: jarPath };
 	if (valid.length < results.falls.length) results.notExercised = results.falls.find(row => row.notExercised).notExercised;
