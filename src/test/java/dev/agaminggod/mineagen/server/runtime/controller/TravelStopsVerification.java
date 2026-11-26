@@ -18,6 +18,7 @@ public final class TravelStopsVerification {
 		verifyDamage();
 		verifyNightTrip();
 		verifyBeatable();
+		verifyBlazePass();
 		return assertions;
 	}
 
@@ -97,6 +98,21 @@ public final class TravelStopsVerification {
 	}
 
 	/** Issue 2 Step 2 (instincts arm): which mob that would stop a trip the body fights through instead. */
+	private static void verifyBlazePass() {
+		check(TravelStops.passesBlaze(true, "minecraft:blaze", 14.0D), "a targeting blaze 14 blocks off is walked past");
+		check(!TravelStops.passesBlaze(true, "minecraft:blaze", 5.0D), "a blaze within 6 still stops the trip");
+		check(!TravelStops.passesBlaze(false, "minecraft:blaze", 14.0D), "with the switch off a far blaze stops it as before");
+		check(!TravelStops.passesBlaze(true, "minecraft:skeleton", 14.0D), "other ranged mobs keep their stop");
+		check(TravelStops.passesBlazeFire(true, "fireball", "minecraft:blaze", 15.0F, 8.0F), "a blaze fireball at 15 health is walked through");
+		check(TravelStops.passesBlazeFire(true, "onFire", null, 14.0F, 8.0F), "burning after it is walked through");
+		check(!TravelStops.passesBlazeFire(true, "fireball", "minecraft:blaze", 10.0F, 8.0F), "at 10 health the hit hands back");
+		check(!TravelStops.passesBlazeFire(true, "onFire", null, 13.0F, 14.0F), "a minHealth above the floor wins");
+		check(!TravelStops.passesBlazeFire(true, "lava", null, 18.0F, 8.0F), "lava is never walked through");
+		check(!TravelStops.passesBlazeFire(true, "fireball", "minecraft:ghast", 18.0F, 8.0F), "a ghast fireball keeps its stop");
+		check(!TravelStops.passesBlazeFire(true, "mob", "minecraft:blaze", 18.0F, 8.0F), "a blaze's melee hit keeps its stop");
+		check(!TravelStops.passesBlazeFire(false, "fireball", "minecraft:blaze", 18.0F, 8.0F), "with the switch off a fireball stops it as before");
+	}
+
 	private static void verifyBeatable() {
 		check(TravelStops.beatable("minecraft:zombie", 0, true, 20.0F, 8.0F, 3.0D), "a lone zombie, sword held, full health: fought");
 		check(TravelStops.beatable("minecraft:spider", 0, true, 20.0F, 8.0F, 2.0D), "a lone spider: fought");
