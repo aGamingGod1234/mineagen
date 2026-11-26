@@ -25,6 +25,8 @@ function inventoryClauses(body) {
 function clause(text) {
 	let m;
 	if (/^(survive_duration|inventory_contains_any):/.test(text)) return parseSuccessCheck(text);
+	// An advancement beside an inventory count: "went through the portal holding N of these".
+	if ((m = text.match(/^advancement\s+(\S+)$/))) return { type: 'advancement', id: m[1] };
 	if ((m = text.match(/^inventory\s+(.+)$/))) return all(inventoryClauses(m[1]));
 	if ((m = text.match(/^position_within\s+(\w+)\s*\(\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*\)\s*radius\s*(\d+(?:\.\d+)?)$/)))
 		return { type: 'position', dimension: `minecraft:${m[1]}`, center: [+m[2], +m[3], +m[4]], radius: +m[5] };

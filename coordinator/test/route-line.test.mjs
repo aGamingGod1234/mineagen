@@ -11,6 +11,8 @@ import { decodeModelFacts, encodeNativeEventInput, ModelObservationViews } from 
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+// These cases are the stock.foodFloor off arm (the route before the food floor); food-floor-route.test.mjs has the on arm.
+process.env.MINEAGEN_FOOD_FLOOR = 'off';
 
 // The route to beat the game as data: one wake line suggesting the usual next step from the player's state.
 
@@ -171,8 +173,33 @@ test('enough eyes never send the agent back for blazes: missing counts down from
 	assert.match(crafted, /^usual next step: find structure stronghold\b/);
 	assert.doesNotMatch(crafted, /Nether/);
 	assert.match(route([...KIT, ['ender_eye', 12]], { dimension: 'minecraft:the_nether' }), /return home through the portal/);
-	// Throwing: one eye broke, 11 held; one more eye needs one pearl and one powder (half a rod).
-	assert.match(route([...KIT, ['ender_eye', 11]], {}, visitedNether()), /go back to the Nether for 1 blaze_rods and 1 ender_pearls \(rods 0\/1, pearls 0\/1, eyes 11 held/);
+	// Throwing: one eye broke, 11 held. Until the stronghold is found the eyes in hand keep the search going, since its
+	// frames may already hold eyes; once it is found, one more eye needs one pearl and one powder (half a rod).
+	const searching = route([...KIT, ['ender_eye', 11]], {}, visitedNether());
+	assert.match(searching, /^usual next step: find structure stronghold follows thrown eyes[^(]*count the set frames before going back/);
+	assert.doesNotMatch(searching, /go back to the Nether/);
+	for (const eyes of [1, 6, 10]) assert.match(route([...KIT, ['ender_eye', eyes]], {}, visitedNether()), /find structure stronghold/, `${eyes} eyes`);
+	// Stronghold found: the eyes still in hand go to its portal room first, walking back to it when far; only once
+	// none is held does the count send the agent back.
+	const found = visitedNether(); found.structuresSeen.push({ id: 'minecraft:stronghold', dimension: 'minecraft:overworld', x: 0, z: 0 });
+	const atHold = route([...KIT, ['ender_eye', 9]], {}, found);
+	assert.match(atHold, /^usual next step: find block end_portal_frame walks its passages to the portal room; set the eyes held/);
+	assert.doesNotMatch(atHold, /go back to the Nether|go to the stronghold/);
+	const away = visitedNether(); away.structuresSeen.push({ id: 'minecraft:stronghold', dimension: 'minecraft:overworld', x: 1500, z: 640 });
+	assert.match(route([...KIT, ['ender_eye', 11]], {}, away), /^usual next step: go to the stronghold seen at 1500,640, then find block end_portal_frame/);
+	assert.match(route(KIT, {}, found), /go back to the Nether for \d+ blaze_rods and 12 ender_pearls/);
+	// Hurt and hungry with no food: food before the search, which would stop on low health (never the Nether trip).
+	const hungry = route([['iron_pickaxe', 1], ['ender_eye', 11]], { health: 8, foodLevel: 5 }, visitedNether());
+	assert.match(hungry, /^usual next step: obtain cooked_beef count 20 before going on \(food 0\/10/);
+	assert.doesNotMatch(hungry, /Nether/);
+	// The pickaxe worn out: a pickaxe before the search, which digs down (never the Nether trip).
+	const noPick = route([['cooked_beef', 16], ['ender_eye', 11]], {}, visitedNether());
+	assert.match(noPick, /^usual next step: obtain wooden_pickaxe .*the stronghold search digs down/);
+	assert.match(route([['wooden_pickaxe', 1], ['cooked_beef', 16], ['ender_eye', 11]], {}, visitedNether()), /^usual next step: obtain stone_pickaxe/);
+	assert.match(route([['stone_pickaxe', 1], ['cooked_beef', 16], ['ender_eye', 11]], {}, visitedNether()), /^usual next step: find structure stronghold/);
+	// Off switch: MINEAGEN_EYES_HOLD=0 restores the count-and-go-back route with eyes in hand.
+	process.env.MINEAGEN_EYES_HOLD = '0';
+	try { assert.match(route([...KIT, ['ender_eye', 9]], {}, found), /go back to the Nether/); } finally { delete process.env.MINEAGEN_EYES_HOLD; }
 	assert.match(route([...KIT, ['ender_eye', 11], ['ender_pearl', 1], ['blaze_powder', 1]], {}, visitedNether()), /craft 1 ender_eyes/);
 	// Inserting: eyes leave the inventory into frames, and nothing regresses.
 	for (const set of [0, 4, 11]) {
