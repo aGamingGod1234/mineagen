@@ -27,6 +27,7 @@ public final class ReflexShieldVerification {
 		idleShieldYieldsBeforeFiring();
 		newCommandWinsOverOldBailout();
 		shieldTakesCounter();
+		faceMeleeCountersLikeDefend();
 		escapeFromTheStaircaseAirborne();
 		return assertions;
 	}
@@ -106,6 +107,62 @@ public final class ReflexShieldVerification {
 				"counter is off unless asked");
 		check(ReflexActions.RECOVERY_TICKS - ReflexActions.COUNTER_WINDOW_TICKS >= 10L,
 				"a counter starts only early in a melee mob's 20-tick cooldown");
+	}
+
+	/** Review of the lone-melee shield hold (#280): ranged mobs keep the attack, the counter holds the weapon and aims where defend saw. */
+	private static void faceMeleeCountersLikeDefend() {
+		check(ReflexActions.Defend.facesWith(1, true, false, () -> false), "a lone melee mob is faced behind an offhand shield");
+		check(!ReflexActions.Defend.facesWith(1, true, true, () -> false),
+				"a mob with no swing to counter (blaze, bow skeleton, magma cube, creeper) keeps defend's attack");
+		check(!ReflexActions.Defend.facesWith(1, true, false, () -> true), "a hit that disables the shield is not faced");
+		check(!ReflexActions.Defend.facesWith(ReflexActions.Defend.CROWD, true, false, () -> false), "a crowd still backs out");
+		check(!ReflexActions.Defend.facesWith(1, false, false, () -> false),
+				"no ready offhand shield (none, or an axe put it on cooldown): no hold, so the back-out can still run");
+		check(ReflexActions.Shield.counterSlot(net.minecraft.world.InteractionHand.OFF_HAND, 2, 5) == 2,
+				"with the shield in the offhand the counter holds defend's weapon slot, not the pickaxe last used");
+		check(ReflexActions.Shield.counterSlot(net.minecraft.world.InteractionHand.OFF_HAND, -1, 5) == 5, "no weapon: the held item stays");
+		check(ReflexActions.Shield.counterSlot(net.minecraft.world.InteractionHand.MAIN_HAND, 2, 5) == 5,
+				"a main-hand shield keeps its slot");
+		// Mob classes read the registries as they load.
+		net.minecraft.SharedConstants.tryDetectVersion();
+		net.minecraft.server.Bootstrap.bootStrap();
+		try {
+			var field = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
+			field.setAccessible(true);
+			var unsafe = (sun.misc.Unsafe) field.get(null);
+			check(ReflexActions.Defend.contact((net.minecraft.world.entity.Entity) unsafe.allocateInstance(mobClass("net.minecraft.world.entity.monster.cubemob.MagmaCube", "net.minecraft.world.entity.monster.MagmaCube"))),
+					"a magma cube hurts by contact, so it is not held behind the shield");
+			check(ReflexActions.Defend.contact((net.minecraft.world.entity.Entity) unsafe.allocateInstance(mobClass("net.minecraft.world.entity.monster.Creeper"))),
+					"a creeper blasts, so it is not held behind the shield");
+			check(!ReflexActions.Defend.contact((net.minecraft.world.entity.Entity) unsafe.allocateInstance(mobClass("net.minecraft.world.entity.monster.skeleton.WitherSkeleton", "net.minecraft.world.entity.monster.WitherSkeleton"))),
+					"a wither skeleton swings, so it is held behind the shield");
+			check(ReflexActions.Defend.noSwing(List.of((net.minecraft.world.entity.Mob) unsafe.allocateInstance(mobClass(
+					"net.minecraft.world.entity.monster.cubemob.MagmaCube", "net.minecraft.world.entity.monster.MagmaCube")))),
+					"one mob near that never swings stops the hold, so the counter is never left waiting for good");
+			check(!ReflexActions.Defend.noSwing(List.of()), "no other attacker near: the hold stands");
+			check(!ReflexActions.Defend.counterable((net.minecraft.world.entity.Mob) unsafe.allocateInstance(mobClass(
+					"net.minecraft.world.entity.monster.skeleton.WitherSkeleton", "net.minecraft.world.entity.monster.WitherSkeleton")), List.of()),
+					"a target the counter cannot see (eyes behind a block) keeps defend's attack instead of a hold that never strikes");
+		} catch (ReflectiveOperationException e) {
+			throw new IllegalStateException(e);
+		}
+		Object focus = new Object();
+		net.minecraft.world.phys.Vec3 seen = new net.minecraft.world.phys.Vec3(1, 2, 3), middle = new net.minecraft.world.phys.Vec3(0, 0, 0);
+		check(ReflexActions.Shield.counterAim(focus, focus, seen, middle) == seen,
+				"round a corner the counter aims at the part of the focus defend saw, not its hidden middle");
+		check(ReflexActions.Shield.counterAim(new Object(), focus, seen, middle) == middle, "another mob is aimed at its middle");
+		check(ReflexActions.Shield.counterAim(focus, focus, null, middle) == middle, "no aim point: the middle");
+	}
+
+	/** Mob classes moved packages between the 26.x drops: the first name that loads. */
+	private static Class<?> mobClass(String... names) throws ClassNotFoundException {
+		for (String name : names) {
+			try {
+				return Class.forName(name);
+			} catch (ClassNotFoundException ignored) {
+			}
+		}
+		throw new ClassNotFoundException(String.join(" or ", names));
 	}
 
 	private static void escapeFromTheStaircaseAirborne() {

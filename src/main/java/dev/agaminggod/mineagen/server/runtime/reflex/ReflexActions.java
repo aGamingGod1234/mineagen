@@ -296,6 +296,29 @@ final class ReflexActions {
 		private boolean defers = true;
 		private int lowered;
 		private final Map<Integer, Long> swungAt = new java.util.HashMap<>();
+		/** Set by defend before each tick: the weapon slot to hold and the visible part of the focus's hitbox. */
+		private int weaponSlot = -1;
+		private Vec3 focusAim;
+
+		Shield arm(int slot, Vec3 aim) {
+			weaponSlot = slot;
+			focusAim = aim;
+			return this;
+		}
+
+		private int slot(ServerPlayer player) {
+			return counterSlot(hand, weaponSlot, player.getInventory().getSelectedSlot());
+		}
+
+		/** With the shield in the offhand the main hand is free, so it holds defend's weapon, not what the body last used. */
+		static int counterSlot(InteractionHand shieldHand, int weaponSlot, int selected) {
+			return shieldHand == InteractionHand.OFF_HAND && weaponSlot >= 0 ? weaponSlot : selected;
+		}
+
+		/** Round a corner the middle of the focus can sit behind stone, so the counter aims at the part defend saw. */
+		static Vec3 counterAim(Object target, Object focus, Vec3 focusAim, Vec3 center) {
+			return target == focus && focusAim != null ? focusAim : center;
+		}
 
 		@Override
 		public void end(ServerPlayer player) {
@@ -350,7 +373,7 @@ final class ReflexActions {
 				if (strike != null) return strike;
 			}
 			Vec3 target = meet != null ? meet : volley ? shotFrom : guardPoint(player, context.focus(), close, now);
-			AgentInputState aim = look(player, target, 0.0F, 0.0F, false, true, player.getInventory().getSelectedSlot(), hand);
+			AgentInputState aim = look(player, target, 0.0F, 0.0F, false, true, slot(player), hand);
 			if (below == null) {
 				if (dev.agaminggod.mineagen.server.runtime.controller.BrinkGuard.needsFooting(player)) {
 					aim = new AgentInputState(0, 0, false, false, false, false, true, aim.yaw(), 40.0F,
@@ -396,9 +419,10 @@ final class ReflexActions {
 				return null;
 			}
 			lowered++;
-			input.accept(look(player, target.getBoundingBox().getCenter(), 0.0F, 0.0F, false, false,
-					player.getInventory().getSelectedSlot(), InteractionHand.MAIN_HAND));
-			if (!player.isUsingItem() && Tracer.rayTrace(player, 1.0F, range.effectiveMaxRange(player), false) instanceof EntityHitResult hit
+			int slot = slot(player);
+			input.accept(look(player, counterAim(target, focus, focusAim, target.getBoundingBox().getCenter()), 0.0F, 0.0F,
+					false, false, slot, InteractionHand.MAIN_HAND));
+			if (!player.isUsingItem() && player.getInventory().getSelectedSlot() == slot && Tracer.rayTrace(player, 1.0F, range.effectiveMaxRange(player), false) instanceof EntityHitResult hit
 					&& hit.getEntity() == target) {
 				player.attack(target);
 				ArmSwing.attack(player, InteractionHand.MAIN_HAND);
@@ -494,6 +518,13 @@ final class ReflexActions {
 		/** Hit by the attacker within this many ticks counts as under fire now. */
 		static final int UNDER_FIRE_TICKS = 80;
 		private final Shield guard = new Shield(false);
+		/** Facing one melee mob with the shield: guard toward it and counter between its attacks. */
+		private final Shield faceGuard = new Shield(true);
+		/**
+		 * Off ({@code -Dmineagen.reflex.faceMelee=false}) defend backs away from one melee mob whose three hits would kill
+		 * the body even with a shield in the offhand, as before.
+		 */
+		static final boolean FACE_MELEE = dev.agaminggod.mineagen.server.Switches.get("reflex.faceMelee");
 		private TakeCover cover;
 		private WallIn walls;
 		private int coverRetryTick = Integer.MIN_VALUE;
@@ -529,6 +560,46 @@ final class ReflexActions {
 		 */
 		private int keptPace = -1;
 		private int backOutStartTick;
+
+		/**
+		 * With a shield in the offhand, one melee mob is faced, not run from: the shield takes its every hit from the front,
+		 * and a turned back takes them all. Real fortress games: the body died in 18 of 33 wither skeleton fights, a shield
+		 * in hand in each; in the lost ones 42 of 49 hits landed unblocked, 28 under a back-out, retreat or cover walk, and
+		 * in the won ones 19 of 27 were blocked facing it. Not a mob whose weapon disables the shield (an axe), nor a crowd.
+		 */
+		static boolean faces(ServerPlayer player, Mob mob, int crowd) {
+			ItemStack offhand = player.getOffhandItem();
+			return FACE_MELEE && mob != null && facesWith(crowd, offhand.is(Items.SHIELD) && !player.getCooldowns().isOnCooldown(offhand),
+					!counterable(mob, Shield.attackers(player)),
+					() -> dev.agaminggod.mineagen.server.perception.ThreatDamage.expectedHit(mob, player).disablesShield());
+		}
+
+		/**
+		 * Whether any of these mobs gives no swing to wait out. The counter waits for every attacker near to swing, so one
+		 * bow skeleton or blaze beside a zombie would hold the shield up for good with no hit back.
+		 */
+		static boolean counterable(Mob target, List<? extends Mob> attackers) {
+			// The counter only strikes mobs on its list; one whose eyes sit behind a block is off it, and would never be hit.
+			return attackers.contains(target) && !noSwing(attackers);
+		}
+
+		static boolean noSwing(List<? extends Mob> mobs) {
+			for (Mob mob : mobs) if (contact(mob) || ThreatPerception.isRanged(mob)) return true;
+			return false;
+		}
+
+		/** Slimes, magma cubes and creepers hurt by contact or blast: no swing for the counter to wait out. */
+		static boolean contact(Entity mob) {
+			return McCompat.isSlimeOrMagmaCube(mob) || mob instanceof Creeper;
+		}
+
+		/**
+		 * A mob with no swing to counter between (ranged, contact, blast) keeps the ordinary attack, as an axe that breaks the
+		 * shield does, and a shield an axe already put on cooldown blocks nothing, so the old back-out stays.
+		 */
+		static boolean facesWith(int crowd, boolean readyShield, boolean noSwing, java.util.function.BooleanSupplier disablesShield) {
+			return crowd < CROWD && readyShield && !noSwing && !disablesShield.getAsBoolean();
+		}
 
 		private Mob outmatching(ServerPlayer player, Mob mob) {
 			if (mob == null || mob.getId() == keptPace) return null;
@@ -866,7 +937,7 @@ final class ReflexActions {
 				} else if (crowd.size() >= CROWD) {
 					startBackOut(player, Retreat.CROWD, crowd.getFirst(), null);
 				} else {
-					Mob outmatching = outmatching(player, closing);
+					Mob outmatching = faces(player, closing, crowd.size()) ? null : outmatching(player, closing);
 					if (outmatching != null) startBackOut(player, Retreat.WEAK, outmatching, null);
 				}
 			}
@@ -920,6 +991,14 @@ final class ReflexActions {
 			else {
 				Step stepping = meleeOffBrink(context, melee, target, swing, slot, shield, input, done);
 				if (stepping != null) return stepping;
+			}
+			if (target instanceof Mob facing && faces(player, facing, crowd.size())) {
+				Step held = faceGuard.arm(slot, swing.aim()).tick(new Context(player, facing, context.stance(), context.memory(), null, context.below(),
+						context.fightShields()), input);
+				if (held.status() == ReflexScheduler.ActionStatus.RUNNING) {
+					guardTicks++;
+					return Step.running(done + "; facing " + type(facing) + " behind the shield: " + held.detail());
+				}
 			}
 			if (target != null) {
 				// Aim at the part of the hitbox the eye can see: round a corner its middle can sit behind the stone.

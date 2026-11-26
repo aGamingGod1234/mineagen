@@ -188,6 +188,10 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'fight.skipUnreachable', property: 'mineagen.fight.skipUnreachable', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
 		reason: '21 Nov room benchmark: the unreachable-enderman room passed 0 of 10 off and 10 of 10 on (added off in #39).',
 		readers: ['UnreachableTargets.java fromProperty (per call)'] }),
+	// ReflexActions.java Defend.FACE_MELEE: class load.
+	entry({ name: 'reflex.faceMelee', property: 'mineagen.reflex.faceMelee', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
+		reason: 'Defend faces one melee mob behind an offhand shield and counters between its attacks instead of backing away; real fortress games: 18 of 33 wither skeleton fights lost, 42 of 49 hits in them unblocked; false backs away as before.',
+		readers: ['ReflexActions.java Defend.FACE_MELEE (class load)'] }),
 	// KillSighting.java enabled(): per call.
 	entry({ name: 'killPosition', property: 'mineagen.killPosition', side: 'server', default: true, parser: flag({ token: 'false', means: 'off', trim: true, anyCase: true }), status: 'default-on',
 		reason: 'Sends where a seen kill died; false withholds it from the wire as an A/B arm (#25).',

@@ -8,7 +8,7 @@ import { finishRun } from '../../scripts/quality/lib/fixture-run.mjs';
 import { mergeArms } from '../../scripts/quality/lib/room-batch-core.mjs';
 import { logSwitches } from '../src/dynamic-main.mjs';
 
-const SERVER = 'switches instincts=off travel.walkAround=off fight.chargeGuard=on fight.recover=off@property fight.spawnerHold=on fight.spawnerHoldOpen=on fight.forestHunt=off fight.skipUnreachable=on killPosition=on watch=on@property';
+const SERVER = 'switches instincts=off travel.walkAround=off fight.chargeGuard=on fight.recover=off@property fight.spawnerHold=on fight.spawnerHoldOpen=on fight.forestHunt=off fight.skipUnreachable=on reflex.faceMelee=on killPosition=on watch=on@property';
 
 async function scratch(t) {
 	const dir = await mkdtemp(path.join(tmpdir(), 'switch-record-'));
