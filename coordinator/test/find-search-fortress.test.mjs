@@ -155,7 +155,21 @@ test('fortress brick seen far off by a look round is walked to when no floor is 
 	assert.equal(result.find.covered.walked > 25, true);
 });
 
-test('with a blaze in view the floor nearest it is walked first, not the farthest', async () => {
+test('layout off: with a blaze in view the floor nearest it is walked first, not the farthest', async () => {
+	process.env.MINEAGEN_FORTRESS_LAYOUT = 'off';
+	try { await blazeFirst(); } finally { delete process.env.MINEAGEN_FORTRESS_LAYOUT; }
+});
+
+test('layout on: a blaze in view does not steer the walk; the farthest new floor is walked', async () => {
+	const observation = sample();
+	observation.blocks = [{ blockId: 'minecraft:nether_bricks', x: 5, y: 64, z: 131, placeableFaces: ['up'] }, { blockId: 'minecraft:nether_bricks', x: 15, y: 64, z: 119, placeableFaces: ['up'] }];
+	observation.entities = [{ type: 'minecraft:blaze', x: 20, y: 68, z: 118, perceivedBy: 'sight' }];
+	const b = body({ observation, discover: true });
+	await searchFor(target, b, options);
+	assert.deepEqual([b.calls[0].args.x, b.calls[0].args.z], [5.5, 131.5]);
+});
+
+async function blazeFirst() {
 	const observation = sample();
 	observation.blocks = [{ blockId: 'minecraft:nether_bricks', x: 5, y: 64, z: 131, placeableFaces: ['up'] }, { blockId: 'minecraft:nether_bricks', x: 15, y: 64, z: 119, placeableFaces: ['up'] }];
 	observation.entities = [{ type: 'minecraft:blaze', x: 20, y: 68, z: 118, perceivedBy: 'sight' }];
@@ -166,7 +180,7 @@ test('with a blaze in view the floor nearest it is walked first, not the farthes
 	const c = body({ observation: plain, discover: true });
 	await searchFor(target, c, options);
 	assert.deepEqual([c.calls[0].args.x, c.calls[0].args.z], [5.5, 131.5], 'no blaze: the farthest floor, as before');
-});
+}
 
 test('with nothing new in reach it looks round once from the spot before handing back', async () => {
 	const observation = sample(); observation.blocks[0] = { ...observation.blocks[0], x: 6, z: 120 };

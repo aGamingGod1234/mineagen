@@ -97,3 +97,21 @@ test('rods (b): a wither skeleton far from the floor and its line does not stop 
 	assert.equal(moves.length, 1);
 	assert.equal(result.reasonCode, 'FIND_BLOCKED');
 });
+
+// Fortress layout (find.fortressLayout): the spawner platform sits at the top of the nether brick stairs.
+const stairsAt = (observation, x, y, z) => observation.blocks.push({ x, y, z, blockId: 'minecraft:nether_brick_stairs', placeableFaces: ['up'] });
+
+test('layout: a seen nether brick stair is climbed before the farthest floor', async () => {
+	const { moves } = await replay(1, 'NO_ROUTE', o => stairsAt(o, 13, 67, 117));
+	assert.equal(moves[0].actionType, 'travel_to');
+	assert.deepEqual([moves[0].x, moves[0].y, moves[0].z], [13.5, 68, 117.5]);
+	assert.equal(moves[0].stair, undefined);
+});
+
+test('layout off: the stair is ignored and the recorded floor leg stands', async () => {
+	process.env.MINEAGEN_FORTRESS_LAYOUT = 'off';
+	try {
+		const { moves } = await replay(1, 'NO_ROUTE', o => stairsAt(o, 13, 67, 117));
+		assert.deepEqual([moves[0].x, moves[0].y, moves[0].z], [9.5, 67, 113.5]);
+	} finally { delete process.env.MINEAGEN_FORTRESS_LAYOUT; }
+});
