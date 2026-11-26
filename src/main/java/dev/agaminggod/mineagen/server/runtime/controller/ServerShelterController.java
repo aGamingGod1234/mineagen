@@ -94,6 +94,15 @@ public final class ServerShelterController implements ServerController {
 	 * Closes the eye-height window over the sill too, so no side, roof or window is open: a player walling itself in to
 	 * wait out a night or a crowd it cannot fight. Mobs cannot reach or shoot in; leaving means digging a wall out.
 	 */
+	/**
+	 * A side, roof or floor that keeps mobs out: a full block, or mud under rest.softGround (its top sits 2 pixels low, so
+	 * it is not a full block, yet no mob walks through it). Rest room: a hole dug in mud was never sealed (0 of 3), the
+	 * seal digging out each mud wall to replace it until it timed out.
+	 */
+	static boolean walls(BlockState state, ServerPlayer player, BlockPos at) {
+		return state.isCollisionShapeFullBlock(player.level(), at) || ServerRestController.softGround && state.is(net.minecraft.world.level.block.Blocks.MUD);
+	}
+
 	public ServerShelterController sealed() {
 		if (!sealed) cells.add(new Cell(center.relative(opening).above(), Direction.UP, false));
 		sealed = true;
@@ -126,7 +135,7 @@ public final class ServerShelterController implements ServerController {
 		// because navigation would not arrive on an unseen floor).
 		if (floor == null && player.onGround() && player.blockPosition().equals(center)) floor = player.level().getBlockState(center.below());
 		if (player.blockPosition().equals(center) && player.onGround() && Math.abs(player.getY()-center.getY())<0.2D
-				&& floor != null && floor.isCollisionShapeFullBlock(player.level(), center.below())
+				&& floor != null && walls(floor, player, center.below())
 				&& (Math.abs(player.getX()-center.getX()-0.5D)>0.12D || Math.abs(player.getZ()-center.getZ()-0.5D)>0.12D)) {
 			if (approach != null) { approach.cancel(player); approach = null; }
 			float[] keys = BrinkGuard.keysToward(player.getYRot(), center.getX()+0.5D-player.getX(), center.getZ()+0.5D-player.getZ());
@@ -183,7 +192,7 @@ public final class ServerShelterController implements ServerController {
 			if (!ServerLookController.turnToward(player, Vec3.atCenterOf(roof))) return TickResult.running(progress());
 			BlockState ceiling = SeenTerrain.of(player).known(roof.getX(), roof.getY(), roof.getZ());
 			checkedCeiling = true;
-			if (ceiling != null && ceiling.isCollisionShapeFullBlock(player.level(), roof)) {
+			if (ceiling != null && walls(ceiling, player, roof)) {
 				index++; cellTicks = 0;
 				return TickResult.running(progress());
 			}
@@ -192,7 +201,7 @@ public final class ServerShelterController implements ServerController {
 		BlockPos at = cell.at();
 		// Only inspect blocks in the body's acquired terrain, never hidden level contents.
 		BlockState known = seen.known(at.getX(), at.getY(), at.getZ());
-		if (known != null && known.isCollisionShapeFullBlock(player.level(), at)) {
+		if (known != null && walls(known, player, at)) {
 			index++; cellTicks = 0;
 			return TickResult.running(progress());
 		}
@@ -204,7 +213,7 @@ public final class ServerShelterController implements ServerController {
 		if (cell.face() == Direction.UP && !cell.jump() && at.getY() == center.getY() && !supportChecked.contains(at)) {
 			List<Cell> extra = support(center, at, p -> {
 				BlockState state = seen.known(p.getX(), p.getY(), p.getZ());
-				return state == null ? Seen.UNKNOWN : state.isCollisionShapeFullBlock(player.level(), p) ? Seen.SOLID
+				return state == null ? Seen.UNKNOWN : walls(state, player, p) ? Seen.SOLID
 						: state.canBeReplaced() ? Seen.OPEN : Seen.OTHER;
 			});
 			if (!extra.isEmpty()) {

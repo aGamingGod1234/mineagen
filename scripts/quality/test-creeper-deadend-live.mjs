@@ -5,6 +5,7 @@
 // MINEAGEN_CREEPER_GUARD=off on the server is the off arm. Runs at 20 TPS: blast damage is read off sampled health.
 import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
 import path from 'node:path';
+import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { boot, unshownTickRate } from './watch-replay.mjs';
@@ -12,12 +13,18 @@ const TICK_RATE = unshownTickRate('blast damage is read off sampled health; at a
 import { ReflexBook } from '../../coordinator/src/reflexes.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 import { damageCounter, damageEvidence, deathCounter } from './lib/damage-counter.mjs';
+import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
-const out = path.resolve(process.argv[2] ?? 'runtime/creeper-deadend-live');
+const USAGE = 'Usage: test-creeper-deadend-live.mjs [OUT_DIR] [--strict|--descriptive] under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME (CASES, REPEATS, ARENA_JAR)';
+const cli = process.argv.slice(2);
+if (cli.includes('--help')) { console.log(USAGE + '\n' + EDIT_LOOP_HELP + '\n' + FIXTURE_OUTCOME_HELP); process.exit(0); }
+const strict = !cli.includes('--descriptive');
+const out = path.resolve(cli.filter(arg => !['--strict', '--descriptive'].includes(arg))[0] ?? 'runtime/creeper-deadend-live');
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port = Number(process.env.SLOT_PORT_BASE);
-if (!template || !port || !process.env.JAVA_HOME) throw new Error('Launch under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME');
+if (!template || !port || !process.env.JAVA_HOME) { console.error(USAGE); process.exit(2); }
 const jar = path.resolve(process.env.ARENA_JAR ?? path.join(root, MOD_JAR));
+if (!existsSync(jar)) { console.error(`no jar at ${jar}`); process.exit(2); }
 const REPEATS = Number(process.env.REPEATS ?? 3);
 const CASES = (process.env.CASES ?? 'shield,sword').split(',');
 await mkdir(out, { recursive: true });
@@ -105,6 +112,8 @@ try {
 			reflexEvents: ((await s.observeOrNull())?.reflexes?.events ?? []).map(event => `${event.id}:${event.outcome}:${String(event.detail ?? event.message ?? '').slice(0, 120)}`).slice(-4) };
 		Object.assign(row, damageEvidence(damageBefore, await readDamage(), healthStart, await health().catch(() => null)));
 		row.valid = exploded || died;
+		// A run passes when the body lives through the blast; one where the creeper never went off is invalid evidence.
+		if (row.valid) { row.pass = !died; if (died) row.failReason = 'died in the blast'; } else row.notExercised = 'the creeper never exploded';
 		runs.push(row);
 		console.log(`[deadend] ${kit} ${repeat}: ${died ? 'DIED' : `blast damage ${row.blastDamage}`}, exploded ${exploded}, reflexes ${row.reflexEvents.join(' | ')}`);
 		await writeFile(path.join(out, 'runs.json'), JSON.stringify(runs, null, 1));
@@ -117,6 +126,9 @@ try {
 } catch (error) {
 	console.error(error);
 	await writeFile(path.join(out, 'error.txt'), String(error?.stack ?? error));
+	runs.push({ error: String(error?.message ?? error) });
 } finally {
 	await s.stop().catch(() => {});
 }
+const report = await finishRun(runs, { file: path.join(out, 'result.json'), planned: CASES.length * REPEATS, strict });
+console.log(report.line);
