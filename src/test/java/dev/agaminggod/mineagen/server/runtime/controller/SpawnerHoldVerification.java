@@ -58,6 +58,15 @@ public final class SpawnerHoldVerification {
 		check(!SpawnerHold.applies(true, false, null, true), "another mob: the open-ground fight");
 		check(!SpawnerHold.applies(false, true, null, true), "outside the Nether: the open-ground fight");
 		BlockPos spawner = new BlockPos(-389, 70, -238);
+		if (!SpawnerHold.SPOT) {
+			// -Dmineagen.fight.spawnerHoldSpot=false: the spot rule and the bare ids are off, as before the switch.
+			check(!SpawnerHold.spotAtSpawner(spawner, -389.0D, 70.0D, -238.0D), "switch off: a spot on the spawner keeps the ordinary fight");
+			check(!SpawnerHold.blazeRods("blaze", "blaze_rod"), "switch off: bare ids do not get the hold");
+			check(SpawnerHold.blazeRods("minecraft:blaze", "minecraft:blaze_rod"), "switch off: full ids still do");
+			check("blaze_rod".equals(SpawnerHold.full("blaze_rod")), "switch off: ids stay as written");
+			System.out.println("Verified spawner hold spot rule off (fight.spawnerHoldSpot=false)");
+			return;
+		}
 		check(SpawnerHold.spotAtSpawner(spawner, -389.0D, 70.0D, -238.0D), "a spot on the spawner block asks for the fight at the spawner");
 		check(SpawnerHold.spotAtSpawner(spawner, -385.0D, 66.0D, -230.0D), "a spot on the deck beside it does too");
 		check(SpawnerHold.spotAtSpawner(spawner, -389.0D, null, -216.0D), "no y: the spawner's height counts");
