@@ -21,8 +21,9 @@ public final class SpawnerHold {
 	 */
 	public static final boolean OPEN_FIGHT = dev.agaminggod.mineagen.server.Switches.get("fight.spawnerHoldOpen");
 	/**
-	 * On by default; -Dmineagen.fight.spawnerHoldSpot=false turns off both halves of the spot rule: a fight_until spot by
-	 * the spawner keeps the ordinary fight ({@link #spotAtSpawner}), and the fight_until hold hands back at the model's
+	 * On by default; -Dmineagen.fight.spawnerHoldSpot=false turns off the whole spot rule: a fight_until spot by the
+	 * spawner keeps the ordinary fight ({@link #spotAtSpawner}), a spot named before any spawner was seen no longer looks
+	 * round, bare ids no longer reach the hold ({@link #blazeRods}), and the fight_until hold hands back at the model's
 	 * fleeAtHealth again while a wall-in is left.
 	 */
 	public static final boolean SPOT = dev.agaminggod.mineagen.server.Switches.get("fight.spawnerHoldSpot");
@@ -93,6 +94,20 @@ public final class SpawnerHold {
 		if (!SPOT || spawner == null || x == null || z == null) return false;
 		double dx = x - (spawner.getX() + 0.5D), dz = z - (spawner.getZ() + 0.5D), dy = y == null ? 0.0D : y - spawner.getY();
 		return dx * dx + dy * dy + dz * dz <= SCAN * SCAN;
+	}
+
+	/**
+	 * True for a blaze-for-rods fight_until, with or without the {@code minecraft:} prefix. The hold's gate compared the raw
+	 * strings, so "blaze"/"blaze_rod" (12 and 10 of 276 real-game blaze calls, 26 Nov) never got the hold. With
+	 * fight.spawnerHoldSpot off only the full ids count, as before.
+	 */
+	public static boolean blazeRods(String mob, String untilItem) {
+		return "minecraft:blaze".equals(full(mob)) && "minecraft:blaze_rod".equals(full(untilItem));
+	}
+
+	/** The full id the hold runs on: the bare id gains {@code minecraft:} while fight.spawnerHoldSpot is on. */
+	public static String full(String id) {
+		return SPOT && id != null && !id.isBlank() && id.indexOf(':') < 0 ? "minecraft:" + id.trim() : id;
 	}
 
 	/** True when a mob of this height cannot pass a gap of that many blocks (a block over a two-high doorway). */

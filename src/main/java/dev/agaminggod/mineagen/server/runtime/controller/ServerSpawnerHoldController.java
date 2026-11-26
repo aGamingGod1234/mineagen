@@ -209,6 +209,11 @@ public final class ServerSpawnerHoldController implements ServerController {
 	private static final int REOPEN_TRIES = 3;
 	private static final long SEAL_MS = 8_000L, REOPEN_MS = 20_000L;
 	private String cancelFacts;
+	/**
+	 * A fight_until spot made before the body saw any spawner: the model's call as written (spot kept) for the ordinary
+	 * fight when the look-round finds no spawner by that spot.
+	 */
+	private JsonObject spotCall;
 
 	public ServerSpawnerHoldController(ServerPlayer player, JsonObject arguments, ServerProtectionPolicy protection, BlockPos spawner,
 			ServerFightUntilController.Roofing roofing, long now) {
@@ -300,10 +305,21 @@ public final class ServerSpawnerHoldController implements ServerController {
 		return this;
 	}
 
+	/**
+	 * The look-round form of a spot call (fight.spawnerHoldSpot): the body had seen no spawner when the model named a spot,
+	 * so the hold looks round first and takes the fight only for a spawner within {@link SpawnerHold#SCAN} of that spot;
+	 * otherwise the call runs as written. Real games (26 Nov): 5 of 8 blaze fights near a fortress spawner started before
+	 * the body had seen it (one 6 blocks away), and every one kept the ordinary fight.
+	 */
+	public ServerSpawnerHoldController lookingFromSpot(JsonObject call) {
+		this.spotCall = call.deepCopy();
+		return this;
+	}
+
 	/** The ordinary fight with the time left ({@code elapsed} of the action spent), not a fresh timeout. */
 	private ServerController ordinaryFight(ServerPlayer player, long now, long elapsed) {
 		if (openFight != null) return openFight.get();
-		JsonObject left = model.deepCopy();
+		JsonObject left = (spotCall != null ? spotCall : model).deepCopy();
 		// roof is the hold's own option; the ordinary blaze fight refuses it.
 		left.remove("roof");
 		left.addProperty("timeoutMs", Math.max(1_000L, timeoutMs - elapsed));
@@ -313,6 +329,10 @@ public final class ServerSpawnerHoldController implements ServerController {
 	/** True while a spawner hold owns this body (its whole run, not only in the cell): back-off reflexes stand aside. */
 	public static boolean holding(ServerPlayer player) {
 		return HOLDING.contains(player.getUUID());
+	}
+
+	private static Double num(JsonObject call, String key) {
+		return call.has(key) && call.get(key).isJsonPrimitive() && call.get(key).getAsJsonPrimitive().isNumber() ? call.get(key).getAsDouble() : null;
 	}
 
 	private static boolean fortress(Level level, BlockPos spawner) {
@@ -474,6 +494,13 @@ public final class ServerSpawnerHoldController implements ServerController {
 	private TickResult scan(ServerPlayer player, long now, long elapsed) {
 		if (scanTicks % 5 == 0) {
 			BlockPos found = seenFortressSpawner(player);
+			if (found != null && spotCall != null && !SpawnerHold.spotAtSpawner(found, num(spotCall, "x"), num(spotCall, "y"), num(spotCall, "z"))) {
+				HOLDING.remove(player.getUUID());
+				shieldInput.release();
+				fallbackWhy = "the spawner seen at " + found.toShortString() + " is not by the spot";
+				fallback = ordinaryFight(player, now, elapsed);
+				return fallback.tick(player, now);
+			}
 			if (found != null) {
 				spawner = found;
 				phase = Phase.SITE;
