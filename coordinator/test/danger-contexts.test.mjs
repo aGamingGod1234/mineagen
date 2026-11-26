@@ -106,7 +106,12 @@ test('a context wake leads with the entry and lists dangers; a danger wake names
 	assert.doesNotMatch(line, /enderman within 16 m|crafts one boat/, 'no enderman near and no wood: cover alone');
 	const wood = { ...observation, inventory: { items: [{ itemId: 'minecraft:jungle_planks', count: 5 }] } };
 	const woodLine = buildNativeEventInput(record, { event: 'observation', trigger: 'context_entry', observation: wood, contexts, uncovered: [] }).split('\n')[0];
-	assert.match(woodLine, /under cover.*Before cover, a player holding 5 spare Overworld planks crafts one boat/, 'wood and no boat: craft one before cover');
+	assert.match(woodLine, /hunts them on open ground near cover instead of resting.*Before cover, a player holding 5 spare Overworld planks crafts one boat/, 'pearls short with wood for a trap: the night is the hunt, boat first');
+	assert.doesNotMatch(woodLine, /spends the night under cover/);
+	const sword = { ...observation, inventory: { items: [{ itemId: 'minecraft:stone_sword', count: 1 }] } };
+	assert.match(buildNativeEventInput(record, { event: 'observation', trigger: 'context_entry', observation: sword, contexts, uncovered: [] }).split('\n')[0], /walk to within 16 m of any calm enderman seen within 48 m/, 'a sword is enough to hunt');
+	const done = { ...observation, inventory: { items: [{ itemId: 'minecraft:stone_sword', count: 1 }, { itemId: 'minecraft:ender_eye', count: 12 }] } };
+	assert.match(buildNativeEventInput(record, { event: 'observation', trigger: 'context_entry', observation: done, contexts, uncovered: [] }).split('\n')[0], /spends the night under cover/, '12 eyes held: cover again');
 	for (const items of [[{ itemId: 'minecraft:jungle_planks', count: 5 }, { itemId: 'minecraft:oak_boat', count: 1 }], [{ itemId: 'minecraft:warped_planks', count: 9 }], [{ itemId: 'minecraft:oak_log', count: 3 }, { itemId: 'minecraft:ender_pearl', count: 12 }]]) {
 		const held = buildNativeEventInput(record, { event: 'observation', trigger: 'context_entry', observation: { ...observation, inventory: { items } }, contexts, uncovered: [] }).split('\n')[0];
 		assert.doesNotMatch(held, /crafts one boat/, `no boat line for ${items.map((row) => row.itemId).join(', ')}`);

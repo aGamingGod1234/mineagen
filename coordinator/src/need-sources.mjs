@@ -766,9 +766,12 @@ export function boatTrapLine(observation) {
 }
 
 export const ENDERMAN_TRAP_TRIGGER = 'enderman_trap_ready';
+// A calm enderman this far and this near the player's level is worth the walk: in 48 games 19 such stayed unvisited.
+const TRAP_WAKE_RANGE = 48;
+const TRAP_WAKE_CLIMB = 6;
 
 /**
- * A calm enderman newly within HUNT_RANGE and HUNT_CLIMB while pearls and eyes are under 12, it is not raining and the
+ * A calm enderman newly within TRAP_WAKE_RANGE and TRAP_WAKE_CLIMB while pearls and eyes are under 12, it is not raining and the
  * body holds a boat or 5 Overworld planks' worth: the trap is ready, so a player turns to it. Once per enderman
  * (state.endermanTrapSeen keeps the ids it woke for). Returns { id, distance } or null.
  */
@@ -785,8 +788,8 @@ export function endermanTrapEdge(state, observation) {
 	state.endermanTrapSeen ??= new Set();
 	const idOf = (row) => row?.uuid ?? row?.stableId ?? row?.id;
 	const target = (observation.entities ?? []).filter((row) => row?.type === 'minecraft:enderman' && row.alive !== false && row.perceivedBy !== 'sound'
-		&& row.targetingAgent !== true && row.appearance?.screaming !== true && Number.isFinite(row.distance) && row.distance <= HUNT_RANGE
-		&& Math.abs((row.y ?? row.position?.y ?? Infinity) - py) <= HUNT_CLIMB && idOf(row) !== undefined && !state.endermanTrapSeen.has(idOf(row)))
+		&& row.targetingAgent !== true && row.appearance?.screaming !== true && Number.isFinite(row.distance) && row.distance <= TRAP_WAKE_RANGE
+		&& Math.abs((row.y ?? row.position?.y ?? Infinity) - py) <= TRAP_WAKE_CLIMB && idOf(row) !== undefined && !state.endermanTrapSeen.has(idOf(row)))
 		.sort((a, b) => a.distance - b.distance)[0];
 	if (target === undefined) return null;
 	const id = idOf(target);

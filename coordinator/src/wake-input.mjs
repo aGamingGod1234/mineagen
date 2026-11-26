@@ -359,7 +359,11 @@ export function buildNativeEventInput(record, { event, trigger, programId, statu
 		const pearlsDone = items.reduce((sum, item) => sum + (/^minecraft:ender_(pearl|eye)$/.test(item?.itemId ?? '') && item.count > 0 ? item.count : 0), 0) >= 12;
 		const kit = boatKit(items);
 		const boatFirst = !enderNear && !pearlsDone && kit.boats === 0 && kit.planks >= 5 ? ` ${NIGHT_BOAT_LINE}` : '';
-		const cover = contexts.some((row) => row.lasts === 'night') && nightFor(observation) === 'night' ? ` ${NIGHT_COVER_LINE}${enderNear ? ` ${NIGHT_ENDERMAN_LINE}` : boatFirst}` : '';
+		// 48 games 22-26 Nov: 214 endermen seen, 26 ever within 16 m; the cover line kept 49% of night minutes underground.
+		// With pearls short and a way to kill one (a sword or axe, or a boat trap), the night is the pearl hunt.
+		const hunter = !pearlsDone && (kit.boats > 0 || kit.planks >= 5 || items.some((item) => /_(sword|axe)$/.test(item?.itemId ?? '') && item.count > 0));
+		const cover = contexts.some((row) => row.lasts === 'night') && nightFor(observation) === 'night'
+			? hunter ? ` ${NIGHT_HUNT_LINE}${boatFirst}` : ` ${NIGHT_COVER_LINE}${enderNear ? ` ${NIGHT_ENDERMAN_LINE}` : boatFirst}` : '';
 		instruction = instruction === GENERIC_UPDATE_INSTRUCTION || instruction === GENERIC_FACTS_INSTRUCTION
 			? `Live Minecraft event: entered ${entered}. contexts lists each danger there and which armed reflex senses it.${cover}${status?.decision ? ' Answer program decisions.' : ''}`
 			: `${instruction} Entered ${entered}: contexts lists its dangers and armed reflexes.${cover}`;
@@ -519,6 +523,7 @@ function deathInstruction(event, observation, taskMemory, name) {
 	return `Died: ${cause}. While dead only respawn acts. Respawn keeps the goal; then choose dropped-item recovery or re-kit from fresh inventory.${night}${respawnSurroundings(observation, taskMemory)}`;
 }
 const NIGHT_COVER_LINE = 'With no armour a player spends the night under cover: rest (bed, walls or a dug hole) until dawn, or dig down and work underground.';
+const NIGHT_HUNT_LINE = 'Pearls are short and Overworld nights are when endermen walk the surface: a player hunts them on open ground near cover instead of resting or digging down. Stay on the surface with a dug hole or walls a few steps away, walk to within 16 m of any calm enderman seen within 48 m, then trap it in a boat or fight it from full health; step into cover while other hostiles crowd you or under 10 health, then come back out.';
 const NIGHT_ENDERMAN_LINE = 'An enderman within 16 m is the exception when the hunt line offers a boat trap: trap and kill it first (under a minute), then take cover.';
 const NIGHT_BOAT_LINE = 'Before cover, a player holding 5 spare Overworld planks crafts one boat (about 7 s) and keeps it: night endermen wander off in the seconds a craft takes, and a boat in hand makes the trap place, stare and fight.';
 const RESPAWN_NIGHT_LINE = 'It is night: after respawn, rest first (with no blocks it digs a hole), then recover or re-kit at dawn.';

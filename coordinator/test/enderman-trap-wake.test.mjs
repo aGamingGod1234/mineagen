@@ -10,7 +10,7 @@ const sample = (entities, items = [{ itemId: 'minecraft:oak_boat', count: 1 }], 
 	entities, inventory: { items: [{ itemId: 'minecraft:stone_sword', count: 1 }, ...items] },
 });
 
-test('a calm enderman within 16 m wakes once per enderman while a boat or 5 planks of Overworld wood is held', () => {
+test('a calm enderman within 48 m wakes once per enderman while a boat or 5 planks of Overworld wood is held', () => {
 	const state = {};
 	assert.deepEqual(endermanTrapEdge(state, sample([enderman('a', 10)])), { id: 'a', distance: 10 });
 	// The same enderman does not wake again; a second one does.
@@ -26,8 +26,10 @@ test('no trap wake for an angry, far, high or heard-only enderman, in rain, in t
 	const none = (observation) => assert.equal(endermanTrapEdge({}, observation), null);
 	none(sample([enderman('a', 10, 64, { targetingAgent: true })]));
 	none(sample([enderman('a', 10, 64, { appearance: { screaming: true } })]));
-	none(sample([enderman('a', 17)]));
-	none(sample([enderman('a', 10, 68)]));
+	none(sample([enderman('a', 49)]));
+	none(sample([enderman('a', 10, 71)]));
+	// One seen across a field at the player's level is worth the walk.
+	assert.deepEqual(endermanTrapEdge({}, sample([enderman('f', 40, 69)])), { id: 'f', distance: 40 });
 	none(sample([enderman('a', 10, 64, { perceivedBy: 'sound' })]));
 	none(sample([enderman('a', 10)], undefined, { raining: true }));
 	none(sample([enderman('a', 10)], undefined, { dimension: 'minecraft:the_end' }));
