@@ -1920,6 +1920,7 @@ public final class ServerActionExecutor {
 				arguments.has("sneak") && bool(arguments, "sneak"),
 				arguments.has("shield") && bool(arguments, "shield"),
 				integer(arguments, "timeoutMs"), GameClock.nowMs())
+				.modelFight()
 				.collectDrops(arguments.has("collect") && bool(arguments, "collect") ? protection::mayTakeEntity : null)
 				// collect false or unset: the drops are walked to only once no hostile is within 16 blocks (ExamplePlayer, Oct 29).
 				.collectWhenClear(arguments.has("collect") && bool(arguments, "collect") ? null : protection::mayTakeEntity)
