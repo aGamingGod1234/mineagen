@@ -7,7 +7,7 @@
       "name": "ai-stock-portal",
       "phase": "AI",
       "seed": "20261009",
-      "goal": "Beat the game: kill the Ender Dragon.",
+      "goal": "Beat the game",
       "durationBudgetMs": 900000,
       "runPolicy": {
         "clock": "goal-start",
