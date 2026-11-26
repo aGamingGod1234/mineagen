@@ -564,6 +564,9 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 		if (EYES_HOLD() && eyesHeld > 0 && (rodsMissing > 0 || pearlsMissing > 0)) {
 			// Hungry or hurt with little food: the search stops on low health, so food comes first, as on the old route.
 			if (foodAdviceNeeded(o) && food < 10) return line(`obtain cooked_beef count ${20 - food} before going on (food ${food}/10)`, eyeFacts);
+			// No stone pickaxe left (worn out): the search digs down through stone, so the pickaxe comes first.
+			const tool = ROUTE.find(row => (row.id === 'wood' || row.id === 'stone') && !done(row));
+			if (tool !== undefined) { const [next, why] = tool.next(facts); return line(next, `${why}; the stronghold search digs down`); }
 			const short = `${eyeFacts}; ${eyesNeeded} short only if no frame is set`;
 			const hold = (known.structuresSeen ?? []).find(v => v.id === 'minecraft:stronghold' && v.dimension === 'minecraft:overworld');
 			if (!hold && !ok('seen:minecraft:stronghold'))
