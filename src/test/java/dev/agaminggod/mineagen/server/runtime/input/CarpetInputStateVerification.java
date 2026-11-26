@@ -30,10 +30,22 @@ public final class CarpetInputStateVerification {
 	public static int verify() {
 		try {
 			return verifyMovementAndRelease() + verifyAttackPressAndHold() + verifyAttackTargetHandoff()
-					+ verifyOperatorClickOnlyMelee() + verifyHeldJump() + verifyAuthoredWaterRise();
+					+ verifyOperatorClickOnlyMelee() + verifyHeldJump() + verifyAuthoredWaterRise() + verifyFightOwnHits();
 		} catch (ReflectiveOperationException exception) {
 			throw new AssertionError("could not inspect pinned Carpet action state", exception);
 		}
+	}
+
+	private static int verifyFightOwnHits() {
+		check(CarpetInputStateSink.holdsEntityHit(true, InputOwner.NAVIGATION), "a walk or dig click never hits a mob in the crosshair");
+		check(CarpetInputStateSink.holdsEntityHit(true, InputOwner.INTERACTION), "a block-break click never hits a mob in the crosshair");
+		for (InputOwner chooser : new InputOwner[] { InputOwner.COMBAT, InputOwner.REFLEX, InputOwner.DIRECT_CONTROL, InputOwner.OPERATOR }) {
+			check(!CarpetInputStateSink.holdsEntityHit(true, chooser), chooser + " click still hits the mob it faces");
+		}
+		check(!CarpetInputStateSink.holdsEntityHit(true, null), "a body with no lease keeps vanilla hits");
+		check(!CarpetInputStateSink.holdsEntityHit(false, InputOwner.NAVIGATION), "switch off: a walk click hits as before");
+		check(CarpetInputStateSink.ownHits(), "fight.ownHits is on by default");
+		return 8;
 	}
 
 	private static int verifyMovementAndRelease() throws ReflectiveOperationException {

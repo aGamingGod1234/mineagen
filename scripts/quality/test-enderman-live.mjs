@@ -185,6 +185,29 @@ try {
 		}
 	};
 
+	// dig_to tunnels south into a stone plug with a calm, still enderman standing between the body and the plug, so the
+	// dig's attack click finds the enderman under the crosshair. With fight.ownHits on (the default) the click is held:
+	// the enderman stays unhurt and calm. A real game had a walk's click hit an enderman 0.5 blocks off, which killed the body.
+	if (want('dig-past-calm')) {
+		try {
+			await reset();
+			await command('fill -1 80 -1 -1 83 8 minecraft:stone'); await command('fill 1 80 -1 1 83 8 minecraft:stone');
+			await command('fill -1 83 -1 1 83 8 minecraft:stone'); await command(process.env.CALM_ACTION === 'travel' ? 'fill 0 80 4 0 82 5 minecraft:stone' : 'fill 0 80 3 0 82 8 minecraft:stone');
+			await command(`item replace entity ${agent} weapon.mainhand with minecraft:iron_pickaxe`);
+			await command(`summon minecraft:enderman 0.5 80 ${process.env.CALM_ACTION === 'travel' ? '3.0' : '1.8'} {NoAI:1b,PersistenceRequired:1b}`);
+			await rate.idleSleep(1500);
+			const play = await playStart();
+			const dug = await (process.env.CALM_ACTION === 'travel' ? await startAction('travel_to', { x: 0.5, y: 80, z: 8.5, tolerance: 1, timeoutMs: 30_000 })
+				: await startAction('dig_to', { pattern: 'tunnel', heading: 'south', maxBlocks: 4, timeoutMs: 30_000 })).result;
+			o = await observe();
+			const tick = await playEnd(play);
+			const hp = (await command('data get entity @e[type=minecraft:enderman,limit=1] Health')).match(/([\d.]+)f/)?.[1];
+			results['dig-past-calm'] = { tick, state: dug.state, reason: dug.reasonCode, message: (dug.message ?? '').slice(0, 300), endermanHealth: hp == null ? null : Number(hp), angry: angry(o) };
+			results['dig-past-calm'].pass = hp != null && Number(hp) >= 40 && !angry(o);
+			await settle('dig-past-calm');
+		} catch (error) { await settle('dig-past-calm', error); }
+	}
+
 	// look_at a point 2.5 blocks behind a calm enderman at its eye height (run d9-end-b's pearl aim): no provocation.
 	if (want('look-past')) {
 		try {
