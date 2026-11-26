@@ -530,6 +530,10 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 		return line('kill the ender_dragon: break the end crystals first', 'in the End');
 	}
 	if (dimension === 'minecraft:the_nether') {
+		// Standing in a warped forest with pearls short, the hunt here comes first: 26 Nov games named the fortress on
+		// 954 of 1,038 pearls-short Nether wakes and walked out of forests after short hunts. The fortress follows.
+		if (pearlsShort > 0 && o.world?.biome === 'minecraft:warped_forest' && o.world?.reducedDebugInfo !== true && getSwitch('route.forestPearls').value)
+			return line(`hunt here first: fight_until minecraft:enderman untilItem minecraft:ender_pearl untilCount ${eyesPlanned}; call it again after a hand-back${rodsShort > 0 ? `; then find a fortress for ${rodsPlanned} blaze_rods` : ''}`, planFacts);
 		if (rodsShort > 0) {
 			const fortress = `find a fortress and fight_until ${rodsPlanned} blaze_rods`;
 			if (items.some(i => WORN.has(i.slot) && GOLD_ARMOUR.test(i.itemId))) return line(fortress, planFacts);
