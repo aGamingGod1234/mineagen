@@ -145,6 +145,8 @@ const READS = [
 	['obtain.fillEdge', 'coordinator/src/obtain-runner.mjs', "const FILL_EDGE = getSwitch('obtain.fillEdge').value;"],
 	['kit.habit', 'coordinator/src/kit-habit.mjs', "getSwitch('kit.habit', environment)"],
 	['night.cover', 'coordinator/src/night-cover.mjs', "getSwitch('night.cover', environment)"],
+	['night.hunt', 'coordinator/src/need-sources.mjs', "getSwitch('night.hunt', environment)"],
+	['night.hunt', 'coordinator/src/wake-input.mjs', "getSwitch('night.hunt')"],
 	['tools.program', 'coordinator/src/native-minecraft-tools.mjs', "getSwitch('tools.program', environment)"],
 	['experience', 'coordinator/src/experience-store.mjs', "getSwitch('experience', environment)"],
 	['experience.frozen', 'coordinator/src/experience-store.mjs', "getSwitch('experience.frozen', environment)"],

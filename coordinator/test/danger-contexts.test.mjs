@@ -110,6 +110,10 @@ test('a context wake leads with the entry and lists dangers; a danger wake names
 	assert.doesNotMatch(woodLine, /spends the night under cover/);
 	const sword = { ...observation, inventory: { items: [{ itemId: 'minecraft:stone_sword', count: 1 }] } };
 	assert.match(buildNativeEventInput(record, { event: 'observation', trigger: 'context_entry', observation: sword, contexts, uncovered: [] }).split('\n')[0], /walk to within 16 m of any calm enderman seen within 48 m/, 'a sword is enough to hunt');
+	process.env.MINEAGEN_NIGHT_HUNT = 'off';
+	try {
+		assert.match(buildNativeEventInput(record, { event: 'observation', trigger: 'context_entry', observation: sword, contexts, uncovered: [] }).split('\n')[0], /spends the night under cover/, 'off switch: cover line');
+	} finally { delete process.env.MINEAGEN_NIGHT_HUNT; }
 	const done = { ...observation, inventory: { items: [{ itemId: 'minecraft:stone_sword', count: 1 }, { itemId: 'minecraft:ender_eye', count: 12 }] } };
 	assert.match(buildNativeEventInput(record, { event: 'observation', trigger: 'context_entry', observation: done, contexts, uncovered: [] }).split('\n')[0], /spends the night under cover/, '12 eyes held: cover again');
 	for (const items of [[{ itemId: 'minecraft:jungle_planks', count: 5 }, { itemId: 'minecraft:oak_boat', count: 1 }], [{ itemId: 'minecraft:warped_planks', count: 9 }], [{ itemId: 'minecraft:oak_log', count: 3 }, { itemId: 'minecraft:ender_pearl', count: 12 }]]) {

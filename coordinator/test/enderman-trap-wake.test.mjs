@@ -30,6 +30,9 @@ test('no trap wake for an angry, far, high or heard-only enderman, in rain, in t
 	none(sample([enderman('a', 10, 71)]));
 	// One seen across a field at the player's level is worth the walk.
 	assert.deepEqual(endermanTrapEdge({}, sample([enderman('f', 40, 69)])), { id: 'f', distance: 40 });
+	// MINEAGEN_NIGHT_HUNT=off keeps the 16 m wake.
+	assert.equal(endermanTrapEdge({}, sample([enderman('f', 40, 69)]), { environment: { MINEAGEN_NIGHT_HUNT: 'off' } }), null);
+	assert.notEqual(endermanTrapEdge({}, sample([enderman('f', 12)]), { environment: { MINEAGEN_NIGHT_HUNT: 'off' } }), null);
 	none(sample([enderman('a', 10, 64, { perceivedBy: 'sound' })]));
 	none(sample([enderman('a', 10)], undefined, { raining: true }));
 	none(sample([enderman('a', 10)], undefined, { dimension: 'minecraft:the_end' }));

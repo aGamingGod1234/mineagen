@@ -1,3 +1,4 @@
+import { getSwitch } from './switches.mjs';
 import { foodAdviceNeeded, quickBedSource } from './survival-advice.mjs';
 // For an open step's needs: the base resource each comes from, the remembered places that could supply it, and the
 // vanilla ways to get it with typical yields. Facts only; the model weighs them and chooses where to go.
@@ -775,7 +776,7 @@ const TRAP_WAKE_CLIMB = 6;
  * body holds a boat or 5 Overworld planks' worth: the trap is ready, so a player turns to it. Once per enderman
  * (state.endermanTrapSeen keeps the ids it woke for). Returns { id, distance } or null.
  */
-export function endermanTrapEdge(state, observation) {
+export function endermanTrapEdge(state, observation, { environment = process.env } = {}) {
 	const items = observation?.inventory?.items;
 	if (!Array.isArray(items) || observation?.world?.raining === true || /the_(nether|end)$/.test(observation?.world?.dimension ?? '')) return null;
 	const held = items.reduce((sum, item) => sum + (/^minecraft:ender_(pearl|eye)$/.test(item?.itemId ?? '') && item.count > 0 ? item.count : 0), 0);
@@ -785,11 +786,12 @@ export function endermanTrapEdge(state, observation) {
 	const player = observation.player ?? {};
 	const py = (observation.position ?? player.position ?? player)?.y;
 	if (!Number.isFinite(py)) return null;
+	const [range, climb] = getSwitch('night.hunt', environment).value ? [TRAP_WAKE_RANGE, TRAP_WAKE_CLIMB] : [HUNT_RANGE, HUNT_CLIMB];
 	state.endermanTrapSeen ??= new Set();
 	const idOf = (row) => row?.uuid ?? row?.stableId ?? row?.id;
 	const target = (observation.entities ?? []).filter((row) => row?.type === 'minecraft:enderman' && row.alive !== false && row.perceivedBy !== 'sound'
-		&& row.targetingAgent !== true && row.appearance?.screaming !== true && Number.isFinite(row.distance) && row.distance <= TRAP_WAKE_RANGE
-		&& Math.abs((row.y ?? row.position?.y ?? Infinity) - py) <= TRAP_WAKE_CLIMB && idOf(row) !== undefined && !state.endermanTrapSeen.has(idOf(row)))
+		&& row.targetingAgent !== true && row.appearance?.screaming !== true && Number.isFinite(row.distance) && row.distance <= range
+		&& Math.abs((row.y ?? row.position?.y ?? Infinity) - py) <= climb && idOf(row) !== undefined && !state.endermanTrapSeen.has(idOf(row)))
 		.sort((a, b) => a.distance - b.distance)[0];
 	if (target === undefined) return null;
 	const id = idOf(target);

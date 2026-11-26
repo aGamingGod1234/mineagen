@@ -19,6 +19,7 @@ import { DRAGON_PERCHED_TRIGGER, dragonPerchLine } from './dragon-fight-facts.mj
 import { SITUATION_CHANGED_FIELD, STRATEGY_POINTER_FIELD } from './situation-changes.mjs';
 import { nightFor } from './night-cover.mjs';
 import { boatKit } from './need-sources.mjs';
+import { getSwitch } from './switches.mjs';
 import { provenance } from './fact-provenance.mjs';
 import { dangerGlance } from './danger-glance.mjs';
 import { asArray, hudFacts, inHazardContact, LAVA_FLOW_TRIGGER, lavaFlowLine } from './observation-facts.mjs';
@@ -361,7 +362,7 @@ export function buildNativeEventInput(record, { event, trigger, programId, statu
 		const boatFirst = !enderNear && !pearlsDone && kit.boats === 0 && kit.planks >= 5 ? ` ${NIGHT_BOAT_LINE}` : '';
 		// 48 games 22-26 Nov: 214 endermen seen, 26 ever within 16 m; the cover line kept 49% of night minutes underground.
 		// With pearls short and a way to kill one (a sword or axe, or a boat trap), the night is the pearl hunt.
-		const hunter = !pearlsDone && (kit.boats > 0 || kit.planks >= 5 || items.some((item) => /_(sword|axe)$/.test(item?.itemId ?? '') && item.count > 0));
+		const hunter = getSwitch('night.hunt').value && !pearlsDone && (kit.boats > 0 || kit.planks >= 5 || items.some((item) => /_(sword|axe)$/.test(item?.itemId ?? '') && item.count > 0));
 		const cover = contexts.some((row) => row.lasts === 'night') && nightFor(observation) === 'night'
 			? hunter ? ` ${NIGHT_HUNT_LINE}${boatFirst}` : ` ${NIGHT_COVER_LINE}${enderNear ? ` ${NIGHT_ENDERMAN_LINE}` : boatFirst}` : '';
 		instruction = instruction === GENERIC_UPDATE_INSTRUCTION || instruction === GENERIC_FACTS_INSTRUCTION
