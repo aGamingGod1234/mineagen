@@ -103,6 +103,11 @@ public final class TravelStopsVerification {
 		check(TravelStops.beatable("minecraft:husk", 0, true, 20.0F, 8.0F, 3.0D) && TravelStops.beatable("minecraft:zombie_villager", 0, true, 20.0F, 8.0F, 3.0D), "zombie kin: fought");
 		check(!TravelStops.beatable("minecraft:skeleton", 0, true, 20.0F, 8.0F, 3.0D), "a ranged mob still stops the trip");
 		check(!TravelStops.beatable("minecraft:creeper", 0, true, 20.0F, 8.0F, 3.0D), "a creeper still stops the trip");
+		check(TravelStops.fightsAngryEnderman("minecraft:enderman", true, true, 20.0F, 8.0F, 7.0D), "an angry enderman, sword held, full health: fought (it teleports, so it cannot be outrun)");
+		check(!TravelStops.fightsAngryEnderman("minecraft:enderman", false, true, 20.0F, 8.0F, 7.0D), "a calm enderman is left alone");
+		check(!TravelStops.fightsAngryEnderman("minecraft:enderman", true, false, 20.0F, 8.0F, 7.0D), "no sword or axe: the trip stops as before");
+		check(!TravelStops.fightsAngryEnderman("minecraft:enderman", true, true, 13.0F, 8.0F, 7.0D), "under two of its hits: the trip stops as before");
+		check(!TravelStops.fightsAngryEnderman("minecraft:zombie", true, true, 20.0F, 8.0F, 3.0D), "only an enderman");
 		check(!TravelStops.beatable("minecraft:drowned", 0, true, 20.0F, 8.0F, 3.0D), "a drowned (maybe a trident) still stops the trip");
 		check(!TravelStops.beatable("minecraft:zombie", 1, true, 20.0F, 8.0F, 3.0D), "a second hostile in view makes a pack: stop");
 		check(!TravelStops.beatable("minecraft:zombie", 0, false, 20.0F, 8.0F, 3.0D), "no sword or axe in the hotbar: stop");

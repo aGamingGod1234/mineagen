@@ -143,6 +143,7 @@ const READS = [
 	['obtain.costs', 'coordinator/src/obtain-runner.mjs', "const OBTAIN_COSTS = getSwitch('obtain.costs').value;"],
 	['obtain.fillLegs', 'coordinator/src/obtain-runner.mjs', "const FILL_LEGS = getSwitch('obtain.fillLegs').value;"],
 	['obtain.fillEdge', 'coordinator/src/obtain-runner.mjs', "const FILL_EDGE = getSwitch('obtain.fillEdge').value;"],
+	['route.forestPearls', 'coordinator/src/skill-fits.mjs', "getSwitch('route.forestPearls').value"],
 	['kit.habit', 'coordinator/src/kit-habit.mjs', "getSwitch('kit.habit', environment)"],
 	['night.cover', 'coordinator/src/night-cover.mjs', "getSwitch('night.cover', environment)"],
 	['tools.program', 'coordinator/src/native-minecraft-tools.mjs', "getSwitch('tools.program', environment)"],
@@ -153,12 +154,15 @@ const READS = [
 	['end.highDescent', 'coordinator/src/dragon-fight-facts.mjs', "getSwitch('end.highDescent', environment)"],
 	['instincts', 'src/main/java/dev/agaminggod/mineagen/server/runtime/reflex/Instincts.java', 'Switches.get("instincts")'],
 	['travel.walkAround', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerTravelController.java', 'Switches.get("travel.walkAround")'],
+	['travel.gazeGuard', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerTravelController.java', 'static final boolean GAZE_GUARD = dev.agaminggod.mineagen.server.Switches.get("travel.gazeGuard");'],
+	['travel.endermanFight', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerTravelController.java', 'static final boolean ENDERMAN_FIGHT = dev.agaminggod.mineagen.server.Switches.get("travel.endermanFight");'],
 	['fight.chargeGuard', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerFightUntilController.java', 'static final boolean CHARGE_GUARD = dev.agaminggod.mineagen.server.Switches.get("fight.chargeGuard");'],
 	['fight.recover', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerFightUntilController.java', 'static final boolean RECOVER = dev.agaminggod.mineagen.server.Switches.get("fight.recover");'],
 	['dig.floorLavaGuard', 'src/main/java/dev/agaminggod/mineagen/server/runtime/ServerActionExecutor.java', 'static boolean FLOOR_LAVA_GUARD = dev.agaminggod.mineagen.server.Switches.get("dig.floorLavaGuard");'],
 	['fight.spawnerHold', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/SpawnerHold.java', 'public static final boolean ENABLED = dev.agaminggod.mineagen.server.Switches.get("fight.spawnerHold");'],
 	['fight.spawnerHoldOpen', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/SpawnerHold.java', 'public static final boolean OPEN_FIGHT = dev.agaminggod.mineagen.server.Switches.get("fight.spawnerHoldOpen");'],
 	['fight.forestHunt', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/WarpedForestHunt.java', 'static boolean enabled = dev.agaminggod.mineagen.server.Switches.get("fight.forestHunt");'],
+	['fight.pitTrap', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/PitTrap.java', 'static final boolean ENABLED = dev.agaminggod.mineagen.server.Switches.get("fight.pitTrap");'],
 	['fight.fullIds', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerFightUntilController.java', 'Switches.get("fight.fullIds")'],
 	['fight.skipUnreachable', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/UnreachableTargets.java', 'Switches.get("fight.skipUnreachable")'],
 	['killPosition', 'src/main/java/dev/agaminggod/mineagen/server/perception/KillSighting.java', 'Switches.get("killPosition")'],
@@ -188,12 +192,15 @@ test('every reader reads its switch through the registry, and no switch variable
 			properties: [[undefined, false], ['TRUE', true], [' true', false], ['on', false]] },
 		'instincts': { env: 'MINEAGEN_INSTINCTS', property: 'mineagen.instincts', table: [[undefined, true], ['instincts', true], ['x, instincts', true], ['Instincts', false], ['off', false], ['', false]],
 			properties: [[undefined, true], ['True', true], ['false', false], ['1', false]] },
+		'travel.gazeGuard': { property: 'mineagen.travel.gazeGuard', properties: [[undefined, true], ['false', false], ['FALSE', true]] },
+		'travel.endermanFight': { property: 'mineagen.travel.endermanFight', properties: [[undefined, true], ['false', false], ['FALSE', true]] },
 		'fight.chargeGuard': { property: 'mineagen.fight.chargeGuard', properties: [[undefined, true], ['false', false], ['FALSE', true], ['no', true]] },
 		'fight.recover': { property: 'mineagen.fight.recover', properties: [[undefined, true], ['false', false], ['False', true]] },
 		'dig.floorLavaGuard': { property: 'mineagen.dig.floorLavaGuard', properties: [[undefined, true], ['false', false], ['FALSE', true]] },
 		'fight.spawnerHold': { property: 'mineagen.fight.spawnerHold', properties: [[undefined, true], ['false', false], [' false', true]] },
 		'fight.spawnerHoldOpen': { property: 'mineagen.fight.spawnerHoldOpen', properties: [[undefined, true], ['false', false], ['0', true]] },
 		'fight.forestHunt': { property: 'mineagen.fight.forestHunt', properties: [[undefined, false], ['true', true], ['TRUE', true], [' true', false]] },
+		'fight.pitTrap': { property: 'mineagen.fight.pitTrap', properties: [[undefined, true], ['false', false], ['FALSE', true]] },
 		'fight.fullIds': { property: 'mineagen.fight.fullIds', properties: [[undefined, true], ['false', false], ['FALSE', true]] },
 		'fight.skipUnreachable': { property: 'mineagen.fight.skipUnreachable', properties: [[undefined, true], ['false', false], ['FALSE', true]] },
 		'killPosition': { property: 'mineagen.killPosition', properties: [[undefined, true], ['false', false], [' FALSE ', false], ['no', true]] },
@@ -302,18 +309,21 @@ public class SwitchesParity {
 		boolean walkAround = "true".equalsIgnoreCase(p.get("mineagen.travel.walkAround"))
 				|| "on".equalsIgnoreCase(String.valueOf(env.get("MINEAGEN_TRAVEL_WALK_AROUND")).trim());
 		boolean[] values = { instincts, walkAround,
+				!"false".equals(p.get("mineagen.travel.gazeGuard")),
+				!"false".equals(p.get("mineagen.travel.endermanFight")),
 				!"false".equals(p.get("mineagen.fight.chargeGuard")),
 				!"false".equals(p.get("mineagen.fight.recover")),
 				!"false".equals(p.get("mineagen.dig.floorLavaGuard")),
 				!"false".equals(p.get("mineagen.fight.spawnerHold")),
 				!"false".equals(p.get("mineagen.fight.spawnerHoldOpen")),
 				"true".equalsIgnoreCase(p.get("mineagen.fight.forestHunt")),
+				!"false".equals(p.get("mineagen.fight.pitTrap")),
 				!"false".equals(p.get("mineagen.fight.fullIds")),
 				!"false".equals(p.get("mineagen.fight.skipUnreachable")),
 				!"false".equalsIgnoreCase(p.getOrDefault("mineagen.killPosition", "true").trim()),
 				"true".equalsIgnoreCase(p.getOrDefault("mineagen.watch", "false").trim()) };
-		String[] names = { "instincts", "travel.walkAround", "fight.chargeGuard", "fight.recover", "dig.floorLavaGuard", "fight.spawnerHold", "fight.spawnerHoldOpen",
-				"fight.forestHunt", "fight.fullIds", "fight.skipUnreachable", "killPosition", "watch" };
+		String[] names = { "instincts", "travel.walkAround", "travel.gazeGuard", "travel.endermanFight", "fight.chargeGuard", "fight.recover", "dig.floorLavaGuard", "fight.spawnerHold", "fight.spawnerHoldOpen",
+				"fight.forestHunt", "fight.pitTrap", "fight.fullIds", "fight.skipUnreachable", "killPosition", "watch" };
 		StringBuilder line = new StringBuilder("switches");
 		for (int i = 0; i < names.length; i++) line.append(' ').append(names[i]).append('=').append(values[i] ? "on" : "off");
 		return line.toString();
