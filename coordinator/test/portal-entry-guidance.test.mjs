@@ -6,8 +6,6 @@ import { NativeToolRuntime } from '../src/native-tool-runtime.mjs';
 import { normalizeMinecraftToolCall } from '../src/native-minecraft-tools.mjs';
 import { presentNativeToolResult } from '../src/codex-service.mjs';
 import { decodeModelFacts } from '../src/model-fact-encoding.mjs';
-// These cases are the stock.foodFloor off arm (the route before the food floor); food-floor-route.test.mjs has the on arm.
-process.env.MINEAGEN_FOOD_FLOOR = 'off';
 
 const record = { agentId: 'portal-entry', provider: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'low', goalRevision: 1 };
 const sample = (health = 20, foodLevel = 20) => ({ ready: true, observedAtEpochMs: 1,
@@ -17,8 +15,7 @@ const sample = (health = 20, foodLevel = 20) => ({ ready: true, observedAtEpochM
 });
 const assertEntry = (message) => {
 	assert.match(message, /enter the Nether through the lit portal now/);
-	// PORTAL_ENTRY_PREP is read at module load, before the off-arm pin above: either arm's food clause.
-	assert.match(message, /food stocks are optional unless health or hunger is low|carry 256\+ food points \(saturation \+ 3 hunger per item/);
+	assert.match(message, /food stocks are optional unless health or hunger is low/);
 };
 
 for (const [health, hunger] of [[20, 20], [15, 20], [5, 20], [20, 6], [5, 6]]) test(`lit portal route names entry with recovery exception at health${health}/hunger${hunger}`, () => {

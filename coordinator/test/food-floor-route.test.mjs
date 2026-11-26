@@ -74,9 +74,18 @@ test('a lit portal waits for the floor and the wood before the entry', () => {
 		/obtain cooked_beef count 17 using a furnace, taking every cow in view, before entering the portal \(food 32\/256/);
 	assert.match(line(sample([item('iron_pickaxe'), item('cooked_beef', 17)]), { known }), /obtain log count 15 before entering the portal/);
 	const go = line(sample(fed), { known });
-	assert.ok(go.startsWith(`usual next step: ${PORTAL_ENTRY_NEXT}`), go); assert.match(go, /carry 256\+ food points/);
+	assert.ok(go.startsWith(`usual next step: ${PORTAL_ENTRY_NEXT}`), go); assert.match(go, /food 269\/256 points held/);
 	// Before: the entry came at once with no food, and called food optional.
 	assert.match(line(sample([item('iron_pickaxe')]), { known, environment: OFF }), /food stocks are optional/);
+});
+
+test('a portal cast underground is entered with what is carried: no climb back up for food', () => {
+	// The descent floor (320) is what carries food down to a portal by the lava; at the portal there is no animal to take.
+	const known = litFrame();
+	const deep = line(sample([item('iron_pickaxe'), item('cooked_beef', 2), item('oak_log', 3)], { y: -54, skyOpen: false }), { known });
+	assert.ok(deep.startsWith(`usual next step: ${PORTAL_ENTRY_NEXT}`), deep);
+	assert.doesNotMatch(deep, /obtain|points|before entering/);
+	assert.match(deep, /food stocks are optional unless health or hunger is low/);
 });
 
 test('a death past the portal stage re-arms the stock at the portal floor', () => {

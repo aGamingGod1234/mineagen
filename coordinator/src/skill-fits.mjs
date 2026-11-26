@@ -117,10 +117,9 @@ export const FOOD_FLOOR_DESCENT = 320;
 export const WOOD_FLOOR = 12;
 const woodFloor = f => WOOD_FLOOR + (f.count(/^minecraft:(coal|charcoal)$/) >= 3 ? 0 : 3);
 export const foodFloorOn = (environment = process.env) => getSwitch('stock.foodFloor', environment).value;
-const entryFood = (environment = process.env) => foodFloorOn(environment)
-	? `carry ${FOOD_FLOOR_PORTAL}+ food points (saturation + 3 hunger per item, about 17 cooked beef or porkchop) before entering; take the animals in view first`
-	: 'food stocks are optional unless health or hunger is low';
-const ENTRY_FOOD = entryFood();
+// The PORTAL_LIT hint cannot see the inventory or the depth, and a portal cast underground has no animal near it: its
+// food clause stays the plain one. The descent's larger floor is what carries the food to an underground portal.
+const ENTRY_FOOD = 'food stocks are optional unless health or hunger is low';
 // Also the PORTAL_LIT result's hint, which cannot see the inventory, so it names the bed step's condition.
 export const PORTAL_ENTRY_PREP = `place and use a bed by the portal first if a bed, 3 matching wool or sheep are in reach; ${ENTRY_FOOD}`;
 // A respawn set this close to the portal already brings a Nether death back to it.
@@ -557,7 +556,8 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 		// The bed comes first: it is only offered from what is in reach now, and may be gone after a hunt.
 		const bed = portalBed(o, known, { lit: true, frame: litFrame(o, known) });
 		if (bed.step) return line(...bed.step);
-		return portalStock() ?? line(PORTAL_ENTRY_NEXT, `${bed.skip}; ${entryFood(environment)}`);
+		const held = facts.floorOn && facts.foodPoints >= FOOD_FLOOR_PORTAL ? `food ${facts.foodPoints}/${FOOD_FLOOR_PORTAL} points held` : ENTRY_FOOD;
+		return portalStock() ?? line(PORTAL_ENTRY_NEXT, `${bed.skip}; ${held}`);
 	}
 	const stage = (instincts === true ? INSTINCT_ROUTE : ROUTE).find(row => !done(row));
 	if (stage !== undefined) {
