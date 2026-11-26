@@ -2122,6 +2122,8 @@ public final class ServerActionExecutor {
 	}
 
 	private static boolean shelterBlock(net.minecraft.world.item.Item item) {
+		// Mud (dug from a swamp floor) walls and roofs like dirt; its top sits 2 pixels low, so it is not a full block.
+		if (dev.agaminggod.mineagen.server.runtime.controller.ServerRestController.softGround && item == net.minecraft.world.item.Items.MUD) return true;
 		return item instanceof BlockItem blockItem && !(blockItem.getBlock() instanceof net.minecraft.world.level.block.FallingBlock)
 				&& !(blockItem.getBlock() instanceof net.minecraft.world.level.block.EntityBlock)
 				&& blockItem.getBlock().defaultBlockState().isCollisionShapeFullBlock(net.minecraft.world.level.EmptyBlockGetter.INSTANCE, BlockPos.ZERO);

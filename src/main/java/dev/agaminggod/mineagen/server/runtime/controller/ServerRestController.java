@@ -947,9 +947,21 @@ public final class ServerRestController implements ServerController {
 	/** A seen full block a player can dig out to stand in: no fluid, no block entity, not bedrock or leaves, nothing that falls. */
 	private static boolean diggable(ServerPlayer player, BlockPos at) {
 		BlockState state = SeenTerrain.of(player).known(at.getX(), at.getY(), at.getZ());
-		return state != null && state.isCollisionShapeFullBlock(player.level(), at) && !state.hasBlockEntity() && !state.is(Blocks.BEDROCK)
-				&& !state.is(net.minecraft.tags.BlockTags.LEAVES)
-				&& !(state.getBlock() instanceof net.minecraft.world.level.block.FallingBlock) && state.getDestroySpeed(player.level(), at) >= 0.0F;
+		if (state == null || state.hasBlockEntity() || state.is(Blocks.BEDROCK) || state.is(net.minecraft.tags.BlockTags.LEAVES)
+				|| state.getDestroySpeed(player.level(), at) < 0.0F) return false;
+		if (softGround && softDiggable(state.is(Blocks.MUD), state.getBlock() instanceof net.minecraft.world.level.block.FallingBlock)) return true;
+		return state.isCollisionShapeFullBlock(player.level(), at) && !(state.getBlock() instanceof net.minecraft.world.level.block.FallingBlock);
+	}
+
+	/**
+	 * rest.softGround: a hole goes down through mud (its top sits 2 pixels low, so it is not a full block) and through sand
+	 * or gravel. Sand falls only straight down, and every cell the rest digs has open air or the body over it, so nothing
+	 * falls in. Fresh games: a swamp respawn at night failed rest 3 times on mud and sand, then died to a spider at 2.5 health.
+	 */
+	public static boolean softGround = dev.agaminggod.mineagen.server.Switches.get("rest.softGround");
+
+	static boolean softDiggable(boolean mud, boolean falling) {
+		return mud || falling;
 	}
 
 	private static Mob nearestHostile(ServerPlayer player) {
