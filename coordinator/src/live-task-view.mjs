@@ -719,16 +719,35 @@ export class LiveTaskViews {
   const nearThreats = (shown?.player?.threats ?? []).filter(t => t.swelling === true || Number.isFinite(t.distance) && t.distance <= 16);
   const guardThreatsNear = nearThreats.length, guardThreatsTargeting = nearThreats.filter(t => t.targeting === true).length;
   const stepProgress = progressFacts(current, Number.isFinite(current.observation?.observedAtEpochMs) ? current.observation.observedAtEpochMs : this.#now(), progressFocus(current));
-  // The route reads the sample the plan line reads: a queued observation evicted from the sample cache would name a
-  // step the plan already counts as met (an older inventory before a craft).
-  // A queued sample from before the hand-back still shows the stock it saw.
+  const route = this.#routeNow(record, current, state);
+  return composeContinuityHeader({ goal: record.currentGoal, intent: state.intent, evidence: intentEvidence(state), since, progress: this.#progressLine(state), route, stepProgress: stepProgress.progress ?? null, repeats: stepProgress.repeats ?? null, search: stepProgress.search ?? null, ...this.#memoryFacts(record, state, shown, observation?.recovery ?? null), results: state.results, running, effect: state.effect, orders, guardInstalled, guardCoverage, guardThreatsNear, guardThreatsTargeting, annotate });
+ }
+ // The route reads the sample the plan line reads: a queued observation evicted from the sample cache would name a
+ // step the plan already counts as met (an older inventory before a craft).
+ // A queued sample from before the hand-back still shows the stock it saw.
+ #routeNow(record, current, state) {
+  if (!beatsTheGame(record.currentGoalSpec)) return null;
   const released = handback => handback != null && handback.worldId === current.worldId && handback.deaths === state.deaths
    && handback.at <= state.observation?.observedAtEpochMs;
   const foodHandedBack = released(current.foodHandback), woodHandedBack = released(current.woodHandback);
   const kitHandedBack = new Set((current.kitHandbacks ?? []).filter(row => row.worldId === current.worldId && row.deaths === state.deaths).map(row => row.item));
   const diedSincePortal = Number.isSafeInteger(state.portalDeaths) && state.deaths > state.portalDeaths;
-  const route = beatsTheGame(record.currentGoalSpec) ? routeLine({ observation: state.observation, known: state.known, memory: this.#memory(record, state, ROUTE_SOURCE_BLOCKS), foodHandedBack, woodHandedBack, kitHandedBack, diedSincePortal, evaluate: evaluatePlanCheck, instincts: this.#instincts }) : null;
-  return composeContinuityHeader({ goal: record.currentGoal, intent: state.intent, evidence: intentEvidence(state), since, progress: this.#progressLine(state), route, stepProgress: stepProgress.progress ?? null, repeats: stepProgress.repeats ?? null, search: stepProgress.search ?? null, ...this.#memoryFacts(record, state, shown, observation?.recovery ?? null), results: state.results, running, effect: state.effect, orders, guardInstalled, guardCoverage, guardThreatsNear, guardThreatsTargeting, annotate });
+  return routeLine({ observation: state.observation, known: state.known, memory: this.#memory(record, state, ROUTE_SOURCE_BLOCKS), foodHandedBack, woodHandedBack, kitHandedBack, diedSincePortal, evaluate: evaluatePlanCheck, instincts: this.#instincts });
+ }
+ /**
+  * The surface stock the route still asks for at a lit Overworld portal (stock.portalGate), with the lit portals the
+  * walk is checked against; null when the route names anything else. The runtime turns a walk into the portal into
+  * this obtain, as a player stops at the frame to stock up when a herd is right there.
+  */
+ portalStock(record) {
+  if (!record.currentGoal) return null;
+  const current = this.#state(record);
+  if (current.observation?.world?.dimension !== 'minecraft:overworld') return null;
+  const route = this.#routeNow(record, current, current);
+  const step = /^usual next step: obtain ((?:cooked_)?[a-z_]+) count (\d+)\b[^(]*before entering the portal/.exec(route ?? '');
+  if (step === null) return null;
+  const portals = (current.known?.frames ?? []).filter(f => f?.lit === true && f.dimension === 'minecraft:overworld' && [f.x, f.z].every(Number.isFinite));
+  return { line: route, item: step[1], count: Number(step[2]), portals, worldId: current.worldId ?? null, deaths: current.deaths ?? 0 };
  }
  /** The trigger for a no-progress or repeated-result fact not yet woken for ('no_progress' | 'repeated_result'), once. */
  progressWake(record) {

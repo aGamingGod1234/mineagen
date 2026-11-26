@@ -153,6 +153,7 @@ const READS = [
 	['end.highDescent', 'coordinator/src/dragon-fight-facts.mjs', "getSwitch('end.highDescent', environment)"],
 	['stock.foodFloor', 'coordinator/src/skill-fits.mjs', "getSwitch('stock.foodFloor', environment)"],
 	['stock.foodFloor', 'coordinator/src/obtain-runner.mjs', "getSwitch('stock.foodFloor').value"],
+	['stock.portalGate', 'coordinator/src/native-tool-runtime.mjs', "getSwitch('stock.portalGate').value"],
 	['instincts', 'src/main/java/dev/agaminggod/mineagen/server/runtime/reflex/Instincts.java', 'Switches.get("instincts")'],
 	['travel.walkAround', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerTravelController.java', 'Switches.get("travel.walkAround")'],
 	['fight.chargeGuard', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerFightUntilController.java', 'static final boolean CHARGE_GUARD = dev.agaminggod.mineagen.server.Switches.get("fight.chargeGuard");'],

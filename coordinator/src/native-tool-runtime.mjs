@@ -1,6 +1,9 @@
 import { forgetResourceResult, knownResources, newResourceMemory, rememberKnownBlocks, rememberResources } from './seen-resources.mjs';
 /** How often the dig-seen ore rows are merged from the observed-memory store, per agent. */
 const KNOWN_ORE_MS = 5_000;
+// stock.portalGate: walks into the portal turned into the stock's obtain, per life in a world.
+const PORTAL_STOCK_TURNS = 2;
+const PORTAL_STOCK_MS = 360_000;
 const SKY_TOP_NEAR = 8;
 const SKY_TOP_SPOTS = 32;
 import { createHash, randomUUID } from 'node:crypto';
@@ -13,6 +16,7 @@ import { failureChange, failureFacts, isFailureResult, triedText } from './failu
 import { classifyBodyFailure, composeTwoCallView } from './two-call-llm-wrap.mjs';
 import { DugStairs, PlacedWorkstations } from './resource-facts.mjs';
 import { howto, howtoHoldings } from './howto.mjs';
+import { getSwitch } from './switches.mjs';
 import { minecraftCapabilities, normalizeMinecraftToolCall, toolAdjustments, toolResultContent, UNSEARCHABLE_BLOCKS, withAdjustments } from './native-minecraft-tools.mjs';
 import { lootLedger, rememberStructures, runObtain } from './obtain-runner.mjs';
 // Slots per menu page obtain's loot step asks for: one chest row.
@@ -153,6 +157,8 @@ export class NativeToolRuntime {
 	#planVocabulary;
 	#knownStations;
 	#planNeeds;
+	#portalStock = null;
+	#portalStockTurns = new Map();
 	#programExecutor;
 	#programRuns = new Map();
 	#programResults = new Map();
@@ -245,6 +251,8 @@ export class NativeToolRuntime {
 		planVocabulary = null,
 		knownStations = null,
 		planNeeds = null,
+		// The surface stock still asked for at a lit portal (live-task-view.mjs portalStock): {item, count, line, portals, worldId, deaths}.
+		portalStock = null,
 		memoryObservation = null,
 		programExecutor = null,
 		onProgramEvent = () => {},
@@ -308,6 +316,7 @@ export class NativeToolRuntime {
 		this.#knownStations = knownStations;
 		if (planNeeds !== null && typeof planNeeds !== 'function') throw new TypeError('planNeeds must be a function');
 		this.#planNeeds = planNeeds;
+		this.#portalStock = typeof portalStock === 'function' ? portalStock : null;
 		this.#memoryObservation = memoryObservation;
 		this.#programExecutor = programExecutor ?? (this.#clock === WALL_CLOCK ? new NativeProgramExecutor({ sessionId })
 			// The cancel acknowledgement is a bridge round trip, not body time, so it keeps wall-time timers.
@@ -957,7 +966,10 @@ export class NativeToolRuntime {
 			&& !this.#actions.has(record.agentId) && !this.#programRuns.has(record.agentId) ? this.#bodyIdleSince.get(record.agentId) : undefined;
 		const arrivedAt = Date.now();
 		try {
+			const turned = this.#portalStockGate(record, request);
+			if (turned !== null) request = turned.request;
 			let result = await this.#executeTool(request, record, lifecycleGeneration);
+			if (turned !== null && result !== null && typeof result === 'object' && !Array.isArray(result)) result = { ...result, stockedFirst: turned.note };
 			if (idleSince !== undefined && result !== null && typeof result === 'object' && !Array.isArray(result)) result = { ...result, stoodStillMs: Math.max(0, arrivedAt - idleSince) };
 			// These results report the latest program's end to the model.
 			if (['program_status', 'respond_program', 'cancel_program'].includes(request.tool.kind) && result?.programId === this.#unreportedProgramEnds.get(record.agentId)?.programId
@@ -977,6 +989,41 @@ export class NativeToolRuntime {
 			}
 			throw error;
 		}
+	}
+
+	/**
+	 * stock.portalGate: a walk into a lit Overworld portal while the route still asks for the surface food or wood
+	 * minimum runs that obtain instead, as a player stops at the frame to take the herd beside it. A refusal the model
+	 * could repeat (#268) was walked past 16 of 17 times, so this sends the obtain itself. It lets go where the route
+	 * does (minimum met, underground, a failed hunt with nothing in view) and turns at most PORTAL_STOCK_TURNS walks
+	 * per life in a world, so an obtain that cannot finish never keeps the bot out of the portal.
+	 */
+	#portalStockGate(record, request) {
+		if (this.#portalStock === null || !getSwitch('stock.portalGate').value) return null;
+		const tool = request.tool;
+		const walks = tool?.kind === 'sequence' && Array.isArray(tool.actions) ? tool.actions
+			: ['action', 'start_action', 'replace_action'].includes(tool?.kind) ? [tool] : [];
+		const moves = walks.filter(a => ['travel_to', 'move_to', 'navigate_to'].includes(a?.actionType));
+		if (moves.length === 0) return null;
+		let stock = null;
+		try { stock = this.#portalStock(record); } catch { return null; }
+		if (stock === null || typeof stock?.item !== 'string' || !Number.isSafeInteger(stock.count) || !Array.isArray(stock.portals)) return null;
+		const intoPortal = ({ actionType, arguments: target = {} }) => (actionType === 'travel_to' && target.dimension === 'minecraft:the_nether')
+			|| ([target.x, target.z].every(Number.isFinite) && stock.portals.some(p => Math.abs(p.x - target.x) <= 3 && Math.abs(p.z - target.z) <= 3
+				&& (!Number.isFinite(target.y) || !Number.isFinite(p.y) || Math.abs(p.y - target.y) <= 4)));
+		const move = moves.find(intoPortal);
+		if (!move) return null;
+		const life = `${record.agentId}|${stock.worldId}|${stock.deaths}`;
+		const turns = this.#portalStockTurns.get(life) ?? 0;
+		if (turns >= PORTAL_STOCK_TURNS) return null;
+		let obtain;
+		try { obtain = normalizeMinecraftToolCall('do_step', { verb: 'obtain', target: { item: stock.item, count: stock.count }, why: 'surface stock before the portal' }); } catch { return null; }
+		// A hunt and a cook take about 3 minutes for a herd at hand; the cap keeps a slow one from holding the portal.
+		obtain = { ...obtain, arguments: { ...obtain.arguments, timeoutMs: Math.min(obtain.arguments?.timeoutMs ?? PORTAL_STOCK_MS, PORTAL_STOCK_MS) } };
+		this.#portalStockTurns.set(life, turns + 1);
+		const note = `Stock first at the portal: ${stock.line.replace(/^usual next step: /, '')}. The walk into the portal became this obtain; walk in again when it ends.`;
+		this.#trace('native_portal_stock_turned', { agentId: record.agentId, goalRevision: record.goalRevision, actionType: move.actionType, item: stock.item, count: stock.count, turn: turns + 1 });
+		return { request: { ...request, tool: obtain }, note };
 	}
 
 	/**

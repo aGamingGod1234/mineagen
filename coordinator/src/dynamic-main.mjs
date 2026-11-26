@@ -350,6 +350,7 @@ export class DynamicCoordinator extends EventEmitter {
 			taskPlan: (record, tool) => this.#taskViews.operate(record, tool),
 			knownStations: (record) => this.#taskViews.placedStations(record),
 			planNeeds: (record) => this.#taskViews.openNeeds(record),
+			portalStock: (record) => this.#taskViews.portalStock(record),
 			planVocabulary: (record, worldId) => this.#taskViews.activeResourceVocabulary(record, worldId),
 			sessionId: runtimeSessionId,
 			requestObservation: async (record) => {
