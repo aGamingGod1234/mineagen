@@ -106,6 +106,7 @@ public final class ForestHuntTickVerification {
 			verifyUnreachablePassedOver();
 			verifyFailedPerchBacksOff();
 			verifyNotForest();
+			verifyBareIds();
 		} finally {
 			WarpedForestHunt.probe = savedProbe;
 			WarpedForestHunt.walks = savedWalks;
@@ -326,6 +327,40 @@ public final class ForestHuntTickVerification {
 			check("NO_TARGET_SEEN".equals(end.reasonCode()) && fixture.walksMade == 0, "a non-forest hunt runs as on base: " + end.reasonCode());
 		} finally {
 			WarpedForestHunt.probe = forest;
+		}
+	}
+
+	/** The model often writes ids without "minecraft:": a bare enderman / ender_pearl hunt still walks the forest. */
+	private static void verifyBareIds() throws Exception {
+		try (Fixture fixture = Fixture.create()) {
+			WarpedForestHunt.walks = (goal, mayModify, now) -> fixture.walk(5, ServerController.State.SUCCEEDED, "ARRIVED", goal);
+			JsonObject args = hunt(60_000L);
+			args.addProperty("mob", "enderman");
+			args.addProperty("untilItem", "ender_pearl");
+			ServerController.TickResult end = fixture.run(fixture.hunt(args, null), 1_400);
+			check(fixture.walksMade > 0, "bare ids still start forest walks: " + fixture.walksMade + " " + end.reasonCode());
+			check(end.message().contains("minecraft:enderman: ") && end.message().contains("minecraft:ender_pearl "),
+					"the receipt names the full ids: " + end.message());
+		}
+		// The ledge fetch, the collect-when-clear list and the lying count all match a remembered drop through wantsDrop.
+		try (Fixture fixture = Fixture.create()) {
+			JsonObject pearls = hunt(60_000L);
+			pearls.addProperty("mob", "enderman");
+			pearls.addProperty("untilItem", "ender_pearl");
+			ServerFightUntilController bare = fixture.hunt(pearls, null);
+			check(bare.wantsDrop("minecraft:ender_pearl") && !bare.wantsDrop("minecraft:ender_eye"), "a bare ender_pearl call takes minecraft:ender_pearl drops");
+			check(fixture.hunt(hunt(60_000L), null).wantsDrop("minecraft:ender_pearl"), "a full-id call still takes its drops");
+			JsonObject rods = hunt(60_000L);
+			rods.addProperty("mob", "blaze");
+			rods.addProperty("untilItem", "blaze_rod");
+			check(fixture.hunt(rods, null).wantsDrop("minecraft:blaze_rod"), "a bare blaze_rod call takes minecraft:blaze_rod drops");
+			String saved = System.getProperty("mineagen.fight.fullIds");
+			System.setProperty("mineagen.fight.fullIds", "false");
+			try {
+				check(!fixture.hunt(pearls, null).wantsDrop("minecraft:ender_pearl"), "fight.fullIds=false keeps the id as written (the old match)");
+			} finally {
+				if (saved == null) System.clearProperty("mineagen.fight.fullIds"); else System.setProperty("mineagen.fight.fullIds", saved);
+			}
 		}
 	}
 
