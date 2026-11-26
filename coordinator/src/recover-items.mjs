@@ -7,7 +7,7 @@
 
 import { headingOf } from './search-coverage.mjs';
 import { nextKitStep } from './kit-habit.mjs';
-import { DROP_LIFETIME_SECONDS, dropClockText, dropLoss, killerMob, recoveryRoute, lostItemsText } from './respawn-recovery.mjs';
+import { DROP_LIFETIME_SECONDS, dropClockText, dropLoss, killerMob, recoverEnabled, recoveryRoute, lostItemsText } from './respawn-recovery.mjs';
 
 export const RECOVER_TIMEOUT_MS = 240_000;
 export const RECOVER_MAX_TIMEOUT_MS = 900_000;
@@ -80,7 +80,8 @@ export function recoverable(o) {
  * Returns a tool result: SUCCEEDED (RECOVERED, or RECOVERED_PART with what is still missing), FAILED with a skip or
  * hand-back code, or the travel/pickup result that stopped it (INTERRUPTED for danger).
  */
-export async function runRecoverItems(args = {}, body, { now = Date.now } = {}) {
+export async function runRecoverItems(args = {}, body, { now = Date.now, environment = process.env } = {}) {
+	if (!recoverEnabled(environment)) return { state: 'FAILED', reasonCode: 'RECOVER_OFF', message: 'recover_items is switched off in this run (MINEAGEN_RECOVER_ITEMS=off).' };
 	const startedAt = now();
 	let timeoutMs = Math.min(RECOVER_MAX_TIMEOUT_MS, Number.isSafeInteger(args?.timeoutMs) && args.timeoutMs > 0 ? args.timeoutMs : RECOVER_TIMEOUT_MS);
 	const left = () => timeoutMs - (now() - startedAt);

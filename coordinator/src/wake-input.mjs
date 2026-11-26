@@ -8,7 +8,7 @@ import { boundedResourceSightings } from './resource-sightings.mjs';
 import { compactProjectileObservation } from './projectile-attention.mjs';
 import { encodeModelFacts, withoutHeardSoundEvents } from './model-fact-encoding.mjs';
 import { NEW_CONTEXT_EVENT_INSTRUCTION, ROUTINE_NEW_CONTEXT_EVENT_INSTRUCTION } from './native-event-instructions.mjs';
-import { respawnLead } from './respawn-recovery.mjs';
+import { recoverEnabled, respawnLead } from './respawn-recovery.mjs';
 import { withToolWear } from './resource-facts.mjs';
 import { PLANNING_TAIL_NOTE } from './native-tool-runtime.mjs';
 import { situationFacts } from './situation-facts.mjs';
@@ -62,7 +62,7 @@ export function buildNativeEventInput(record, { event, trigger, programId, statu
 	const atRespawn = respawnedAt != null && Number.isFinite(standing?.x) && Number.isFinite(respawnedAt.x)
 		&& (respawnedAt.dimension === undefined || respawnedAt.dimension === observation.world?.dimension)
 		&& Math.hypot(standing.x - respawnedAt.x, standing.z - respawnedAt.z) <= 8;
-	const afterRespawn = trigger === 'respawn' || newContext === true && atRespawn;
+	const afterRespawn = trigger === 'respawn' || newContext === true && atRespawn && recoverEnabled();
 	const respawnRecovery = afterRespawn && conversationOnly !== true ? respawnLead(observation.recovery ?? null, observation) : null;
 	observation = presentEventObservation(compactProjectileObservation(observation), { inventoryLimit: normalizedEvent === 'program_planning_due' ? 8 : 32 });
 	const header = continuity !== null && typeof continuity === 'object' ? continuity : null;

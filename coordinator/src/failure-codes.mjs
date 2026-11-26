@@ -25,6 +25,7 @@ export const FAILURE_CODES = Object.freeze({
 	DIED_IN_LAVA: ['item', null],
 	DROPS_EXPIRED: ['item', null],
 	OTHER_DIMENSION: ['body', null],
+	RECOVER_OFF: ['body', null],
 	// ServerActionExecutor: a reflex held the running action paused past REFLEX_HOLD_LIMIT_MS.
 	HELD_BY_REFLEX: ['body', null],
 	UNDERGROUND: ['ok'],

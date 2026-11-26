@@ -283,3 +283,23 @@ test('a live respawn wake (an observation trigger with a new context) carries th
 	const input = buildNativeEventInput(record, { event: 'observation', trigger: 'observation', newContext: true, observation: { ...observation, recovery: { ...recovery, lastDeath: noRespawn } } });
 	assert.ok(!input.slice(0, input.indexOf('\n')).includes('recover_items'), 'a new goal with no respawn since the death');
 });
+
+test('MINEAGEN_RECOVER_ITEMS=off: the respawn wake has no walk-back lead and the verb refuses without moving', async () => {
+	const { buildNativeEventInput } = await import('../src/dynamic-main.mjs');
+	const { respawnLead } = await import('../src/respawn-recovery.mjs');
+	const record = { agentId: 'a', goalRevision: 1, provider: 'codex', model: 'fixture' };
+	const recovery = { lastDeath: { cause: 'Probe died', dimensionId: OW, ...SPOT, diedAtEpochMs: T0, damageType: 'minecraft:generic', respawnedAt: { dimension: OW, x: 0.5, y: 64, z: 0.5 } }, lastLostInventory: KIT };
+	const observation = { ready: true, observedAtEpochMs: T0 + 5_000, world: { dimension: OW }, position: { x: 0.5, y: 64, z: 0.5 }, recovery };
+	assert.ok(!String(respawnLead(recovery, observation, { environment: { MINEAGEN_RECOVER_ITEMS: 'off' } })).includes('recover_items'));
+	assert.ok(String(respawnLead(recovery, observation, { environment: {} })).includes('recover_items'));
+	const saved = process.env.MINEAGEN_RECOVER_ITEMS;
+	process.env.MINEAGEN_RECOVER_ITEMS = 'off';
+	try {
+		const input = buildNativeEventInput(record, { event: 'observation', trigger: 'observation', newContext: true, observation });
+		assert.ok(!input.slice(0, input.indexOf('\n')).includes('recover_items'), 'off: a live respawn wake is the old one');
+		const acts = [];
+		const result = await runRecoverItems({}, { observe: async () => observation, act: async (type) => { acts.push(type); return { state: 'SUCCEEDED' }; } });
+		assert.equal(result.reasonCode, 'RECOVER_OFF');
+		assert.deepEqual(acts, []);
+	} finally { if (saved === undefined) delete process.env.MINEAGEN_RECOVER_ITEMS; else process.env.MINEAGEN_RECOVER_ITEMS = saved; }
+});

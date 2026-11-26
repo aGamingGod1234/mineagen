@@ -1,4 +1,10 @@
 import { headingOf } from './search-coverage.mjs';
+import { getSwitch } from './switches.mjs';
+
+/** MINEAGEN_RECOVER_ITEMS=off restores the old respawn: no walk-back lead, and recover_items refuses. */
+export function recoverEnabled(environment = process.env) {
+	return getSwitch('recover.items', environment).value;
+}
 
 const MIN_Y = { 'minecraft:overworld': -64, 'minecraft:the_nether': 0, 'minecraft:the_end': 0 };
 const DIMENSION_NAMES = { 'minecraft:overworld': 'the Overworld', 'minecraft:the_nether': 'the Nether', 'minecraft:the_end': 'the End' };
@@ -95,7 +101,7 @@ export function lostItemsText(rows, limit = 8) {
  * The respawn wake's lead sentence: where the drops of the death just suffered wait, how long, and the way back; or that
  * the death destroyed them. Null without a recent death record with lost items, or once its drop time is spent.
  */
-export function respawnLead(recovery, observation, { now = observation?.observedAtEpochMs } = {}) {
+export function respawnLead(recovery, observation, { now = observation?.observedAtEpochMs, environment = process.env } = {}) {
 	const death = recovery?.lastDeath, at = observation?.position ?? observation?.player;
 	const rows = Array.isArray(recovery?.lastLostInventory) ? recovery.lastLostInventory : [];
 	if (!death || !finite(death) || !finite(at) || typeof death.dimensionId !== 'string' || rows.length === 0) return null;
@@ -111,7 +117,7 @@ export function respawnLead(recovery, observation, { now = observation?.observed
 	const items = lostItemsText(rows);
 	const route = recoveryRoute(death, observation);
 	if (loss === 'lava') return `Respawned. You died in lava ${where} (${cause}): drops that fell into it burned; any that landed beside it wait there (${dropClockText(clock)}). Carried then: ${items}.${route ? ` ${route}` : ''}`;
-	const first = death.dimensionId === here ? ` ${RECOVER_FIRST_MOVE}${killerMob(death) ? ' A mob killed you, so it stops 16 blocks short and looks first, and hands back if 3 or more hostiles guard them.' : ''}` : '';
+	const first = death.dimensionId === here && recoverEnabled(environment) ? ` ${RECOVER_FIRST_MOVE}${killerMob(death) ? ' A mob killed you, so it stops 16 blocks short and looks first, and hands back if 3 or more hostiles guard them.' : ''}` : '';
 	return `Respawned. Your drops wait where you died ${where} (${cause}): ${items}; ${dropClockText(clock)}.${route ? ` ${route}` : ''}${first}`;
 }
 
