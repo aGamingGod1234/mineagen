@@ -15,7 +15,7 @@ const NOT_YET_ON_FINISH_RUN = [
 	'test-caged-crystal-live.mjs', 'test-cast-barter-live.mjs',
 	'test-controller-contracts-live.mjs', 'test-cornered-creeper-live.mjs', 'test-count-stance-live.mjs',
 	'test-crowd-live.mjs', 'test-default-reflex-live.mjs', 'test-defend-live.mjs', 'test-dig-options-live.mjs',
-	'test-dragon-live.mjs', 'test-enderman-live.mjs', 'test-end-survive-live.mjs',
+	'test-dragon-live.mjs', 'test-end-survive-live.mjs',
 	'test-end-void-live.mjs', 'test-fire-live.mjs', 'test-flee-forest-live.mjs',
 	'test-gold-route-live.mjs', 'test-kill-drops-live.mjs',
 	'test-knockback-edge-live.mjs', 'test-lavawork-live.mjs', 'test-netherbody-live.mjs', 'test-nether-fight-live.mjs',

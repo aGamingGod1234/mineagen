@@ -1,3 +1,4 @@
+import { ENDERMAN_TRAP_TRIGGER } from './need-sources.mjs';
 /**
  * Wake filter for a running model action or skill (System 1 runs, System 2 sleeps). While the model's own action runs,
  * ordinary results and facts (a hit absorbed at safe health by a mob kind the model already knows, another threat
@@ -183,6 +184,8 @@ export function countSkillKinds(running, observation) {
 /** A discovery wakes whatever the trigger: an enderman in range while pearls are open, a major structure seen. */
 function discoveryReason(known, attention, observation, goalText) {
 	if (!known.has('minecraft:enderman') && nearEnderman(observation) && pearlsOpen(goalText, observation)) return 'enderman in range while pearls are open';
+	// Once per enderman, not per kind: a later one near a held boat trap is a fresh chance at a pearl.
+	if (attention?.trigger === ENDERMAN_TRAP_TRIGGER) return 'calm enderman near with a boat trap ready';
 	const structure = attention?.trigger === 'structure_sighted' ? newMajorStructure(observation) : null;
 	return structure === null ? null : `${structure} sighted`;
 }

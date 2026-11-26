@@ -9,6 +9,7 @@ import { fortressSpawnerSearch, netherCrossing as crossesNether, walkFortressFlo
 import { eyeTarget, eyesHeld, followEyes } from './find-eyes.mjs';
 import { portalTarget, strongholdNearby, findPortalRoom } from './find-portal-room.mjs';
 import { nightMoveStop } from './night-cover.mjs';
+import { nightHuntOn } from './need-sources.mjs';
 import { ENGAGE_CLOSE, SEARCH_LOW_HEALTH, creeperNear, pursuedByPack, searchDanger, threatRows } from './search-danger.mjs';
 import { getSwitch } from './switches.mjs';
 
@@ -770,7 +771,8 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 	// until(sample): an extra stop for the leg (the walk back up ends at the ore's band), handed back as no sighting.
 	const leg = async (how, actionType, args, sight = null, { until = null } = {}) => {
 		if (nightEnded === null) {
-			const why = nightMoveStop(observation, actionType, args, { openSky: body.openSky?.() ?? null });
+			const hunting = profile.ids.has('minecraft:enderman') && nightHuntOn(observation);
+			const why = nightMoveStop(observation, actionType, args, { openSky: body.openSky?.() ?? null, hunting });
 			if (why !== null) night.ended = nightEnded = handBack('FAILED', 'FIND_NIGHT', `Stopped before "${how}": ${why}`);
 		}
 		if (nightEnded !== null) return { ended: nightEnded, result: { state: 'FAILED', reasonCode: 'FIND_NIGHT' } };

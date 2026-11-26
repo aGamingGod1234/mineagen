@@ -74,9 +74,11 @@ function walkLength(args, at) {
  * ground, a walk longer than a step to cover is refused after dark. Getting out of water and going down are never
  * refused (breath and cover come first), nor anything in full iron or outside the Overworld.
  */
-export function nightMoveStop(observation, actionType, args = {}, { environment = process.env, openSky = null } = {}) {
+export function nightMoveStop(observation, actionType, args = {}, { environment = process.env, openSky = null, hunting = false } = {}) {
 	// MINEAGEN_NIGHT_COVER=off restores the old behaviour, for room A/Bs on one code bundle.
 	if (!getSwitch('night.cover', environment).value) return null;
+	// The caller's night hunt (need-sources nightHuntOn, aimed at an enderman): endermen walk the surface at night.
+	if (hunting) return null;
 	const phase = nightFor(observation);
 	if (phase === null || !(WALKS.has(actionType) || actionType === 'dig_to')) return null;
 	const player = observation.player ?? {};

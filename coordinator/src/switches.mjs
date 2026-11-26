@@ -134,6 +134,11 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'night.cover', env: 'MINEAGEN_NIGHT_COVER', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
 		reason: 'Keeps an unarmoured bot under cover on its first night; off restores the old climb-out for room A/Bs (#117).',
 		readers: ['coordinator/src/night-cover.mjs nightMoveStop (per call)'] }),
+	// coordinator/src/wake-input.mjs night line, coordinator/src/need-sources.mjs endermanTrapEdge and nightHuntOn, and
+	// coordinator/src/skill-fits.mjs enderman fit: per call.
+	entry({ name: 'night.hunt', env: 'MINEAGEN_NIGHT_HUNT', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
+		reason: 'With pearls short and a weapon or boat trap, an Overworld night is the enderman hunt and the trap wake reaches 48 m; the night-cover stop lets enderman searches and pearl errands out; a held boat puts the trap before fight_until. Off restores the cover line, the 16 m wake and the cover stop.',
+		readers: ['coordinator/src/wake-input.mjs night line (per call)', 'coordinator/src/need-sources.mjs endermanTrapEdge and nightHuntOn (per call)', 'coordinator/src/skill-fits.mjs enderman fit (per call)'] }),
 	// coordinator/src/native-minecraft-tools.mjs programToolsOffered(environment): per call.
 	entry({ name: 'tools.program', env: 'MINEAGEN_PROGRAM_TOOLS', side: 'coordinator', default: false, parser: ON_WORD, status: 'default-off',
 		reason: 'Rounds 4-6 called runProgram 21 times in 7,653 calls and the 22 Nov checkpoint round made 27 program-tool calls in 25,038, so the six program tools leave the tool list unless on (#145).',
