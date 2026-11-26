@@ -38,6 +38,10 @@ test('fight_until enderman: pearls open, an enderman within 24 m, a melee weapon
 	assert.equal(skillFitsLine({ observation: sample({ dimension: OVERWORLD, items: [item('stone_sword'), item('iron_axe')], entities: [mob('enderman', 10.4)] }), needs: [pearls] }),
 		'fight_until mob:minecraft:enderman untilItem:minecraft:ender_pearl untilCount:12 (enderman 10 m, iron_axe, pearls 0/12)');
 	assert.equal(skillFitsLine({ observation: sample({ items: [item('bow'), item('arrow', 20)], entities: [mob('enderman', 10)] }), needs: [pearls] }), null, 'a bow alone never fights an enderman');
+	assert.match(skillFitsLine({ observation: sample({ dimension: OVERWORLD, items: [item('stone_sword'), item('oak_boat')], entities: [mob('enderman', 10)] }), needs: [pearls] }), /pearls 0\/12; boat held: trap it first\)$/, 'a boat in hand: the trap first');
+	const off = process.env.MINEAGEN_NIGHT_HUNT; process.env.MINEAGEN_NIGHT_HUNT = 'off';
+	try { assert.doesNotMatch(skillFitsLine({ observation: sample({ dimension: OVERWORLD, items: [item('stone_sword'), item('oak_boat')], entities: [mob('enderman', 10)] }), needs: [pearls] }), /boat held/); }
+	finally { if (off === undefined) delete process.env.MINEAGEN_NIGHT_HUNT; else process.env.MINEAGEN_NIGHT_HUNT = off; }
 	assert.equal(skillFitsLine({ observation: sample({ items: [item('iron_sword')], entities: [mob('enderman', 10, { alive: false })] }), needs: [pearls] }), null, 'dead');
 	assert.equal(skillFitsLine({ observation: sample({ items: [item('iron_sword')], entities: [mob('enderman', 10)] }), needs: [] }), null, 'no open need');
 });

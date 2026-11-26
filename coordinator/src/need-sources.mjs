@@ -763,13 +763,27 @@ export function boatTrapLine(observation) {
 	if (observation?.world?.raining === true) return 'a boat trap fails in rain (it teleports), so leave a calm one calm and do not look at it until the rain stops';
 	const kit = boats > 0 ? `you hold ${boats} boat${boats > 1 ? 's' : ''}` : planks >= 5 ? `you hold wood for a boat (${planks} planks' worth; 5 at a crafting table; if it is out of view after the craft it is still near: turn to find it, it stands tall)` : null;
 	if (kit === null) return 'no boat or 5 Overworld planks for a boat trap (keep one boat for the next one), so leave a calm one calm and do not look at it until you have one or are geared';
-	return `trap it in a boat instead (${kit}): place the boat about 3 blocks out on its side, stare at its eyes, look at the boat, and once it stops on the boat (not marked seated in view) fight_target pursue:false from where you stand (it cannot teleport or reach you while seated); break the boat after to keep it`;
+	return `trap it in a boat instead (${kit}): place the boat 1-2 blocks in front of you on its side, stare at its eyes so it charges through the boat, and once its row shows appearance.seatedIn a boat (the boat row shows passenger) fight_target the enderman's id with pursue:false from where you stand (seated it cannot teleport or reach you); never hit the boat while it is empty or the enderman stands beside it: that breaks the boat and drops it; break the boat only after the kill to keep it`;
 }
 
 export const ENDERMAN_TRAP_TRIGGER = 'enderman_trap_ready';
 // A calm enderman this far and this near the player's level is worth the walk: in 48 games 19 such stayed unvisited.
 const TRAP_WAKE_RANGE = 48;
 const TRAP_WAKE_CLIMB = 6;
+/**
+ * The night hunt (switch night.hunt): pearls short, a trap or a blade in hand, health to fight, in the Overworld. The
+ * night-cover stop lets a search or fight aimed at an enderman go on while it holds (s1 hunt1, 26 Nov: 2 of 8 hunt games
+ * had their enderman walk refused as FIND_NIGHT or NIGHT while the wake line told them to hunt).
+ */
+export function nightHuntOn(observation, { environment = process.env } = {}) {
+	if (!getSwitch('night.hunt', environment).value || observation?.world?.dimension !== 'minecraft:overworld') return false;
+	if (!(Number(observation?.player?.health) >= 10)) return false;
+	const items = observation?.inventory?.items ?? [];
+	const pearls = items.reduce((sum, item) => sum + (/^minecraft:ender_(pearl|eye)$/.test(item?.itemId ?? '') && item.count > 0 ? item.count : 0), 0);
+	if (pearls >= 12) return false;
+	const { boats, planks } = boatKit(items);
+	return boats > 0 || planks >= 5 || items.some((item) => /_(sword|axe)$/.test(item?.itemId ?? '') && item.count > 0);
+}
 
 /**
  * A calm enderman newly within TRAP_WAKE_RANGE and TRAP_WAKE_CLIMB while pearls and eyes are under 12, it is not raining and the

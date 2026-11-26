@@ -945,7 +945,7 @@ test('pearlHuntLine names the nearest walkable enderman within 16 m while pearls
 	assert.match(pearlHuntLine({ observation: { ...observation([enderman(7, 50)]), player: { health: 9, armor: 0 } }, position, open }), /not geared for an open fight \(health 9\)/);
 	// The boat trap is offered from what the body holds: a boat, or Overworld wood for one (Nether stems make none); not in rain.
 	const trap = (items, world) => pearlHuntLine({ observation: { ...observation([enderman(7, 50)], items), ...(world ? { world } : {}) }, position, open });
-	assert.match(trap([...wooden, { itemId: 'minecraft:oak_boat', count: 1 }]), /trap it in a boat instead \(you hold 1 boat\): .*fight_target pursue:false/);
+	assert.match(trap([...wooden, { itemId: 'minecraft:oak_boat', count: 1 }]), /trap it in a boat instead \(you hold 1 boat\): .*appearance.seatedIn .*fight_target .*pursue:false.*never hit the boat while it is empty/);
 	assert.match(trap([...wooden, { itemId: 'minecraft:spruce_planks', count: 5 }]), /you hold wood for a boat \(5 planks' worth/);
 	assert.match(trap([...wooden, { itemId: 'minecraft:birch_log', count: 2 }]), /you hold wood for a boat \(8 planks' worth/);
 	assert.match(trap([...wooden, { itemId: 'minecraft:warped_planks', count: 9 }, { itemId: 'minecraft:oak_planks', count: 4 }]), /no boat or 5 Overworld planks/);

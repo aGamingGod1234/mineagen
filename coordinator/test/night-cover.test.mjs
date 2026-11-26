@@ -82,3 +82,22 @@ test('PORTAL-LAVA-8: deep underground at night the gate names what works there, 
 	// The open-ground line is unchanged: rest is what works there.
 	assert.match(nightMoveStop(at(14_000), 'travel_to', { x: 84, y: 62, z: -122 }), /rest \(bed, walls or a dug hole\)/);
 });
+
+test('s1 hunt1: the night hunt walks out to an enderman while pearls are short and a trap or blade is in hand', async () => {
+	const { nightHuntOn } = await import('../src/need-sources.mjs');
+	const held = (items, player = {}) => ({ ...at(15_000, { y: 30, skyOpen: false, ...player }), inventory: { items } });
+	const sword = [{ itemId: 'minecraft:stone_sword', count: 1 }];
+	assert.equal(nightHuntOn(held(sword)), true);
+	assert.equal(nightHuntOn(held([{ itemId: 'minecraft:oak_boat', count: 1 }])), true);
+	assert.equal(nightHuntOn(held([{ itemId: 'minecraft:oak_planks', count: 4 }])), false, 'no boat, no blade');
+	assert.equal(nightHuntOn(held([...sword, { itemId: 'minecraft:ender_pearl', count: 12 }])), false, 'pearls done');
+	assert.equal(nightHuntOn(held(sword, { health: 8 })), false, 'under 10 health it stays in cover');
+	assert.equal(nightHuntOn(held(sword), { environment: { MINEAGEN_NIGHT_HUNT: 'off' } }), false);
+	assert.equal(nightHuntOn({ ...held(sword), world: { dimension: 'minecraft:the_nether', dayTime: 15_000 } }), false);
+	const below = held(sword);
+	assert.match(nightMoveStop(below, 'dig_to', { pattern: 'stairs_up', y: 70 }), /staying under cover/);
+	assert.equal(nightMoveStop(below, 'dig_to', { pattern: 'stairs_up', y: 70 }, { hunting: nightHuntOn(below) }), null);
+	const open = held(sword, { y: 70, skyOpen: true });
+	assert.match(nightMoveStop(open, 'travel_to', { x: 40, y: 70, z: 0 }), /not walking out/);
+	assert.equal(nightMoveStop(open, 'travel_to', { x: 40, y: 70, z: 0 }, { hunting: nightHuntOn(open) }), null);
+});

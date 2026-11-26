@@ -147,6 +147,7 @@ const READS = [
 	['night.cover', 'coordinator/src/night-cover.mjs', "getSwitch('night.cover', environment)"],
 	['night.hunt', 'coordinator/src/need-sources.mjs', "getSwitch('night.hunt', environment)"],
 	['night.hunt', 'coordinator/src/wake-input.mjs', "getSwitch('night.hunt')"],
+	['night.hunt', 'coordinator/src/skill-fits.mjs', "getSwitch('night.hunt')"],
 	['tools.program', 'coordinator/src/native-minecraft-tools.mjs', "getSwitch('tools.program', environment)"],
 	['experience', 'coordinator/src/experience-store.mjs', "getSwitch('experience', environment)"],
 	['experience.frozen', 'coordinator/src/experience-store.mjs', "getSwitch('experience.frozen', environment)"],

@@ -413,7 +413,9 @@ try {
 		const dead = died;
 		if (died) { await command('kill @e[type=minecraft:enderman]'); await (await startAction('respawn', {})).result.catch(() => null); died = false; await sleep(2000); }
 		return { tick, name, onBlock, salt, steps, built, provoked, seated, seatedAfterMs, lostWhileSeated, fight: outcome?.state ?? null, fightMessage: String(outcome?.message ?? '').slice(0, 160),
-			healthBefore: before, lost: dead ? before : +(before - lowest).toFixed(1), dead, killed: killedAfterMs !== null, killedAfterMs, pearls, heldPearls, groundItems, boatLeft, side, seenSeated };
+			healthBefore: before, lost: dead ? before : +(before - lowest).toFixed(1), dead, killed: killedAfterMs !== null, killedAfterMs, pearls, heldPearls, groundItems, boatLeft, side, seenSeated,
+			// The bot's view says so too: a seated enderman in view shows appearance.seatedIn, so it knows when to strike.
+			seatShown: typeof seenSeated === 'object' && seenSeated !== null ? /_(?:chest_)?(?:boat|raft)$/.test(String(seenSeated.appearance?.seatedIn ?? '')) : null };
 	};
 	for (const [name, onBlock, base, side] of [['boat-floor', false, 800, 0], ['boat-block', true, 900, 0], ['boat-aside', false, 1000, 2], ['boat-crowded', false, 1100, 0]]) {
 		if (!want(name)) continue;
@@ -421,12 +423,12 @@ try {
 			const rows = [];
 			for (let index = 0; index < Number(process.env.BOAT_TRIALS ?? 3); index++) rows.push(await trap(name, onBlock, base + index, side));
 			const count = (key) => rows.filter((row) => row[key]).length;
-			results[name] = { rows, built: count('built'), provoked: count('provoked'), seated: count('seated'), killed: count('killed'), deaths: count('dead'),
+			results[name] = { rows, built: count('built'), provoked: count('provoked'), seated: count('seated'), seatShown: count('seatShown'), killed: count('killed'), deaths: count('dead'),
 				meanLost: +(rows.reduce((sum, row) => sum + row.lost, 0) / rows.length).toFixed(1), pearls: rows.reduce((sum, row) => sum + row.pearls, 0) };
 			const integrity = rows.flatMap((row) => row.tick.integrity ?? []);
 			if (integrity.length) results[name].integrity = integrity;
 			// The body can run the trap: every trial built it, and every provoked enderman sat and died with the body alive.
-			results[name].pass = results[name].built === rows.length && rows.every((row) => !row.provoked || (row.seated && row.killed && !row.dead));
+			results[name].pass = results[name].built === rows.length && rows.every((row) => !row.provoked || (row.seated && row.killed && !row.dead && row.seatShown !== false));
 			if (rows.every((row) => row.built && !row.provoked)) results[name].notExercised = 'the stare never provoked the enderman';
 			await settle(name);
 		} catch (error) { await settle(name, error); }
