@@ -357,6 +357,8 @@ try {
 		await command(`item replace entity ${agent} hotbar.2 with minecraft:cobblestone 1`);
 		await command('setblock 2 80 0 minecraft:crafting_table');
 		await command(`tp ${agent} 0.5 80 0.5 0 0`);
+		// boat-crowded: a block beside the boat spot, so vanilla refuses a boat put down exactly there.
+		if (name === 'boat-crowded') await command(`setblock ${side + 1} 80 3 minecraft:cobblestone`);
 		await command(`random reset minecraft:entities/enderman ${salt}`);
 		const steps = {};
 		const play = await playStart();
@@ -413,7 +415,7 @@ try {
 		return { tick, name, onBlock, salt, steps, built, provoked, seated, seatedAfterMs, lostWhileSeated, fight: outcome?.state ?? null, fightMessage: String(outcome?.message ?? '').slice(0, 160),
 			healthBefore: before, lost: dead ? before : +(before - lowest).toFixed(1), dead, killed: killedAfterMs !== null, killedAfterMs, pearls, heldPearls, groundItems, boatLeft, side, seenSeated };
 	};
-	for (const [name, onBlock, base, side] of [['boat-floor', false, 800, 0], ['boat-block', true, 900, 0], ['boat-aside', false, 1000, 2]]) {
+	for (const [name, onBlock, base, side] of [['boat-floor', false, 800, 0], ['boat-block', true, 900, 0], ['boat-aside', false, 1000, 2], ['boat-crowded', false, 1100, 0]]) {
 		if (!want(name)) continue;
 		try {
 			const rows = [];
