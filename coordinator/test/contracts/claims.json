@@ -46636,7 +46636,7 @@
       "reason": "Primary warped-forest route is the recorded selected strategy; source ordering and bounded delivery are tested in warped-pearl-options.test.mjs. d41-pearl: an already-angry enderman is fought at once (f128f6dc). d41-pearl c3: the first-Nether-call gaze mandate made gpt-6-sol travel with look_away armed instead of staring at its chosen enderman (enderman-engage-03 6/6 -> 0/6); gaze protection is now travel protection the model leaves off while it hunts. d41-pearl c4: the hunt sentence (fight a reachable enderman before travelling for blazes or gold while pearls are below 12; wake hunt line pearlHuntLine, need-sources.test.mjs) is advice; the model still chooses. c4 round 3 (Sol review): the hunt line states its height check (no path check) and that a still-running travel_to/navigate_to does not stop for the enderman; the imperative cancel rule was removed and the model chooses. c5: cover is stated as optional vanilla protection with fight numbers; the look_away reflex is described once as a fact."
     },
     {
-      "predicate": "Watched flight facts contain only visible trajectory and ending evidence. A later visible item can supply its pickup position. Up to eight flights survive routine event eviction for 600 ticks and expire using the current clock or dimension. Stable flight timestamps and separate cursors let unchanged wake sections remain retained; exact duplicate inventory facts are omitted consistently on all wakes. Stronghold knowledge describes inference without choosing an action. Observe, post-action and wake samples use the same presentation. Each flight is independently retained by the exact delivered view, so unrelated or unchanged flight sections are not resent. Failed delivery cannot consume facts. The portal-room lava layout matches StrongholdPieces.PortalRoom (1x3 lava strips at x=1 and x=9, z=1..3 by the entrance; 3x3 lava at x=4..6, z=9..11 under the frame), and an eye seen too briefly omits its vertical direction. A flight lost from view before its ending claims no travel length (lostFromView) and a seen drop gives the whole travel; two seen bearing lines from spots 8+ blocks apart and 1+ degree apart report where they cross ahead of both throws, with distance and the earlier flight, in the same dimension only. Automatic food resupply requires low health/hunger; quick local bed setup follows an available stage wherever these options appear in this section. The optional cloud rule parses through the real tool normalizer as reflexes-only configuration, preserves input, and leaves priority9 for gaze. Capabilities do not install it; the model decides. The End arms default-breath (cloud_near within 2 -> sprint_away 10, held against a command until out of the cloud); a model rule with its id replaces it.",
+      "predicate": "Watched flight facts contain only visible trajectory and ending evidence. A later visible item can supply its pickup position. Up to eight flights survive routine event eviction for 600 ticks and expire using the current clock or dimension. Stable flight timestamps and separate cursors let unchanged wake sections remain retained; exact duplicate inventory facts are omitted consistently on all wakes. Stronghold knowledge describes inference without choosing an action. Observe, post-action and wake samples use the same presentation. Each flight is independently retained by the exact delivered view, so unrelated or unchanged flight sections are not resent. Failed delivery cannot consume facts. The portal-room lava layout matches StrongholdPieces.PortalRoom (1x3 lava strips at x=1 and x=9, z=1..3 by the entrance; 3x3 lava at x=4..6, z=9..11 under the frame), and an eye seen too briefly omits its vertical direction. A flight lost from view before its ending claims no travel length (lostFromView) and a seen drop gives the whole travel; two seen bearing lines from spots 8+ blocks apart and 1+ degree apart report where they cross ahead of both throws, with distance and the earlier flight, in the same dimension only. Automatic food resupply requires low health/hunger; quick local bed setup follows an available stage wherever these options appear in this section. The optional cloud rule parses through the real tool normalizer as reflexes-only configuration, preserves input, and leaves priority9 for gaze. Capabilities do not install it; the model decides. The End arms default-breath (cloud_near within 2 -> sprint_away 10, held against a command until out of the cloud); a model rule with its id replaces it. With the crystals out, the guide says to wait just outside the fountain's bedrock rim for the landing; the End arms default-fountain-post (dragon_aloft crystals 0 beyond 7 -> hold_post, taking only an idle or waiting body) as the matching habit.",
       "checks": [
         {
           "file": "src/test/java/dev/agaminggod/mineagen/server/perception/PlayerObservationEventsVerification.java",
@@ -46727,12 +46727,17 @@
           "test": "breathKeepsTheBodyThroughACommand",
           "type": "java-behavior",
           "entryPoint": "verifyCore"
+        },
+        {
+          "file": "coordinator/test/late-game-end.test.mjs",
+          "test": "End defaults follow the dimension: armed on entering the End, gone on leaving",
+          "type": "node-behavior"
         }
       ],
-      "id": "strategy:0ecac1a8e4a766ba:ee9efcd41d3d0fb3",
+      "id": "strategy:0ecac1a8e4a766ba:de4605de4e7b7364",
       "contract": {
-        "id": "strategy:0ecac1a8e4a766ba:ee9efcd41d3d0fb3",
-        "claim": "- **Finding the stronghold:** a thrown eye of ender (one use while not aiming at an end portal frame) flies about 12 blocks toward the stronghold for 4 seconds, then drops as an item you can pick up or breaks (about 1 in 5). It rises while the stronghold is far and sinks toward it when you are within about 12 blocks horizontally; a sinking eye indicates the stronghold is nearby horizontally and usually underground. Each watched flight stays 30 seconds as eye<id>: throw-point x,y,z; yaw/distance (Minecraft degrees/horizontal blocks flown); up/down/level@Y (last seen absolute height; y74 when the direction is unknown); ending: drop@x,y,z, drop+dx,dy,dz (offset from the throw point), broke, or unseen (ending not seen). ? is unknown; /? means the eye left your view mid-flight, so how far it flew is unknown. Only what your view saw appears. Inspect events add from, to, heading, flewBlocks and lostFromView. The eye heads straight for the stronghold start, so yaw is exact even from a short sighting; face that yaw when throwing to watch the whole flight. A throw 50+ blocks to the side of an earlier eye's line adds cross@x,z N from throw: where the two lines meet, above the stronghold's start stairs. Following eyes also works. The nearest strongholds are 1,280 to 2,816 blocks from the world origin.\n- **Portal room:** 12 frame blocks; some may already hold eyes. Silverfish spawner on the stairs. The empty frame count is the number of eyes still needed. Lava: 1x3 by each entrance side wall, 3x3 under the portal.\n- **Dragon fight options:**\n  - End crystals on top of the obsidian pillars heal the dragon while they stand; arrows reach the open ones from the ground. Two of the three thinnest pillars (crystals at y=80 and y=83) cage theirs in iron bars whose side walls stop every arrow: pillar up beside the cage to the crystal's height, break the wall bars there with a pickaxe, then shoot through that gap from the ground (the barred top lets arrows through from above). A crystal's blast deals about 56 at 3 blocks and breaks the blocks round it.\n  - The dragon is in melee reach when perched on the central fountain; bows reach it in flight, but it is immune to arrows while perched.\n  - Beds explode when used in the End. A bed set off next to the perched dragon does heavy damage, and heavy damage to you if you stand close; this is a fast but risky option.\n- **Optional quick respawn:** with a bed already carried, or wool/sheep in view and quick setup, an Overworld bed near the portal can shorten recovery. Enter an available End portal first. Drops wait about 5 minutes of loaded time; the void destroys them.\n- **Reaching the main island:** you arrive on a 5x5 obsidian platform about 100 blocks from the centre, usually 20-30 blocks off the island's edge and below its top. A pearl on a previewed arc to seen island ground crosses in one throw; a bridge keeps you minutes in the open over the void.\n- **Dragon attacks:** contact throws you; breath hurts repeatedly (radius 3 growing to 7 for 30 s). The End arms `default-breath` (sprints out; drop by id to melee). Optional first-call cloud rule: `reflexes({\"reflexes\":[{\"id\":\"end-cloud\",\"when\":{\"type\":\"cloud_near\",\"within\":3},\"do\":{\"type\":\"sprint_away\",\"blocks\":12},\"priority\":8,\"maxS\":5,\"ttlS\":3600}]})`. It can refuse unsafe/unseen footing; gaze guards need higher priority. Leaving breath precedes eating.\n- **End safety:** the void is fatal. Dragon breath and knockback can push you over an edge. Endermen become hostile when you look at their eyes (a carved pumpkin prevents this but limits vision). Blocks and a water bucket manage falls.",
+        "id": "strategy:0ecac1a8e4a766ba:de4605de4e7b7364",
+        "claim": "- **Finding the stronghold:** a thrown eye of ender (one use while not aiming at an end portal frame) flies about 12 blocks toward the stronghold for 4 seconds, then drops as an item you can pick up or breaks (about 1 in 5). It rises while the stronghold is far and sinks toward it when you are within about 12 blocks horizontally; a sinking eye indicates the stronghold is nearby horizontally and usually underground. Each watched flight stays 30 seconds as eye<id>: throw-point x,y,z; yaw/distance (Minecraft degrees/horizontal blocks flown); up/down/level@Y (last seen absolute height; y74 when the direction is unknown); ending: drop@x,y,z, drop+dx,dy,dz (offset from the throw point), broke, or unseen (ending not seen). ? is unknown; /? means the eye left your view mid-flight, so how far it flew is unknown. Only what your view saw appears. Inspect events add from, to, heading, flewBlocks and lostFromView. The eye heads straight for the stronghold start, so yaw is exact even from a short sighting; face that yaw when throwing to watch the whole flight. A throw 50+ blocks to the side of an earlier eye's line adds cross@x,z N from throw: where the two lines meet, above the stronghold's start stairs. Following eyes also works. The nearest strongholds are 1,280 to 2,816 blocks from the world origin.\n- **Portal room:** 12 frame blocks; some may already hold eyes. Silverfish spawner on the stairs. The empty frame count is the number of eyes still needed. Lava: 1x3 by each entrance side wall, 3x3 under the portal.\n- **Dragon fight options:**\n  - End crystals on top of the obsidian pillars heal the dragon while they stand; arrows reach the open ones from the ground. Two of the three thinnest pillars (crystals at y=80 and y=83) cage theirs in iron bars whose side walls stop every arrow: pillar up beside the cage to the crystal's height, break the wall bars there with a pickaxe, then shoot through that gap from the ground (the barred top lets arrows through from above). A crystal's blast deals about 56 at 3 blocks and breaks the blocks round it.\n  - The dragon is in melee reach when perched on the central fountain; bows reach it in flight, but it is immune to arrows while perched.\n  - With the crystals out, wait for the landing on the ground just outside the fountain's bedrock rim, not out on the island. It perches on the fountain and turns its head to the nearest player, and it stays down while you are close and in its sight; from 20 or more blocks out it lifts off in a few seconds before you arrive. Shoot it in flight from there, and swing at the head when it lands.\n  - Beds explode when used in the End. A bed set off next to the perched dragon does heavy damage, and heavy damage to you if you stand close; this is a fast but risky option.\n- **Optional quick respawn:** with a bed already carried, or wool/sheep in view and quick setup, an Overworld bed near the portal can shorten recovery. Enter an available End portal first. Drops wait about 5 minutes of loaded time; the void destroys them.\n- **Reaching the main island:** you arrive on a 5x5 obsidian platform about 100 blocks from the centre, usually 20-30 blocks off the island's edge and below its top. A pearl on a previewed arc to seen island ground crosses in one throw; a bridge keeps you minutes in the open over the void.\n- **Dragon attacks:** contact throws you; breath hurts repeatedly (radius 3 growing to 7 for 30 s). The End arms `default-breath` (sprints out; drop by id to melee). Optional first-call cloud rule: `reflexes({\"reflexes\":[{\"id\":\"end-cloud\",\"when\":{\"type\":\"cloud_near\",\"within\":3},\"do\":{\"type\":\"sprint_away\",\"blocks\":12},\"priority\":8,\"maxS\":5,\"ttlS\":3600}]})`. It can refuse unsafe/unseen footing; gaze guards need higher priority. Leaving breath precedes eating.\n- **End safety:** the void is fatal. Dragon breath and knockback can push you over an edge. Endermen become hostile when you look at their eyes (a carved pumpkin prevents this but limits vision). Blocks and a water bucket manage falls.",
         "kind": "strategy-reference",
         "topic": "The End"
       },
@@ -46755,7 +46760,7 @@
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/strategy-guide.md",
-        "line": 200
+        "line": 201
       },
       "status": "advisory",
       "reason": "Contextual vanilla world-generation, loot, recipes, physiology or tactical comparisons, not an Arena tool behavior claim. Such world mechanics can be sampled, but are not inherently untestable; variable outcomes and chosen strategies are not universal tool guarantees."
@@ -46803,7 +46808,7 @@
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/strategy-guide.md",
-        "line": 204
+        "line": 205
       },
       "status": "advisory",
       "reason": "Model-facing knowledge about vanilla facts and existing tools; it selects nothing and has no runtime path of its own."
@@ -46820,7 +46825,7 @@
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/strategy-guide.md",
-        "line": 208
+        "line": 209
       },
       "status": "advisory",
       "reason": "Contextual vanilla world-generation, loot, recipes, physiology or tactical comparisons, not an Arena tool behavior claim. Such world mechanics can be sampled, but are not inherently untestable; variable outcomes and chosen strategies are not universal tool guarantees."
@@ -46837,7 +46842,7 @@
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/strategy-guide.md",
-        "line": 210
+        "line": 211
       },
       "status": "advisory",
       "reason": "Contextual vanilla world-generation, loot, recipes, physiology or tactical comparisons, not an Arena tool behavior claim. Such world mechanics can be sampled, but are not inherently untestable; variable outcomes and chosen strategies are not universal tool guarantees."
@@ -46854,7 +46859,7 @@
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/strategy-guide.md",
-        "line": 231
+        "line": 232
       },
       "status": "advisory",
       "reason": "Contextual vanilla world-generation, loot, recipes, physiology or tactical comparisons, not an Arena tool behavior claim. Such world mechanics can be sampled, but are not inherently untestable; variable outcomes and chosen strategies are not universal tool guarantees."
@@ -46871,7 +46876,7 @@
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/strategy-guide.md",
-        "line": 233
+        "line": 234
       },
       "status": "advisory",
       "reason": "Contextual vanilla world-generation, loot, recipes, physiology or tactical comparisons, not an Arena tool behavior claim. Such world mechanics can be sampled, but are not inherently untestable; variable outcomes and chosen strategies are not universal tool guarantees."
@@ -46888,7 +46893,7 @@
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/strategy-guide.md",
-        "line": 237
+        "line": 238
       },
       "status": "advisory",
       "reason": "Contextual vanilla world-generation, loot, recipes, physiology or tactical comparisons, not an Arena tool behavior claim. Such world mechanics can be sampled, but are not inherently untestable; variable outcomes and chosen strategies are not universal tool guarantees."
@@ -46905,7 +46910,7 @@
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/strategy-guide.md",
-        "line": 245
+        "line": 246
       },
       "status": "advisory",
       "reason": "Contextual vanilla world-generation, loot, recipes, physiology or tactical comparisons, not an Arena tool behavior claim. Such world mechanics can be sampled, but are not inherently untestable; variable outcomes and chosen strategies are not universal tool guarantees."
@@ -46922,7 +46927,7 @@
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/strategy-guide.md",
-        "line": 256
+        "line": 257
       },
       "status": "advisory",
       "reason": "Contextual vanilla world-generation, loot, recipes, physiology or tactical comparisons, not an Arena tool behavior claim. Such world mechanics can be sampled, but are not inherently untestable; variable outcomes and chosen strategies are not universal tool guarantees."
@@ -46939,7 +46944,7 @@
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/strategy-guide.md",
-        "line": 258
+        "line": 259
       },
       "status": "advisory",
       "reason": "Contextual vanilla world-generation, loot, recipes, physiology or tactical comparisons, not an Arena tool behavior claim. Such world mechanics can be sampled, but are not inherently untestable; variable outcomes and chosen strategies are not universal tool guarantees."
@@ -46956,7 +46961,7 @@
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/strategy-guide.md",
-        "line": 267
+        "line": 268
       },
       "status": "advisory",
       "reason": "Contextual vanilla world-generation, loot, recipes, physiology or tactical comparisons, not an Arena tool behavior claim. Such world mechanics can be sampled, but are not inherently untestable; variable outcomes and chosen strategies are not universal tool guarantees."
@@ -46973,7 +46978,7 @@
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/strategy-guide.md",
-        "line": 276
+        "line": 277
       },
       "status": "advisory",
       "reason": "Contextual vanilla world-generation, loot, recipes, physiology or tactical comparisons, not an Arena tool behavior claim. Such world mechanics can be sampled, but are not inherently untestable; variable outcomes and chosen strategies are not universal tool guarantees."
@@ -46990,7 +46995,7 @@
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/strategy-guide.md",
-        "line": 284
+        "line": 285
       },
       "status": "advisory",
       "reason": "Contextual vanilla world-generation, loot, recipes, physiology or tactical comparisons, not an Arena tool behavior claim. Such world mechanics can be sampled, but are not inherently untestable; variable outcomes and chosen strategies are not universal tool guarantees."
@@ -47007,7 +47012,7 @@
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/strategy-guide.md",
-        "line": 292
+        "line": 293
       },
       "status": "advisory",
       "reason": "Contextual vanilla world-generation, loot, recipes, physiology or tactical comparisons, not an Arena tool behavior claim. Such world mechanics can be sampled, but are not inherently untestable; variable outcomes and chosen strategies are not universal tool guarantees."
@@ -47024,7 +47029,7 @@
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/strategy-guide.md",
-        "line": 300
+        "line": 301
       },
       "status": "advisory",
       "reason": "Contextual vanilla world-generation, loot, recipes, physiology or tactical comparisons, not an Arena tool behavior claim. Such world mechanics can be sampled, but are not inherently untestable; variable outcomes and chosen strategies are not universal tool guarantees."
@@ -47041,7 +47046,7 @@
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/strategy-guide.md",
-        "line": 308
+        "line": 309
       },
       "status": "advisory",
       "reason": "Contextual vanilla world-generation, loot, recipes, physiology or tactical comparisons, not an Arena tool behavior claim. Such world mechanics can be sampled, but are not inherently untestable; variable outcomes and chosen strategies are not universal tool guarantees."
@@ -47058,7 +47063,7 @@
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/strategy-guide.md",
-        "line": 315
+        "line": 316
       },
       "status": "advisory",
       "reason": "Contextual vanilla world-generation, loot, recipes, physiology or tactical comparisons, not an Arena tool behavior claim. Such world mechanics can be sampled, but are not inherently untestable; variable outcomes and chosen strategies are not universal tool guarantees."
@@ -47075,7 +47080,7 @@
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/strategy-guide.md",
-        "line": 322
+        "line": 323
       },
       "status": "advisory",
       "reason": "Contextual vanilla world-generation, loot, recipes, physiology or tactical comparisons, not an Arena tool behavior claim. Such world mechanics can be sampled, but are not inherently untestable; variable outcomes and chosen strategies are not universal tool guarantees."
@@ -47092,7 +47097,7 @@
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/strategy-guide.md",
-        "line": 330
+        "line": 331
       },
       "status": "advisory",
       "reason": "Contextual vanilla world-generation, loot, recipes, physiology or tactical comparisons, not an Arena tool behavior claim. Such world mechanics can be sampled, but are not inherently untestable; variable outcomes and chosen strategies are not universal tool guarantees."
@@ -47125,7 +47130,7 @@
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/strategy-guide.md",
-        "line": 336
+        "line": 337
       },
       "status": "partial",
       "reason": "The tests witness plan and source facts, including filled-bucket retention. Water containment, night work, and when to wait are advisory model decisions; live success is not guaranteed. Re-reviewed for PR355 conditional preparation: executable topic tests cover the changed advice. Existing unchanged mechanics witnesses remain; no actual model-priority or efficacy claim."
@@ -47142,7 +47147,7 @@
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/strategy-guide.md",
-        "line": 340
+        "line": 341
       },
       "status": "advisory",
       "reason": "Contextual vanilla world-generation, loot, recipes, physiology or tactical comparisons, not an Arena tool behavior claim. Such world mechanics can be sampled, but are not inherently untestable; variable outcomes and chosen strategies are not universal tool guarantees."
@@ -47159,7 +47164,7 @@
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/strategy-guide.md",
-        "line": 347
+        "line": 348
       },
       "status": "advisory",
       "reason": "Model-facing knowledge about vanilla facts and existing tools; it selects nothing and has no runtime path of its own."
@@ -47176,7 +47181,7 @@
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/strategy-guide.md",
-        "line": 351
+        "line": 352
       },
       "status": "advisory",
       "reason": "Contextual vanilla world-generation, loot, recipes, physiology or tactical comparisons, not an Arena tool behavior claim. Such world mechanics can be sampled, but are not inherently untestable; variable outcomes and chosen strategies are not universal tool guarantees."
@@ -47193,7 +47198,7 @@
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/strategy-guide.md",
-        "line": 359
+        "line": 360
       },
       "status": "advisory",
       "reason": "Contextual vanilla world-generation, loot, recipes, physiology or tactical comparisons, not an Arena tool behavior claim. Such world mechanics can be sampled, but are not inherently untestable; variable outcomes and chosen strategies are not universal tool guarantees."
@@ -47210,7 +47215,7 @@
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/strategy-guide.md",
-        "line": 367
+        "line": 368
       },
       "status": "advisory",
       "reason": "Contextual vanilla world-generation, loot, recipes, physiology or tactical comparisons, not an Arena tool behavior claim. Such world mechanics can be sampled, but are not inherently untestable; variable outcomes and chosen strategies are not universal tool guarantees."
@@ -47227,7 +47232,7 @@
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/.codex/skills/minecraft-control/references/strategy-guide.md",
-        "line": 374
+        "line": 375
       },
       "status": "advisory",
       "reason": "Contextual vanilla world-generation, loot, recipes, physiology or tactical comparisons, not an Arena tool behavior claim. Such world mechanics can be sampled, but are not inherently untestable; variable outcomes and chosen strategies are not universal tool guarantees."
