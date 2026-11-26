@@ -568,13 +568,23 @@ final class ReflexActions {
 		 * in the won ones 19 of 27 were blocked facing it. Not a mob whose weapon disables the shield (an axe), nor a crowd.
 		 */
 		static boolean faces(ServerPlayer player, Mob mob, int crowd) {
-			return FACE_MELEE && mob != null && facesWith(crowd, player.getOffhandItem().is(Items.SHIELD), ThreatPerception.isRanged(mob),
+			ItemStack offhand = player.getOffhandItem();
+			return FACE_MELEE && mob != null && facesWith(crowd, offhand.is(Items.SHIELD) && !player.getCooldowns().isOnCooldown(offhand),
+					contact(mob) || ThreatPerception.isRanged(mob),
 					() -> dev.agaminggod.mineagen.server.perception.ThreatDamage.expectedHit(mob, player).disablesShield());
 		}
 
-		/** A ranged mob gives no swing to counter between, so it keeps the ordinary attack, as an axe that breaks the shield does. */
-		static boolean facesWith(int crowd, boolean offhandShield, boolean ranged, java.util.function.BooleanSupplier disablesShield) {
-			return crowd < CROWD && offhandShield && !ranged && !disablesShield.getAsBoolean();
+		/** Slimes, magma cubes and creepers hurt by contact or blast: no swing for the counter to wait out. */
+		static boolean contact(Entity mob) {
+			return McCompat.isSlimeOrMagmaCube(mob) || mob instanceof Creeper;
+		}
+
+		/**
+		 * A mob with no swing to counter between (ranged, contact, blast) keeps the ordinary attack, as an axe that breaks the
+		 * shield does, and a shield an axe already put on cooldown blocks nothing, so the old back-out stays.
+		 */
+		static boolean facesWith(int crowd, boolean readyShield, boolean noSwing, java.util.function.BooleanSupplier disablesShield) {
+			return crowd < CROWD && readyShield && !noSwing && !disablesShield.getAsBoolean();
 		}
 
 		private Mob outmatching(ServerPlayer player, Mob mob) {
