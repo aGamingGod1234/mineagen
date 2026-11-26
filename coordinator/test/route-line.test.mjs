@@ -188,6 +188,10 @@ test('enough eyes never send the agent back for blazes: missing counts down from
 	const away = visitedNether(); away.structuresSeen.push({ id: 'minecraft:stronghold', dimension: 'minecraft:overworld', x: 1500, z: 640 });
 	assert.match(route([...KIT, ['ender_eye', 11]], {}, away), /^usual next step: go to the stronghold seen at 1500,640, then find block end_portal_frame/);
 	assert.match(route(KIT, {}, found), /go back to the Nether for \d+ blaze_rods and 12 ender_pearls/);
+	// Hurt and hungry with no food: food before the search, which would stop on low health (never the Nether trip).
+	const hungry = route([['iron_pickaxe', 1], ['ender_eye', 11]], { health: 8, foodLevel: 5 }, visitedNether());
+	assert.match(hungry, /^usual next step: obtain cooked_beef count 20 before going on \(food 0\/10/);
+	assert.doesNotMatch(hungry, /Nether/);
 	// Off switch: MINEAGEN_EYES_HOLD=0 restores the count-and-go-back route with eyes in hand.
 	process.env.MINEAGEN_EYES_HOLD = '0';
 	try { assert.match(route([...KIT, ['ender_eye', 9]], {}, found), /go back to the Nether/); } finally { delete process.env.MINEAGEN_EYES_HOLD; }

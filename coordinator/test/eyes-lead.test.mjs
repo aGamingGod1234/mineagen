@@ -21,7 +21,10 @@ const at = items => ({ world: { dimension: 'minecraft:overworld' }, inventory: {
 test('an eye in hand puts the stronghold and End steps ahead of lost Nether prep; none, or the off switch, keeps plan order', () => {
 	assert.deepEqual(openOrder(plan, { open }, at([{ itemId: 'minecraft:ender_eye', count: 10 }])).slice(0, 3), ['stronghold', 'depth', 'pearls']);
 	// A stale sample has no inventory: the last live inventory stands in.
-	assert.equal(openOrder(plan, { open }, { ready: false }, null, [{ itemId: 'minecraft:ender_eye', count: 10 }])[0], 'stronghold');
+	assert.equal(openOrder(plan, { open }, { ready: false }, null, [{ itemId: 'minecraft:ender_eye', count: 10 }], 'minecraft:overworld')[0], 'stronghold');
+	// A stale sample in the Nether keeps the supply steps: the held eyes do not pull the stronghold ahead there.
+	assert.deepEqual(openOrder(plan, { open }, { ready: false }, null, [{ itemId: 'minecraft:ender_eye', count: 10 }], 'minecraft:the_nether'), open);
+	assert.deepEqual(openOrder(plan, { open }, { ready: false }, null, [{ itemId: 'minecraft:ender_eye', count: 10 }]), open);
 	assert.deepEqual(openOrder(plan, { open }, at([{ itemId: 'minecraft:ender_pearl', count: 10 }])), open);
 	for (const off of ['0', 'off']) {
 		process.env.MINEAGEN_EYES_HOLD = off;

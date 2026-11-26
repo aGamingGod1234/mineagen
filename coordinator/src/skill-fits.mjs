@@ -562,6 +562,8 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 		// at 9-11 eyes before seeing the stronghold and one after it (three of the four died in the Nether, none came back with
 		// more); the two that reached the End never turned back.
 		if (EYES_HOLD() && eyesHeld > 0 && (rodsMissing > 0 || pearlsMissing > 0)) {
+			// Hungry or hurt with little food: the search stops on low health, so food comes first, as on the old route.
+			if (foodAdviceNeeded(o) && food < 10) return line(`obtain cooked_beef count ${20 - food} before going on (food ${food}/10)`, eyeFacts);
 			const short = `${eyeFacts}; ${eyesNeeded} short only if no frame is set`;
 			const hold = (known.structuresSeen ?? []).find(v => v.id === 'minecraft:stronghold' && v.dimension === 'minecraft:overworld');
 			if (!hold && !ok('seen:minecraft:stronghold'))
