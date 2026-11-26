@@ -3061,7 +3061,9 @@ final class ReflexActions {
 			Vec3 at = creeper.getBoundingBox().getCenter();
 			if (inHand) {
 				if (guardShield == null) guardShield = new Shield(false);
-				Step held = guardShield.tick(context, input);
+				// Toward the creeper itself, standing: never deferred to a paused fight's own shield, never walking under it.
+				Context toward = new Context(player, creeper, context.stance(), context.memory(), at, null, false);
+				Step held = guardShield.tick(toward, input);
 				return held.status() == ReflexScheduler.ActionStatus.RUNNING ? Step.running("cornered by a lit creeper, " + held.detail()) : held;
 			}
 			if (shieldSlot >= 0) {
