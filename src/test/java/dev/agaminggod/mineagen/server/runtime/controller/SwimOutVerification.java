@@ -21,6 +21,14 @@ public final class SwimOutVerification {
 		check(!ServerTravelController.settleOnBank(false, 0.3D, 63, 62.5D), "a bank a block above the feet is climbed: keep jumping");
 		check(!ServerTravelController.settleOnBank(true, 0.3D, 62, 62.5D), "eyes under water: rise first");
 		check(!ServerTravelController.settleOnBank(false, 1.2D, 62, 62.5D), "not over the bank yet: keep swimming to it");
+		var walk = dev.agaminggod.mineagen.client.navigation.TraversalType.WALK;
+		check(ServerNavigationController.wadeWithoutJump(walk, true, true, 0.0D, false), "wading to a level walk cell: stand on the bed");
+		check(!ServerNavigationController.wadeWithoutJump(dev.agaminggod.mineagen.client.navigation.TraversalType.JUMP_UP, true, true, 1.0D, false),
+				"a step up out of the water: jump");
+		check(!ServerNavigationController.wadeWithoutJump(walk, true, true, 0.0D, true), "pressed against the bank: jump to climb out");
+		check(!ServerNavigationController.wadeWithoutJump(walk, true, false, 0.0D, false), "deep water under the feet: keep floating");
+		check(!ServerNavigationController.wadeWithoutJump(dev.agaminggod.mineagen.client.navigation.TraversalType.SWIM, true, true, 0.0D, false),
+				"a planned swim: keep floating");
 		check(ServerTravelController.underWater(300, false, 3.0D, false, 8.0D, false) == ServerTravelController.SwimStep.AIR,
 				"a known route to air comes before a low bank under a roof");
 		check(ServerTravelController.underWater(300, false, 0.0D, false, 2.0D, false) == ServerTravelController.SwimStep.AIR,

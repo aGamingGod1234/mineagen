@@ -171,8 +171,8 @@ export const SWITCHES = Object.freeze([
 	// ServerTravelController.java shallowShoreEnabled(): per call; property or env.
 	entry({ name: 'travel.shallowShore', env: 'MINEAGEN_TRAVEL_SHALLOW_SHORE', property: 'mineagen.travel.shallowShore', side: 'server', default: true,
 		parser: flag({ token: 'false', means: 'off', trim: true, anyCase: true }), propertyParser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
-		reason: 'A swimmer over a one-deep shallow bank stops treading water and stands on the bed. In 8 fresh games 40 of 47 travel water timeouts (NO_ROUTE, about 39 min) ended bobbing over such a bank; false keeps the held jump.',
-		readers: ['ServerTravelController.java shallowShoreEnabled (per call)'] }),
+		reason: 'In one-deep water the body stands and walks on the bed instead of holding jump and bobbing: the swim out stops over a shallow bank, and navigation jumps only at a step up or against the bank. In 8 fresh games 40 of 47 travel water timeouts (NO_ROUTE, about 39 min) ended bobbing over such a bank; false keeps the held jump.',
+		readers: ['ServerTravelController.java shallowShoreEnabled (per call)', 'ServerNavigationController.java jumpPending via shallowShoreEnabled (per call)'] }),
 	// ServerFightUntilController.java CHARGE_GUARD: static final, class load.
 	entry({ name: 'fight.chargeGuard', property: 'mineagen.fight.chargeGuard', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
 		reason: 'Raises the shield before a charged blaze\'s volley; false is the fixture A/B off arm.',
