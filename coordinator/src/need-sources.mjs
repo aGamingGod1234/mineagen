@@ -755,7 +755,18 @@ const BOAT_LOG = new RegExp(`^minecraft:(?:stripped_)?(?:oak|spruce|birch|jungle
  */
 export function boatKit(items) {
 	const count = (pattern) => (items ?? []).reduce((sum, item) => sum + (pattern.test(item?.itemId ?? '') && item.count > 0 ? item.count : 0), 0);
-	return { boats: count(BOAT_ITEM), planks: count(BOAT_PLANKS) + 4 * count(BOAT_LOG) };
+	// A boat takes 5 planks of one wood: count each wood on its own (a log makes 4 planks, a bamboo block 2) and keep the most.
+	const woods = new Map();
+	for (const item of items ?? []) {
+		if (!(item?.count > 0)) continue;
+		const id = item.itemId ?? '';
+		const plank = BOAT_PLANKS.test(id) ? /^minecraft:(.+)_planks$/.exec(id)[1] : null;
+		const log = plank === null && BOAT_LOG.test(id) ? /^minecraft:(?:stripped_)?(.+?)(?:_log|_wood|_block)$/.exec(id)[1] : null;
+		const wood = plank ?? log;
+		if (wood === null) continue;
+		woods.set(wood, (woods.get(wood) ?? 0) + item.count * (plank !== null ? 1 : wood === 'bamboo' ? 2 : 4));
+	}
+	return { boats: count(BOAT_ITEM), planks: Math.max(0, ...woods.values()) };
 }
 
 export function boatTrapLine(observation) {
@@ -763,7 +774,7 @@ export function boatTrapLine(observation) {
 	if (observation?.world?.raining === true) return 'a boat trap fails in rain (it teleports), so leave a calm one calm and do not look at it until the rain stops';
 	const kit = boats > 0 ? `you hold ${boats} boat${boats > 1 ? 's' : ''}` : planks >= 5 ? `you hold wood for a boat (${planks} planks' worth; 5 at a crafting table; if it is out of view after the craft it is still near: turn to find it, it stands tall)` : null;
 	if (kit === null) return 'no boat or 5 Overworld planks for a boat trap (keep one boat for the next one), so leave a calm one calm and do not look at it until you have one or are geared';
-	return `trap it in a boat instead (${kit}): place the boat 1-2 blocks in front of you on its side, stare at its eyes so it charges through the boat, and once its row shows appearance.seatedIn a boat (the boat row shows passenger) fight_target the enderman's id with pursue:false from where you stand (seated it cannot teleport or reach you); never hit the boat while it is empty or the enderman stands beside it: that breaks the boat and drops it; break the boat only after the kill to keep it`;
+	return `trap it in a boat instead (${kit}): place the boat 1-2 blocks in front of you on its side, stare at its eyes to anger it, then look down at the boat (while you keep staring it stands frozen) so it charges through the boat, and once its row shows appearance.seatedIn a boat (the boat row shows passenger) fight_target the enderman's id with pursue:false from where you stand (seated it cannot teleport or reach you); never hit the boat while it is empty or the enderman stands beside it: that breaks the boat and drops it; break the boat only after the kill to keep it`;
 }
 
 export const ENDERMAN_TRAP_TRIGGER = 'enderman_trap_ready';

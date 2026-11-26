@@ -11,6 +11,7 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.item.BoatItem;
 import net.minecraft.world.item.ItemStack;
@@ -88,9 +89,10 @@ final class BoatPlacement {
 		faces.sort(Comparator.comparingDouble(top -> top.distanceToSqr(target)));
 		for (Vec3 top : faces.subList(0, Math.min(TRIES, faces.size()))) {
 			player.lookAt(EntityAnchorArgument.Anchor.EYES, top);
-			player.gameMode.useItem(player, level, held, hand);
+			// Creative keeps the boat in hand, so a placed boat is read from the result as well as from the stack.
+			InteractionResult result = player.gameMode.useItem(player, level, held, hand);
 			ItemStack now = player.getItemInHand(hand);
-			if (now.isEmpty() || now.getCount() < before || !ItemStack.isSameItem(now, held)) return format(top);
+			if (result.consumesAction() || now.isEmpty() || now.getCount() < before || !ItemStack.isSameItem(now, held)) return format(top);
 		}
 		return null;
 	}

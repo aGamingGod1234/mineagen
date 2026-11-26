@@ -429,7 +429,9 @@ try {
 			if (integrity.length) results[name].integrity = integrity;
 			// The body can run the trap: every trial built it, and every provoked enderman sat and died with the body alive.
 			results[name].pass = results[name].built === rows.length && rows.every((row) => !row.provoked || (row.seated && row.killed && !row.dead && row.seatShown !== false));
-			if (rows.every((row) => row.built && !row.provoked)) results[name].notExercised = 'the stare never provoked the enderman';
+			// Every repeat must exercise the trap: one provoked trial among unprovoked ones is not a three-repeat pass.
+			const unprovoked = rows.filter((row) => row.built && !row.provoked).length;
+			if (unprovoked > 0) results[name].notExercised = `the stare never provoked the enderman in ${unprovoked} of ${rows.length} trials`;
 			await settle(name);
 		} catch (error) { await settle(name, error); }
 	}
