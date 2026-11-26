@@ -37,11 +37,19 @@ const inHotbar = item => item.slot === 'mainhand' || item.slot === 'offhand' || 
  * each, a filled one counts) and flint and steel (1). Only iron beyond this goes to armour, so the habit never slows the
  * route to the portal.
  */
-export function ironReserved(items) {
+export function ironReserved(items, { environment = process.env } = {}) {
 	const has = re => items.some(item => re.test(item.itemId ?? ''));
 	const buckets = items.filter(item => /^minecraft:(bucket|water_bucket|lava_bucket)$/.test(item.itemId ?? '')).reduce((n, item) => n + item.count, 0);
+	// kit.rekit: the second bucket waits for the chestplate. With both buckets reserved, 13 iron in the bag made no armour
+	// (fresh game g5 on main 069e471), and 40 of 42 deaths in those 8 games had no armour on.
+	const wanted = rekitEnabled(environment) && !items.some(item => item.slot === 'chest') ? 1 : 2;
 	return (soundPickaxe(items) ? 0 : 3) + (has(/^minecraft:shield$/) ? 0 : 1)
-		+ Math.max(0, 2 - buckets) * 3 + (has(/^minecraft:flint_and_steel$/) ? 0 : 1);
+		+ Math.max(0, wanted - buckets) * 3 + (has(/^minecraft:flint_and_steel$/) ? 0 : 1);
+}
+
+/** MINEAGEN_REKIT=off turns the re-kit changes off (an A/B round's off arm); they are on otherwise. */
+export function rekitEnabled(environment = process.env) {
+	return getSwitch('kit.rekit', environment).value;
 }
 
 /**
@@ -79,7 +87,10 @@ export function nextKitStep(o, { reserved = null } = {}) {
 	const items = (o?.inventory?.items ?? []).filter(item => item?.count > 0 && typeof item.itemId === 'string');
 	if (!Array.isArray(o?.inventory?.items)) return null;
 	const health = o?.player?.health;
-	if (!Number.isFinite(health) || health < KIT_MIN_HEALTH) return null;
+	if (!Number.isFinite(health)) return null;
+	// kit.rekit: putting on armour already carried takes no time, so it happens hurt too; crafting waits for health.
+	const hurt = health < KIT_MIN_HEALTH;
+	if (hurt && !rekitEnabled()) return null;
 	const worn = slot => items.some(item => item.slot === slot);
 	// The selected hotbar slot is observed only as 'mainhand': shields and armour held there equip from its slot number.
 	const selected = o.inventory.selectedSlot;
@@ -96,6 +107,7 @@ export function nextKitStep(o, { reserved = null } = {}) {
 		const stored = items.find(item => heldSlot(item) !== null && piece.part.test(item.itemId));
 		if (stored) return { kind: 'equip', sourceSlot: heldSlot(stored), targetSlot: piece.slot, itemId: stored.itemId };
 	}
+	if (hurt) return null;
 	const food = items.filter(item => FOOD.test(item.itemId));
 	if (food.length > 0 && !food.some(inHotbar)) {
 		const stored = food.find(numbered);
