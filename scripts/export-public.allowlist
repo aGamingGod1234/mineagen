@@ -2122,6 +2122,7 @@ src/test/java/dev/agaminggod/mineagen/server/runtime/reflex/ReflexShieldVerifica
 src/test/java/dev/agaminggod/mineagen/server/runtime/reflex/ReflexTestAccess.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/reflex/ReflexVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/reflex/RetreatEmergencyPriorityVerification.java
+src/test/java/dev/agaminggod/mineagen/server/runtime/reflex/StrikeRearmVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/transaction/EquipmentAndUseVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/transaction/TransactionPostconditionVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/transaction/TransactionProtocolVerification.java

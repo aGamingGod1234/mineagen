@@ -17,7 +17,8 @@ import java.util.Set;
  * <li>A stance fires while its condition holds and releases when it stops holding.</li>
  * <li>Only one rule fires at a time; a higher priority rule that becomes ready preempts a lower one.</li>
  * <li>Every firing is bounded by the rule's maxMs, followed by its cooldown (debounce).</li>
- * <li>Loop protection: four firings in a row without progress, or more than forty in a minute, disable the rule.
+ * <li>Loop protection: four firings in a row without progress, or more than forty in a minute, disable the rule (a meal
+ * and a dragon head strike rest and are armed again, see {@link #rearmTicks}).
  * A stance that hits maxS while the body loses health is not making progress either, and wakes the model at once; a
  * stance held for three maxS spans in a row without its condition clearing wakes the model once (it may need to flee
  * instead of holding). A stance whose action finishes (eat) that runs out of maxS has failed, like a trigger.</li>
@@ -117,6 +118,8 @@ public final class ReflexScheduler {
 		String disabledReason;
 		/** A finishing stance disabled by the loop limits comes back at this tick (see {@link #FINISHING_REARM_TICKS}). */
 		long rearmAt = Long.MAX_VALUE;
+		/** Times the loop limits re-armed this rule; a head strike wakes the model only on its first rest. */
+		int rearms;
 		int heldSpans;
 		/** First tick of the current false run of the condition (for a held action's release grace). */
 		long falseSince = Long.MIN_VALUE;
@@ -169,6 +172,7 @@ public final class ReflexScheduler {
 			state.lastFailure = lastFailure;
 			state.disabledReason = disabledReason;
 			state.rearmAt = rearmAt;
+			state.rearms = rearms;
 			state.heldSpans = heldSpans;
 			state.falseSince = falseSince;
 			state.heldBack = heldBack;
@@ -352,9 +356,10 @@ public final class ReflexScheduler {
 		for (State state : states.values()) {
 			if (state.disabledReason != null && now >= state.rearmAt) {
 				// A bot that can never eat again starves: a meal blocked once (facing a table) is tried again later.
-				addEvent(state.rule.id(), Outcome.DONE, 0L, "re-armed after " + (FINISHING_REARM_TICKS / TICKS_PER_SECOND) + " s disabled", false, now, false);
+				addEvent(state.rule.id(), Outcome.DONE, 0L, "re-armed after " + (rearmTicks(state.rule) / TICKS_PER_SECOND) + " s disabled", false, now, false);
 				state.disabledReason = null;
 				state.rearmAt = Long.MAX_VALUE;
+				state.rearms++;
 				state.failuresInARow = 0;
 				state.recentFirings.clear();
 			}
@@ -713,11 +718,14 @@ public final class ReflexScheduler {
 		}
 		if (disabled != null) {
 			state.disabledReason = disabled;
-			if (finishes(state.rule)) {
-				state.rearmAt = now + FINISHING_REARM_TICKS;
-				disabled += "; tried again in " + (FINISHING_REARM_TICKS / TICKS_PER_SECOND) + " s";
+			long rest = rearmTicks(state.rule);
+			if (rest > 0L) {
+				state.rearmAt = now + rest;
+				disabled += "; tried again in " + (rest / TICKS_PER_SECOND) + " s";
 			}
-			addEvent(state.rule.id(), Outcome.DISABLED, 0L, disabled, true, now, false);
+			// The first rest tells the model the strike could not reach the head; later ones in the same fight repeat it.
+			boolean told = rest > 0L && !finishes(state.rule) && state.rearms > 0;
+			addEvent(state.rule.id(), Outcome.DISABLED, 0L, disabled, !told, now, false);
 		}
 	}
 
@@ -725,6 +733,21 @@ public final class ReflexScheduler {
 	public static final Set<String> FINISHING_STANCE_ACTIONS = Set.of("eat");
 	/** A finishing stance the loop limits disabled is armed again after this long, so a blocked meal never means starving. */
 	public static final long FINISHING_REARM_TICKS = 60L * TICKS_PER_SECOND;
+	/**
+	 * A head strike the loop limits disabled is armed again after this long. Its failures are instant (no seen route to the
+	 * head: median 50 ms), so four of them spent a landing's tries in about 4 s, and the rule then stayed off for the rest of
+	 * the game: 10 of 20 End games lost it (3 from the start), and the bot stood 9-11 blocks from 40-50 s perches doing no
+	 * damage. A player who could not reach the head tries again once the dragon turns, and on the next landing.
+	 */
+	public static final long STRIKE_REARM_TICKS = 10L * TICKS_PER_SECOND;
+
+	/** How long a rule the loop limits disabled rests before it is armed again; 0 keeps it off. */
+	static long rearmTicks(ReflexSpec.Rule rule) {
+		if (finishes(rule)) return FINISHING_REARM_TICKS;
+		if (rule.kind() == ReflexSpec.Kind.STANCE && "strike_head".equals(rule.action().type())
+				&& dev.agaminggod.mineagen.server.Switches.get("end.strikeRearm")) return STRIKE_REARM_TICKS;
+		return 0L;
+	}
 
 	/** A stance whose action finishes, see {@link #FINISHING_STANCE_ACTIONS}. */
 	public static boolean finishes(ReflexSpec.Rule rule) {

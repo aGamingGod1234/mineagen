@@ -165,6 +165,7 @@ const READS = [
 	['fight.skipUnreachable', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/UnreachableTargets.java', 'Switches.get("fight.skipUnreachable")'],
 	['killPosition', 'src/main/java/dev/agaminggod/mineagen/server/perception/KillSighting.java', 'Switches.get("killPosition")'],
 	['watch', 'src/main/java/dev/agaminggod/mineagen/server/watch/Watcher.java', 'Switches.get("watch")'],
+	['end.strikeRearm', 'src/main/java/dev/agaminggod/mineagen/server/runtime/reflex/ReflexScheduler.java', 'Switches.get("end.strikeRearm")'],
 	['kit.habit', 'scripts/quality/test-iron-kit-live.mjs', "getSwitch('kit.habit')"],
 	['night.cover', 'scripts/quality/test-obtain-live.mjs', "getSwitch('night.cover')"],
 ];
@@ -203,6 +204,8 @@ test('every reader reads its switch through the registry, and no switch variable
 		'fight.skipUnreachable': { property: 'mineagen.fight.skipUnreachable', properties: [[undefined, true], ['false', false], ['FALSE', true]] },
 		'killPosition': { property: 'mineagen.killPosition', properties: [[undefined, true], ['false', false], [' FALSE ', false], ['no', true]] },
 		'watch': { property: 'mineagen.watch', properties: [[undefined, false], ['true', true], [' TRUE ', true], ['1', false]] },
+		'end.strikeRearm': { env: 'MINEAGEN_END_STRIKE_REARM', property: 'mineagen.end.strikeRearm', table: [[undefined, true], [' FALSE ', false], ['off', true]],
+			properties: [[undefined, true], ['false', false], ['FALSE', true]] },
 	};
 	for (const [name, { env, property, table = [], properties = [] }] of Object.entries(cases)) {
 		for (const [value, expected] of table) {
@@ -310,6 +313,10 @@ public class SwitchesParity {
 		Boolean shoreFromEnv = shoreEnv == null ? null : !"false".equalsIgnoreCase(shoreEnv.trim());
 		Boolean shoreFromProperty = shoreProperty == null ? null : !"false".equals(shoreProperty);
 		boolean shallowShore = Boolean.TRUE.equals(shoreFromEnv) || Boolean.TRUE.equals(shoreFromProperty) || shoreFromEnv == null && shoreFromProperty == null;
+		String rearmEnv = env.get("MINEAGEN_END_STRIKE_REARM"), rearmProperty = p.get("mineagen.end.strikeRearm");
+		Boolean rearmFromEnv = rearmEnv == null ? null : !"false".equalsIgnoreCase(rearmEnv.trim());
+		Boolean rearmFromProperty = rearmProperty == null ? null : !"false".equals(rearmProperty);
+		boolean strikeRearm = Boolean.TRUE.equals(rearmFromEnv) || Boolean.TRUE.equals(rearmFromProperty) || rearmFromEnv == null && rearmFromProperty == null;
 		boolean[] values = { instincts, walkAround, shallowShore,
 				!"false".equals(p.get("mineagen.fight.chargeGuard")),
 				!"false".equals(p.get("mineagen.fight.recover")),
@@ -321,9 +328,9 @@ public class SwitchesParity {
 				!"false".equals(p.get("mineagen.fight.fullIds")),
 				!"false".equals(p.get("mineagen.fight.skipUnreachable")),
 				!"false".equalsIgnoreCase(p.getOrDefault("mineagen.killPosition", "true").trim()),
-				"true".equalsIgnoreCase(p.getOrDefault("mineagen.watch", "false").trim()) };
+				"true".equalsIgnoreCase(p.getOrDefault("mineagen.watch", "false").trim()), strikeRearm };
 		String[] names = { "instincts", "travel.walkAround", "travel.shallowShore", "fight.chargeGuard", "fight.recover", "dig.floorLavaGuard", "reflex.plugInflow", "fight.spawnerHold", "fight.spawnerHoldOpen",
-				"fight.forestHunt", "fight.fullIds", "fight.skipUnreachable", "killPosition", "watch" };
+				"fight.forestHunt", "fight.fullIds", "fight.skipUnreachable", "killPosition", "watch", "end.strikeRearm" };
 		StringBuilder line = new StringBuilder("switches");
 		for (int i = 0; i < names.length; i++) line.append(' ').append(names[i]).append('=').append(values[i] ? "on" : "off");
 		return line.toString();

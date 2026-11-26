@@ -89,7 +89,9 @@ public final class Switches {
 		// KillSighting.java enabled(): per call.
 		new Switch("killPosition", null, "mineagen.killPosition", "server", true, NOT_FALSE_WORD, null, "default-on"),
 		// Watcher.java enabled(): per call.
-		new Switch("watch", null, "mineagen.watch", "server", false, TRUE_WORD, null, "diagnostic")
+		new Switch("watch", null, "mineagen.watch", "server", false, TRUE_WORD, null, "diagnostic"),
+		// ReflexScheduler.java rearmTicks(): per disable; property or env.
+		new Switch("end.strikeRearm", "MINEAGEN_END_STRIKE_REARM", "mineagen.end.strikeRearm", "server", true, NOT_FALSE_WORD, JAVA_NOT_FALSE_EXACT, "default-on")
 	);
 
 	private static final Map<String, Switch> BY_NAME = byName();
