@@ -164,6 +164,7 @@ const READS = [
 	['watch', 'src/main/java/dev/agaminggod/mineagen/server/watch/Watcher.java', 'Switches.get("watch")'],
 	['fight.holdBailRetreat', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/CombatBailout.java', 'Switches.get("fight.holdBailRetreat")'],
 	['rest.softGround', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerRestController.java', 'Switches.get("rest.softGround")'],
+	['creeper.guard', 'src/main/java/dev/agaminggod/mineagen/server/runtime/reflex/ReflexActions.java', 'Switches.get("creeper.guard")'],
 	['reflex.holdRun', 'src/main/java/dev/agaminggod/mineagen/server/runtime/reflex/ReflexEngine.java', 'Switches.get("reflex.holdRun")'],
 	['reflex.eatThrough', 'src/main/java/dev/agaminggod/mineagen/server/runtime/reflex/ReflexScheduler.java', 'Switches.get("reflex.eatThrough")'],
 	['kit.rekit', 'coordinator/src/kit-habit.mjs', "getSwitch('kit.rekit', environment)"],
@@ -316,11 +317,12 @@ public class SwitchesParity {
 				!"false".equalsIgnoreCase(p.getOrDefault("mineagen.killPosition", "true").trim()),
 				!"off".equalsIgnoreCase(String.valueOf(env.get("MINEAGEN_HOLD_BAIL_RETREAT")).trim()),
 				!"off".equalsIgnoreCase(String.valueOf(env.get("MINEAGEN_REST_SOFT_GROUND")).trim()),
+				!"off".equalsIgnoreCase(String.valueOf(env.get("MINEAGEN_CREEPER_GUARD")).trim()),
 				!"off".equalsIgnoreCase(String.valueOf(env.get("MINEAGEN_REFLEX_HOLD_RUN")).trim()),
 				!"off".equalsIgnoreCase(String.valueOf(env.get("MINEAGEN_EAT_THROUGH")).trim()),
 				"true".equalsIgnoreCase(p.getOrDefault("mineagen.watch", "false").trim()) };
 		String[] names = { "instincts", "travel.walkAround", "fight.chargeGuard", "fight.recover", "fight.spawnerHold", "fight.spawnerHoldOpen",
-				"fight.forestHunt", "fight.fullIds", "fight.skipUnreachable", "killPosition", "fight.holdBailRetreat", "rest.softGround", "reflex.holdRun", "reflex.eatThrough", "watch" };
+				"fight.forestHunt", "fight.fullIds", "fight.skipUnreachable", "killPosition", "fight.holdBailRetreat", "rest.softGround", "creeper.guard", "reflex.holdRun", "reflex.eatThrough", "watch" };
 		StringBuilder line = new StringBuilder("switches");
 		for (int i = 0; i < names.length; i++) line.append(' ').append(names[i]).append('=').append(values[i] ? "on" : "off");
 		return line.toString();

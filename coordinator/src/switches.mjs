@@ -216,6 +216,10 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'rest.softGround', env: 'MINEAGEN_REST_SOFT_GROUND', side: 'server', default: true, parser: OFF_WORD, status: 'default-on',
 		reason: 'rest digs its hole through mud, sand and gravel and roofs with mud; in 8 fresh games on main 069e471 a swamp respawn failed rest 3 times on mud and sand at night, then died. off is the A/B off arm.',
 		readers: ['ServerRestController.java softGround (class load)'] }),
+	// ReflexActions.java SprintAway.creeperGuard: static, class load (tests reassign it).
+	entry({ name: 'creeper.guard', env: 'MINEAGEN_CREEPER_GUARD', side: 'server', default: true, parser: OFF_WORD, status: 'default-on',
+		reason: 'Cornered by a lit creeper with no safe heading, the creeper run raises a shield toward it, or hits it back with none, instead of failing; fresh game g6 died to one blast in a dead-end tunnel with a shield carried. off is the A/B off arm.',
+		readers: ['ReflexActions.java creeperGuard (class load)'] }),
 	// ReflexEngine.java holdRun: static, class load (tests reassign it).
 	entry({ name: 'reflex.holdRun', env: 'MINEAGEN_REFLEX_HOLD_RUN', side: 'server', default: true, parser: OFF_WORD, status: 'default-on',
 		reason: 'Retreat, cover and defend finish their run (10 s at most) before any model command takes the body, as lava, air and creeper do. In 21 of 42 deaths of 8 fresh games on main 069e471 the next command ended one mid-run; off is the A/B off arm.',
