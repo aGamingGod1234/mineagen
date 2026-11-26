@@ -70,6 +70,8 @@ public final class Switches {
 		new Switch("fight.chargeGuard", null, "mineagen.fight.chargeGuard", "server", true, JAVA_NOT_FALSE_EXACT, null, "default-on"),
 		// ServerFightUntilController.java RECOVER: class load.
 		new Switch("fight.recover", null, "mineagen.fight.recover", "server", true, JAVA_NOT_FALSE_EXACT, null, "default-on"),
+		// ServerActionExecutor.java FLOOR_LAVA_GUARD: class load (tests reassign it).
+		new Switch("dig.floorLavaGuard", null, "mineagen.dig.floorLavaGuard", "server", true, JAVA_NOT_FALSE_EXACT, null, "default-on"),
 		// SpawnerHold.java ENABLED: class load.
 		new Switch("fight.spawnerHold", null, "mineagen.fight.spawnerHold", "server", true, JAVA_NOT_FALSE_EXACT, null, "default-on"),
 		// SpawnerHold.java OPEN_FIGHT: class load.

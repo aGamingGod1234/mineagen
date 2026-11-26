@@ -2358,6 +2358,17 @@
    "reads": "exit code; OUT/results.json standon-armed.pass"
   },
   {
+   "room": "lavawork-standon-seen",
+   "fixture": "test-lavawork-live.mjs",
+   "stage": "portal-lava",
+   "skill": "survival",
+   "skill2": null,
+   "line": "REFLEX_ONLY=standon-seen ARENA_JAR=$JAR node scripts/quality/test-lavawork-live.mjs $OUT",
+   "estMinutes": 1.5,
+   "tickRate": 20,
+   "reads": "exit code; OUT/results.json standon-seen.pass"
+  },
+  {
    "room": "lavawork-cast-safe",
    "fixture": "test-lavawork-live.mjs",
    "stage": "portal-lava",
