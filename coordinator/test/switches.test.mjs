@@ -154,6 +154,7 @@ const READS = [
 	['instincts', 'src/main/java/dev/agaminggod/mineagen/server/runtime/reflex/Instincts.java', 'Switches.get("instincts")'],
 	['travel.walkAround', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerTravelController.java', 'Switches.get("travel.walkAround")'],
 	['travel.shallowShore', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerTravelController.java', 'Switches.get("travel.shallowShore")'],
+	['travel.skipBuried', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerRetraceController.java', 'Switches.get("travel.skipBuried")'],
 	['fight.chargeGuard', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerFightUntilController.java', 'static final boolean CHARGE_GUARD = dev.agaminggod.mineagen.server.Switches.get("fight.chargeGuard");'],
 	['fight.recover', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerFightUntilController.java', 'static final boolean RECOVER = dev.agaminggod.mineagen.server.Switches.get("fight.recover");'],
 	['fight.spawnerHold', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/SpawnerHold.java', 'public static final boolean ENABLED = dev.agaminggod.mineagen.server.Switches.get("fight.spawnerHold");'],
@@ -188,6 +189,7 @@ test('every reader reads its switch through the registry, and no switch variable
 			properties: [[undefined, false], ['TRUE', true], [' true', false], ['on', false]] },
 		'travel.shallowShore': { env: 'MINEAGEN_TRAVEL_SHALLOW_SHORE', property: 'mineagen.travel.shallowShore', table: [[undefined, true], [' FALSE ', false], ['off', true]],
 			properties: [[undefined, true], ['false', false], ['FALSE', true]] },
+		'travel.skipBuried': { property: 'mineagen.travel.skipBuried', properties: [[undefined, true], ['false', false], ['FALSE', true], ['no', true]] },
 		'instincts': { env: 'MINEAGEN_INSTINCTS', property: 'mineagen.instincts', table: [[undefined, true], ['instincts', true], ['x, instincts', true], ['Instincts', false], ['off', false], ['', false]],
 			properties: [[undefined, true], ['True', true], ['false', false], ['1', false]] },
 		'fight.chargeGuard': { property: 'mineagen.fight.chargeGuard', properties: [[undefined, true], ['false', false], ['FALSE', true], ['no', true]] },
@@ -306,7 +308,7 @@ public class SwitchesParity {
 		Boolean shoreFromEnv = shoreEnv == null ? null : !"false".equalsIgnoreCase(shoreEnv.trim());
 		Boolean shoreFromProperty = shoreProperty == null ? null : !"false".equals(shoreProperty);
 		boolean shallowShore = Boolean.TRUE.equals(shoreFromEnv) || Boolean.TRUE.equals(shoreFromProperty) || shoreFromEnv == null && shoreFromProperty == null;
-		boolean[] values = { instincts, walkAround, shallowShore,
+		boolean[] values = { instincts, walkAround, shallowShore, !"false".equals(p.get("mineagen.travel.skipBuried")),
 				!"false".equals(p.get("mineagen.fight.chargeGuard")),
 				!"false".equals(p.get("mineagen.fight.recover")),
 				!"false".equals(p.get("mineagen.fight.spawnerHold")),
@@ -316,7 +318,7 @@ public class SwitchesParity {
 				!"false".equals(p.get("mineagen.fight.skipUnreachable")),
 				!"false".equalsIgnoreCase(p.getOrDefault("mineagen.killPosition", "true").trim()),
 				"true".equalsIgnoreCase(p.getOrDefault("mineagen.watch", "false").trim()) };
-		String[] names = { "instincts", "travel.walkAround", "travel.shallowShore", "fight.chargeGuard", "fight.recover", "fight.spawnerHold", "fight.spawnerHoldOpen",
+		String[] names = { "instincts", "travel.walkAround", "travel.shallowShore", "travel.skipBuried", "fight.chargeGuard", "fight.recover", "fight.spawnerHold", "fight.spawnerHoldOpen",
 				"fight.forestHunt", "fight.fullIds", "fight.skipUnreachable", "killPosition", "watch" };
 		StringBuilder line = new StringBuilder("switches");
 		for (int i = 0; i < names.length; i++) line.append(' ').append(names[i]).append('=').append(values[i] ? "on" : "off");

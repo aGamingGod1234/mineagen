@@ -29,6 +29,10 @@ public final class SwimOutVerification {
 		check(!ServerNavigationController.wadeWithoutJump(walk, true, false, 0.0D, false), "deep water under the feet: keep floating");
 		check(!ServerNavigationController.wadeWithoutJump(dev.agaminggod.mineagen.client.navigation.TraversalType.SWIM, true, true, 0.0D, false),
 				"a planned swim: keep floating");
+		check(ServerRetraceController.buriedCells(true, false), "a footstep filled with a block is passed");
+		check(ServerRetraceController.buriedCells(false, true), "a footstep with a block at head height is passed");
+		check(!ServerRetraceController.buriedCells(false, false), "an open footstep is walked to");
+		check(!ServerRetraceController.buriedCells(null, null), "an unseen footstep is walked to and looked at");
 		check(ServerTravelController.underWater(300, false, 3.0D, false, 8.0D, false) == ServerTravelController.SwimStep.AIR,
 				"a known route to air comes before a low bank under a roof");
 		check(ServerTravelController.underWater(300, false, 0.0D, false, 2.0D, false) == ServerTravelController.SwimStep.AIR,

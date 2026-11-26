@@ -34,6 +34,7 @@ public final class ServerRetraceController implements ServerController {
  private WalkedRoute.Path beforeShortcut;
  private int beforeIndex;
  private int shortcutLook;
+ private int buriedChecks;
  public ServerRetraceController resumeWith(String arguments) { resumeArguments=arguments; return this; }
 
  public ServerRetraceController(String dimension,double x,double y,double z,double tolerance,long timeoutMs,boolean build,String stop,Float health,BiPredicate<ServerPlayer,BlockPos> modify,java.util.function.IntFunction<ServerController> shaft,long startedAt) {
@@ -72,6 +73,10 @@ public final class ServerRetraceController implements ServerController {
    double arrival=verticalNext && !p.onClimbable()?0.3:1.15;
    double d=Math.sqrt(Math.pow(p.getX()-(next.x()+0.5),2)+Math.pow(p.getY()-next.y(),2)+Math.pow(p.getZ()-(next.z()+0.5),2));
    if(shortcut==null && (leg==null || legEnd==index) && d<=arrival && Math.abs(p.getY()-next.y())<=0.6) { if(leg!=null) leg.cancel(p);leg=null;lookedOut=false;index++;continue; }
+   if(leg==null && shortcut==null && !lookedOut && skipBuriedEnabled() && buried(p,next)) {
+    if(ServerTravelController.DEBUG) LOGGER.info("RETRACE_BURIED {}/{} {} is filled in; heading for the next footstep",index,path.points().size(),next);
+    index++;continue;
+   }
    if(leg==null && !lookedOut) {
     TickResult looking=startShortcut(p,nowEpochMs);
     if(looking!=null) return looking;
@@ -102,8 +107,18 @@ public final class ServerRetraceController implements ServerController {
     leg=navigate ? new ServerNavigationController(new net.minecraft.world.phys.Vec3(target.x()+0.5,target.y(),target.z()+0.5),verticalNext?0.2:0.3,false,nowEpochMs,timeoutMs-(nowEpochMs-startedAt)) : down && build ? shaft.apply(target.y()) : new ServerTravelController(target.x()+0.5,target.y(),target.z()+0.5,1,timeoutMs-(nowEpochMs-startedAt),build,stop,health,modify,nowEpochMs).routeLeg();
    }
    TickResult result=leg.tick(p,nowEpochMs);
-   if(result.state()==State.RUNNING) return TickResult.running(progress());
+   // From the old floor the inside of a fill is unseen; walking up onto it shows the footstep is gone.
+   boolean passBuried=shortcut==null && legEnd==index && skipBuriedEnabled();
+   if(result.state()==State.RUNNING) {
+    if(!passBuried || ++buriedChecks%10!=0 || !buried(p,next)) return TickResult.running(progress());
+    result=null;
+   }
    leg.cancel(p);leg=null;
+   if(passBuried && (result==null || result.state()!=State.SUCCEEDED && !result.reasonCode().equals("TRAVEL_TIMEOUT")) && buried(p,next)) {
+    if(ServerTravelController.DEBUG) LOGGER.info("RETRACE_BURIED {}/{} {} is filled in; leg {}",index,path.points().size(),next,result==null?"cut short":"stopped "+result.reasonCode());
+    lookedOut=false;index++;continue;
+   }
+   if(result==null) return TickResult.running(progress());
    if(shortcut!=null) {
     WalkedRoute.Point took=shortcut;shortcut=null;
     if(result.reasonCode().equals("TRAVEL_TIMEOUT")) return TickResult.timedOut("TRAVEL_TIMEOUT",timeoutMessage(p, result.message()),progress());
@@ -134,6 +149,24 @@ public final class ServerRetraceController implements ServerController {
   }
   return TickResult.succeeded("ARRIVED","Retraced "+Math.round(path.length())+" blocks along "+path.points().size()+" remembered waypoints; target "+x+","+y+","+z);
  }
+ /**
+  * A remembered footstep whose feet or head cell is now seen as a full solid block: the bot's own stair steps placed over
+  * an old tunnel, a filled hole, fallen gravel. Nobody can stand there any more, and a leg aimed at it ended on the block
+  * above and stalled for 60 s, so retrace goes on to the next footstep as a player walks the way the ground now runs.
+  */
+ private static boolean buried(ServerPlayer p,WalkedRoute.Point at) {
+  if(!at.dimension().equals(RouteMemory.point(p).dimension()) || RouteMemory.of(p).climbable(at)) return false;
+  MinecraftNavigationWorld seen=new MinecraftNavigationWorld(p.level(),p);
+  return buriedCells(fullBlock(seen,p,new BlockPos(at.x(),at.y(),at.z())),fullBlock(seen,p,new BlockPos(at.x(),at.y()+1,at.z())));
+ }
+ static boolean buriedCells(Boolean feetFull,Boolean headFull) {return Boolean.TRUE.equals(feetFull) || Boolean.TRUE.equals(headFull);}
+ /** True for a seen full block, false for a seen cell that is not one, null for an unseen cell. */
+ private static Boolean fullBlock(MinecraftNavigationWorld seen,ServerPlayer p,BlockPos cell) {
+  net.minecraft.world.level.block.state.BlockState state=seen.stateAt(cell);
+  if(state==null) return null;
+  return state.getFluidState().isEmpty() && net.minecraft.world.level.block.Block.isShapeFullBlock(state.getCollisionShape(p.level(),cell));
+ }
+ static boolean skipBuriedEnabled() {return dev.agaminggod.mineagen.server.Switches.get("travel.skipBuried");}
  /** Shortcut leg stops that only mean this column does not work: the walked route is still there to follow. */
  static final java.util.Set<String> SHORTCUT_GIVE_UP=java.util.Set.of("NO_ROUTE","BUILD_FAILED","OUT_OF_BLOCKS","TUNNEL_FLOODED","TUNNEL_LAVA_PLUGGED","ORE_TOOL_REQUIRED","NO_TOOL","TOOL_WORN","PATH_BLOCKED","STALLED_IN_PLACE","SURFACE_NOT_FOUND");
 
