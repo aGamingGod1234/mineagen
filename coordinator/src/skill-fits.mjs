@@ -2,6 +2,7 @@ import { EYE_PLAN } from './eye-plan.mjs';
 import { endKit } from './end-readiness.mjs';
 import { foodAdviceNeeded, portalBedSource } from './survival-advice.mjs';
 import { heldCounts, keepPickaxeMakings, planObtain } from './obtain-plan.mjs';
+import { getSwitch } from './switches.mjs';
 
 // One wake fact: a goal skill (fight_until, barter_until, build nether_portal by casting, cast_obsidian) whose preconditions hold right now, with the
 // call's fields and the facts that make it fit. It names a call the model may make; nothing runs from it.
@@ -104,6 +105,20 @@ function tier(id) { return ['wooden', 'golden', 'stone', 'copper', 'iron', 'diam
 // may take or ignore, and starts nothing.
 export const ROUTE_BYTES = 220;
 export const PORTAL_ENTRY_NEXT = 'enter the Nether through the lit portal now';
+// The food floor (stock.foodFloor): a minimum, never a cap. FOOD_FLOOR_PORTAL covers the trip from the last surface
+// stock to the dragon; FOOD_FLOOR_DESCENT adds one mining trip. From the 8 fresh games of 25 Nov (1 Hz samples): damage
+// 28 HP/h on the surface, 21 underground, 61-72 in the Nether; healing 1 HP costs 1.5 hunger+saturation points (6
+// exhaustion), plus ~6 points/h for moving, mining and fighting. Nether 90 min + stronghold walk 45 min + End 20 min
+// at the Nether rate is ~205 points, x1.25 = 256 (17 cooked beef). A mining trip (~100 min at 21 HP/h) adds ~64.
+export const FOOD_FLOOR_PORTAL = 256;
+export const FOOD_FLOOR_DESCENT = 320;
+// Logs (planks count a quarter) carried down and into the Nether: table, sticks, two shields and one rebuild after a death,
+// plus 3 logs of plank fuel to cook the stock when fewer than 3 coal are held.
+export const WOOD_FLOOR = 12;
+const woodFloor = f => WOOD_FLOOR + (f.count(/^minecraft:(coal|charcoal)$/) >= 3 ? 0 : 3);
+export const foodFloorOn = (environment = process.env) => getSwitch('stock.foodFloor', environment).value;
+// The PORTAL_LIT hint cannot see the inventory or the depth, and a portal cast underground has no animal near it: its
+// food clause stays the plain one. The descent's larger floor is what carries the food to an underground portal.
 const ENTRY_FOOD = 'food stocks are optional unless health or hunger is low';
 // Also the PORTAL_LIT result's hint, which cannot see the inventory, so it names the bed step's condition.
 export const PORTAL_ENTRY_PREP = `place and use a bed by the portal first if a bed, 3 matching wool or sheep are in reach; ${ENTRY_FOOD}`;
@@ -159,6 +174,25 @@ const MEAT_STOCK = 8;
 const MEATS = ['beef', 'porkchop', 'mutton', 'chicken', 'rabbit', 'cod', 'salmon'];
 const COOKED_MEAT = /^minecraft:cooked_(beef|porkchop|mutton|chicken|rabbit|cod|salmon)$/;
 const ANIMAL_MEAT = { cow: 'beef', pig: 'porkchop', sheep: 'mutton', chicken: 'chicken', rabbit: 'rabbit' };
+// What one item is worth to the floor: its saturation plus the hunger the bar can take when the eat reflex fires (it
+// eats below 18, so at most 3; health regrows only at 18+). So every food counts, cooked meat about 3 times raw.
+const FOOD_POINTS = Object.freeze({ cooked_beef: 15.8, cooked_porkchop: 15.8, golden_carrot: 17.4, rabbit_stew: 15, cooked_mutton: 12.6, cooked_salmon: 12.6,
+	cooked_chicken: 10.2, mushroom_stew: 10.2, beetroot_soup: 10.2, pumpkin_pie: 7.8, bread: 9, baked_potato: 9, cooked_cod: 9, cooked_rabbit: 9,
+	carrot: 6.6, apple: 5.4, beef: 4.8, porkchop: 4.8, rabbit: 4.8, mutton: 3.2, chicken: 3.2, melon_slice: 3.2, sweet_berries: 2.4, glow_berries: 2.4,
+	cod: 2.4, salmon: 2.4, cookie: 2.4, beetroot: 2.2, potato: 1.6, dried_kelp: 1.6 });
+const foodPoints = items => Math.round(items.reduce((sum, i) => sum + (FOOD_POINTS[String(i.itemId ?? '').replace(/^minecraft:/, '')] ?? 0) * i.count, 0));
+// Adult meat animals in view within 32 blocks, per meat: each drops at least one.
+function meatInView(o) {
+	if (remembered(o, 'entities')) return {};
+	const seen = {};
+	for (const row of o.entities ?? []) {
+		const meat = ANIMAL_MEAT[String(row?.type).replace(/^minecraft:/, '')];
+		if (!meat || row.alive === false || row.visible === false || row.perceivedBy === 'sound' || row.baby === true || row.appearance?.baby === true) continue;
+		if (!(Number.isFinite(row.distance) ? row.distance <= 32 : true)) continue;
+		seen[meat] = (seen[meat] ?? 0) + 1;
+	}
+	return seen;
+}
 
 /**
  * Whether a finished obtain or find says the food stock has no source here: an obtain of cooked meat that failed or ran
@@ -191,7 +225,38 @@ function nearbyMeat(o) {
 		.filter(row => row.distance <= 32).sort((a, b) => a.distance - b.distance)[0]?.meat ?? null;
 }
 
+// The floor's step: the cooked meat that brings the carried points to the floor, raised to every animal of that kind in
+// view (one meat each at least), so a herd at hand is taken in one go rather than met again on a later trip.
+function stockFloorNext(f, floor, where) {
+	const exact = meat => f.count(new RegExp('^minecraft:' + meat + '$'));
+	const raw = MEATS.find(meat => exact(meat) > 0);
+	const meat = raw ?? f.nearbyMeat;
+	const why = `food ${f.foodPoints}/${floor} points (minimum, not a cap)`;
+	if (meat === null || meat === undefined) return [`look for cows/pigs/sheep/chickens nearby, then obtain cooked meat with a furnace ${where}`, why];
+	const cooked = exact('cooked_' + meat);
+	// Held raw meat counts at its cooked value: it is cooked first, so the count asks for what is still short after that.
+	const rawHeld = raw ? exact(raw) : 0, each = FOOD_POINTS['cooked_' + meat];
+	const afterCooking = f.foodPoints + rawHeld * (each - (FOOD_POINTS[meat] ?? 0));
+	const total = cooked + Math.max(1, rawHeld + Math.max(0, Math.ceil((floor - afterCooking) / each)), f.meatInView[meat] ?? 0);
+	return [`obtain cooked_${meat} count ${total} using a furnace, taking every ${meat === 'porkchop' ? 'pig' : meat === 'beef' ? 'cow' : meat === 'mutton' ? 'sheep' : meat} in view, ${where}`,
+		`${why}; ${raw ? 'raw meat held' : `${f.meatInView[meat] ?? 1} in view`}`];
+}
+
+/**
+ * stock.portalGate's obtain for the floor's "look for" step (no meat animal in view): the cooked meat held most (cooked
+ * beef when none), counted up to the floor. In room ai-stock-portal-25 two on-arm bots walked in at 158 and 237 of 256
+ * under that step, which named no item for the gate to run. Returns { item, count }.
+ */
+export function portalSearchStock(o, floor = FOOD_FLOOR_PORTAL) {
+	const items = Array.isArray(o?.inventory?.items) ? o.inventory.items.filter(i => i?.count > 0) : [];
+	const held = meat => items.filter(i => i.itemId === `minecraft:cooked_${meat}`).reduce((n, i) => n + i.count, 0);
+	const meat = MEATS.filter(m => held(m) > 0).sort((a, b) => held(b) - held(a))[0] ?? 'beef';
+	const short = Math.max(0, floor - foodPoints(items));
+	return { item: `cooked_${meat}`, count: held(meat) + Math.max(1, Math.ceil(short / FOOD_POINTS[`cooked_${meat}`])) };
+}
+
 function stockFoodNext(f) {
+	if (f.floorOn) return f.rekit === true ? stockFloorNext(f, FOOD_FLOOR_PORTAL, 'before going back') : stockFloorNext(f, FOOD_FLOOR_DESCENT, 'before going down');
 	const exact = meat => f.count(new RegExp('^minecraft:' + meat + '$'));
 	const raw = MEATS.find(meat => exact(meat) > 0);
 	const meat = raw ?? f.nearbyMeat;
@@ -237,15 +302,17 @@ const ROUTE = [
 	// Surface preparation only: down a mine there is no animal to hunt, and the line would send the body back up.
 	// A hand-back releases it only until an animal comes into view again: released for the whole life, it let the body go
 	// down with nothing to eat (all 29 food climbs of the 19 Nov round had no food held).
-	{ id: 'food_stock', done: 'visited:minecraft:the_nether', next: stockFoodNext,
-		held: f => f.cookedMeat >= MEAT_STOCK || f.below || f.foodHandedBack && f.nearbyMeat === null || !f.foodNeeded && f.cookedMeat >= MEAT && f.rawMeat === 0 && f.nearbyMeat === null },
+	// stock.foodFloor: a points minimum over every food, released only underground (no climb back for it) or by a hand-back
+	// while no animal is in view; it is not ended by the Nether visit, and a re-kit after a death takes it again.
+	{ id: 'food_stock', done: 'visited:minecraft:the_nether', rekit: false, next: stockFoodNext,
+		held: f => f.floorOn ? f.foodPoints >= (f.rekit === true ? FOOD_FLOOR_PORTAL : FOOD_FLOOR_DESCENT) || f.below || f.foodHandedBack && f.nearbyMeat === null : f.cookedMeat >= MEAT_STOCK || f.below || f.foodHandedBack && f.nearbyMeat === null || !f.foodNeeded && f.cookedMeat >= MEAT && f.rawMeat === 0 && f.nearbyMeat === null },
 	{ id: 'stone', done: 'tool:pickaxe:stone+', next: () => ['obtain stone_pickaxe', 'wooden pickaxe, no stone tools'] },
 	{ id: 'furnace', done: 'has:minecraft:furnace*1 | has:minecraft:iron_ingot*3 | tool:pickaxe:iron+', next: f => ['obtain furnace', `stone tools, ${f.count(/^minecraft:cobblestone$/)} cobblestone`] },
 	// One trip down for the whole kit, as a player goes: the wood its crafts and smelting take is carried down first
 	// (the obtain helper climbs back to the surface for any log it lacks underground), then all of its iron in one
 	// obtain. Per item, each craft that ran out of planks underground was a climb, and each item's iron another descent.
-	{ id: 'trip_wood', done: 'frame:lit | visited:minecraft:the_nether', held: f => f.below || f.woodHandedBack || f.tripLogs === 0,
-		next: f => [`obtain log count ${f.logs + f.tripLogs} before going down`, `wood for the kit's crafts and smelting, so the trip needs no climb back; ${f.wood} logs/planks held`] },
+	{ id: 'trip_wood', done: 'frame:lit | visited:minecraft:the_nether', held: f => f.below || f.woodHandedBack || f.tripLogs === 0 && (!f.floorOn || f.woodLogs >= woodFloor(f)),
+		next: f => [`obtain log count ${f.logs + (f.floorOn ? Math.max(f.tripLogs, Math.ceil(woodFloor(f) - f.woodLogs)) : f.tripLogs)} before going down`, `wood for the kit's crafts and smelting, so the trip needs no climb back; ${f.wood} logs/planks held`] },
 	{ id: 'iron_trip', done: 'frame:lit | visited:minecraft:the_nether', held: f => f.kitIron <= f.ingots,
 		next: f => [`obtain iron_ingot count ${f.kitIron} in one trip, then craft the kit`, `kit iron ${f.kitIron}: ${f.kitParts}; ${f.iron} iron held`] },
 	{ id: 'iron_pickaxe', done: 'tool:pickaxe:iron+', next: f => ['obtain iron_pickaxe', f.iron ? `stone tools, ${f.iron}/3 iron held` : 'stone tools, no iron yet'] },
@@ -348,7 +415,7 @@ function foodSource(o) {
  * hand-back this life (woodStockHandback) released the trip's wood step; diedSincePortal: the body died after it last
  * stood in the Nether, or after the portal stage was first seen (a lit frame or a visit), so the kit comes back first.
  */
-export function routeLine({ observation: o = null, known = null, memory = null, foodHandedBack = false, woodHandedBack = false, kitHandedBack = new Set(), diedSincePortal = false, evaluate, instincts = false } = {}) {
+export function routeLine({ observation: o = null, known = null, memory = null, foodHandedBack = false, woodHandedBack = false, kitHandedBack = new Set(), diedSincePortal = false, evaluate, instincts = false, environment = process.env } = {}) {
 	if (!live(o) || !Array.isArray(o.inventory?.items) || remembered(o, 'inventory') || known === null || typeof evaluate !== 'function') return null;
 	const items = o.inventory.items.filter(i => i?.count > 0);
 	const count = re => items.filter(i => re.test(i.itemId ?? '')).reduce((n, i) => n + i.count, 0);
@@ -376,7 +443,9 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 	const planFacts = `rods ${rods}/${rodsPlanned}, pearls ${pearls}/${eyesPlanned}, eyes ${eyesHeld} held + ${filled} set; plan ${EYE_PLAN} eyes, ${EYES} fill the frame`;
 	const facts = { count, foodNeeded: foodAdviceNeeded(o), foodHandedBack: foodHandedBack === true, food: count(EDIBLE), cookedMeat: count(COOKED_MEAT), rawMeat: count(RAW_FOOD), nearbyMeat: nearbyMeat(o), blocks: count(MOULD), wood: count(/^minecraft:([a-z_]+_(log|planks|stem))$/), iron: count(/^minecraft:(iron_ingot|raw_iron)$/),
 		buckets: count(/^minecraft:(bucket|water_bucket|lava_bucket)$/), pools: (known.lavaPools ?? []).filter(p => p?.dimension === dimension).length,
-		below: belowGround(o), woodHandedBack: woodHandedBack === true, logs: count(/^minecraft:[a-z_]+_log$/), ingots: count(/^minecraft:iron_ingot$/) };
+		below: belowGround(o), woodHandedBack: woodHandedBack === true, logs: count(/^minecraft:[a-z_]+_log$/), ingots: count(/^minecraft:iron_ingot$/),
+		floorOn: foodFloorOn(environment), foodPoints: foodPoints(items), meatInView: meatInView(o),
+		woodLogs: count(/^minecraft:[a-z_]+_(log|stem)$/) + count(/^minecraft:[a-z_]+_planks$/) / 4 };
 	const worn = new Set(items.filter(i => ['head', 'chest', 'legs', 'feet'].includes(i.slot)).map(i => i.slot));
 	const carriedId = re => items.find(i => !['head', 'chest', 'legs', 'feet'].includes(i.slot) && re.test(i.itemId ?? ''))?.itemId?.replace(/^minecraft:/, '') ?? null;
 	Object.assign(facts, { worn, carriedId });
@@ -388,13 +457,35 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 	const kitFacts = Object.create(facts, { rekit: { value: true } });
 	const rekit = () => {
 		if (diedSincePortal !== true) return null;
-		const row = (instincts === true ? INSTINCT_ROUTE : ROUTE).filter(r => REKIT.has(r.id))
+		const row = (instincts === true ? INSTINCT_ROUTE : ROUTE).filter(r => REKIT.has(r.id) || facts.floorOn && r.id === 'food_stock')
 			.find(r => !(r.held?.(kitFacts) === true || r.rekit !== false && ok(r.rekit ?? r.done)));
 		if (row === undefined) return null;
 		const [next, why] = row.next(kitFacts);
 		// The food check the portal return makes: when hungry or hurt, food on the way (eaten where it is down a mine).
 		const restock = row.id !== 'food' && foodNote === '' && (facts.below ? food === 0 : food < 10) && foodAdviceNeeded(o) ? `; low hunger/health, food ${food} held: obtain cooked_beef on the way` : '';
 		return line(`${next}${restock}`, `${why}; re-kit after a death`);
+	};
+	// stock.foodFloor at the Overworld portal: food to the floor and the trip's wood, from the surface, before going
+	// through. Released as the descent's stock is: down a mine, or by a hand-back while nothing is in view to take.
+	const portalStock = () => {
+		if (!facts.floorOn) return null;
+		if (facts.below) return cookHeldRaw();
+		if (facts.foodPoints < FOOD_FLOOR_PORTAL && !(facts.foodHandedBack && facts.nearbyMeat === null)) return line(...stockFloorNext(facts, FOOD_FLOOR_PORTAL, 'before entering the portal'));
+		const wood = woodFloor(facts);
+		if (facts.woodLogs < wood && !facts.woodHandedBack) return line(`obtain log count ${facts.logs + Math.ceil(wood - facts.woodLogs)} before entering the portal`, `wood ${Math.floor(facts.woodLogs)}/${wood} logs (minimum) for tables, sticks and shields after a death`);
+		return null;
+	};
+	// Underground the stock lets go (no climb back for food), but raw meat already carried is cooked before the portal:
+	// a furnace held or 8 stone to make one, and fuel, cost a minute; a steak is worth 3 times a raw cut.
+	const cookHeldRaw = () => {
+		const meat = MEATS.find(m => count(new RegExp('^minecraft:' + m + '$')) > 0);
+		if (meat === undefined || !FOOD_POINTS['cooked_' + meat]) return null;
+		const furnace = count(/^minecraft:furnace$/) > 0 || count(/^minecraft:(cobblestone|cobbled_deepslate|blackstone)$/) >= 8;
+		const fuel = count(/^minecraft:(coal|charcoal|coal_block|[a-z_]+_(log|planks|stem|wood|hyphae))$/) > 0;
+		if (!furnace || !fuel) return null;
+		const raw = count(new RegExp('^minecraft:' + meat + '$')), cooked = count(new RegExp('^minecraft:cooked_' + meat + '$'));
+		return line(`obtain cooked_${meat} count ${cooked + raw} using a furnace before entering the portal`,
+			`${raw} raw ${meat} held: cook it here, no hunt (food ${facts.foodPoints} points)`);
 	};
 	// Instincts arm: food first in every dimension (C27), before more resource travel.
 	let foodNote = '';
@@ -465,6 +556,8 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 		if (again !== null) return again;
 		const portal = overworldPortal(o, memory);
 		if ((rodsMissing > 0 || pearlsMissing > 0) && portal) {
+			const stock = portalStock();
+			if (stock !== null) return stock;
 			const survival = foodAdviceNeeded(o) ? `low health/hunger, food ${food} held: recover first; ` : 'food stocking optional while healthy; ';
 			return line(`return via known Overworld portal at ${portal.x},${portal.y},${portal.z} to the Nether`, `${survival}active portal needs no iron pick or ignition; use held tools`);
 		}
@@ -488,8 +581,11 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 	if (ok('frame:lit')) {
 		const again = rekit();
 		if (again !== null) return again;
+		// The bed comes first: it is only offered from what is in reach now, and may be gone after a hunt.
 		const bed = portalBed(o, known, { lit: true, frame: litFrame(o, known) });
-		return bed.step ? line(...bed.step) : line(PORTAL_ENTRY_NEXT, `${bed.skip}; ${ENTRY_FOOD}`);
+		if (bed.step) return line(...bed.step);
+		const held = facts.floorOn && facts.foodPoints >= FOOD_FLOOR_PORTAL ? `food ${facts.foodPoints}/${FOOD_FLOOR_PORTAL} points held` : ENTRY_FOOD;
+		return portalStock() ?? line(PORTAL_ENTRY_NEXT, `${bed.skip}; ${held}`);
 	}
 	const stage = (instincts === true ? INSTINCT_ROUTE : ROUTE).find(row => !done(row));
 	if (stage !== undefined) {
