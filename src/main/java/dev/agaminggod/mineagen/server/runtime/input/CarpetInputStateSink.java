@@ -31,6 +31,7 @@ import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 
 public final class CarpetInputStateSink implements InputStateSink {
+	private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(CarpetInputStateSink.class);
 	private static final Map<EntityPlayerActionPack.Action, Boolean> ATTACK_PRESSES = new WeakHashMap<>();
 	/** Player UUID to agent: bodies whose entity melee arrives only as explicit operator clicks. */
 	private static final Map<UUID, AgentId> CLICK_ONLY_MELEE = new HashMap<>();
@@ -127,11 +128,41 @@ public final class CarpetInputStateSink implements InputStateSink {
 		// Operator takeover sends each melee click separately, so its held key never hits entities.
 		if (!press || meleeByClickOnly(player)
 				|| !player.isWithinEntityInteractionRange(entityHit.getEntity(), 0.0D)) return false;
+		InputOwner presser = pressOwner(player);
+		if (holdsEntityHit(true, presser)) {
+			boolean hold = ownHits();
+			LOGGER.info("{} a {} click on {}: only a fight's click hits a mob{}", hold ? "Held" : "Let through",
+					presser, BuiltInRegistries.ENTITY_TYPE.getKey(entityHit.getEntity().getType()), hold ? "" : " (fight.ownHits off)");
+			if (hold) return false;
+		}
 		player.attack(entityHit.getEntity());
 		ArmSwing.attack(player, InteractionHand.MAIN_HAND);
 		player.resetAttackStrengthTicker();
 		player.resetLastActionTime();
 		return true;
+	}
+
+	static boolean ownHits() {
+		return dev.agaminggod.mineagen.server.Switches.get("fight.ownHits");
+	}
+
+	/**
+	 * A walk, dig, build or block-break click presses attack for a block, yet the crosshair can rest on a calm
+	 * mob in the way; a real game had a walk's click hit an enderman 0.5 blocks off and the enderman kill the body.
+	 * Only fights, reflexes, the model's direct control and the operator choose to hit what they face.
+	 */
+	static boolean holdsEntityHit(boolean ownHits, InputOwner presser) {
+		return ownHits && (presser == InputOwner.NAVIGATION || presser == InputOwner.INTERACTION);
+	}
+
+	private static InputOwner pressOwner(ServerPlayer player) {
+		try {
+			return AgentInputRuntime.findAgentId(player)
+					.flatMap(agentId -> AgentInputRuntime.controller(player).currentWinner(agentId))
+					.map(InputLease::owner).orElse(null);
+		} catch (RuntimeException unavailable) {
+			return null;
+		}
 	}
 
 	/**

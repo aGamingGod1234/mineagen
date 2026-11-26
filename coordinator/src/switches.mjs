@@ -192,6 +192,10 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'fight.fullIds', property: 'mineagen.fight.fullIds', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
 		reason: 'fight_until keeps the mob and item ids it was given in full ("ender_pearl" -> "minecraft:ender_pearl"), so forest mode and drop pickup match bare ids from the model.',
 		readers: ['ServerFightUntilController.java fullIds (per call)'] }),
+	// CarpetInputStateSink.java ownHits(): per attack press.
+	entry({ name: 'fight.ownHits', property: 'mineagen.fight.ownHits', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
+		reason: 'A click the body makes for walking, digging, building or breaking a block no longer lands on a mob in the crosshair; in a real game a walk\'s click hit a calm enderman 0.5 blocks away, which killed the bot 3.9 s later.',
+		readers: ['CarpetInputStateSink.java ownHits (per attack press)'] }),
 	// UnreachableTargets.java fromProperty(): per fight call.
 	entry({ name: 'fight.skipUnreachable', property: 'mineagen.fight.skipUnreachable', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
 		reason: '21 Nov room benchmark: the unreachable-enderman room passed 0 of 10 off and 10 of 10 on (added off in #39).',

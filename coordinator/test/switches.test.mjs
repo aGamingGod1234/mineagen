@@ -159,6 +159,7 @@ const READS = [
 	['fight.spawnerHoldOpen', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/SpawnerHold.java', 'public static final boolean OPEN_FIGHT = dev.agaminggod.mineagen.server.Switches.get("fight.spawnerHoldOpen");'],
 	['fight.forestHunt', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/WarpedForestHunt.java', 'static boolean enabled = dev.agaminggod.mineagen.server.Switches.get("fight.forestHunt");'],
 	['fight.fullIds', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerFightUntilController.java', 'Switches.get("fight.fullIds")'],
+	['fight.ownHits', 'src/main/java/dev/agaminggod/mineagen/server/runtime/input/CarpetInputStateSink.java', 'Switches.get("fight.ownHits")'],
 	['fight.skipUnreachable', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/UnreachableTargets.java', 'Switches.get("fight.skipUnreachable")'],
 	['killPosition', 'src/main/java/dev/agaminggod/mineagen/server/perception/KillSighting.java', 'Switches.get("killPosition")'],
 	['watch', 'src/main/java/dev/agaminggod/mineagen/server/watch/Watcher.java', 'Switches.get("watch")'],
@@ -193,6 +194,7 @@ test('every reader reads its switch through the registry, and no switch variable
 		'fight.spawnerHoldOpen': { property: 'mineagen.fight.spawnerHoldOpen', properties: [[undefined, true], ['false', false], ['0', true]] },
 		'fight.forestHunt': { property: 'mineagen.fight.forestHunt', properties: [[undefined, false], ['true', true], ['TRUE', true], [' true', false]] },
 		'fight.fullIds': { property: 'mineagen.fight.fullIds', properties: [[undefined, true], ['false', false], ['FALSE', true]] },
+		'fight.ownHits': { property: 'mineagen.fight.ownHits', properties: [[undefined, true], ['false', false], ['FALSE', true]] },
 		'fight.skipUnreachable': { property: 'mineagen.fight.skipUnreachable', properties: [[undefined, true], ['false', false], ['FALSE', true]] },
 		'killPosition': { property: 'mineagen.killPosition', properties: [[undefined, true], ['false', false], [' FALSE ', false], ['no', true]] },
 		'watch': { property: 'mineagen.watch', properties: [[undefined, false], ['true', true], [' TRUE ', true], ['1', false]] },
@@ -306,11 +308,12 @@ public class SwitchesParity {
 				!"false".equals(p.get("mineagen.fight.spawnerHoldOpen")),
 				"true".equalsIgnoreCase(p.get("mineagen.fight.forestHunt")),
 				!"false".equals(p.get("mineagen.fight.fullIds")),
+				!"false".equals(p.get("mineagen.fight.ownHits")),
 				!"false".equals(p.get("mineagen.fight.skipUnreachable")),
 				!"false".equalsIgnoreCase(p.getOrDefault("mineagen.killPosition", "true").trim()),
 				"true".equalsIgnoreCase(p.getOrDefault("mineagen.watch", "false").trim()) };
 		String[] names = { "instincts", "travel.walkAround", "fight.chargeGuard", "fight.recover", "fight.spawnerHold", "fight.spawnerHoldOpen",
-				"fight.forestHunt", "fight.fullIds", "fight.skipUnreachable", "killPosition", "watch" };
+				"fight.forestHunt", "fight.fullIds", "fight.ownHits", "fight.skipUnreachable", "killPosition", "watch" };
 		StringBuilder line = new StringBuilder("switches");
 		for (int i = 0; i < names.length; i++) line.append(' ').append(names[i]).append('=').append(values[i] ? "on" : "off");
 		return line.toString();
