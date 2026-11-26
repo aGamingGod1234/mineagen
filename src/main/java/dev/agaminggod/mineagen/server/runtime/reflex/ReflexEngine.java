@@ -278,6 +278,32 @@ public final class ReflexEngine {
 		return decision;
 	}
 
+	/**
+	 * Whether the running firing is a safety run a model command must wait for (reflex.holdRun): a coordinator default
+	 * retreat, cover or defend outside the End. In 21 of 42 deaths of the 8 fresh games on main 069e471, the model's next
+	 * command ended one of these mid-run in the last minute. Floor rules keep their own deferral in the scheduler.
+	 */
+	static boolean runHolds(AgentReflexes agent, boolean inEnd) {
+		if (!holdRun || inEnd || agent.behaviour == null) return false;
+		ReflexScheduler.Firing firing = agent.scheduler.current();
+		if (firing == null) return false;
+		ReflexSpec.Rule rule = agent.scheduler.rule(firing.ruleId());
+		return rule != null && rule.coordinatorDefault() && !ReflexScheduler.floor(rule) && ShelterHold.holdsRun(agent.behaviour);
+	}
+
+	/**
+	 * Whether a put-off command yield is paid now: the firing is over, or no run hold keeps it and either the shelter hold
+	 * ended or the command that started is not a plain walk.
+	 */
+	static boolean owedPaid(boolean firing, boolean runKeeps, boolean holding, boolean nonWalkStarted) {
+		return !firing || !runKeeps && (!holding || nonWalkStarted);
+	}
+
+	/** reflex.holdRun: read at class load; tests reassign it. */
+	static boolean holdRun = dev.agaminggod.mineagen.server.Switches.get("reflex.holdRun");
+	/** The longest a run hold keeps a command waiting (10 s): one cover run is 8 s at most, a retreat 4 s. */
+	static final long RUN_HOLD_MAX_TICKS = 200L;
+
 	/** Coordinator defaults that exist only in the End (the coordinator arms them there; see reflexes.mjs DIMENSION_REFLEXES). */
 	static final Set<String> END_DEFAULTS = Set.of("default-breath", "default-end-throw", "default-gaze", "default-ender-water", "default-perch-strike",
 			"default-end-fall");
@@ -389,6 +415,12 @@ public final class ReflexEngine {
 		boolean holding;
 		/** A command's yield was put off by the shelter hold; it is owed once the hold ends or the command is not a walk. */
 		boolean yieldOwed;
+		/** A safety run (retreat, cover, defend) keeps the body against any model command until it ends (read on the bridge thread). */
+		volatile boolean runHolds;
+		/** The owed yield was put off by {@link #runHolds}: when it is paid, the rules that would take the body back wait. */
+		boolean owedByRun;
+		/** Game tick the run hold began owing its yield; the command takes the body after {@link #RUN_HOLD_MAX_TICKS} at most. */
+		long owedSince = -1L;
 		/** The action running when the put-off yield was asked: the one the command replaces, not the command itself. */
 		volatile String lastActiveId;
 		String owedBaselineId;
@@ -443,8 +475,10 @@ public final class ReflexEngine {
 		agent.revision = revision;
 		// A held shield composes with a command that only moves; that is decided once the command has started.
 		// Under fire with no shield (or low), a cover or defend firing keeps the body: the command waits (ShelterHold).
-		if (yield && agent.sheltering) {
+		if (yield && (agent.sheltering || agent.runHolds)) {
+			if (!agent.yieldOwed) agent.owedSince = -1L;
 			agent.yieldOwed = true;
+			agent.owedByRun |= agent.runHolds;
 			agent.owedBaselineId = agent.lastActiveId;
 		}
 		else if (yield && !clutching(agent)) end(agentId, agent, commandYield(agent.scheduler, agent.command, holdsMoving(agent), now));
@@ -598,9 +632,21 @@ public final class ReflexEngine {
 		agent.lastActiveId = active == null ? null : active.actionId();
 		// The replaced action still running (replace_action yields before its cancel) is not the command: wait for the new one.
 		boolean replacementStarted = active != null && !active.actionId().equals(agent.owedBaselineId);
-		if (agent.yieldOwed && (!agent.holding || agent.scheduler.current() == null || replacementStarted && !ShelterHold.heldWalk(activeType))) {
+		// A retreat, cover or defend run keeps any command waiting until it ends (reflex.holdRun), bounded by RUN_HOLD_MAX_TICKS.
+		boolean runKeeps = agent.yieldOwed && agent.owedByRun && runHolds(agent, player.level().dimension() == net.minecraft.world.level.Level.END);
+		if (runKeeps && agent.owedSince < 0L) agent.owedSince = gameTime;
+		if (runKeeps && gameTime - agent.owedSince >= RUN_HOLD_MAX_TICKS) runKeeps = false;
+		if (agent.yieldOwed && owedPaid(agent.scheduler.current() != null, runKeeps, agent.holding, replacementStarted && !ShelterHold.heldWalk(activeType))) {
+			boolean byRun = agent.owedByRun;
 			agent.yieldOwed = false;
+			agent.owedByRun = false;
+			agent.owedSince = -1L;
 			if (agent.scheduler.current() != null && !clutching(agent)) end(agentId, agent, commandYield(agent.scheduler, agent.command, holdsMoving(agent), now));
+			else if (byRun && agent.scheduler.current() == null) {
+				// The run ended on its own: the command takes the body now, as it would have by yielding mid-run.
+				agent.scheduler.yieldAfterRun();
+				if (agent.scheduler.anySuppressed()) agent.command.yielded(now);
+			}
 		}
 		boolean inEnd = player.level().dimension() == net.minecraft.world.level.Level.END;
 		// The End's own defaults stop the tick the body leaves the End, before the coordinator's next rule update.
@@ -730,6 +776,7 @@ public final class ReflexEngine {
 			agent.holding = agent.shelter.tick(true, true, gameTime);
 		}
 		agent.sheltering = agent.holding && !inEnd && agent.scheduler.current() != null && ShelterHold.shelters(agent.behaviour);
+		agent.runHolds = runHolds(agent, inEnd);
 		// Between firings a hidden body under the hold waits in its cover: the walk resumes once the danger ends.
 		// Never in the End (a cornered breath run hands the body back to the command on purpose), nor in fire or lava.
 		boolean waitsInCover = agent.holding && active != null && ShelterHold.heldWalk(activeType) && !ShelterHold.shooterSees(player)

@@ -99,3 +99,28 @@ export function nightMoveStop(observation, actionType, args = {}, { environment 
 	}
 	return null;
 }
+
+/** What a fresh body walks, digs or gathers with: the errands a night respawn rests before. */
+const ERRAND_KINDS = new Set(['obtain', 'find', 'gather', 'lookAround', 'repair_inventory']);
+const ERRAND_ACTIONS = new Set(['travel_to', 'navigate_to', 'dig_to', 'mine_vein', 'build', 'build_shelter', 'fight_until', 'barter_until', 'cast_obsidian']);
+
+function errandOf(tool) {
+	if (ERRAND_KINDS.has(tool?.kind)) return true;
+	const action = tool?.kind === 'sequence' ? tool.actions?.[0] : ['action', 'start_action'].includes(tool?.kind) ? tool : null;
+	if (!ERRAND_ACTIONS.has(action?.actionType)) return false;
+	// A way down is cover already.
+	return !(action.actionType === 'dig_to' && action.arguments?.pattern === 'stairs_down');
+}
+
+/**
+ * respawn.restFirst: a body that respawned at night with no armour on open ground rests (a dug, roofed hole) before its
+ * first errand, the way a player does. Fresh games on main (8 games, 42 deaths): 5 deaths came out of a night respawn
+ * that went straight back out (a sheep hunt, a pickaxe, a walk) beside the mobs that had just killed it, the model
+ * ignoring the respawn line's "rest first". Fights, flight, eating, shields and rest itself pass untouched.
+ */
+export function restsFirst(observation, tool, { environment = process.env } = {}) {
+	if (!getSwitch('respawn.restFirst', environment).value) return false;
+	if (nightFor(observation) !== 'night' || observation?.player?.skyOpen === false) return false;
+	if (observation.player.inWater === true || observation.player.underWater === true) return false;
+	return errandOf(tool);
+}

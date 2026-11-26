@@ -41,6 +41,10 @@ public final class CombatBailoutVerification {
 		phase = new CombatBailout(dead, "threshold");
 		phase.tick(null, 0L);
 		check(phase.tick(null, 50L).reasonCode().equals("AGENT_DEAD"), "death is never called escape");
+		check(CombatBailout.retreatsFromHold(true, true, false), "hold-ground bail-out backs away on open ground");
+		check(!CombatBailout.retreatsFromHold(true, true, true), "hold-ground bail-out stays put in the End");
+		check(!CombatBailout.retreatsFromHold(true, false, false), "hold-ground bail-out stays put in the air");
+		check(!CombatBailout.retreatsFromHold(false, true, false), "switch off keeps the old stand-still");
 		TickResult held = new CombatBailout(null, "hold-ground choice forbids movement; no retreat attempted").tick(null, 0L);
 		check(held.reasonCode().equals("LOW_HEALTH_BAILOUT") && held.message().contains("no retreat attempted"), "hold-ground reports no attempt honestly");
 		return assertions;

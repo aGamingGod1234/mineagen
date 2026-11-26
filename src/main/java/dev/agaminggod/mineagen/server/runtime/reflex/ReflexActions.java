@@ -288,6 +288,8 @@ final class ReflexActions {
 
 	static final class Shield implements Behaviour {
 		private final boolean counter;
+		/** Faces the focus only, whatever else shoots or swings: a fusing creeper's blast outweighs any arrow. */
+		private final boolean pinned;
 		private int lastDamage = -1;
 		private int blocked;
 		private int countered;
@@ -308,7 +310,12 @@ final class ReflexActions {
 		}
 
 		Shield(boolean counter) {
+			this(counter, false);
+		}
+
+		Shield(boolean counter, boolean pinned) {
 			this.counter = counter;
+			this.pinned = pinned;
 		}
 
 		@Override
@@ -331,7 +338,7 @@ final class ReflexActions {
 			String held = (blocked == 0 ? "shield raised" : "blocked " + blocked + " hit(s)") + (countered > 0 ? ", countered " + countered : "");
 			long now = player.level().getGameTime();
 			// A player holding a shield turns it to the shot about to land, not to whichever mob is nearest.
-			Entity shot = ReflexSensors.incomingShot(player, SHIELD_SHOT_SECONDS);
+			Entity shot = pinned ? null : ReflexSensors.incomingShot(player, SHIELD_SHOT_SECONDS);
 			// In flight it faces where the shot will touch the body (vanilla's block test); after, back along its line,
 			// toward the shooter, so the next draw stays in view.
 			Vec3 meet = shot == null ? null : ReflexSensors.strikeFacing(player, shot);
@@ -350,7 +357,8 @@ final class ReflexActions {
 				Step strike = counter(player, context.focus(), close, now, input);
 				if (strike != null) return strike;
 			}
-			Vec3 target = meet != null ? meet : volley ? shotFrom : guardPoint(player, context.focus(), close, now);
+			Vec3 target = pinned && context.focus() != null ? context.focus().getBoundingBox().getCenter()
+					: meet != null ? meet : volley ? shotFrom : guardPoint(player, context.focus(), close, now);
 			AgentInputState aim = look(player, target, 0.0F, 0.0F, false, true, player.getInventory().getSelectedSlot(), hand);
 			if (below == null) {
 				if (dev.agaminggod.mineagen.server.runtime.controller.BrinkGuard.needsFooting(player)) {
@@ -2772,6 +2780,7 @@ final class ReflexActions {
 				creeper = target;
 			}
 			if (ending != null) return settle(player, input);
+			if (guardNote != null) return guard(context, input);
 			double moved = Math.hypot(player.getX() - start.x, player.getZ() - start.z);
 			if (rise != null) return rise.tick(player, input);
 			// Already standing over the breath (on blocks it placed, or a column top): any step off sinks back into it.
@@ -2946,6 +2955,10 @@ final class ReflexActions {
 					dropNote = String.format(Locale.ROOT, "; dropped %d blocks %s (about %d damage), no level heading away", least.drop(),
 							SafeStep.compass(least.yaw()), least.fallDamage());
 				} else {
+					if (creeper != null && creeperGuard) {
+						guardNote = "no safe heading away: " + describe(blocked, player);
+						return guard(context, input);
+					}
 					return Step.failed("no safe heading away: " + describe(blocked, player));
 				}
 				heading = dropHeading;
@@ -3038,6 +3051,44 @@ final class ReflexActions {
 		}
 
 		/** Ends the run with {@code result}, after a step back off the brink of a seen void or damaging drop when it stands on one. */
+		/**
+		 * creeper.guard: cornered by a lit creeper with no safe heading, a player turns a shield to it (a blocked blast does
+		 * no harm) or, with none, hits it back out of its blast range. Fresh game g6 64 min: "no safe heading: wall N, NE,
+		 * NW, E, W" in a dead-end tunnel, 20 to 0 in one blast with a shield carried and never raised.
+		 */
+		static boolean creeperGuard = dev.agaminggod.mineagen.server.Switches.get("creeper.guard");
+		private String guardNote;
+		private Shield guardShield;
+
+		private Step guard(Context context, Consumer<AgentInputState> input) {
+			ServerPlayer player = context.player();
+			if (creeper == null || !creeper.isAlive()) return Step.done("cornered, guarded; creeper is gone (" + guardNote + ")");
+			if (!ReflexSensors.fusing(creeper)) return Step.done("cornered, guarded until the creeper's fuse went out (" + guardNote + ")");
+			boolean inHand = player.getOffhandItem().is(Items.SHIELD) || player.getMainHandItem().is(Items.SHIELD);
+			int shieldSlot = inHand ? -1 : hotbarShield(player);
+			Vec3 at = creeper.getBoundingBox().getCenter();
+			if (inHand) {
+				if (guardShield == null) guardShield = new Shield(false, true);
+				// Toward the creeper itself, standing: never deferred to a paused fight's own shield, never walking under it.
+				Context toward = new Context(player, creeper, context.stance(), context.memory(), at, null, false);
+				Step held = guardShield.tick(toward, input);
+				return held.status() == ReflexScheduler.ActionStatus.RUNNING ? Step.running("cornered by a lit creeper, " + held.detail()) : held;
+			}
+			if (shieldSlot >= 0) {
+				input.accept(look(player, at, 0.0F, 0.0F, false, false, shieldSlot, null));
+				return Step.running("cornered by a lit creeper, taking up the shield");
+			}
+			AgentInputState aim = look(player, at, 0.0F, 0.0F, false, false, player.getInventory().getSelectedSlot(), null);
+			boolean swing = player.getAttackStrengthScale(0.5F) >= 0.9F && player.distanceTo(creeper) <= 3.0F;
+			input.accept(new AgentInputState(0.0F, 0.0F, false, false, false, swing, false, aim.yaw(), aim.pitch(), aim.selectedSlot(), null));
+			return Step.running("cornered by a lit creeper with no shield, hitting it back" + (swing ? "" : " (recharging)"));
+		}
+
+		private static int hotbarShield(ServerPlayer player) {
+			for (int slot = 0; slot < 9; slot++) if (player.getInventory().getItem(slot).is(Items.SHIELD)) return slot;
+			return -1;
+		}
+
 		private Step end(ServerPlayer player, Consumer<AgentInputState> input, Step result) {
 			settleTo = SafeStep.brinkRetreat(player,
 					cell -> dev.agaminggod.mineagen.server.perception.CloudDanger.harmAt(player, new Vec3(cell.x() + 0.5D, cell.y(), cell.z() + 0.5D)));

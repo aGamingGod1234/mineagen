@@ -152,6 +152,13 @@ public final class ServerFightController implements ServerController {
 	private final boolean includePlayers;
 	private CombatBailout bailout;
 	private final boolean pursue;
+	/** The model's own fight_target (openFightTarget), whose pursue:false bail-out may back away (CombatBailout.holdRetreat). */
+	private boolean modelFight;
+
+	public ServerFightController modelFight() {
+		modelFight = true;
+		return this;
+	}
 	private final boolean sneak;
 	private final boolean shield;
 	/**
@@ -441,7 +448,7 @@ public final class ServerFightController implements ServerController {
 		if (CombatPlanning.shouldBailOut(player.getHealth(), flee)) {
 			BrinkGuard.keepLevel(player, this, false);
 			input.release();
-			bailout = CombatBailout.start(player, target, flee, pursue, timeoutMs - elapsed, nowEpochMs);
+			bailout = CombatBailout.start(player, target, flee, pursue, modelFight, timeoutMs - elapsed, nowEpochMs);
 			TickResult result = bailout.tick(player, nowEpochMs);
 			return result.state() == State.RUNNING ? result : finish(player, bailoutReport(player, result));
 		}
