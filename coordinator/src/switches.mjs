@@ -142,6 +142,10 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'night.cover', env: 'MINEAGEN_NIGHT_COVER', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
 		reason: 'Keeps an unarmoured bot under cover on its first night; off restores the old climb-out for room A/Bs (#117).',
 		readers: ['coordinator/src/night-cover.mjs nightMoveStop (per call)'] }),
+	// coordinator/src/night-cover.mjs restsFirst(..., { environment }): per call.
+	entry({ name: 'respawn.restFirst', env: 'MINEAGEN_RESPAWN_REST', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
+		reason: 'A night respawn with no armour on open ground rests before its first errand; in 8 fresh games on main 069e471, 5 of 42 deaths came from going straight back out after a night respawn. off is the A/B off arm.',
+		readers: ['coordinator/src/night-cover.mjs restsFirst (per call)'] }),
 	// coordinator/src/native-minecraft-tools.mjs programToolsOffered(environment): per call.
 	entry({ name: 'tools.program', env: 'MINEAGEN_PROGRAM_TOOLS', side: 'coordinator', default: false, parser: ON_WORD, status: 'default-off',
 		reason: 'Rounds 4-6 called runProgram 21 times in 7,653 calls and the 22 Nov checkpoint round made 27 program-tool calls in 25,038, so the six program tools leave the tool list unless on (#145).',

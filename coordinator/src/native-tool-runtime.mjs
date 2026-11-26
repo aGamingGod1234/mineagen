@@ -19,6 +19,7 @@ import { lootLedger, rememberStructures, runObtain } from './obtain-runner.mjs';
 const MENU_PAGE = 9;
 import { resolveObtainItem } from './obtain-plan.mjs';
 import { KIT_CRAFT_TIMEOUT_MS, keepKit } from './kit-habit.mjs';
+import { nightFor, restsFirst } from './night-cover.mjs';
 import { runInventoryRepair } from './inventory-repair.mjs';
 import { PORTAL_ENTRY_NEXT, PORTAL_ENTRY_PREP } from './skill-fits.mjs';
 import { NativeProgramExecutor } from './native-program-executor.mjs';
@@ -68,6 +69,8 @@ const EXPIRED = Symbol('expired');
 // escape is the emergency step: like fight and flee it may borrow the body from a program paused for a danger decision.
 const PAUSED_PROGRAM_DANGER_ACTIONS = new Set(['fight_target', 'flee_from', 'escape']);
 const GUARD_DEFENSIVE_ACTIONS = new Set(['fight_target', 'flee_from', 'block_with_shield', 'use_item', 'respawn']);
+/** A night's wait in a hole: about 575 s from dusk to dawn at 20 ticks a second. */
+const REST_FIRST_MS = 600_000;
 const GUARD_OVERRIDE_KINDS = new Set(['action', 'start_action', 'run_program', 'sequence', 'lookAround', 'gather', 'find', 'obtain', 'repair_inventory', 'finish']);
 // A direct model body command takes the body from a firing reflex. Starting a program does not: the program pauses under it.
 // replace_action is one too; it yields in its own branch, once the replacement is accepted and before the old action is cancelled.
@@ -199,6 +202,8 @@ export class NativeToolRuntime {
 	// Workstations obtain placed and has not picked up yet, per agent, across obtain calls.
 	#obtainPlaced = new Map();
 	#kitHabit = false;
+	/** Agents that respawned and have not rested or seen day since (night-cover.mjs restsFirst). */
+	#nightRespawns = new Set();
 	/** Per agent: every source the body has seen (seen-resources.mjs), fed by each stored observation. */
 	#resources = new Map();
 	// Agents whose next blocking body tool starts already interrupted: a danger steer is waiting for a tool boundary the
@@ -1066,6 +1071,14 @@ export class NativeToolRuntime {
 			await this.#sendReflexes(record, { yieldFiring: true });
 			// A death or a new goal during the yield ends this call: nothing may dispatch onto a body that is no longer this one.
 			if (this.#executionEpoch(record.agentId) !== epoch) throw codedError('STALE_NATIVE_TOOL', 'Lifecycle changed while the reflex yielded the body');
+		}
+		if (this.#nightRespawns.has(record.agentId)) {
+			const rested = await this.#restFirst(request, record);
+			if (rested !== null) {
+				if (!rested.goOn) return rested.result;
+				const result = await this.#executeTool(request, record, lifecycleGeneration);
+				return result !== null && typeof result === 'object' ? { ...result, restedFirst: rested.note, message: `${rested.note}; ${result.message ?? ''}` } : result;
+			}
 		}
 		if (request.tool.kind === 'reflexes') return { state: 'REFLEXES', reflexes: await this.#setReflexes(record, request.tool.reflexes) };
 		if (request.tool.kind === 'observe') return this.#observe(record);
@@ -3207,6 +3220,37 @@ export class NativeToolRuntime {
 		return planCountDefault(tool, { needs, entities });
 	}
 
+	/**
+	 * respawn.restFirst (night-cover.mjs): after a night respawn the first errand rests first. Null when it does not
+	 * apply; otherwise the rest's note and whether the errand goes on (rest done or stuck) or rest's result goes back (cut
+	 * by danger). The flag clears once rest has run, the model rests itself, or day or armour ends the night.
+	 */
+	async #restFirst(request, record) {
+		const agentId = record.agentId;
+		const observation = this.#observations.get(agentId)?.observation ?? null;
+		const tool = request.tool;
+		if (['action', 'start_action'].includes(tool?.kind) && tool.actionType === 'rest' || observation?.player != null && observation.player.dead !== true && nightFor(observation) === null) {
+			this.#nightRespawns.delete(agentId);
+			return null;
+		}
+		if (!restsFirst(observation, tool)) return null;
+		this.#nightRespawns.delete(agentId);
+		const epoch = this.#executionEpoch(agentId);
+		try { request.extendLease?.(REST_FIRST_MS); } catch { /* the lease is the planner's */ }
+		let result;
+		try { result = await this.#executeAction(request, record, { kind: 'action', actionType: 'rest', arguments: { timeoutMs: REST_FIRST_MS } }, null, true); }
+		catch (error) {
+			if (this.#executionEpoch(agentId) !== epoch) throw error;
+			return null;
+		}
+		if (this.#executionEpoch(agentId) !== epoch) throw codedError('STALE_NATIVE_TOOL', 'Lifecycle changed while resting after the night respawn');
+		this.#trace('native_rest_first', { agentId, goalRevision: record.goalRevision, kind: tool.kind, state: result?.state, reasonCode: result?.reasonCode });
+		const note = `respawned at night with no armour, so rest ran first: ${result?.reasonCode ?? result?.state}`;
+		if (['SUCCEEDED', 'FAILED', 'TIMED_OUT'].includes(result?.state) && result?.reasonCode !== 'AGENT_DEAD') return { goOn: true, note };
+		return { goOn: false, note, result: result !== null && typeof result === 'object'
+			? { ...result, message: `${note}; ${result.message ?? ''}; your ${tool.kind === 'action' ? tool.actionType : tool.kind} did not start: decide, then carry on` } : result };
+	}
+
 	async #executeAction(request, record, tool, sequenceIndex = null, waitForCompletion = true, programCommand = null, sequenceFinishToken = null, { pausedProgram = false, issued = null, issuer = null } = {}) {
 		// All native routes, including replacement and authored programs, meet here.
 		tool = constrainNavigationAction(tool, record.currentGoalSpec);
@@ -3601,6 +3645,9 @@ export class NativeToolRuntime {
 		this.#executionEpochs.set(agentId, this.#executionEpoch(agentId) + 1);
 		const spatialWrites = this.#spatialWrites.get(agentId) ?? 0;
 		// Terminal handles from the previous body cannot authorize work after death or respawn.
+		// Other disposals (a conversation wake, a failed turn) keep the flag: the body is still the fresh one.
+		if (reason === 'goal_respawn') this.#nightRespawns.add(agentId);
+		else if (reason === 'agent_removed') this.#nightRespawns.delete(agentId);
 		if (['goal_dead', 'goal_respawn', 'dead_registration_replaced'].includes(reason)) {
 			this.#receipts.delete(agentId);
 			this.#failedRequests.delete(agentId);
