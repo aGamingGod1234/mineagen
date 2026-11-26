@@ -1030,13 +1030,18 @@ public final class ServerActionExecutor {
 				BreakTarget target = validateBreakTarget(player, position, requestedExpectation);
 				// An omitted or tag expectation is resolved to the block actually there; the running action then guards that id.
 				String expectedBlockId = target.blockId();
-				String lava = arguments.has("acceptLavaRisk") && bool(arguments, "acceptLavaRisk") ? null : lavaBehind(player, position);
+				// dig.floorLavaGuard: the floor under the feet is never broken with lava heard or seen at it, whatever
+				// acceptLavaRisk says (g6: the model passed it, dropped 3 blocks into a lava pool and died in 2.5 s).
+				boolean acceptLava = arguments.has("acceptLavaRisk") && bool(arguments, "acceptLavaRisk");
+				boolean floor = FLOOR_LAVA_GUARD && underFeet(player, position);
+				String lava = acceptLava && !floor ? null : lavaBehind(player, position);
 				if (lava != null) {
 					throw new AgentDomainException("LAVA_BEHIND", "Lava is " + lava + "; breaking it may let lava flow in."
-							+ " Not swung; acceptLavaRisk:true breaks it anyway");
+							+ (acceptLava && floor ? FLOOR_LAVA_ADVICE : " Not swung; acceptLavaRisk:true breaks it anyway"));
 				}
-				String unseen = arguments.has("acceptLavaRisk") && bool(arguments, "acceptLavaRisk") ? null : unseenDropUnderFeet(player, position);
-				if (unseen != null) throw new AgentDomainException("UNSEEN_BELOW", unseen + " Not swung; acceptLavaRisk:true breaks it anyway");
+				String unseen = acceptLava && !floor ? null : unseenDropUnderFeet(player, position);
+				if (unseen != null && acceptLava && unseen.contains("ends in lava")) throw new AgentDomainException("UNSEEN_BELOW", unseen + FLOOR_LAVA_ADVICE);
+				if (unseen != null && !acceptLava) throw new AgentDomainException("UNSEEN_BELOW", unseen + " Not swung; acceptLavaRisk:true breaks it anyway");
 				String wasted = wastedOre(player, position);
 				if (wasted != null) throw new AgentDomainException("NO_TOOL", wasted);
 				ActiveAction action = ActiveAction.breakBlock(
@@ -2944,6 +2949,18 @@ public final class ServerActionExecutor {
 		if (drop.unknown()) return "It is the block you stand on and the bottom of the drop under it is not seen; water evaporates here, so the drop may end in lava.";
 		return "It is the block you stand on and the drop under it ends in " + drop.below() + " " + (drop.drop() + 1) + " block(s) down"
 				+ ("drop".equals(drop.below()) ? ", a fall that kills at your health." : ".");
+	}
+
+	static boolean FLOOR_LAVA_GUARD = dev.agaminggod.mineagen.server.Switches.get("dig.floorLavaGuard");
+	static final String FLOOR_LAVA_ADVICE = " It is the block you stand on, so acceptLavaRisk does not apply: not swung. Dig the block"
+			+ " beside you first and look into the hole, or stand on a block you place.";
+
+	/** Whether {@code target} is a block the body stands on (its feet's floor row, under its box). */
+	static boolean underFeet(ServerPlayer player, BlockPos target) {
+		if (target.getY() != net.minecraft.util.Mth.floor(player.getY() + 1.0E-4D) - 1) return false;
+		net.minecraft.world.phys.AABB box = player.getBoundingBox();
+		return target.getX() >= net.minecraft.util.Mth.floor(box.minX + 1.0E-7D) && target.getX() <= net.minecraft.util.Mth.floor(box.maxX - 1.0E-7D)
+				&& target.getZ() >= net.minecraft.util.Mth.floor(box.minZ + 1.0E-7D) && target.getZ() <= net.minecraft.util.Mth.floor(box.maxZ - 1.0E-7D);
 	}
 
 	/** How close to a block heard lava must be for a break to be refused as letting it flow in. */

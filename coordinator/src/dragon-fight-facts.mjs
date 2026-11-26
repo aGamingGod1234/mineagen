@@ -46,6 +46,16 @@ export const PERCH_FACTS = 'Perched, arrows bounce off it; its head takes full m
 // These are useful before the landing wake: a distant player's reply often outlasts the whole empty perch.
 export const DRAGON_FINISH_FACTS = 'The dragon lands on the bedrock exit fountain in the island centre, not a pillar or the arrival platform. With the crystals gone it cannot heal. A player waiting on open ground 10-15 blocks from the fountain is within its 20-block perch range before it lands; from farther away the empty perch lasts only about 5 seconds, often less than a reply. Its head takes full melee damage: an iron sword recharges in 0.625 seconds, so nine charged hits take about 6 seconds and force takeoff. The sides and back are in the wings; the front is in the breath cloud when it breathes. A visible cloud lasts about 10 seconds, then that ground clears; the fountain remains the next landing spot. An open mouth shows anger, not its target: dragon hits anger endermen too. A gaze guard must outrank movement reflexes so it can turn your view off calm endermen while a dodge runs.';
 
+// 26 Nov End games, landings after the last crystal: a player 6-10 blocks from the fountain hit the perched dragon in 30 of
+// 41, one 10-20 blocks out in 3 of 81, and clean games spent half that time 10-20 out, as the old advice said.
+const FINISH_WAIT_FAR = 'A player waiting on open ground 10-15 blocks from the fountain is within its 20-block perch range before it lands;';
+const FINISH_WAIT_CLOSE = 'Wait on open ground 7-10 blocks from the fountain, off any visible breath cloud: there you are a few steps from its head when it lands (landings with the player 6-10 blocks out were hit 30 of 41 times, 10-20 out 3 of 81);';
+
+// MINEAGEN_END_CLOSE_WAIT=off keeps the 10-15 block waiting advice (switch end.closeWait).
+export function dragonFinishFacts(environment = process.env) {
+	return getSwitch('end.closeWait', environment).value ? DRAGON_FINISH_FACTS.replace(FINISH_WAIT_FAR, FINISH_WAIT_CLOSE) : DRAGON_FINISH_FACTS;
+}
+
 // Vanilla full-charge melee damage: a sword is 4 + its tier's bonus, these axes 7-10 (ToolMaterial, Items).
 const MELEE_DAMAGE = Object.freeze({ netherite_sword: 8, netherite_axe: 10, diamond_sword: 7, diamond_axe: 9, iron_sword: 6, iron_axe: 9,
 	stone_sword: 5, stone_axe: 9, copper_sword: 5, golden_sword: 4, golden_axe: 7, wooden_sword: 4, wooden_axe: 7 });
@@ -111,12 +121,21 @@ export function settleCombatResult(state, payload) {
 }
 
 /** Remembers End crystals in sight; returns the tally the End facts show, or null outside the End or before any. */
-export function rememberEndCrystals(state, observation) {
+// MINEAGEN_END_CRYSTAL_GONE=off ignores the mod's rows for crystals seen destroyed (switch end.crystalGone), so only the
+// bot's own shot results clear a remembered crystal.
+export function rememberEndCrystals(state, observation, environment = process.env) {
 	if (observation?.world?.dimension !== 'minecraft:the_end') return null;
 	state.endCrystals ??= new Map();
 	const remembered = observation.continuity?.rememberedSections?.includes('entities');
+	const gone = getSwitch('end.crystalGone', environment).value;
 	if (!remembered) for (const row of Array.isArray(observation.entities) ? observation.entities : []) {
-		if (row?.type !== 'minecraft:end_crystal' || row.alive === false || row.perceivedBy === 'sound' || typeof row.stableId !== 'string') continue;
+		if (row?.type !== 'minecraft:end_crystal' || row.perceivedBy === 'sound' || typeof row.stableId !== 'string') continue;
+		if (row.alive === false) {
+			// The mod saw it blow up, or saw its spot empty: in 8 of 16 End games that broke all ten, a crystal whose shot
+			// result never said "broke" stayed standing in memory for the rest of the fight.
+			if (gone) markCrystalGone(state, row);
+			continue;
+		}
 		if (![row.x, row.y, row.z].every(Number.isFinite)) continue;
 		const known = state.endCrystals.get(row.stableId);
 		const caged = row.appearance?.caged === true || known?.caged === true;
@@ -131,6 +150,18 @@ export function rememberEndCrystals(state, observation) {
 }
 
 export const CAGED_CRYSTAL_FACTS = 'Caged: iron bars form side walls 2 blocks out, from crystal y-1 (lowest row) through y+2, and a barred roof. Side walls stop arrows. CAGE ACCESS: use a whole end_stone column: dragon block clearing spares it, unlike cobblestone. It is not blast-proof. Record column x/z and ground feet y. Stock one end_stone per block of rise; mine nearby end stone for a shortfall. With feet at crystal y on the column, open a ground-shot window at the side bars of crystal y and y+1, and LEAVE THE LOWEST ROW (crystal y-1) STANDING: once the descent drops you one block it is the only wall between your feet and the pillar top beside the crystal, and the spike top edge below it stops most rising shots through that row anyway. Angle and terrain matter: two bars or a fixed distance do not guarantee clearance. A pick takes about 1.3 s/bar, bare hand 25 s. Leave the crystal intact while adjacent: the blast is unsafe on the access pillar. DESCENT before shooting: avoid separate break-and-wait turns on the exposed pillar. First confirm a water_bucket in hotbar or offhand; inventory slots 9-35 do not count. If it is there, use select_tool to move that observed sourceSlot to a hotbarSlot, expectedItemId:"minecraft:water_bucket", minRemainingDurability:0, then confirm the slot in fresh inventory. Until confirmed, do not start this descent. With that bucket accessible and feet centred on the recorded complete end_stone column, and no evidence of blast damage or missing support, one existing act dig_to can descend continuously: pattern:"shaft", y:BASE_Y, maxShaftY:BASE_Y, throughCaves:true, where BASE_Y is the recorded ground FEET y, not a support-block y. This deliberately accepts the open sides of your own above-ground column; never use it to dig into unknown island ground. Keeping maxShaftY equal to y prevents an early change to sideways steep_down. Without a water bucket in hotbar/offhand, shaft changes to two-column digging, unsuitable for this one-block pillar: do not use this method. The lower support is INFERRED from confirmed whole-column placements minus prior breaks, not fresh sight; the floor occludes it. Missing history or contradictory evidence makes support UNKNOWN: stop and choose another evidenced descent. Keep the crystal intact. Let the action run; on failure, damage, displacement or a reflex interruption inspect current feet/support before choosing the next action. A receipt is not a safe landing: verify fresh onGround at the recorded base, with the island floor intact. Walking/jumping off or an armed water reflex is no safe descent guarantee. Only once grounded, choose a shot through the window with blast separation and a clear arc; obstruction may require repositioning or a wider opening. A crystal blast deals about 56 at 3 blocks, 33 at 6, 14 at 9 before armour and can destroy nearby ordinary blocks.';
+
+function markCrystalGone(state, row) {
+	if (state.brokenTargets?.has(row.stableId)) return;
+	state.externallyBrokenTargets ??= new Set();
+	state.externallyBrokenTargets.add(row.stableId);
+	const known = state.endCrystals.get(row.stableId);
+	if (known) known.external = true;
+	else if ([row.x, row.y, row.z].every(Number.isFinite)) {
+		state.endCrystals.set(row.stableId, { x: Math.floor(row.x), y: Math.floor(row.y), z: Math.floor(row.z), caged: false, broken: false, external: true });
+		while (state.endCrystals.size > MAX_CRYSTALS) state.endCrystals.delete(state.endCrystals.keys().next().value);
+	}
+}
 
 /** One remembered crystal; a caged one adds where a player stands beside it to break its wall bars. */
 function crystalEntry(row, player) {

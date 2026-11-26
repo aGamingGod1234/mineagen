@@ -1097,6 +1097,9 @@ public final class ServerObservationCollector {
 			ObservationVisibility.Frame visibility
 	) {
 		JsonArray values = new JsonArray();
+		// Destroyed End crystals keep their rows ahead of the farthest live entities: a crystal the bot still believes
+		// standing sends it climbing a pillar mid-fight.
+		JsonArray goneCrystals = EndCrystalWatch.rows(EndCrystalWatch.witnessed(level, agent, visibility), agent, EndCrystalWatch.MAX_ROWS);
 		ArrayList<Entity> candidates = new ArrayList<>();
 		for (Entity entity : level.getEntities(agent, agent.getBoundingBox().inflate(ENTITY_SIGHT_DISTANCE), Entity::isAlive)) {
 			if (agent.distanceToSqr(entity) <= (double) ENTITY_SIGHT_DISTANCE * ENTITY_SIGHT_DISTANCE && visibility.isEntityWithinView(entity)) {
@@ -1105,7 +1108,7 @@ public final class ServerObservationCollector {
 		}
 		ObservedEntities<Entity> observed = selectObservedEntities(huntingThreats(level, agent), candidates,
 				Comparator.comparingDouble(agent::distanceToSqr), visibility::isEntityWithinView, visibility::hasLineOfSight,
-				MAX_ENTITIES, MAX_ENTITY_VISIBILITY_CHECKS);
+				MAX_ENTITIES - goneCrystals.size(), MAX_ENTITY_VISIBILITY_CHECKS);
 		List<Entity> heard = observed.heard();
 		List<Entity> selected = new ArrayList<>(heard);
 		selected.addAll(observed.seen());
@@ -1128,6 +1131,11 @@ public final class ServerObservationCollector {
 						json.add("tags", tags(itemEntity.getItem().typeHolder()));
 					}
 					values.add(json);
+		}
+		java.util.Set<String> liveIds = new java.util.HashSet<>();
+		for (Entity entity : selected) liveIds.add(entity.getUUID().toString());
+		for (var row : goneCrystals) {
+			if (!liveIds.contains(row.getAsJsonObject().get("uuid").getAsString())) values.add(row);
 		}
 		return new EntityRows(values, observed.visibilityChecksLimited());
 	}

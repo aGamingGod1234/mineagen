@@ -4235,6 +4235,14 @@ final class ReflexActions {
 		static final int EXIT_RECHECK_TICKS = 5;
 		/** A flow reaching the body this soon is lava to leave even before it touches. */
 		static final double FLOW_LEAVE_SECONDS = 4.0D;
+		/** reflex.plugInflow: before stepping back from a flow on its way, one block goes in the cell it comes in through. */
+		static boolean PLUG_INFLOW = dev.agaminggod.mineagen.server.Switches.get("reflex.plugInflow");
+		static final int PLUG_TICKS = 12;
+		static final int MAX_PLUGS = 3;
+		private BlockPos plugCell;
+		private int plugTicks;
+		private int plugged;
+		private boolean plugGaveUp;
 		private PathWalk walk;
 		private GridPosition exit;
 		/** The exit was chosen out of the seen flow's way (not the cell it reaches last). */
@@ -4305,6 +4313,10 @@ final class ReflexActions {
 				// soon is no way out (d22-lava: the flow ran down into the pit chosen as the exit and the body burned there).
 				if (!fireFree(player, exit) || lavaAbove(player, exit) || exitOut && flowReaches(LavaSpread.reach(player), exit)) walk = null;
 			}
+			if (walk == null && hazard == null && PLUG_INFLOW) {
+				Step plugging = plug(player, input);
+				if (plugging != null) return plugging;
+			}
 			if (walk == null) {
 				sinceChoice = 0;
 				HazardExits.Contact contact = HazardExits.contact(player);
@@ -4316,7 +4328,7 @@ final class ReflexActions {
 					// Out of the hazard but still in the air (jumped out over a drop): landing is part of getting out.
 					if (!player.onGround() && !player.isInWater() && hazard != null) return Step.running("landing out of " + hazard);
 					if (hazard != null && player.isOnFire() && safeFooting(player)) return holdBurning("out of " + hazard, context, player, input);
-					return Step.done("not touching fire or lava" + burnRemaining(player));
+					return Step.done("not touching fire or lava" + plugNote() + burnRemaining(player));
 				}
 				hazard = contact != null ? contact.wire : HazardExits.Contact.LAVA.wire;
 				GridPosition feet = SafeStep.feet(player);
@@ -4404,6 +4416,42 @@ final class ReflexActions {
 		}
 
 		/** Out on safe footing and still burning: stand there, running, until the fire is out (see {@link #settled}). */
+		/**
+		 * Lava seen coming, not yet touching: one block in the cell the flow enters through (the opening a dig just made)
+		 * stops it, as a player puts the block back. Backing off alone left the flow running after the body: g3 161m backed
+		 * down its stairs, the lava followed, and it burned to death. Null when there is nothing to plug, no block, no face
+		 * to place against, or the click did not land in {@link #PLUG_TICKS}; the step back runs then.
+		 */
+		private Step plug(ServerPlayer player, Consumer<AgentInputState> input) {
+			Level level = player.level();
+			if (plugCell != null && !level.getBlockState(plugCell).canBeReplaced()) {
+				plugged++;
+				plugCell = null;
+				plugTicks = 0;
+			}
+			if (plugGaveUp || plugged >= MAX_PLUGS || HazardExits.contact(player) != null) return null;
+			LavaSpread.Arrival coming = LavaSpread.of(player).box(player.getBoundingBox());
+			if (coming == null || coming.seconds() > FLOW_LEAVE_SECONDS) return null;
+			BlockPos target = coming.via();
+			if (!level.getBlockState(target).canBeReplaced() || player.getBoundingBox().intersects(new net.minecraft.world.phys.AABB(target))) {
+				plugGaveUp = true;
+				return null;
+			}
+			int slot = PlaceBlock.blockSlot(player, null);
+			BlockHitResult face = slot < 0 ? null : PlaceBlock.face(player, target);
+			if (face == null || !target.equals(plugCell) && plugCell != null || ++plugTicks > PLUG_TICKS) {
+				plugGaveUp = true;
+				return null;
+			}
+			plugCell = target;
+			input.accept(look(player, face.getLocation(), 0.0F, 0.0F, false, PlaceBlock.clicksInto(player, face, target), slot, InteractionHand.MAIN_HAND));
+			return Step.running("plugging the lava's way in at " + target.toShortString());
+		}
+
+		private String plugNote() {
+			return plugged > 0 ? "; plugged the lava's way in with " + plugged + " block(s)" : "";
+		}
+
 		private Step holdBurning(String out, Context context, ServerPlayer player, Consumer<AgentInputState> input) {
 			afterburn = out;
 			// A player out of the flames with a water bucket douses the burn instead of standing in it: water at the feet

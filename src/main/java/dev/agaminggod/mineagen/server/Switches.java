@@ -67,10 +67,18 @@ public final class Switches {
 		new Switch("instincts", "MINEAGEN_INSTINCTS", "mineagen.instincts", "both", true, LIST_HAS_INSTINCTS, JAVA_GET_BOOLEAN, "default-on"),
 		// ServerTravelController.java walkAroundEnabled(): per call; property or env.
 		new Switch("travel.walkAround", "MINEAGEN_TRAVEL_WALK_AROUND", "mineagen.travel.walkAround", "server", false, ON_WORD, JAVA_GET_BOOLEAN, "default-off"),
+		// ServerTravelController.java shallowShoreEnabled(): per call; property or env.
+		new Switch("travel.shallowShore", "MINEAGEN_TRAVEL_SHALLOW_SHORE", "mineagen.travel.shallowShore", "server", true, NOT_FALSE_WORD, JAVA_NOT_FALSE_EXACT, "default-on"),
+		// ServerRetraceController.java skipBuriedEnabled(): per call; property only.
+		new Switch("travel.skipBuried", null, "mineagen.travel.skipBuried", "server", true, JAVA_NOT_FALSE_EXACT, null, "default-on"),
 		// ServerFightUntilController.java CHARGE_GUARD: class load.
 		new Switch("fight.chargeGuard", null, "mineagen.fight.chargeGuard", "server", true, JAVA_NOT_FALSE_EXACT, null, "default-on"),
 		// ServerFightUntilController.java RECOVER: class load.
 		new Switch("fight.recover", null, "mineagen.fight.recover", "server", true, JAVA_NOT_FALSE_EXACT, null, "default-on"),
+		// ServerActionExecutor.java FLOOR_LAVA_GUARD: class load (tests reassign it).
+		new Switch("dig.floorLavaGuard", null, "mineagen.dig.floorLavaGuard", "server", true, JAVA_NOT_FALSE_EXACT, null, "default-on"),
+		// ReflexActions.java LeaveFire.PLUG_INFLOW: class load (tests reassign it).
+		new Switch("reflex.plugInflow", null, "mineagen.reflex.plugInflow", "server", true, JAVA_NOT_FALSE_EXACT, null, "default-on"),
 		// SpawnerHold.java ENABLED: class load.
 		new Switch("fight.spawnerHold", null, "mineagen.fight.spawnerHold", "server", true, JAVA_NOT_FALSE_EXACT, null, "default-on"),
 		// SpawnerHold.java OPEN_FIGHT: class load.

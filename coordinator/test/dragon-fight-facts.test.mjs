@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { combatFacts } from '../src/combat-facts.mjs';
 import { buildNativeEventInput, classifyObservationTrigger } from '../src/dynamic-main.mjs';
 import { decodeModelFacts, encodeNativeEventInput, ModelObservationViews } from '../src/model-fact-encoding.mjs';
-import { CAGED_CRYSTAL_FACTS, END_HIGH_FEET_Y, HIGH_DESCENT_FACTS, dragonPerchEdge, dragonPerchLine, endCrystalFact, noteCombatDispatch, rememberEndCrystals, settleCombatResult } from '../src/dragon-fight-facts.mjs';
+import { CAGED_CRYSTAL_FACTS, END_HIGH_FEET_Y, dragonFinishFacts, HIGH_DESCENT_FACTS, dragonPerchEdge, dragonPerchLine, endCrystalFact, noteCombatDispatch, rememberEndCrystals, settleCombatResult } from '../src/dragon-fight-facts.mjs';
 
 const HEAD = '00000000-0000-0000-0000-0000000000a1';
 const dragon = (motion, extra = {}) => ({ stableId: 'dragon', type: 'minecraft:ender_dragon', alive: true, perceivedBy: 'sight', x: 0.5, y: 67.8, z: 0.4, distance: 9.6, appearance: { motion }, ...extra });
@@ -50,7 +50,9 @@ test('the perch wake states the breath geometry and the kill arithmetic for the 
 test('the ordinary flying-dragon wake gives the fountain and timing facts before a short perch', () => {
 	const o = end([dragon('flying')]);
 	const facts = combatFacts(o);
-	assert.match(facts, /waiting on open ground 10-15 blocks from the fountain/);
+	assert.match(facts, /Wait on open ground 7-10 blocks from the fountain, off any visible breath cloud/);
+	assert.match(dragonFinishFacts({ MINEAGEN_END_CLOSE_WAIT: 'off' }), /waiting on open ground 10-15 blocks from the fountain/);
+	assert.doesNotMatch(dragonFinishFacts({}), /10-15/);
 	assert.match(facts, /empty perch lasts only about 5 seconds, often less than a reply/);
 	assert.match(facts, /iron sword recharges in 0\.625 seconds/);
 	assert.match(facts, /visible cloud lasts about 10 seconds/);
@@ -83,6 +85,27 @@ test('End crystals seen stay remembered, and a crystal broken by your own shot i
 	const facts = combatFacts({ ...end([]), endCrystals: tally });
 	assert.match(facts, /End crystals you have seen: 1 standing/);
 	assert.equal(combatFacts({ ...end([]), world: { dimension: 'minecraft:overworld' }, endCrystals: tally }), null);
+});
+
+test('A crystal the mod saw destroyed (alive:false row) stops counting as standing, unless end.crystalGone is off', () => {
+	const crystal = (id, x, y, z, extra = {}) => ({ stableId: id, type: 'minecraft:end_crystal', perceivedBy: 'sight', x, y, z, ...extra });
+	const play = (environment) => {
+		const state = {};
+		rememberEndCrystals(state, end([crystal('north', -11.5, 83, -39.5), crystal('west', -41.5, 80, -0.5), crystal('east', 42.5, 92, 0.5)]), environment);
+		noteCombatDispatch(state, 'shot-1', 'use_ranged', { targetId: 'north' });
+		settleCombatResult(state, { actionId: 'shot-1', state: 'SUCCEEDED', message: 'Arrow loosed; it struck the target, which broke or died' });
+		// The shot at west was cancelled while the arrow flew; the mod saw the blast. Its own break of north is reported too.
+		rememberEndCrystals(state, end([crystal('north', -11.5, 83, -39.5, { alive: false }), crystal('west', -41.5, 80, -0.5, { alive: false })]), environment);
+		// A crystal first known from its destruction row (seen blown up from afar) is remembered as destroyed.
+		return rememberEndCrystals(state, end([crystal('south', 0.5, 76, 42.5, { alive: false })]), environment);
+	};
+	assert.deepEqual(play({}), { standing: [{ x: 42, y: 92, z: 0 }], broken: 1, external: 2 });
+	assert.match(endCrystalFact(play({})), /1 standing when last seen \(42,92,0\), 1 broken by your own hits, 2 destroyed by something else\./);
+	assert.deepEqual(play({ MINEAGEN_END_CRYSTAL_GONE: 'off' }), { standing: [{ x: -42, y: 80, z: -1 }, { x: 42, y: 92, z: 0 }], broken: 1 });
+	// A sound-only row says nothing about the crystal.
+	const state = {};
+	rememberEndCrystals(state, end([crystal('west', -41.5, 80, -0.5)]));
+	assert.equal(rememberEndCrystals(state, end([crystal('west', -41.5, 80, -0.5, { alive: false, perceivedBy: 'sound' })])).standing.length, 1);
 });
 
 test('A caged crystal remembers the gaps last seen in its cage', () => {
