@@ -47,8 +47,10 @@ test('the count reaches the floor, and a herd in view is taken whole', () => {
 	assert.match(line(sample(TOOLS, { entities: [cow(1)] })), /obtain cooked_beef count 21 using a furnace, taking every cow in view, before going down/);
 	// 19 cooked beef is 2 short of the floor, but the 5 cows in view are all taken while they are here.
 	assert.match(line(sample([...TOOLS, item('cooked_beef', 19)], { entities: [1, 2, 3, 4, 5].map(n => cow(n)) })), /obtain cooked_beef count 24 /);
-	// Raw meat held is cooked first, all of it.
-	assert.match(line(sample([...TOOLS, item('beef', 20)])), /obtain cooked_beef count 20 .*raw meat held/);
+	// Raw meat held is cooked first, all of it, and counts at its cooked value: 20 steaks are 316 points, one short of 320.
+	assert.match(line(sample([...TOOLS, item('beef', 20)])), /obtain cooked_beef count 21 .*raw meat held/);
+	// Room ai-stock-portal, 26 Nov: 14 raw beef held at a lit portal asked for 14 steaks (221 points), short of 256.
+	assert.match(line(sample([item('iron_pickaxe'), item('beef', 14), item('oak_log', 15)]), { known: litFrame() }), /obtain cooked_beef count 17 .*before entering the portal/);
 	// Hidden, baby, far and heard-only animals are not in view.
 	const unseen = [{ ...cow(1), visible: false }, { ...cow(2), baby: true }, cow(3, 100), { ...cow(4), perceivedBy: 'sound' }];
 	assert.match(line(sample(TOOLS, { entities: unseen })), /look for cows/);

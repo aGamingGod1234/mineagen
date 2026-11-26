@@ -234,8 +234,10 @@ function stockFloorNext(f, floor, where) {
 	const why = `food ${f.foodPoints}/${floor} points (minimum, not a cap)`;
 	if (meat === null || meat === undefined) return [`look for cows/pigs/sheep/chickens nearby, then obtain cooked meat with a furnace ${where}`, why];
 	const cooked = exact('cooked_' + meat);
-	const short = Math.max(1, Math.ceil((floor - f.foodPoints) / FOOD_POINTS['cooked_' + meat]));
-	const total = cooked + Math.max(short, raw ? exact(raw) : 0, f.meatInView[meat] ?? 0);
+	// Held raw meat counts at its cooked value: it is cooked first, so the count asks for what is still short after that.
+	const rawHeld = raw ? exact(raw) : 0, each = FOOD_POINTS['cooked_' + meat];
+	const afterCooking = f.foodPoints + rawHeld * (each - (FOOD_POINTS[meat] ?? 0));
+	const total = cooked + Math.max(1, rawHeld + Math.max(0, Math.ceil((floor - afterCooking) / each)), f.meatInView[meat] ?? 0);
 	return [`obtain cooked_${meat} count ${total} using a furnace, taking every ${meat === 'porkchop' ? 'pig' : meat === 'beef' ? 'cow' : meat === 'mutton' ? 'sheep' : meat} in view, ${where}`,
 		`${why}; ${raw ? 'raw meat held' : `${f.meatInView[meat] ?? 1} in view`}`];
 }
