@@ -18,7 +18,7 @@ import java.util.Set;
  * <li>Only one rule fires at a time; a higher priority rule that becomes ready preempts a lower one.</li>
  * <li>Every firing is bounded by the rule's maxMs, followed by its cooldown (debounce).</li>
  * <li>Loop protection: four firings in a row without progress, or more than forty in a minute, disable the rule (a meal
- * and a dragon head strike rest and are armed again, see {@link #rearmTicks}).
+ * a dragon head strike and the coordinator's other defaults rest and are armed again, see {@link #rearmTicks}).
  * A stance that hits maxS while the body loses health is not making progress either, and wakes the model at once; a
  * stance held for three maxS spans in a row without its condition clearing wakes the model once (it may need to flee
  * instead of holding). A stance whose action finishes (eat) that runs out of maxS has failed, like a trigger.</li>
@@ -766,12 +766,19 @@ public final class ReflexScheduler {
 	 * damage. A player who could not reach the head tries again once the dragon turns, and on the next landing.
 	 */
 	public static final long STRIKE_REARM_TICKS = 10L * TICKS_PER_SECOND;
+	/**
+	 * Any other coordinator default the loop limits disabled is armed again after this long. Four failures in one spot
+	 * (a charge the step-away could not dodge, a cave with no safe heading) used to switch the reflex off for the rest of
+	 * the game: the End's edge step-away was lost in 14 of 24 End games. The model's own rules stay off; it can rewrite them.
+	 */
+	public static final long DEFAULT_REARM_TICKS = 60L * TICKS_PER_SECOND;
 
 	/** How long a rule the loop limits disabled rests before it is armed again; 0 keeps it off. */
 	static long rearmTicks(ReflexSpec.Rule rule) {
 		if (finishes(rule)) return FINISHING_REARM_TICKS;
 		if (rule.kind() == ReflexSpec.Kind.STANCE && "strike_head".equals(rule.action().type())
 				&& dev.agaminggod.mineagen.server.Switches.get("end.strikeRearm")) return STRIKE_REARM_TICKS;
+		if (rule.coordinatorDefault() && dev.agaminggod.mineagen.server.Switches.get("reflex.defaultRearm")) return DEFAULT_REARM_TICKS;
 		return 0L;
 	}
 

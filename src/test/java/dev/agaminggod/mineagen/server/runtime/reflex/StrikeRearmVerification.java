@@ -23,9 +23,10 @@ public final class StrikeRearmVerification {
 	}
 
 	public static int verify() {
-		String saved = System.getProperty("mineagen.end.strikeRearm");
+		String saved = System.getProperty("mineagen.end.strikeRearm"), savedDefault = System.getProperty("mineagen.reflex.defaultRearm");
 		try {
 			System.clearProperty("mineagen.end.strikeRearm");
+			System.clearProperty("mineagen.reflex.defaultRearm");
 			var strike = ReflexSpec.parseRule(JsonParser.parseString(RULE).getAsJsonObject(), "rule");
 			check(ReflexScheduler.rearmTicks(strike) == ReflexScheduler.STRIKE_REARM_TICKS, "the head strike rests, not off for the game");
 			check(ReflexScheduler.rearmTicks(ReflexSpec.parseRule(JsonParser.parseString(EAT).getAsJsonObject(), "rule")) == ReflexScheduler.FINISHING_REARM_TICKS,
@@ -57,8 +58,11 @@ public final class StrikeRearmVerification {
 			check(STRIKE.equals(scheduler.step(next, perched(true), ReflexScheduler.ActionStatus.RUNNING, "", false).started()),
 					"the next landing gets the strike");
 
-			// The off arm keeps the old behaviour: off for the rest of the game.
+			// Strike rest off: it falls back to the minute every coordinator default rests.
 			System.setProperty("mineagen.end.strikeRearm", "false");
+			check(ReflexScheduler.rearmTicks(strike) == ReflexScheduler.DEFAULT_REARM_TICKS, "strike rest off: the default minute");
+			// Both off keeps the old behaviour: off for the rest of the game.
+			System.setProperty("mineagen.reflex.defaultRearm", "false");
 			check(ReflexScheduler.rearmTicks(strike) == 0L, "off: no rest");
 			scheduler = scheduler();
 			tick = failFour(scheduler, 0L);
@@ -69,8 +73,10 @@ public final class StrikeRearmVerification {
 		} finally {
 			if (saved == null) System.clearProperty("mineagen.end.strikeRearm");
 			else System.setProperty("mineagen.end.strikeRearm", saved);
+			if (savedDefault == null) System.clearProperty("mineagen.reflex.defaultRearm");
+			else System.setProperty("mineagen.reflex.defaultRearm", savedDefault);
 		}
-		return 7;
+		return 8;
 	}
 
 	private static ReflexScheduler scheduler() {

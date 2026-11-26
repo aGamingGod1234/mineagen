@@ -182,6 +182,7 @@ const READS = [
 	['kit.rekit', 'coordinator/src/kit-habit.mjs', "getSwitch('kit.rekit', environment)"],
 	['reflex.unarmouredFloor', 'coordinator/src/reflexes.mjs', "getSwitch('reflex.unarmouredFloor')"],
 	['end.strikeRearm', 'src/main/java/dev/agaminggod/mineagen/server/runtime/reflex/ReflexScheduler.java', 'Switches.get("end.strikeRearm")'],
+	['reflex.defaultRearm', 'src/main/java/dev/agaminggod/mineagen/server/runtime/reflex/ReflexScheduler.java', 'Switches.get("reflex.defaultRearm")'],
 	['kit.habit', 'scripts/quality/test-iron-kit-live.mjs', "getSwitch('kit.habit')"],
 	['night.cover', 'scripts/quality/test-obtain-live.mjs', "getSwitch('night.cover')"],
 	['respawn.restFirst', 'coordinator/src/night-cover.mjs', "getSwitch('respawn.restFirst', environment)"],
@@ -223,6 +224,8 @@ test('every reader reads its switch through the registry, and no switch variable
 		'killPosition': { property: 'mineagen.killPosition', properties: [[undefined, true], ['false', false], [' FALSE ', false], ['no', true]] },
 		'watch': { property: 'mineagen.watch', properties: [[undefined, false], ['true', true], [' TRUE ', true], ['1', false]] },
 		'end.strikeRearm': { env: 'MINEAGEN_END_STRIKE_REARM', property: 'mineagen.end.strikeRearm', table: [[undefined, true], [' FALSE ', false], ['off', true]],
+			properties: [[undefined, true], ['false', false], ['FALSE', true]] },
+		'reflex.defaultRearm': { env: 'MINEAGEN_REFLEX_DEFAULT_REARM', property: 'mineagen.reflex.defaultRearm', table: [[undefined, true], [' FALSE ', false], ['off', true]],
 			properties: [[undefined, true], ['false', false], ['FALSE', true]] },
 	};
 	for (const [name, { env, property, table = [], properties = [] }] of Object.entries(cases)) {
@@ -335,6 +338,10 @@ public class SwitchesParity {
 		Boolean rearmFromEnv = rearmEnv == null ? null : !"false".equalsIgnoreCase(rearmEnv.trim());
 		Boolean rearmFromProperty = rearmProperty == null ? null : !"false".equals(rearmProperty);
 		boolean strikeRearm = Boolean.TRUE.equals(rearmFromEnv) || Boolean.TRUE.equals(rearmFromProperty) || rearmFromEnv == null && rearmFromProperty == null;
+		String defaultEnv = env.get("MINEAGEN_REFLEX_DEFAULT_REARM"), defaultProperty = p.get("mineagen.reflex.defaultRearm");
+		Boolean defaultFromEnv = defaultEnv == null ? null : !"false".equalsIgnoreCase(defaultEnv.trim());
+		Boolean defaultFromProperty = defaultProperty == null ? null : !"false".equals(defaultProperty);
+		boolean defaultRearm = Boolean.TRUE.equals(defaultFromEnv) || Boolean.TRUE.equals(defaultFromProperty) || defaultFromEnv == null && defaultFromProperty == null;
 		boolean[] values = { instincts, walkAround, shallowShore, !"false".equals(p.get("mineagen.travel.skipBuried")),
 				!"false".equals(p.get("mineagen.fight.chargeGuard")),
 				!"false".equals(p.get("mineagen.fight.recover")),
@@ -351,9 +358,9 @@ public class SwitchesParity {
 				!"off".equalsIgnoreCase(String.valueOf(env.get("MINEAGEN_CREEPER_GUARD")).trim()),
 				!"off".equalsIgnoreCase(String.valueOf(env.get("MINEAGEN_REFLEX_HOLD_RUN")).trim()),
 				!"off".equalsIgnoreCase(String.valueOf(env.get("MINEAGEN_EAT_THROUGH")).trim()),
-				"true".equalsIgnoreCase(p.getOrDefault("mineagen.watch", "false").trim()), strikeRearm };
+				"true".equalsIgnoreCase(p.getOrDefault("mineagen.watch", "false").trim()), strikeRearm, defaultRearm };
 		String[] names = { "instincts", "travel.walkAround", "travel.shallowShore", "travel.skipBuried", "fight.chargeGuard", "fight.recover", "dig.floorLavaGuard", "reflex.plugInflow", "fight.spawnerHold", "fight.spawnerHoldOpen",
-				"fight.forestHunt", "fight.fullIds", "fight.skipUnreachable", "killPosition", "fight.holdBailRetreat", "rest.softGround", "creeper.guard", "reflex.holdRun", "reflex.eatThrough", "watch", "end.strikeRearm" };
+				"fight.forestHunt", "fight.fullIds", "fight.skipUnreachable", "killPosition", "fight.holdBailRetreat", "rest.softGround", "creeper.guard", "reflex.holdRun", "reflex.eatThrough", "watch", "end.strikeRearm", "reflex.defaultRearm" };
 		StringBuilder line = new StringBuilder("switches");
 		for (int i = 0; i < names.length; i++) line.append(' ').append(names[i]).append('=').append(values[i] ? "on" : "off");
 		return line.toString();

@@ -1,0 +1,5 @@
+# #300 Reflexes: a switched-off default reflex rests a minute instead of staying off for the game
+
+- **Problem:** after four failed tries in a row, a built-in reflex switched itself off for the rest of the game. In the End, the reflex that steps the bot back from the island edge when the dragon charges was lost this way in 14 of 24 End games, so every later charge caught the bot at the edge with no reflex.
+- **Solution:** a built-in reflex the loop limit switches off now rests 60 seconds and comes back. The model's own rules still stay off, and the head strike keeps its 10-second rest.
+- **Result:** in 2 paired 45-minute End games (same build, only the switch differs), the edge step-back reached safety 19 times with the rest against 6 without it; after its first switch-off it still worked 10 more times with the rest and 0 times without. Damage taken from the dragon fell from 678 to 420, with 0 deaths on both sides and no dragon kills on either. Measured from the arena-watch danger logs of each whole game; 2 pairs is a small sample.
