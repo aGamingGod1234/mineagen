@@ -164,6 +164,7 @@ const READS = [
 	['fight.spawnerHoldOpen', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/SpawnerHold.java', 'public static final boolean OPEN_FIGHT = dev.agaminggod.mineagen.server.Switches.get("fight.spawnerHoldOpen");'],
 	['fight.forestHunt', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/WarpedForestHunt.java', 'static boolean enabled = dev.agaminggod.mineagen.server.Switches.get("fight.forestHunt");'],
 	['fight.fullIds', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerFightUntilController.java', 'Switches.get("fight.fullIds")'],
+	['fight.boatTrap', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/BoatTrap.java', 'Switches.get("fight.boatTrap")'],
 	['fight.skipUnreachable', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/UnreachableTargets.java', 'Switches.get("fight.skipUnreachable")'],
 	['killPosition', 'src/main/java/dev/agaminggod/mineagen/server/perception/KillSighting.java', 'Switches.get("killPosition")'],
 	['watch', 'src/main/java/dev/agaminggod/mineagen/server/watch/Watcher.java', 'Switches.get("watch")'],
@@ -203,6 +204,8 @@ test('every reader reads its switch through the registry, and no switch variable
 		'fight.spawnerHoldOpen': { property: 'mineagen.fight.spawnerHoldOpen', properties: [[undefined, true], ['false', false], ['0', true]] },
 		'fight.forestHunt': { property: 'mineagen.fight.forestHunt', properties: [[undefined, false], ['true', true], ['TRUE', true], [' true', false]] },
 		'fight.fullIds': { property: 'mineagen.fight.fullIds', properties: [[undefined, true], ['false', false], ['FALSE', true]] },
+		'fight.boatTrap': { env: 'MINEAGEN_FIGHT_BOAT_TRAP', property: 'mineagen.fight.boatTrap', table: [[undefined, true], [' FALSE ', false], ['off', true]],
+			properties: [[undefined, true], ['false', false], ['FALSE', true]] },
 		'fight.skipUnreachable': { property: 'mineagen.fight.skipUnreachable', properties: [[undefined, true], ['false', false], ['FALSE', true]] },
 		'killPosition': { property: 'mineagen.killPosition', properties: [[undefined, true], ['false', false], [' FALSE ', false], ['no', true]] },
 		'watch': { property: 'mineagen.watch', properties: [[undefined, false], ['true', true], [' TRUE ', true], ['1', false]] },
@@ -313,6 +316,10 @@ public class SwitchesParity {
 		Boolean shoreFromEnv = shoreEnv == null ? null : !"false".equalsIgnoreCase(shoreEnv.trim());
 		Boolean shoreFromProperty = shoreProperty == null ? null : !"false".equals(shoreProperty);
 		boolean shallowShore = Boolean.TRUE.equals(shoreFromEnv) || Boolean.TRUE.equals(shoreFromProperty) || shoreFromEnv == null && shoreFromProperty == null;
+		String trapEnv = env.get("MINEAGEN_FIGHT_BOAT_TRAP"), trapProperty = p.get("mineagen.fight.boatTrap");
+		Boolean trapFromEnv = trapEnv == null ? null : !"false".equalsIgnoreCase(trapEnv.trim());
+		Boolean trapFromProperty = trapProperty == null ? null : !"false".equals(trapProperty);
+		boolean boatTrap = Boolean.TRUE.equals(trapFromEnv) || Boolean.TRUE.equals(trapFromProperty) || trapFromEnv == null && trapFromProperty == null;
 		boolean[] values = { instincts, walkAround, shallowShore, !"false".equals(p.get("mineagen.travel.skipBuried")),
 				!"false".equals(p.get("mineagen.fight.chargeGuard")),
 				!"false".equals(p.get("mineagen.fight.recover")),
@@ -322,11 +329,12 @@ public class SwitchesParity {
 				!"false".equals(p.get("mineagen.fight.spawnerHoldOpen")),
 				"true".equalsIgnoreCase(p.get("mineagen.fight.forestHunt")),
 				!"false".equals(p.get("mineagen.fight.fullIds")),
+				boatTrap,
 				!"false".equals(p.get("mineagen.fight.skipUnreachable")),
 				!"false".equalsIgnoreCase(p.getOrDefault("mineagen.killPosition", "true").trim()),
 				"true".equalsIgnoreCase(p.getOrDefault("mineagen.watch", "false").trim()) };
 		String[] names = { "instincts", "travel.walkAround", "travel.shallowShore", "travel.skipBuried", "fight.chargeGuard", "fight.recover", "dig.floorLavaGuard", "reflex.plugInflow", "fight.spawnerHold", "fight.spawnerHoldOpen",
-				"fight.forestHunt", "fight.fullIds", "fight.skipUnreachable", "killPosition", "watch" };
+				"fight.forestHunt", "fight.fullIds", "fight.boatTrap", "fight.skipUnreachable", "killPosition", "watch" };
 		StringBuilder line = new StringBuilder("switches");
 		for (int i = 0; i < names.length; i++) line.append(' ').append(names[i]).append('=').append(values[i] ? "on" : "off");
 		return line.toString();

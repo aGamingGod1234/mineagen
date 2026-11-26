@@ -213,6 +213,11 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'fight.fullIds', property: 'mineagen.fight.fullIds', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
 		reason: 'fight_until keeps the mob and item ids it was given in full ("ender_pearl" -> "minecraft:ender_pearl"), so forest mode and drop pickup match bare ids from the model.',
 		readers: ['ServerFightUntilController.java fullIds (per call)'] }),
+	// BoatTrap.java enabled(): per fight call; property or env.
+	entry({ name: 'fight.boatTrap', env: 'MINEAGEN_FIGHT_BOAT_TRAP', property: 'mineagen.fight.boatTrap', side: 'server', default: true,
+		parser: flag({ token: 'false', means: 'off', trim: true, anyCase: true }), propertyParser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
+		reason: 'An enderman pearl hunt puts a boat between the body and one calm enderman, stares it angry and hits it once it sits in the boat (it cannot walk or teleport out); crafts the boat from 5 carried Overworld planks first. #274 left the trap to the model and seated 0 of 4 in model games; false hunts as before.',
+		readers: ['BoatTrap.java enabled (per call)'] }),
 	// UnreachableTargets.java fromProperty(): per fight call.
 	entry({ name: 'fight.skipUnreachable', property: 'mineagen.fight.skipUnreachable', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
 		reason: '21 Nov room benchmark: the unreachable-enderman room passed 0 of 10 off and 10 of 10 on (added off in #39).',
