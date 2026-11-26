@@ -3229,6 +3229,13 @@ public final class ServerActionExecutor {
 				throw new AgentDomainException("HELD_USE_REQUIRED", "This item acts only while use is held; use_item holds it");
 			}
 		}
+		if (!result.consumesAction() && BoatPlacement.is(player.getItemInHand(hand))) {
+			// A refused boat (its box meets a block or a body) goes on the nearest clear floor in reach, as a player turns to one.
+			String why = BoatPlacement.problem(player, hitLocation);
+			if (BoatPlacement.place(player, hand, hitLocation) != null) { ArmSwing.use(player, hand); return; }
+			throw new AgentDomainException("BOAT_NO_SPOT", "The boat was refused here (" + (why == null ? "vanilla refused it" : why)
+					+ ") and no clear floor face in reach fits one: it needs a sturdy top about 1.4 blocks wide with no block or body in it");
+		}
 		if (!result.consumesAction()) {
 			throw new AgentDomainException("INTERACTION_REJECTED", "Vanilla block interaction was not accepted");
 		}
@@ -3829,6 +3836,19 @@ public final class ServerActionExecutor {
 												+ " times; mode:\"once\" acts once" : ""), now)
 								: result(ServerActionState.FAILED, "USE_NOT_ACCEPTED", "The bucket did not act; its ray met "
 										+ bucketRay + "; " + hand, now);
+					}
+					if (accepted == 0 && BoatPlacement.is(player.getItemInHand(useHand))) {
+						// A refused boat (its box meets a block or a body) goes on the nearest clear floor in reach, as a player turns to one.
+						Vec3 wanted = BoatPlacement.aimHit(player, useAim == null ? null : useAim.get());
+						String why = BoatPlacement.problem(player, wanted);
+						String placed = BoatPlacement.place(player, useHand, wanted);
+						if (placed != null) {
+							ArmSwing.use(player, useHand);
+							return result(ServerActionState.SUCCEEDED, "BOAT_PLACED", "Boat placed on the floor at " + placed
+									+ "; the aimed spot was refused: " + (why == null ? "vanilla refused it" : why), now);
+						}
+						return result(ServerActionState.FAILED, "BOAT_NO_SPOT", "The boat was refused at the aimed spot ("
+								+ (why == null ? "vanilla refused it" : why) + ") and no clear floor face in reach fits one: it needs a sturdy top about 1.4 blocks wide with no block or body in it", now);
 					}
 					return accepted > 0
 							? result(ServerActionState.SUCCEEDED, "USE_INPUT_CONFIRMED",

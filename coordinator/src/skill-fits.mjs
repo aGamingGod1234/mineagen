@@ -2,6 +2,8 @@ import { EYE_PLAN } from './eye-plan.mjs';
 import { endKit } from './end-readiness.mjs';
 import { foodAdviceNeeded, portalBedSource } from './survival-advice.mjs';
 import { heldCounts, keepPickaxeMakings, planObtain } from './obtain-plan.mjs';
+import { boatKit } from './need-sources.mjs';
+import { getSwitch } from './switches.mjs';
 
 // One wake fact: a goal skill (fight_until, barter_until, build nether_portal by casting, cast_obsidian) whose preconditions hold right now, with the
 // call's fields and the facts that make it fit. It names a call the model may make; nothing runs from it.
@@ -50,7 +52,10 @@ export function skillFitsLine({ observation: o = null, needs = [], sightings = [
 		// An enderman is always fought in melee (fight_until never shoots one).
 		if (running === 'fight_until' || !melee) return null;
 		const mob = nearest('minecraft:enderman', FIGHT_RANGE);
-		return mob && `fight_until mob:minecraft:enderman untilItem:minecraft:ender_pearl untilCount:${need.need} (enderman ${m(mob.distance)}, ${melee}, pearls ${need.have}/${need.need})`;
+		// s1 hunt1 (26 Nov): 7 of 8 games near an enderman took this call over the boat trap the wake also named, and got
+		// no pearl. With a boat in hand in the Overworld (no rain), the trap comes first; fight_until is the fallback.
+		const boat = getSwitch('night.hunt').value && dimension === 'minecraft:overworld' && o.world?.raining !== true && boatKit(o.inventory?.items).boats > 0;
+		return mob && `fight_until mob:minecraft:enderman untilItem:minecraft:ender_pearl untilCount:${need.need} (enderman ${m(mob.distance)}, ${melee}, pearls ${need.have}/${need.need}${boat ? '; boat held: trap it first' : ''})`;
 	};
 	const barter = need => {
 		// barter_until crafts carried gold blocks and nuggets into ingots and puts on carried gold armour itself; nuggets
