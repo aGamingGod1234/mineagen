@@ -260,3 +260,16 @@ test('a long walk back repeats travel legs while they close distance, and stops 
 	assert.equal(r2.reasonCode, 'NO_ROUTE');
 	assert.equal(stuck.calls.filter((c) => c.type === 'travel_to').length, 1);
 });
+
+test('a live respawn wake (an observation trigger with a new context) carries the drops lead and recover_items', async () => {
+	const { buildNativeEventInput } = await import('../src/dynamic-main.mjs');
+	const record = { agentId: 'a', goalRevision: 1, provider: 'codex', model: 'fixture' };
+	const recovery = { lastDeath: { cause: 'Probe died', dimensionId: OW, ...SPOT, diedAtEpochMs: T0, damageType: 'minecraft:generic', respawnedAt: { dimension: OW, x: 0.5, y: 64, z: 0.5 } }, lastLostInventory: KIT };
+	const observation = { ready: true, observedAtEpochMs: T0 + 5_000, world: { dimension: OW }, position: { x: 0.5, y: 64, z: 0.5 }, recovery };
+	const head = (options) => { const input = buildNativeEventInput(record, { event: 'observation', trigger: 'observation', observation, ...options }); return input.slice(0, input.indexOf('\n')); };
+	assert.ok(head({ newContext: true }).includes(RECOVER_FIRST_MOVE));
+	assert.ok(!head({ newContext: false }).includes('recover_items'), 'an ordinary wake does not repeat it');
+	const { respawnedAt: _, ...noRespawn } = recovery.lastDeath;
+	const input = buildNativeEventInput(record, { event: 'observation', trigger: 'observation', newContext: true, observation: { ...observation, recovery: { ...recovery, lastDeath: noRespawn } } });
+	assert.ok(!input.slice(0, input.indexOf('\n')).includes('recover_items'), 'a new goal with no respawn since the death');
+});

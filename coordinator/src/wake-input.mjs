@@ -56,7 +56,9 @@ export function buildNativeEventInput(record, { event, trigger, programId, statu
 	const normalizedEvent = typeof eventName === 'string' && eventName.length > 0 ? eventName : 'observation';
 	const notice = normalizedEvent === 'program_planning_due' || conversationOnly === true ? [] : workNotices(observation, actionReceipt);
 	// Read before presentation copies the observation: the drop clock rides on recovery as a non-enumerable field.
-	const respawnRecovery = trigger === 'respawn' && conversationOnly !== true ? respawnLead(observation.recovery ?? null, observation) : null;
+	// A live respawn reaches the model as a new-context wake whose trigger is the body's next observation, not 'respawn'.
+	const afterRespawn = trigger === 'respawn' || newContext === true && observation.recovery?.lastDeath?.respawnedAt != null;
+	const respawnRecovery = afterRespawn && conversationOnly !== true ? respawnLead(observation.recovery ?? null, observation) : null;
 	observation = presentEventObservation(compactProjectileObservation(observation), { inventoryLimit: normalizedEvent === 'program_planning_due' ? 8 : 32 });
 	const header = continuity !== null && typeof continuity === 'object' ? continuity : null;
 	// The header's unresolved failure already states this result; the observation keeps only its replaceable handle.
