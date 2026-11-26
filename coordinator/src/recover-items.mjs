@@ -7,7 +7,7 @@
 
 import { headingOf } from './search-coverage.mjs';
 import { nextKitStep } from './kit-habit.mjs';
-import { DROP_LIFETIME_SECONDS, dropLoss, killerMob, recoveryRoute, lostItemsText } from './respawn-recovery.mjs';
+import { DROP_LIFETIME_SECONDS, dropClockText, dropLoss, killerMob, recoveryRoute, lostItemsText } from './respawn-recovery.mjs';
 
 export const RECOVER_TIMEOUT_MS = 240_000;
 export const RECOVER_MAX_TIMEOUT_MS = 900_000;
@@ -142,7 +142,8 @@ export async function runRecoverItems(args = {}, body, { now = Date.now } = {}) 
 		const made = await body.obtain('minecraft:stone_pickaxe', 1, Math.max(60_000, Math.min(PICK_FIRST_TIMEOUT_MS, left())));
 		o = await body.observe();
 		if (made?.state === 'INTERRUPTED') return stop(made, 'making a stone pickaxe for the way down');
-		if (!pickaxe(o)) return end('FAILED', 'NO_PICKAXE', `The drops are ${Math.round(from.y - spot.y)} blocks down with no walked way there, and making a stone pickaxe ended ${made?.reasonCode ?? made?.state ?? 'without one'}${made?.message ? ` (${String(made.message).slice(0, 160)})` : ''}`);
+		// The drops are not lost yet: say how long they keep, so a pickaxe made later by ordinary play still leads back.
+		if (!pickaxe(o)) return end('FAILED', 'NO_PICKAXE', `The drops are ${Math.round(from.y - spot.y)} blocks down with no walked way there, and making a stone pickaxe ended ${made?.reasonCode ?? made?.state ?? 'without one'}${made?.message ? ` (${String(made.message).slice(0, 160)})` : ''}. The drops: ${dropClockText(o?.recovery?.dropTicking)}; once you hold a pickaxe, call recover_items again`);
 	}
 
 	// A mob kill: stop short, look, and leave a crowd to the model (a player does not walk back into the same fight).

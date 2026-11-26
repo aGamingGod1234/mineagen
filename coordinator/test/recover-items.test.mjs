@@ -235,6 +235,7 @@ test('no pickaxe made for an underground walk back: hand back NO_PICKAXE without
 	assert.equal(result.reasonCode, 'NO_PICKAXE');
 	assert.equal(w.calls.length, 0);
 	assert.match(result.message, /50 blocks down/);
+	assert.match(result.message, /drops: .*call recover_items again/, 'a later pickaxe still leads back');
 });
 
 test('a walked way down or a held pickaxe skips the pickaxe step; drops at the same level never need one', async () => {
