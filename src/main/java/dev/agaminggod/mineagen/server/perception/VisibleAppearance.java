@@ -104,9 +104,9 @@ final class VisibleAppearance {
 		// A rider is drawn sitting in its vehicle: a mob seated in a boat (the enderman boat trap) cannot teleport out.
 		Entity vehicle = entity.getVehicle();
 		if (vehicle != null) look.addProperty("seatedIn", BuiltInRegistries.ENTITY_TYPE.getKey(vehicle.getType()).toString());
-		if (!entity.getPassengers().isEmpty()) {
-			look.addProperty("passenger", BuiltInRegistries.ENTITY_TYPE.getKey(entity.getPassengers().get(0).getType()).toString());
-		}
+		// Verification stubs are allocated without a constructor, so their passenger list can be null.
+		java.util.List<Entity> riders = entity.getPassengers();
+		if (riders != null && !riders.isEmpty()) look.addProperty("passenger", BuiltInRegistries.ENTITY_TYPE.getKey(riders.get(0).getType()).toString());
 		return look.size() == 0 ? null : look;
 	}
 
