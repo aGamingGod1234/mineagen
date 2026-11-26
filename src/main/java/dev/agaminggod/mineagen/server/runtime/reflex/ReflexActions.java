@@ -4037,10 +4037,18 @@ final class ReflexActions {
 				// The condition's mob; when it names none (low health), the hostiles that see the player and can shoot it,
 				// since cover stops shots and a melee mob walks around it; with no shooter, every hostile that sees it.
 				List<? extends LivingEntity> from;
-				if (context.focus() instanceof LivingEntity mob && mob.isAlive()) from = List.of(mob);
-				else {
+				// Every shooter after the body counts, out to blaze range: cover from the one named alone, or from the
+				// 24-block watchers, read "already out of sight" while a second blaze 19 to 38 blocks off kept hitting
+				// (3 of 8 fortress deaths).
+				List<Mob> farShooters = ShelterHold.shooters(player);
+				if (context.focus() instanceof LivingEntity mob && mob.isAlive()) {
+					List<LivingEntity> all = new ArrayList<>(List.of(mob));
+					for (Mob shooter : farShooters) if (shooter != mob) all.add(shooter);
+					from = all;
+				} else {
 					List<Mob> seen = watchers(player);
-					List<Mob> shooters = seen.stream().filter(ThreatPerception::isRanged).toList();
+					List<Mob> shooters = new ArrayList<>(seen.stream().filter(ThreatPerception::isRanged).toList());
+					for (Mob shooter : farShooters) if (!shooters.contains(shooter)) shooters.add(shooter);
 					from = shooters.isEmpty() ? seen : shooters;
 				}
 				if (from.isEmpty()) return Step.failed("no mob to take cover from");

@@ -23,7 +23,7 @@ public final class ReflexVerification {
 	}
 
 	public static void main(String[] args) {
-		int passed = verify() + ReflexBodyVerification.verify() + ReflexShieldVerification.verify()
+		int passed = verify() + ShelterHoldVerification.verify() + ReflexBodyVerification.verify() + ReflexShieldVerification.verify()
 				+ dev.agaminggod.mineagen.server.runtime.input.VanillaMoveInputVerification.verify();
 		System.out.println("PASS: " + passed + " shipping controller and reflex assertions");
 	}
