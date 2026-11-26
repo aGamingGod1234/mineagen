@@ -12,7 +12,7 @@ import { composeContinuityHeader, dependentChain, inventoryEffect, rememberResul
 import { boundPlacements, functionalPlacement, placementAt, placementCellsInDimension, placementsForItems, prunePlacements, relevantPlacement, samePlacementBlock } from './plan-placement-memory.mjs';
 import { armorMaterialNeed, chainText, howtoChain, howtoHeldRecipe, howtoHoldings, howtoTopic } from './howto.mjs';
 import { fortressSearchOption } from './nether-regions.mjs';
-import { NETHER_OPTIONS_BYTES, SOURCE_BLOCKS, bedSpawnOption, descentRespawnFact, knownLine, needOptions, netherReadiness, netherRouteOption, pearlHuntLine, pearlOptions, pearlSourceInView, pearlsWanted, pickaxeTier, portalAtHand, progressionGoal, textResources } from './need-sources.mjs';
+import { BED_SEARCH_MIN, NETHER_OPTIONS_BYTES, SOURCE_BLOCKS, bedSpawnOption, descentRespawnFact, knownLine, needOptions, netherReadiness, netherRouteOption, pearlHuntLine, pearlOptions, pearlSourceInView, pearlsWanted, pickaxeTier, portalAtHand, progressionGoal, textResources } from './need-sources.mjs';
 import { VILLAGE_POI, headingOf, sightingKind } from './search-coverage.mjs';
 import { foodStockHandback, portalDeathMark, routeLine, skillFitsLine, woodStockHandback } from './skill-fits.mjs';
 import { KIT_ITEMS } from './end-readiness.mjs';
@@ -20,6 +20,7 @@ import { beatsTheGame } from './goal-spec-translator.mjs';
 import { dropLoss, recoveryRoute } from './respawn-recovery.mjs';
 import { lightLine, upLine, toolsLine, picksLine, sleepLine, spawnLine, castingLine, frameLine } from './wake-body-facts.mjs';
 import { noteIntent, noteRepeat, noteSearch, progressFacts, resetProgress, takeProgressWake, trackProgress } from './step-progress.mjs';
+import { firedTask, noteTaskDeath, noteTaskTime, takeTaskWake, taskSwitchLine } from './task-clock.mjs';
 
 const ROUTE_SOURCE_BLOCKS = new RegExp(`${SOURCE_BLOCKS.source}|^minecraft:nether_portal$`, SOURCE_BLOCKS.flags);
 
@@ -89,7 +90,7 @@ export function validateTaskStep(v) {
 export class LiveTaskViews {
  #directory; #states = new Map(); #advice = new Map(); #writes = Promise.resolve(); #now; #sources; #progressTiming; #instincts;
  /** sources(record, observation, blockPattern) returns remembered { sightings, blocks } of that world and dimension, or null. */
- /** progressTiming ({ noProgressMs, repeatCount }) overrides the recorded-game defaults, for replays only. */
+ /** progressTiming ({ noProgressMs, repeatCount, taskBudgetMs }) overrides the recorded-game defaults, for replays only. */
  /** instincts: the instincts arm (MINEAGEN_INSTINCTS) adds the weapon and food-everywhere route steps. */
  constructor({ directory = null, now = Date.now, sources = null, progressTiming = {}, instincts = false } = {}) {
   if (typeof now !== 'function') throw new TypeError('Live task view clock must be a function');
@@ -110,7 +111,7 @@ export class LiveTaskViews {
  }
  #newState(record, fresh = false) {
   // Steering changes the planner prompt, not the immutable task or its saved scope.
-  return { taskIdentity: taskIdentity(record), goal: record.currentGoalSpec?.originalRequest ?? record.currentGoal ?? '', goalRevision: record.goalRevision, plan: null, revision: 0, events: [], sequence: 0, usage: null, usageSample: null, allowance: null, worldId: null, observation: null, scope: null, loading: null, lastObserved: {}, worldProof: {}, presenceProof: {}, deathLosses: {}, known: emptyKnown(), verified: false, fresh, intent: null, planFocus: null, workHeading: null, stall: null, broken: 0, counted: [], breaks: [], gains: [], ownPoi: [], dimensionSince: null, deaths: 0, portalDeaths: null, wasDead: false, results: [], foodHandback: null, woodHandback: null, effect: null, liveInventory: null, liveDimension: null, samples: [], lifecycle: new FactLifecycle(), progress: null, alarms: {}, repeats: [], repeatAlarmed: {}, intentLog: [] };
+  return { taskIdentity: taskIdentity(record), goal: record.currentGoalSpec?.originalRequest ?? record.currentGoal ?? '', goalRevision: record.goalRevision, plan: null, revision: 0, events: [], sequence: 0, usage: null, usageSample: null, allowance: null, worldId: null, observation: null, scope: null, loading: null, lastObserved: {}, worldProof: {}, presenceProof: {}, deathLosses: {}, known: emptyKnown(), verified: false, fresh, intent: null, planFocus: null, workHeading: null, stall: null, broken: 0, counted: [], breaks: [], gains: [], ownPoi: [], dimensionSince: null, deaths: 0, portalDeaths: null, taskClock: null, wasDead: false, results: [], foodHandback: null, woodHandback: null, effect: null, liveInventory: null, liveDimension: null, samples: [], lifecycle: new FactLifecycle(), progress: null, alarms: {}, repeats: [], repeatAlarmed: {}, intentLog: [] };
  }
  async #load(record, state) {
   if (!state.worldId) return;
@@ -150,6 +151,8 @@ export class LiveTaskViews {
    if (Number.isSafeInteger(saved?.deaths) && saved.deaths > state.deaths) state.deaths = saved.deaths;
    if (typeof saved?.stall?.step === 'string' && typeof saved.stall.key === 'string' && Number.isSafeInteger(saved.stall.since) && state.plan?.steps.some(s => s.id === saved.stall.step)) state.stall = { step: saved.stall.step, key: saved.stall.key, since: saved.stall.since, ...(Number.isSafeInteger(saved.stall.broken) && saved.stall.broken >= 0 ? { broken: saved.stall.broken } : {}) };
    if (Number.isSafeInteger(saved?.broken) && saved.broken > state.broken) state.broken = saved.broken;
+   // The task clocks outlive a restart, as they outlive deaths and plan rewrites (task-clock.mjs).
+   if (saved?.taskClock && typeof saved.taskClock.worldId === 'string' && saved.taskClock.clocks && typeof saved.taskClock.clocks === 'object' && Array.isArray(saved.taskClock.met) && state.taskClock === null) state.taskClock = { ...saved.taskClock, wake: false };
    if (Array.isArray(saved?.counted)) state.counted = [...new Set([...saved.counted.filter(key => typeof key === 'string' && key.length <= 300), ...state.counted])].slice(-MAX_COUNTED);
    if (Array.isArray(saved?.ownPoi)) state.ownPoi = boundOwnPoi([...saved.ownPoi.filter(p => identifier(p?.dimension) && identifier(p.blockId) && ['x', 'y', 'z'].every(k => Number.isSafeInteger(p[k]))), ...state.ownPoi]);
    // A restart while dead must not count the same death again.
@@ -174,7 +177,7 @@ export class LiveTaskViews {
   // evidence). An unready or bodiless sample, even one naming another world, only makes current facts unknown.
   if (!currentSample(observation)) { this.#state(record).observation = { ready: false }; return; }
   const state = this.#state(record), world = observation.world?.worldId ?? null;
-  if (world && state.worldId && world !== state.worldId) { state.plan = null; state.revision = 0; state.scope = null; state.lastObserved={}; state.worldProof = {}; state.presenceProof = {}; state.deathLosses = {}; state.known=emptyKnown(); state.verified=false; state.usage=null; state.usageSample=null; state.intent = null; state.planFocus = null; state.workHeading = null; state.deaths = 0; state.portalDeaths = null; state.results = []; state.foodHandback = null; state.woodHandback = null; state.effect = null; state.liveInventory = null; state.liveDimension = null; state.samples = []; state.openSky = null; state.ownPoi = []; state.breaks = []; state.gains = []; state.intentLog = []; resetProgress(state); }
+  if (world && state.worldId && world !== state.worldId) { state.plan = null; state.revision = 0; state.scope = null; state.lastObserved={}; state.worldProof = {}; state.presenceProof = {}; state.deathLosses = {}; state.known=emptyKnown(); state.verified=false; state.usage=null; state.usageSample=null; state.intent = null; state.planFocus = null; state.workHeading = null; state.deaths = 0; state.portalDeaths = null; state.taskClock = null; state.results = []; state.foodHandback = null; state.woodHandback = null; state.effect = null; state.liveInventory = null; state.liveDimension = null; state.samples = []; state.openSky = null; state.ownPoi = []; state.breaks = []; state.gains = []; state.intentLog = []; resetProgress(state); }
   if (world) state.worldId = world;
   state.observation = observation;
   // The wire carries position; the adapted observation carries it as player.x/y/z (as #memory reads it).
@@ -186,7 +189,7 @@ export class LiveTaskViews {
   const dead = observation.player?.dead === true || observation.continuity?.phase === 'dead';
   const died = dead && !state.wasDead, revived = !dead && state.wasDead;
   // A corpse sample may lack the world; the last live dimension is where the death happened.
-  if (died) { state.foodHandback = null; state.woodHandback = null; state.deaths++; state.effect = `died in ${String(observation.world?.dimension ?? state.liveDimension ?? 'this world').replace(/^minecraft:/, '')}`; state.liveInventory = null; }
+  if (died) { state.taskClock = noteTaskDeath(state.taskClock, observation.world?.dimension ?? state.liveDimension); state.foodHandback = null; state.woodHandback = null; state.deaths++; state.effect = `died in ${String(observation.world?.dimension ?? state.liveDimension ?? 'this world').replace(/^minecraft:/, '')}`; state.liveInventory = null; }
   if (!dead && identifier(observation.world?.dimension)) {
    // The first dimension seen is no change; a later one is.
    if (state.liveDimension !== null && state.liveDimension !== observation.world.dimension) state.dimensionSince = Number.isFinite(observation.observedAtEpochMs) ? observation.observedAtEpochMs : this.#now();
@@ -214,8 +217,18 @@ export class LiveTaskViews {
   if (changed) state.revision++;
   const stalled = !dead && observation.ready === true && trackStall(state, Number.isFinite(observation.observedAtEpochMs) ? observation.observedAtEpochMs : this.#now());
   if (!dead && observation.ready === true) trackProgress(state, progressFocus(state), Number.isFinite(observation.observedAtEpochMs) ? observation.observedAtEpochMs : this.#now(), { ...this.#progressTiming, chain: step => requirementChain(step, state, { counted: true })?.key ?? null });
-  if (stalled || changed || knownChanged || placementChanged || lifeEnded || life !== null || (died || revived) && state.intent) this.#save(state);
+  const clockSaved = this.#noteTaskClock(state, observation);
+  if (stalled || changed || knownChanged || placementChanged || lifeEnded || life !== null || clockSaved || (died || revived) && state.intent) this.#save(state);
   rememberSample(state, observation);
+ }
+ /** One more live sample on the task clocks; true when they should be saved (a fire, or a minute since the last save). */
+ #noteTaskClock(state, o) {
+  if (!state.plan || o.ready !== true || deadSample(o) || !state.worldId) return false;
+  const at = Number.isFinite(o.observedAtEpochMs) ? o.observedAtEpochMs : this.#now();
+  state.taskClock = noteTaskTime(state.taskClock, { at, worldId: state.worldId, steps: state.plan.steps, focus: progressFocus(state) ?? null, observation: o, known: state.known, ...(Number.isFinite(this.#progressTiming.taskBudgetMs) || this.#progressTiming.taskBudgetMs === Infinity ? { budgetMs: this.#progressTiming.taskBudgetMs } : {}) });
+  if (!state.taskClock) return false;
+  if (state.taskClock.wake || !(at - (state.taskClockSavedAt ?? 0) < 60_000)) { state.taskClockSavedAt = at; return true; }
+  return false;
  }
  #invalidatePlacements(state, o) {
   if (o.ready !== true || deadSample(o) || !Number.isFinite(o.observedAtEpochMs)) return false;
@@ -434,7 +447,7 @@ export class LiveTaskViews {
   if (!this.#directory || !state.scope) return;
   const filename = path.join(this.#directory, `${state.scope}.json`);
   const plan = state.plan ? { steps: state.plan.steps.map(({ lastObservedAt, ...s }) => s) } : null;
-  const content = JSON.stringify({ version: 1, plan, revision: state.revision, lastObserved: state.lastObserved, worldProof: state.worldProof, presenceProof: state.presenceProof, deathLosses: state.deathLosses, known: state.known, lifecycle: state.lifecycle, broken: state.broken, counted: state.counted, ownPoi: state.ownPoi, planFocus: state.planFocus, workHeading: state.workHeading, ...(state.stall ? { stall: { step: state.stall.step, key: state.stall.key, since: state.stall.since, ...(Number.isSafeInteger(state.stall.broken) ? { broken: state.stall.broken } : {}) } } : {}), ...(state.intent ? { intent: state.intent, deaths: state.deaths, ...(state.wasDead ? { dead: true } : {}) } : {}) });
+  const content = JSON.stringify({ version: 1, plan, revision: state.revision, lastObserved: state.lastObserved, worldProof: state.worldProof, presenceProof: state.presenceProof, deathLosses: state.deathLosses, known: state.known, lifecycle: state.lifecycle, broken: state.broken, counted: state.counted, ownPoi: state.ownPoi, planFocus: state.planFocus, workHeading: state.workHeading, ...(state.taskClock ? { taskClock: state.taskClock } : {}), ...(state.stall ? { stall: { step: state.stall.step, key: state.stall.key, since: state.stall.since, ...(Number.isSafeInteger(state.stall.broken) ? { broken: state.stall.broken } : {}) } } : {}), ...(state.intent ? { intent: state.intent, deaths: state.deaths, ...(state.wasDead ? { dead: true } : {}) } : {}) });
   this.#writes = this.#writes.catch(() => {}).then(async () => {
    await mkdir(this.#directory, { recursive: true }); await replaceFile(filename, content, 'utf8');
   });
@@ -728,13 +741,18 @@ export class LiveTaskViews {
   const kitHandedBack = new Set((current.kitHandbacks ?? []).filter(row => row.worldId === current.worldId && row.deaths === state.deaths).map(row => row.item));
   const diedSincePortal = Number.isSafeInteger(state.portalDeaths) && state.deaths > state.portalDeaths;
   const route = beatsTheGame(record.currentGoalSpec) ? routeLine({ observation: state.observation, known: state.known, memory: this.#memory(record, state, ROUTE_SOURCE_BLOCKS), foodHandedBack, woodHandedBack, kitHandedBack, diedSincePortal, evaluate: evaluatePlanCheck, instincts: this.#instincts }) : null;
-  return composeContinuityHeader({ goal: record.currentGoal, intent: state.intent, evidence: intentEvidence(state), since, progress: this.#progressLine(state), route, stepProgress: stepProgress.progress ?? null, repeats: stepProgress.repeats ?? null, search: stepProgress.search ?? null, ...this.#memoryFacts(record, state, shown, observation?.recovery ?? null), results: state.results, running, effect: state.effect, orders, guardInstalled, guardCoverage, guardThreatsNear, guardThreatsTargeting, annotate });
+  // A task that has sunk its budget across lives names a way that can still work, above the usual route.
+  const position = state.observation?.position ?? state.observation?.player?.position ?? state.observation?.player;
+  const stuck = state.plan && !deadSample(state.observation) ? taskSwitchLine(firedTask(current.taskClock, { steps: state.plan.steps }), { known: state.known, position: position && [position.x, position.z].every(Number.isFinite) ? position : null, observation: state.observation }) : null;
+  return composeContinuityHeader({ goal: record.currentGoal, intent: state.intent, evidence: intentEvidence(state), since, progress: this.#progressLine(state), stuck, route, stepProgress: stepProgress.progress ?? null, repeats: stepProgress.repeats ?? null, search: stepProgress.search ?? null, ...this.#memoryFacts(record, state, shown, observation?.recovery ?? null), results: state.results, running, effect: state.effect, orders, guardInstalled, guardCoverage, guardThreatsNear, guardThreatsTargeting, annotate });
  }
  /** The trigger for a no-progress or repeated-result fact not yet woken for ('no_progress' | 'repeated_result'), once. */
  progressWake(record) {
   if (!record.currentGoal) return null;
   const state = this.#states.get(record.agentId);
-  return state && state.goalRevision === record.goalRevision ? takeProgressWake(state) : null;
+  if (!state || state.goalRevision !== record.goalRevision) return null;
+  // A task clock that ran out wakes like a plan stall, once (task-clock.mjs).
+  return takeProgressWake(state) ?? (takeTaskWake(state.taskClock) ? 'no_progress' : null);
  }
  /**
   * Ways to get what the first unfinished step (the one the stall clock follows) still lacks: remembered sightings and
@@ -808,10 +826,22 @@ export class LiveTaskViews {
   // A respawn already set beside the player (the bed by this portal) needs no option.
   const at = o?.position ?? o?.player, spawn = state.known?.spawn;
   if (spawn?.kind === 'set' && spawn.dimension === 'minecraft:overworld' && [at?.x, at?.z].every(Number.isFinite) && Math.hypot(spawn.x - at.x, spawn.z - at.z) <= 24) return null;
+  // Lit Overworld portals remembered; a respawn set beside one is the bed by the portal, verified.
+  const lit = (state.known?.frames ?? []).filter(f => f.dimension === 'minecraft:overworld' && f.lit === true && [f.x, f.z].every(Number.isFinite));
+  const set = spawn?.kind === 'set' && spawn.dimension === 'minecraft:overworld' && lit.some(f => Math.hypot(spawn.x - f.x, spawn.z - f.z) <= 24);
   const endNear = () => (o.inventory?.items ?? []).some(item => item?.itemId === 'minecraft:ender_eye' && item.count > 0)
    || (Array.isArray(o.blocks) && o.blocks.some(row => row?.blockId === 'minecraft:end_portal_frame' || row?.blockId === 'minecraft:end_portal'));
   const respawn = spawn?.kind === 'set' ? `your respawn now: ${spawn.x},${spawn.y},${spawn.z}${[at?.x, at?.z].every(Number.isFinite) ? `, ${Math.round(Math.hypot(spawn.x - at.x, spawn.z - at.z))} blocks away` : ''}` : null;
   const option = target => { const text = bedSpawnOption(o, target); return text && respawn ? `${text}; ${respawn}` : text; };
+  // The Nether portal's offer, until a respawn by a lit portal is set. Without a bed, wool or sheep at hand, a short look
+  // for sheep, for the first minutes near the portal in each life.
+  const netherOffer = () => {
+   if (set) return null;
+   const now = Number.isFinite(o.observedAtEpochMs) ? o.observedAtEpochMs : this.#now();
+   if (state.bedSearch?.deaths !== state.deaths || state.bedSearch.worldId !== state.worldId) state.bedSearch = { deaths: state.deaths, worldId: state.worldId, since: now };
+   const text = bedSpawnOption(o, 'nether', { search: now - state.bedSearch.since < BED_SEARCH_MIN * 60_000 });
+   return text && respawn ? `${text}; ${respawn}` : text;
+  };
   for (const step of state.plan?.steps ?? []) {
    if (step.status === 'complete' || !step.check) continue;
    const target = /\b(?:in|visited):minecraft:the_(nether|end)\b/.exec(step.check)?.[1];
@@ -819,11 +849,16 @@ export class LiveTaskViews {
    const check = evaluatePlanCheck(step.check, o, state.known);
    if (check.any || !check.terms.some(t => t.ok === false && ['in', 'visited'].includes(t.type))) continue;
    const near = target === 'nether' ? portalAtHand(o) : endNear();
-   return near ? option(target) : null;
+   return near ? target === 'nether' ? netherOffer() : option(target) : null;
   }
+  // Every re-entry after a visit, until a respawn by the portal is set: the Nether step is complete by then, so the plan
+  // loop above no longer offers it (in 8 measure games, 25 Nov, this option was shown 0 times).
+  // Without a bed, wool or sheep at hand, a short look for sheep, once per life.
+  const portalNear = lit.some(f => [at?.x, at?.z].every(Number.isFinite) && Math.hypot(f.x - at.x, f.z - at.z) <= 32) || o.sighted?.portalFrames?.[0]?.lit === true;
+  if (portalNear && (state.known?.visitedDimensions ?? []).includes('minecraft:the_nether')) return netherOffer();
   // Without such a plan step, a portal in front of the player is the same moment.
   if (Array.isArray(o.blocks) && o.blocks.some(row => row?.blockId === 'minecraft:end_portal')) return option('end');
-  if (Array.isArray(o.sighted?.portalFrames) && o.sighted.portalFrames[0]?.lit === true) return option('nether');
+  if (Array.isArray(o.sighted?.portalFrames) && o.sighted.portalFrames[0]?.lit === true) return netherOffer();
   if (progressionGoal(state.goal)) return bedSpawnOption(o);
   return null;
  }

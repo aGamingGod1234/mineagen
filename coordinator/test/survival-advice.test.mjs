@@ -44,13 +44,22 @@ test('quick bed advice uses fresh visible opportunities, never a wool search fro
  }
 });
 
-test('fresh portal landmarks suppress every automatic bed presenter', () => {
+test('fresh portal landmarks suppress the automatic bed presenters but not the bed by that portal', () => {
  for (const blockId of ['minecraft:nether_portal', 'minecraft:end_portal']) {
   const o = sample([['white_bed']], { landmarks: [{ blockId, x: 0, y: 64, z: 0 }] });
-  for (const render of [o => bedSpawnOption(o, 'end'), sleepLine, spawnLine]) assert.equal(render(o), null);
+  for (const render of [sleepLine, spawnLine, o => bedSpawnOption(o)]) assert.equal(render(o), null);
+  // The bed-by-the-portal offer is made at the portal: an open portal in view keeps it.
+  assert.match(bedSpawnOption(o, 'end'), /used by the end portal/);
   const stale = { ...o, continuity: { rememberedSections: ['blocks'] } };
   assert.match(bedSpawnOption(stale, 'end'), /after the available stage/);
  }
+});
+
+test('the bed by the portal offers a short sheep look when nothing for a bed is at hand', () => {
+ const o = sample([], { landmarks: [{ blockId: 'minecraft:nether_portal', x: 0, y: 64, z: 0 }] });
+ assert.equal(bedSpawnOption(o, 'nether'), null);
+ assert.match(bedSpawnOption(o, 'nether', { search: true }), /look for sheep nearby .* for at most 3 min, then go in without it/);
+ assert.equal(bedSpawnOption(o, undefined, { search: true }), null);
 });
 
 test('low-health casting advice respects its UTF-8 route budget including the ellipsis', () => {

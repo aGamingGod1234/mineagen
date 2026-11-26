@@ -5,15 +5,16 @@ export function foodAdviceNeeded(o) {
 		|| Number.isFinite(o?.player?.health) && o.player.health <= 14;
 }
 
-export function quickBedSource(o) {
+export function quickBedSource(o, { atPortal = false } = {}) {
 	const stale = section => o?.continuity?.rememberedSections?.includes(section);
 	if (o?.ready !== true || o.player?.dead === true || o.world?.dimension !== 'minecraft:overworld'
 		|| stale('world') || stale('inventory') || !Array.isArray(o.inventory?.items)) return null;
 	const blocks = stale('blocks') ? [] : o.blocks ?? [];
 	// An open portal is an available stage, so automatic bed preparation can wait.
 	const portalBlocks = stale('blocks') ? [] : [...blocks, ...(o.landmarks ?? [])];
-	if (portalBlocks.some(b => ['minecraft:nether_portal', 'minecraft:end_portal'].includes(b.blockId))
-		|| !stale('sighted') && o.sighted?.portalFrames?.some(f => f.lit === true)) return null;
+	// The bed-by-the-portal offer is made at the portal itself (atPortal), so it keeps its source there.
+	if (!atPortal && (portalBlocks.some(b => ['minecraft:nether_portal', 'minecraft:end_portal'].includes(b.blockId))
+		|| !stale('sighted') && o.sighted?.portalFrames?.some(f => f.lit === true))) return null;
 	const items = o.inventory.items.filter(i => i.count > 0);
 	if (items.some(i => /^minecraft:\w+_bed$/.test(i.itemId ?? ''))) return 'held';
 	if (blocks.some(b => /^minecraft:\w+_bed$/.test(b.blockId ?? '') && b.visible !== false)) return 'seen';
