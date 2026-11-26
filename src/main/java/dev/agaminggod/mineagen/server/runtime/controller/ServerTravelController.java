@@ -590,9 +590,8 @@ public final class ServerTravelController implements ServerController {
 					&& attacker.distanceTo(player) <= HOSTILE_RANGE) {
 				return engage(player, attacker, String.format(Locale.ROOT, "hit you for %.1f (%s)", lastHealth - health, cause), nowEpochMs);
 			}
-			if (source != null && source.getEntity() instanceof Mob attacker && attacker.distanceTo(player) <= HOSTILE_RANGE && fightsEndermanNow(player, attacker)) {
+			if (source != null && source.getEntity() instanceof Mob attacker && attacker.distanceTo(player) <= HOSTILE_RANGE && fightsEndermanNow(player, attacker))
 				return engage(player, attacker, String.format(Locale.ROOT, "an angry enderman hit you for %.1f; it teleports, so it is fought, not outrun", lastHealth - health), nowEpochMs);
-			}
 			float lost = lastHealth - health;
 			if (!TravelStops.shrugsOff(source == null ? null : source.getMsgId(), source != null && source.getEntity() != null, lost, shrugged, health, minHealth))
 				return fail(player, "TRAVEL_DAMAGED", String.format(Locale.ROOT, "Took %.1f damage (%s); health %.1f", lost, cause, health));
