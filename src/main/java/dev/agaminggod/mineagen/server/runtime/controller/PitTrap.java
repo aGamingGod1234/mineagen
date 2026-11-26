@@ -116,6 +116,27 @@ final class PitTrap {
 		return best;
 	}
 
+	/** A trap gets this far from the feet to a pit site (a short step, not a walk across the forest). */
+	static final int SITE_RADIUS = 3;
+	/** Projectile hits in the trap that hand the call back: an archer shoots through the window and the pit gives no cover from it. */
+	static final int SHOTS_OUT = 2;
+
+	/** The nearest cell within {@link #SITE_RADIUS} sideways and one up or down that is a pit site, or null. */
+	static BlockPos nearestSite(Cells cells, BlockPos feet) {
+		BlockPos best = null;
+		double bestDistance = Double.MAX_VALUE;
+		for (int dy = -1; dy <= 1; dy++)
+			for (int dx = -SITE_RADIUS; dx <= SITE_RADIUS; dx++)
+				for (int dz = -SITE_RADIUS; dz <= SITE_RADIUS; dz++) {
+					BlockPos at = feet.offset(dx, dy, dz);
+					double distance = feet.distSqr(at);
+					if (distance >= bestDistance || site(cells, at) == null) continue;
+					best = at;
+					bestDistance = distance;
+				}
+		return best;
+	}
+
 	/** Blocks to place before the cap on side {@code d}: 0 with a natural block at cap height, else 1 or 2; MAX when impossible. */
 	static int supportCost(Cells cells, BlockPos ground, Direction d) {
 		BlockPos low = ground.relative(d), high = low.above();

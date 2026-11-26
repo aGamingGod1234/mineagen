@@ -50,6 +50,14 @@ public final class PitTrapVerification {
 		check(PitTrap.site(new Grid().set(FEET.east(), Kind.LAVA), FEET) == null, "lava at ground level beside the body: no pit");
 		check(PitTrap.site(new Grid().set(FEET.below().south(), Kind.LAVA), FEET) == null, "lava in the rim: no pit");
 		check(PitTrap.site(new Grid().set(FEET.below(4), Kind.LAVA), FEET) == null, "lava right under the floor: no pit");
+		Grid cave = new Grid().set(FEET.below(2), Kind.OPEN);
+		BlockPos near = PitTrap.nearestSite(cave, FEET);
+		check(near != null && near.getY() == FEET.getY() && Math.max(Math.abs(near.getX()), Math.abs(near.getZ())) == 2,
+				"a cave under the feet: the nearest site is two steps off, clear of the cave's rim");
+		check(PitTrap.nearestSite(new Grid(), FEET).equals(FEET), "the feet are a site: no step");
+		Grid lavaSea = new Grid();
+		for (int dx = -5; dx <= 5; dx++) for (int dz = -5; dz <= 5; dz++) lavaSea.set(FEET.offset(dx, -4, dz), Kind.LAVA);
+		check(PitTrap.nearestSite(lavaSea, FEET) == null, "lava under every floor near: no site to step to");
 	}
 
 	private static void verifySupports() {

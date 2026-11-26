@@ -412,6 +412,9 @@ public final class ServerFightUntilController implements ServerController {
 	private AgentInputStates.MotorState trapMotor;
 	private ServerController trapWalk;
 	private int trapLoots;
+	private BlockPos trapSite;
+	private float trapHealth = -1.0F;
+	private int trapShots;
 
 	public ServerFightUntilController(ServerPlayer player, JsonObject arguments, ServerProtectionPolicy protection, long now) {
 		this(player, arguments, protection, now, "fight_until", null, null);
@@ -1374,7 +1377,19 @@ public final class ServerFightUntilController implements ServerController {
 			PitTrap.Cells cells = cells(player);
 			BlockPos feet = player.blockPosition();
 			Direction side = PitTrap.site(cells, feet);
-			if (side == null) return dropTrap(player, "no pit site at " + feet.toShortString() + " (two solid blocks under the feet over solid ground, solid all round, no lava or fire beside)");
+			if (side == null) {
+				// A short step to the nearest site, as a player picks the flat patch beside the roots to dig in.
+				if (trapSite == null) trapSite = PitTrap.nearestSite(cells, feet);
+				if (trapSite == null || trapSite.equals(feet))
+					return dropTrap(player, "no pit site within " + PitTrap.SITE_RADIUS + " blocks of " + feet.toShortString() + " (two solid blocks under the feet over solid ground, solid all round, no lava or fire beside)");
+				if (trapWalk == null) trapWalk = new ServerNavigationController(Vec3.atBottomCenterOf(trapSite), 0.3D, false, now, 8_000L, false).crouched(choices.sneak());
+				TickResult walked = trapWalk.tick(player, now);
+				if (walked.state() == State.RUNNING) return TickResult.running(progress(player));
+				trapWalk.cancel(player);
+				trapWalk = null;
+				if (!player.blockPosition().equals(trapSite)) return dropTrap(player, "the step to the pit site at " + trapSite.toShortString() + " ended " + walked.reasonCode());
+				return TickResult.running(progress(player));
+			}
 			if (ServerDigController.toolSlot(player, player.level().getBlockState(feet.below())) < 0)
 				return dropTrap(player, "no pickaxe to dig in fast");
 			int cost = PitTrap.supportCost(cells, feet, side);
@@ -1391,6 +1406,19 @@ public final class ServerFightUntilController implements ServerController {
 		}
 		if (trapItem == null) trapItem = roofing.blockItem(player);
 		BlockPos feet = player.blockPosition();
+		float health = player.getHealth();
+		if (trapHealth >= 0.0F && health < trapHealth - 1.0E-3F && player.getLastDamageSource() != null
+				&& player.getLastDamageSource().is(net.minecraft.tags.DamageTypeTags.IS_PROJECTILE) && (trap.inPit(feet) || trap.inStance(feet))) {
+			trapShots++;
+			note(String.format(Locale.ROOT, "pit trap: shot in the trap (%d), health %.1f", trapShots, health));
+			if (trapShots >= PitTrap.SHOTS_OUT) {
+				trapHealth = health;
+				return stop(player, TickResult.failed("TRAP_SHOT", String.format(Locale.ROOT,
+						"Shot %d times in the pit trap at %s: an archer near shoots through its window, and the pit gives no cover from arrows; deal with the archer or move on (health %.1f)",
+						trapShots, feet.toShortString(), health), progress(player)));
+			}
+		}
+		trapHealth = health;
 		trap.ticks++;
 		lastTargetMs = elapsed;
 		boolean building = switch (trap.phase) { case SUPPORT_LOW, SUPPORT_HIGH, DIG_STANCE, CAP -> true; default -> false; };
