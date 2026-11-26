@@ -186,6 +186,9 @@ test('enough eyes never send the agent back for blazes: missing counts down from
 	const away = visitedNether(); away.structuresSeen.push({ id: 'minecraft:stronghold', dimension: 'minecraft:overworld', x: 1500, z: 640 });
 	assert.match(route([...KIT, ['ender_eye', 11]], {}, away), /^usual next step: go to the stronghold seen at 1500,640, then find block end_portal_frame/);
 	assert.match(route(KIT, {}, found), /go back to the Nether for \d+ blaze_rods and 12 ender_pearls/);
+	// Off switch: MINEAGEN_EYES_HOLD=0 restores the count-and-go-back route with eyes in hand.
+	process.env.MINEAGEN_EYES_HOLD = '0';
+	try { assert.match(route([...KIT, ['ender_eye', 9]], {}, found), /go back to the Nether/); } finally { delete process.env.MINEAGEN_EYES_HOLD; }
 	assert.match(route([...KIT, ['ender_eye', 11], ['ender_pearl', 1], ['blaze_powder', 1]], {}, visitedNether()), /craft 1 ender_eyes/);
 	// Inserting: eyes leave the inventory into frames, and nothing regresses.
 	for (const set of [0, 4, 11]) {

@@ -8,6 +8,8 @@ import { heldCounts, keepPickaxeMakings, planObtain } from './obtain-plan.mjs';
 
 export const SKILL_FITS_BYTES = 240;
 // fight_until's default area radius; barter_until looks for piglins within 32 blocks (it walks that far to one), cast_obsidian for lava within 16.
+// Off switch for the eyes-in-hand route below (26 Nov): MINEAGEN_EYES_HOLD=0 restores the count-and-go-back route.
+const EYES_HOLD = () => process.env.MINEAGEN_EYES_HOLD !== '0';
 const FIGHT_RANGE = 24;
 const BARTER_RANGE = 32;
 const LAVA_RANGE = 16;
@@ -468,7 +470,7 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 		// set and a found stronghold makes the return a single trip. Eight eyes-to-dragon games (26 Nov): three went back
 		// at 9-11 eyes before seeing the stronghold and one after it (three of the four died in the Nether, none came back with
 		// more); the two that reached the End never turned back.
-		if (eyesHeld > 0 && (rodsMissing > 0 || pearlsMissing > 0)) {
+		if (EYES_HOLD() && eyesHeld > 0 && (rodsMissing > 0 || pearlsMissing > 0)) {
 			const short = `${eyeFacts}; ${eyesNeeded} short only if no frame is set`;
 			const hold = (known.structuresSeen ?? []).find(v => v.id === 'minecraft:stronghold' && v.dimension === 'minecraft:overworld');
 			if (!hold && !ok('seen:minecraft:stronghold'))
