@@ -286,6 +286,9 @@ public final class ServerTravelController implements ServerController {
 	/** A remembered route leg needs its actual height, including a shaft's next standing level. */
  ServerTravelController routeLeg() { this.routeLeg=true; return this; }
 
+	/** Backing away from lava, watching after that, or fighting: a caller must let this finish rather than cut the leg. */
+	boolean inSafetyRecovery() { return retreatCode != null || phase == Phase.FIGHT || phase == Phase.WATCH; }
+
 	/** One set of knockback holds for the whole trip, spent only by its forward legs (see {@link #startForwardLeg}). */
 	public ServerTravelController keepsKnockbackMargin() {
 		this.knockbackHolds = new KnockbackHolds();

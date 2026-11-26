@@ -110,7 +110,8 @@ public final class ServerRetraceController implements ServerController {
    // From the old floor the inside of a fill is unseen; walking up onto it shows the footstep is gone.
    boolean passBuried=shortcut==null && legEnd==index && skipBuriedEnabled();
    if(result.state()==State.RUNNING) {
-    if(!passBuried || ++buriedChecks%10!=0 || !buried(p,next)) return TickResult.running(progress());
+    // A lava retreat, its watch or a fight report RUNNING; cutting them would drop the escape and its warning.
+    if(!passBuried || leg instanceof ServerTravelController travel && travel.inSafetyRecovery() || ++buriedChecks%10!=0 || !buried(p,next)) return TickResult.running(progress());
     result=null;
    }
    leg.cancel(p);leg=null;
