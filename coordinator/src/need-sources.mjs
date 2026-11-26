@@ -229,6 +229,12 @@ function sourceText(row, position, blocks = []) {
 		case 'cave': return `cave${Number.isFinite(row.air) ? `(air ${row.air}/${CAVE_BOX_AIR})` : ''} ${where}${depth}${coordinates}${nearby}`;
 		case 'built': return `built(${row.what.replace(/^built:/, '').split('+').map(short).join('+')}) size ${row.size} ${where}`;
 		case 'lava': {
+			// The server's far-sight tag, kept by memory: a fall or a pocket cannot feed a frame however near it is.
+			// Flowing lava at the lake layer runs from a lake there, its sources out of sight.
+			if (row.flowing === true && row.y <= FLOOR_Y + 5) return `lava(flowing at the lake layer; source unseen) ${where}${depth}`;
+			if (row.flowing === true) return `lavafall(no source in sight) ${where}${depth}`;
+			if (row.small === true) return `lava pocket(too few for a frame) ${where}${depth}`;
+			if (row.pool === true) return `lava pool(enough for a frame) ${where}${depth}`;
 			// A nearby source does not establish that the remembered lava cell is scoopable, or a whole pool.
 			const cell = blocks.find(block => block.blockId === 'minecraft:lava' && block.x === row.x && block.y === row.y && block.z === row.z);
 			const state = cell && isSource(cell) ? 'source seen' : cell && isFlowing(cell) ? 'flowing; source unverified' : 'source unverified';
@@ -241,6 +247,9 @@ function sourceText(row, position, blocks = []) {
 		default: return `${row.what === 'village' ? 'village' : row.what.includes(':') ? 'structure' : row.what} ${where}`;
 	}
 }
+
+/** Remembered lava by what it can give a frame: a pool, untagged lava, then pockets and falls (which give none). */
+const lavaRank = (row) => row.kind !== 'lava' ? 1 : row.pool === true ? 0 : row.small === true ? 2 : row.flowing === true && row.y > FLOOR_Y + 5 ? 3 : 1;
 
 /**
  * Remembered sources of one resource: the resource itself seen first, then places that may hold it, each nearest first.
@@ -269,7 +278,7 @@ function knownRows(resource, known, position, placed) {
 	// (a spawner of unseen mob, then caves and structures).
 	const direct = (row) => ['vein', 'block', 'mob'].includes(row.kind) || row.kind === 'spawner' && row.mob !== undefined ? 0 : row.kind === 'spawner' ? 1 : 2;
 	const sorted = rows.map((row) => ({ row, distance: Math.hypot(row.x - position.x, row.y - position.y, row.z - position.z) }))
-		.sort((left, right) => direct(left.row) - direct(right.row) || left.distance - right.distance);
+		.sort((left, right) => direct(left.row) - direct(right.row) || lavaRank(left.row) - lavaRank(right.row) || left.distance - right.distance);
 	return distinctOpenings(sorted.map(({ row }) => row)).map(row => ({ direct: direct(row) === 0, row, text: sourceText(row, position, known?.blocks) }));
 }
 
@@ -437,15 +446,18 @@ export function obsidianOptions({ position, known = null, placed = [], items = [
 	// Each remembered lava pool away from frames: its chance of holding enough still sources weighs the fallback dig.
 	const sourcesNeeded = Math.max(0, casts - lavaBuckets);
 	for (const row of pools) {
-		if (used.has(row)) continue;
+		// A pocket the server tagged holds too few sources for a frame, and so does a lavafall above the lake layer: neither
+		// is a way to obsidian. Flowing lava at the floors runs from a lake there, as before (recorded r8: a y-50 fall 54 m
+		// from the lake the bot later cast from).
+		if (used.has(row) || row.small === true || row.flowing === true && row.y > FLOOR_Y + 5) continue;
 		const seen = blocks.filter((block) => block.blockId === 'minecraft:lava' && near(block, row, 8, 8));
 		const still = seen.filter(isSource).length, flowing = seen.filter(isFlowing).length;
 		// Far sight reports a pool past 24 blocks only with 8+ seen blocks, so a count that large is a lake.
-		const usable = still >= sourcesNeeded ? 1 : row.y <= FLOOR_Y + 5 ? FLOOR_USABLE : still === 0 && flowing > 0 ? 0
+		const usable = still >= sourcesNeeded || row.pool === true ? 1 : row.y <= FLOOR_Y + 5 ? FLOOR_USABLE : still === 0 && flowing > 0 ? 0
 			: row.y >= SURFACE_Y && !(row.count >= LARGE_POOL) ? SURFACE_USABLE : POOL_USABLE;
 		const walk = reach(position, row);
 		const estimate = walk + build(casts) + (1 - usable) * floorFrom(row.y, water);
-		const evidence = still >= sourcesNeeded ? `${still} still sources seen` : still === 0 && flowing > 0 ? 'only flowing seen' : `usable ~${Math.round(usable * 100)}%${still ? `, ${still} still seen` : ''}`;
+		const evidence = still >= sourcesNeeded ? `${still} still sources seen` : row.pool === true ? 'enough sources for a frame seen' : still === 0 && flowing > 0 ? 'only flowing seen' : `usable ~${Math.round(usable * 100)}%${still ? `, ${still} still seen` : ''}`;
 		add(estimate, `lava ${where(position, row)} y${Math.round(row.y)} ~${round(estimate)} (walk ${round(walk)}, ${buildText(casts)}; ${evidence})`);
 	}
 	// Remembered obsidian away from frames: only a diamond pick mines it.
@@ -577,7 +589,7 @@ export function knownLine({ known = null, position = null, placed = [], cap = KN
 	}
 	const ores = [...veins, ...[...blocks.values()].filter((group) => !veins.some((row) => short(row.what) === short(group.what) && Math.hypot(row.x - group.x, row.y - group.y, row.z - group.z) <= 8))]
 		.map((row) => ({ row, rank: oreRank(row.what), distance: distance(row) })).sort((left, right) => left.rank - right.rank || left.distance - right.distance).map(({ row }) => row);
-	const groups = [['ores', ores], ['caves', distinctOpenings(nearest(byKind(['cave'])))], ['places', nearest([...byKind(['structure', 'portal', 'built', 'spawner']), ...villages(sightings, placed)])], ['lava', nearest(byKind(['lava']))]]
+	const groups = [['ores', ores], ['caves', distinctOpenings(nearest(byKind(['cave'])))], ['places', nearest([...byKind(['structure', 'portal', 'built', 'spawner']), ...villages(sightings, placed)])], ['lava', nearest(byKind(['lava'])).sort((left, right) => lavaRank(left) - lavaRank(right))]]
 		.map(([label, rows]) => ({ label, rows, texts: rows.map((row) => sourceText(row, position, known.blocks)), shown: [] }));
 	const render = () => groups.filter((group) => group.shown.length).map((group) => `${group.label}: ${group.shown.join(', ')}`).join('; ');
 	for (let rank = 0, added = true; added; rank += 1) {

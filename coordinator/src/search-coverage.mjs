@@ -1,6 +1,12 @@
 // Bounded per world+dimension record of where the player stood, what it saw and which surveys it completed.
 // It holds facts only; the model reads them through exploreFrontier and survey and chooses every destination.
 import { deadSample } from './fact-provenance.mjs';
+import { getSwitch } from './switches.mjs';
+
+/** Whether remembered far lava keeps the server's fall, pocket or pool tag (memory.lavaKind, read per sample). */
+export const lavaKind = () => getSwitch('memory.lavaKind').value;
+
+const withoutUndefined = (fields) => Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined));
 
 export const SECTOR_SIZE = 16;
 export const HEADINGS = Object.freeze(['S', 'SW', 'W', 'NW', 'N', 'NE', 'E', 'SE']);
@@ -234,8 +240,11 @@ export function recordSightings(search, sighted, tick, blockAt = () => undefined
 		if (kind === 'biome' && extra.standing !== true && search.sightings.get(key)?.standing === true) return;
 		// A far row does not show the spawner's mob; a closer look that did stays known.
 		const mob = extra.mob ?? search.sightings.get(key)?.mob;
+		// A lake seen as a pool stays one: from another angle its sources hide and the server tags the same cell flowing or
+		// small (29 of 155 pool cells in 16 recorded games). A bucket or a contradicting look still removes it.
+		if (kind === 'lava' && extra.pool !== true && search.sightings.get(key)?.pool === true) extra = { ...extra, flowing: undefined, small: undefined, pool: true };
 		touchSighting(search.sightings, key,
-			{ what, x: row.x, y: row.y, z: row.z, ...(Number.isFinite(row.size) ? { size: row.size } : {}), kind, ...extra, ...(mob ? { mob } : {}), tick });
+			{ what, x: row.x, y: row.y, z: row.z, ...(Number.isFinite(row.size) ? { size: row.size } : {}), kind, ...withoutUndefined(extra), ...(mob ? { mob } : {}), tick });
 	};
 	const nether = seen.dimension === 'minecraft:the_nether';
 	for (const row of rows('structures')) {
@@ -257,10 +266,16 @@ export function recordSightings(search, sighted, tick, blockAt = () => undefined
 	if (REMEMBERED_BIOMES.has(seen.biome) && seen.onGround !== false && seen.at && [seen.at.x, seen.at.y, seen.at.z].every(Number.isFinite))
 		keep({ x: Math.floor(seen.at.x), y: Math.floor(seen.at.y), z: Math.floor(seen.at.z) }, seen.biome, 'biome', 32, { standing: true });
 	for (const row of rows('veins')) if (Number.isFinite(row.visible)) keep(row, row.blockId, 'vein', 8, { visible: row.visible });
-	for (const row of rows('blocks')) {
-		if (row.blockId === 'minecraft:lava') keep(row, row.blockId, 'lava', 16, Number.isFinite(row.count) ? { count: row.count } : {});
-		else if (row.blockId === SPAWNER) keep(row, SPAWNER, 'spawner', 8, nether ? { nether } : {});
-	}
+	// Far lava keeps the server's tag, as a player tells a lavafall or a small pocket from a lake at a glance: flowing (no
+	// source in sight), small (too few sources for the cast, CastLava) or else a pool. Flagged rows go first, so a
+	// cell holding both a fall and a pool is remembered as the pool.
+	const kinds = lavaKind();
+	const lavaTag = (row) => !kinds ? {} : row.flowing === true ? { flowing: true } : row.small === true ? { small: true } : { pool: true };
+	const flagged = (row) => row.flowing === true || row.small === true ? 1 : 0;
+	const lava = rows('blocks').filter((row) => row.blockId === 'minecraft:lava');
+	for (const row of kinds ? [...lava].sort((left, right) => flagged(right) - flagged(left)) : lava)
+		keep(row, row.blockId, 'lava', 16, { ...(Number.isFinite(row.count) ? { count: row.count } : {}), ...lavaTag(row) });
+	for (const row of rows('blocks')) if (row.blockId === SPAWNER) keep(row, SPAWNER, 'spawner', 8, nether ? { nether } : {});
 	// Up close a player sees the mob spinning inside a spawner, and every mob in sight.
 	for (const row of Array.isArray(seen.blocks) ? seen.blocks : []) {
 		if (row?.blockId === SPAWNER && typeof row.appearance?.mob === 'string') keep(row, SPAWNER, 'spawner', 8, { mob: row.appearance.mob, ...(nether ? { nether } : {}) });

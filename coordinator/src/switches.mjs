@@ -106,6 +106,10 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'find.lavaStairs', env: 'MINEAGEN_LAVA_STAIRS', side: 'coordinator', default: false, parser: ON_EXACT, status: 'default-off',
 		reason: 'Stairs from the surface won lava-gate-8 (0 to 7 of 10) but lost lava-gate-3 (8 to 0 of 10, pickaxes wore out) and lava-gate-6 (deaths 0 to 7 of 10) (#74).',
 		readers: ['coordinator/src/find-search.mjs lavaStairs (per call, process.env only)'] }),
+	// coordinator/src/search-coverage.mjs recordSightings: per sample, from process.env.
+	entry({ name: 'memory.lavaKind', env: 'MINEAGEN_LAVA_KIND', side: 'coordinator', default: true, parser: OFF_EXACT, status: 'experimental',
+		reason: 'Remembered far lava keeps the server\'s fall/pocket/pool tag: 6 of 8 fresh games spent 143 min at lava tagged a fall or pocket while the memory showed it as plain lava; off is the A/B off arm.',
+		readers: ['coordinator/src/search-coverage.mjs recordSightings (per sample, process.env only)'] }),
 	// coordinator/src/find-search.mjs dryStart(environment): per call.
 	entry({ name: 'find.dryStart', env: 'MINEAGEN_FIND_DRY_START', side: 'coordinator', default: true, parser: OFF_EXACT, status: 'default-on',
 		reason: 'A lava search from the surface walks off seen water before its first dig down (kit gates on main: 55 of 79 first digs met water, 3 lit); off is the A/B off arm.',
