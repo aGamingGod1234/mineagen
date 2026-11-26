@@ -172,6 +172,10 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'end.fallCatch', env: 'MINEAGEN_END_FALL_CATCH', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
 		reason: 'Arms default-end-fall in the End: a fall of 4+ blocks places the water bucket below. End knock-off room, 10 runs a side: 60 of 60 throws caught against 0 of 60, deaths 0 against 30 (#277). off drops the rule; the equal-priority tie-break for falling rules stays in the mod.',
 		readers: ['coordinator/src/reflexes.mjs dimensionReflexes (per call)'] }),
+	// coordinator/src/dragon-fight-facts.mjs endCrystalFact(..., environment): per call.
+	entry({ name: 'end.highDescent', env: 'MINEAGEN_END_HIGH_DESCENT', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
+		reason: 'Feet above y75 in the End, the crystal fact adds how to come down a built column: dig_to shaft to the ground, no water poured on the top. In End games, 5 of 6 descents from y95+ died, each after a pour on the top or a sideways dig. off leaves the advice out.',
+		readers: ['coordinator/src/dragon-fight-facts.mjs endCrystalFact (per call)'] }),
 	// ServerTravelController.java walkAroundEnabled(): per call; property or env.
 	entry({ name: 'travel.walkAround', env: 'MINEAGEN_TRAVEL_WALK_AROUND', property: 'mineagen.travel.walkAround', side: 'server', default: false, parser: ON_WORD,
 		propertyParser: JAVA_GET_BOOLEAN, status: 'default-off',
