@@ -85,6 +85,27 @@ test('End crystals seen stay remembered, and a crystal broken by your own shot i
 	assert.equal(combatFacts({ ...end([]), world: { dimension: 'minecraft:overworld' }, endCrystals: tally }), null);
 });
 
+test('A crystal the mod saw destroyed (alive:false row) stops counting as standing, unless end.crystalGone is off', () => {
+	const crystal = (id, x, y, z, extra = {}) => ({ stableId: id, type: 'minecraft:end_crystal', perceivedBy: 'sight', x, y, z, ...extra });
+	const play = (environment) => {
+		const state = {};
+		rememberEndCrystals(state, end([crystal('north', -11.5, 83, -39.5), crystal('west', -41.5, 80, -0.5), crystal('east', 42.5, 92, 0.5)]), environment);
+		noteCombatDispatch(state, 'shot-1', 'use_ranged', { targetId: 'north' });
+		settleCombatResult(state, { actionId: 'shot-1', state: 'SUCCEEDED', message: 'Arrow loosed; it struck the target, which broke or died' });
+		// The shot at west was cancelled while the arrow flew; the mod saw the blast. Its own break of north is reported too.
+		rememberEndCrystals(state, end([crystal('north', -11.5, 83, -39.5, { alive: false }), crystal('west', -41.5, 80, -0.5, { alive: false })]), environment);
+		// A crystal first known from its destruction row (seen blown up from afar) is remembered as destroyed.
+		return rememberEndCrystals(state, end([crystal('south', 0.5, 76, 42.5, { alive: false })]), environment);
+	};
+	assert.deepEqual(play({}), { standing: [{ x: 42, y: 92, z: 0 }], broken: 1, external: 2 });
+	assert.match(endCrystalFact(play({})), /1 standing when last seen \(42,92,0\), 1 broken by your own hits, 2 destroyed by something else\./);
+	assert.deepEqual(play({ MINEAGEN_END_CRYSTAL_GONE: 'off' }), { standing: [{ x: -42, y: 80, z: -1 }, { x: 42, y: 92, z: 0 }], broken: 1 });
+	// A sound-only row says nothing about the crystal.
+	const state = {};
+	rememberEndCrystals(state, end([crystal('west', -41.5, 80, -0.5)]));
+	assert.equal(rememberEndCrystals(state, end([crystal('west', -41.5, 80, -0.5, { alive: false, perceivedBy: 'sound' })])).standing.length, 1);
+});
+
 test('A caged crystal remembers the gaps last seen in its cage', () => {
 	const state = {};
 	const seen = (appearance) => end([{ stableId: 'west', type: 'minecraft:end_crystal', perceivedBy: 'sight', x: -41.5, y: 80, z: -0.5, appearance }]);

@@ -163,6 +163,10 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'end.highDescent', env: 'MINEAGEN_END_HIGH_DESCENT', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
 		reason: 'Feet above y75 in the End, the crystal fact adds how to come down a built column: dig_to shaft to the ground, no water poured on the top. In End games, 5 of 6 descents from y95+ died, each after a pour on the top or a sideways dig. off leaves the advice out.',
 		readers: ['coordinator/src/dragon-fight-facts.mjs endCrystalFact (per call)'] }),
+	// coordinator/src/dragon-fight-facts.mjs rememberEndCrystals(..., environment): per call.
+	entry({ name: 'end.crystalGone', env: 'MINEAGEN_END_CRYSTAL_GONE', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
+		reason: 'The mod reports an End crystal it saw blow up, or whose spot it saw empty, as an alive:false row, and the crystal memory counts it destroyed. Before, only the bot\'s own shot results cleared one: in 8 of 16 End games that broke all ten, the fact kept 1-3 crystals standing for the rest of the fight. off ignores those rows.',
+		readers: ['coordinator/src/dragon-fight-facts.mjs rememberEndCrystals (per call)'] }),
 	// ServerTravelController.java walkAroundEnabled(): per call; property or env.
 	entry({ name: 'travel.walkAround', env: 'MINEAGEN_TRAVEL_WALK_AROUND', property: 'mineagen.travel.walkAround', side: 'server', default: false, parser: ON_WORD,
 		propertyParser: JAVA_GET_BOOLEAN, status: 'default-off',
