@@ -185,6 +185,10 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'fight.spawnerHoldOpen', property: 'mineagen.fight.spawnerHoldOpen', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
 		reason: 'Fights in the open and walls in only to heal; real fortress room: the open fight kept 39 rods in 9 runs, the cell fight 7 (#89).',
 		readers: ['SpawnerHold.java OPEN_FIGHT (class load)'] }),
+	// SpawnerHold.java SPOT: static final, class load.
+	entry({ name: 'fight.spawnerHoldSpot', property: 'mineagen.fight.spawnerHoldSpot', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
+		reason: 'A blaze fight_until whose spot is by a seen spawner runs the spawner hold, which walls in to heal at low health instead of handing back at the model fleeAtHealth; game-shape spawner rooms with a pickaxe: rods kept in 8 of 10 against 6.',
+		readers: ['SpawnerHold.java SPOT (class load)'] }),
 	// WarpedForestHunt.java enabled: static (tests reassign it), class load.
 	entry({ name: 'fight.forestHunt', property: 'mineagen.fight.forestHunt', side: 'server', default: false, parser: JAVA_GET_BOOLEAN, status: 'default-off',
 		reason: 'Forest-walking pearl hunt: ended 22 of 40 forest hunts with a pearl against 13, but died in 9 against 4 (#78).',
