@@ -1,4 +1,4 @@
-import { DRAGON_FINISH_FACTS, endCrystalFact } from './dragon-fight-facts.mjs';
+import { dragonFinishFacts, endCrystalFact } from './dragon-fight-facts.mjs';
 import { BARTER_ODDS } from './need-sources.mjs';
 
 const STRONGHOLD_MASONRY = /^minecraft:(mossy_|cracked_|chiseled_)?stone_bricks$|^minecraft:infested_/;
@@ -32,7 +32,7 @@ function dragonFact(observation, ownPours) {
 	const has = id => Array.isArray(items) && items.some(e => e.itemId === `minecraft:${id}` && e.count > 0);
 	const water = !Array.isArray(items) ? '' : has('water_bucket') ? ' Water bucket carried.'
 		: has('bucket') ? ` No water bucket: the End has no natural water, so an empty bucket refills only from water you placed (a source block).${seenWater(observation, ownPours)}` : ' No water bucket carried.';
-	return `Ender dragon: its wings and body fling a player many blocks, up to about 10 high, even on flat ground; the landing alone can kill. Water placed below before landing cancels fall damage; a turn is too slow to place it mid-fall, a falling reflex is not.${water} ${DRAGON_FINISH_FACTS}`;
+	return `Ender dragon: its wings and body fling a player many blocks, up to about 10 high, even on flat ground; the landing alone can kill. Water placed below before landing cancels fall damage; a turn is too slow to place it mid-fall, a falling reflex is not.${water} ${dragonFinishFacts()}`;
 }
 
 // Only a source refills an empty bucket: its ray passes flowing water (vanilla SOURCE_ONLY). Block rows carry the fluid

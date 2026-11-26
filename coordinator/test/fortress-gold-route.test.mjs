@@ -5,6 +5,8 @@ import { emptyKnown, evaluatePlanCheck } from '../src/plan-checks.mjs';
 import { LiveTaskViews } from '../src/live-task-view.mjs';
 import { buildNativeEventInput } from '../src/dynamic-main.mjs';
 import { decodeModelFacts, encodeNativeEventInput, ModelObservationViews } from '../src/model-fact-encoding.mjs';
+// These cases are the stock.foodFloor off arm (the route before the food floor); food-floor-route.test.mjs has the on arm.
+process.env.MINEAGEN_FOOD_FLOOR = 'off';
 
 const NETHER = 'minecraft:the_nether';
 const item = (id, count = 1, slot) => ({ itemId: `minecraft:${id}`, count, ...(slot === undefined ? {} : { slot }) });

@@ -4,6 +4,8 @@ import { routeLine } from '../src/skill-fits.mjs';
 import { bedSpawnOption, netherReadiness } from '../src/need-sources.mjs';
 import { sleepLine, spawnLine } from '../src/wake-body-facts.mjs';
 import { emptyKnown, evaluatePlanCheck } from '../src/plan-checks.mjs';
+// These cases are the stock.foodFloor off arm (the route before the food floor); food-floor-route.test.mjs has the on arm.
+process.env.MINEAGEN_FOOD_FLOOR = 'off';
 
 const sample = (items = [], extra = {}) => ({ ready: true, observedAtEpochMs: 1,
  player: { health: 20, foodLevel: 20 }, world: { dimension: 'minecraft:overworld', dayTime: 14000 },

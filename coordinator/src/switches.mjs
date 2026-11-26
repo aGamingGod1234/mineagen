@@ -114,6 +114,11 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'find.dryFlood', env: 'MINEAGEN_FIND_DRY_FLOOD', side: 'coordinator', default: true, parser: OFF_EXACT, status: 'default-on',
 		reason: 'Water that ran into an opened tunnel and stopped short of the body is a shut way the search turns from, not danger that ends it; off is the A/B off arm.',
 		readers: ['coordinator/src/find-search.mjs dryFlood (per call)'] }),
+	// coordinator/src/skill-fits.mjs routeLine and coordinator/src/live-task-view.mjs openOrder: per call.
+	entry({ name: 'route.eyesHold', env: 'MINEAGEN_EYES_HOLD', side: 'coordinator', default: true,
+		parser: Object.freeze({ id: 'off-if:0|off', kind: 'boolean', unset: true, parse: (raw) => !['0', 'off'].includes(String(raw)) }), status: 'default-on',
+		reason: 'With an eye in hand the route and the plan lead to the stronghold and its portal before any trip back to the Nether (8 eyes-to-dragon games: 4 went back with 9-11 eyes, 3 died there); 0 or off is the A/B off arm.',
+		readers: ['coordinator/src/skill-fits.mjs routeLine (per call)', 'coordinator/src/live-task-view.mjs openOrder (per call)'] }),
 	// coordinator/src/obtain-runner.mjs OBTAIN_COSTS: read once at module load.
 	entry({ name: 'obtain.costs', env: 'MINEAGEN_OBTAIN_COSTS', side: 'coordinator', default: true, parser: OFF_EXACT, status: 'default-on',
 		reason: 'Off plans as before chest looting, the seen-source cost model and the one-trip kit iron, for A/B rooms (#115).',
@@ -126,6 +131,15 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'obtain.fillEdge', env: 'MINEAGEN_OBTAIN_FILL_EDGE', side: 'coordinator', default: true, parser: OFF_EXACT, status: 'default-on',
 		reason: 'A walk to water that ends at an edge over water 3-8 blocks below digs down beside the drop and fills there (room kit-gate-6); off is the A/B off arm.',
 		readers: ['coordinator/src/obtain-runner.mjs FILL_EDGE (module load, process.env only)'] }),
+	// coordinator/src/skill-fits.mjs foodFloorOn(environment): per call (routeLine).
+	// coordinator/src/obtain-runner.mjs gatherNeed: per call.
+	entry({ name: 'stock.foodFloor', env: 'MINEAGEN_FOOD_FLOOR', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
+		reason: 'Surface stock once: 8 fresh games of 25 Nov left the Nether for food in 3 of 5 saves and entered it with no food 14 of 20 times; the route now holds a food-points and wood minimum before the descent and the portal; off is the A/B off arm.',
+		readers: ['coordinator/src/skill-fits.mjs foodFloorOn (per call)', 'coordinator/src/obtain-runner.mjs gatherNeed (per call)'] }),
+	// coordinator/src/native-tool-runtime.mjs #portalStockGate: per call.
+	entry({ name: 'stock.portalGate', env: 'MINEAGEN_PORTAL_STOCK_GATE', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
+		reason: 'A walk into a lit Overworld portal while the route still asks for the surface food or wood minimum runs that obtain instead (twice per life at most); a refusal the model could repeat was walked past 16 of 17 times (#268); off leaves the minimum as route advice.',
+		readers: ['coordinator/src/native-tool-runtime.mjs #portalStockGate (per call)'] }),
 	// coordinator/src/kit-habit.mjs kitHabitEnabled(environment): per call.
 	entry({ name: 'kit.habit', env: 'MINEAGEN_KIT_HABIT', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
 		reason: 'Keeps a shield, iron armour and food in reach after each obtain; off is the A/B off arm (#32).',
@@ -163,11 +177,32 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'end.highDescent', env: 'MINEAGEN_END_HIGH_DESCENT', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
 		reason: 'Feet above y75 in the End, the crystal fact adds how to come down a built column: dig_to shaft to the ground, no water poured on the top. In End games, 5 of 6 descents from y95+ died, each after a pour on the top or a sideways dig. off leaves the advice out.',
 		readers: ['coordinator/src/dragon-fight-facts.mjs endCrystalFact (per call)'] }),
+	// coordinator/src/dragon-fight-facts.mjs rememberEndCrystals(..., environment): per call.
+	entry({ name: 'end.crystalGone', env: 'MINEAGEN_END_CRYSTAL_GONE', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
+		reason: 'The mod reports an End crystal it saw blow up, or whose spot it saw empty, as an alive:false row, and the crystal memory counts it destroyed. Before, only the bot\'s own shot results cleared one: in 8 of 16 End games that broke all ten, the fact kept 1-3 crystals standing for the rest of the fight. off ignores those rows.',
+		readers: ['coordinator/src/dragon-fight-facts.mjs rememberEndCrystals (per call)'] }),
+	// coordinator/src/dragon-fight-facts.mjs dragonFinishFacts(environment): per call.
+	entry({ name: 'end.closeWait', env: 'MINEAGEN_END_CLOSE_WAIT', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
+		reason: 'The dragon fight facts advise waiting 7-10 blocks from the fountain, off any breath cloud, instead of 10-15. In 26 Nov End games, landings with the player 6-10 blocks out were hit 30 of 41 times, 10-20 out 3 of 81. off keeps the 10-15 advice.',
+		readers: ['coordinator/src/dragon-fight-facts.mjs dragonFinishFacts (per call)'] }),
+	// coordinator/src/need-sources.mjs pearlTarget(text, environment): per call.
+	entry({ name: 'route.pearlPlan', env: 'MINEAGEN_ROUTE_PEARL_PLAN', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
+		reason: 'Pearl lines count toward the eye plan (15 pearls) or a larger step count, instead of the step\'s own count or 12. A check naming the frame\'s 12 eyes stopped the pearl hunt at 12 while the route asked for 15, and 1 in 5 thrown eyes breaks. off keeps the step count.',
+		readers: ['coordinator/src/need-sources.mjs pearlTarget (per call)'] }),
 	// ServerTravelController.java walkAroundEnabled(): per call; property or env.
 	entry({ name: 'travel.walkAround', env: 'MINEAGEN_TRAVEL_WALK_AROUND', property: 'mineagen.travel.walkAround', side: 'server', default: false, parser: ON_WORD,
 		propertyParser: JAVA_GET_BOOLEAN, status: 'default-off',
 		reason: 'Practice rooms 21 Nov (Nether courses): pickaxe uses per 100 blocks gained 69.8 on against 60.2 off (50 runs each), and 148.6 against 141.8 (34 each) (#68).',
 		readers: ['ServerTravelController.java walkAroundEnabled (per call)'] }),
+	// ServerTravelController.java shallowShoreEnabled(): per call; property or env.
+	entry({ name: 'travel.shallowShore', env: 'MINEAGEN_TRAVEL_SHALLOW_SHORE', property: 'mineagen.travel.shallowShore', side: 'server', default: true,
+		parser: flag({ token: 'false', means: 'off', trim: true, anyCase: true }), propertyParser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
+		reason: 'In one-deep water the body stands and walks on the bed instead of holding jump and bobbing: the swim out stops over a shallow bank, and navigation jumps only at a step up or against the bank. In 8 fresh games 40 of 47 travel water timeouts (NO_ROUTE, about 39 min) ended bobbing over such a bank; false keeps the held jump.',
+		readers: ['ServerTravelController.java shallowShoreEnabled (per call)', 'ServerNavigationController.java jumpPending via shallowShoreEnabled (per call)'] }),
+	// ServerRetraceController.java skipBuriedEnabled(): per call; property only.
+	entry({ name: 'travel.skipBuried', property: 'mineagen.travel.skipBuried', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
+		reason: 'Retrace passes a remembered footstep that is now filled with solid blocks (often its own stair steps placed over an old tunnel) and heads for the next open one. In 8 fresh games 32 of 37 one-minute retrace stalls (about 39 min) had the body 1-6 blocks above a nearby footstep; false keeps aiming at them.',
+		readers: ['ServerRetraceController.java skipBuriedEnabled (per call)'] }),
 	// ServerFightUntilController.java CHARGE_GUARD: static final, class load.
 	entry({ name: 'fight.chargeGuard', property: 'mineagen.fight.chargeGuard', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
 		reason: 'Raises the shield before a charged blaze\'s volley; false is the fixture A/B off arm.',
@@ -180,6 +215,10 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'dig.floorLavaGuard', property: 'mineagen.dig.floorLavaGuard', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
 		reason: 'break_block never breaks the floor under the feet with lava heard or seen at it, even with acceptLavaRisk; 1 of 7 lava deaths in 8 fresh games dropped into a pool that way.',
 		readers: ['ServerActionExecutor.java FLOOR_LAVA_GUARD (class load)'] }),
+	// ReflexActions.java LeaveFire.PLUG_INFLOW: static (tests reassign it), class load.
+	entry({ name: 'reflex.plugInflow', property: 'mineagen.reflex.plugInflow', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
+		reason: 'Before stepping back from lava seen coming, the lava reflex puts one block in the cell it flows in through; 1 of 7 lava deaths in 8 fresh games backed off a dug-into flow that then followed it.',
+		readers: ['ReflexActions.java LeaveFire.PLUG_INFLOW (class load)'] }),
 	// SpawnerHold.java ENABLED: static final, class load.
 	entry({ name: 'fight.spawnerHold', property: 'mineagen.fight.spawnerHold', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
 		reason: 'Holds a blaze spawner from a roofed cell; staged fortress runs lost 12 of 28 deaths to wither skeletons on open decks (#89).',

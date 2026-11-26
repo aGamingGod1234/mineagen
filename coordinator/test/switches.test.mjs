@@ -140,6 +140,8 @@ const READS = [
 	['find.lavaStairs', 'coordinator/src/find-search.mjs', "getSwitch('find.lavaStairs')"],
 	['find.dryStart', 'coordinator/src/find-search.mjs', "getSwitch('find.dryStart', environment)"],
 	['find.dryFlood', 'coordinator/src/find-search.mjs', "getSwitch('find.dryFlood', environment)"],
+	['route.eyesHold', 'coordinator/src/skill-fits.mjs', "getSwitch('route.eyesHold')"],
+	['route.eyesHold', 'coordinator/src/live-task-view.mjs', "getSwitch('route.eyesHold')"],
 	['obtain.costs', 'coordinator/src/obtain-runner.mjs', "const OBTAIN_COSTS = getSwitch('obtain.costs').value;"],
 	['obtain.fillLegs', 'coordinator/src/obtain-runner.mjs', "const FILL_LEGS = getSwitch('obtain.fillLegs').value;"],
 	['obtain.fillEdge', 'coordinator/src/obtain-runner.mjs', "const FILL_EDGE = getSwitch('obtain.fillEdge').value;"],
@@ -151,11 +153,20 @@ const READS = [
 	['instincts', 'coordinator/src/reflexes.mjs', "getSwitch('instincts', environment)"],
 	['end.fallCatch', 'coordinator/src/reflexes.mjs', "getSwitch('end.fallCatch', environment)"],
 	['end.highDescent', 'coordinator/src/dragon-fight-facts.mjs', "getSwitch('end.highDescent', environment)"],
+	['stock.foodFloor', 'coordinator/src/skill-fits.mjs', "getSwitch('stock.foodFloor', environment)"],
+	['stock.foodFloor', 'coordinator/src/obtain-runner.mjs', "getSwitch('stock.foodFloor').value"],
+	['stock.portalGate', 'coordinator/src/native-tool-runtime.mjs', "getSwitch('stock.portalGate').value"],
+	['end.crystalGone', 'coordinator/src/dragon-fight-facts.mjs', "getSwitch('end.crystalGone', environment)"],
+	['end.closeWait', 'coordinator/src/dragon-fight-facts.mjs', "getSwitch('end.closeWait', environment)"],
+	['route.pearlPlan', 'coordinator/src/need-sources.mjs', "getSwitch('route.pearlPlan', environment)"],
 	['instincts', 'src/main/java/dev/agaminggod/mineagen/server/runtime/reflex/Instincts.java', 'Switches.get("instincts")'],
 	['travel.walkAround', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerTravelController.java', 'Switches.get("travel.walkAround")'],
+	['travel.shallowShore', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerTravelController.java', 'Switches.get("travel.shallowShore")'],
+	['travel.skipBuried', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerRetraceController.java', 'Switches.get("travel.skipBuried")'],
 	['fight.chargeGuard', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerFightUntilController.java', 'static final boolean CHARGE_GUARD = dev.agaminggod.mineagen.server.Switches.get("fight.chargeGuard");'],
 	['fight.recover', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerFightUntilController.java', 'static final boolean RECOVER = dev.agaminggod.mineagen.server.Switches.get("fight.recover");'],
 	['dig.floorLavaGuard', 'src/main/java/dev/agaminggod/mineagen/server/runtime/ServerActionExecutor.java', 'static boolean FLOOR_LAVA_GUARD = dev.agaminggod.mineagen.server.Switches.get("dig.floorLavaGuard");'],
+	['reflex.plugInflow', 'src/main/java/dev/agaminggod/mineagen/server/runtime/reflex/ReflexActions.java', 'static boolean PLUG_INFLOW = dev.agaminggod.mineagen.server.Switches.get("reflex.plugInflow");'],
 	['fight.spawnerHold', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/SpawnerHold.java', 'public static final boolean ENABLED = dev.agaminggod.mineagen.server.Switches.get("fight.spawnerHold");'],
 	['fight.spawnerHoldOpen', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/SpawnerHold.java', 'public static final boolean OPEN_FIGHT = dev.agaminggod.mineagen.server.Switches.get("fight.spawnerHoldOpen");'],
 	['travel.passBlazes', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/TravelStops.java', 'public static final boolean PASS_BLAZES = dev.agaminggod.mineagen.server.Switches.get("travel.passBlazes");'],
@@ -187,11 +198,15 @@ test('every reader reads its switch through the registry, and no switch variable
 	const cases = {
 		'travel.walkAround': { env: 'MINEAGEN_TRAVEL_WALK_AROUND', property: 'mineagen.travel.walkAround', table: [[undefined, false], [' ON ', true], ['true', false]],
 			properties: [[undefined, false], ['TRUE', true], [' true', false], ['on', false]] },
+		'travel.shallowShore': { env: 'MINEAGEN_TRAVEL_SHALLOW_SHORE', property: 'mineagen.travel.shallowShore', table: [[undefined, true], [' FALSE ', false], ['off', true]],
+			properties: [[undefined, true], ['false', false], ['FALSE', true]] },
+		'travel.skipBuried': { property: 'mineagen.travel.skipBuried', properties: [[undefined, true], ['false', false], ['FALSE', true], ['no', true]] },
 		'instincts': { env: 'MINEAGEN_INSTINCTS', property: 'mineagen.instincts', table: [[undefined, true], ['instincts', true], ['x, instincts', true], ['Instincts', false], ['off', false], ['', false]],
 			properties: [[undefined, true], ['True', true], ['false', false], ['1', false]] },
 		'fight.chargeGuard': { property: 'mineagen.fight.chargeGuard', properties: [[undefined, true], ['false', false], ['FALSE', true], ['no', true]] },
 		'fight.recover': { property: 'mineagen.fight.recover', properties: [[undefined, true], ['false', false], ['False', true]] },
 		'dig.floorLavaGuard': { property: 'mineagen.dig.floorLavaGuard', properties: [[undefined, true], ['false', false], ['FALSE', true]] },
+		'reflex.plugInflow': { property: 'mineagen.reflex.plugInflow', properties: [[undefined, true], ['false', false], ['FALSE', true]] },
 		'fight.spawnerHold': { property: 'mineagen.fight.spawnerHold', properties: [[undefined, true], ['false', false], [' false', true]] },
 		'fight.spawnerHoldOpen': { property: 'mineagen.fight.spawnerHoldOpen', properties: [[undefined, true], ['false', false], ['0', true]] },
 		'travel.passBlazes': { property: 'mineagen.travel.passBlazes', properties: [[undefined, true], ['false', false], ['0', true]] },
@@ -303,10 +318,15 @@ public class SwitchesParity {
 				|| (listed == null && p.get("mineagen.instincts") == null);
 		boolean walkAround = "true".equalsIgnoreCase(p.get("mineagen.travel.walkAround"))
 				|| "on".equalsIgnoreCase(String.valueOf(env.get("MINEAGEN_TRAVEL_WALK_AROUND")).trim());
-		boolean[] values = { instincts, walkAround,
+		String shoreEnv = env.get("MINEAGEN_TRAVEL_SHALLOW_SHORE"), shoreProperty = p.get("mineagen.travel.shallowShore");
+		Boolean shoreFromEnv = shoreEnv == null ? null : !"false".equalsIgnoreCase(shoreEnv.trim());
+		Boolean shoreFromProperty = shoreProperty == null ? null : !"false".equals(shoreProperty);
+		boolean shallowShore = Boolean.TRUE.equals(shoreFromEnv) || Boolean.TRUE.equals(shoreFromProperty) || shoreFromEnv == null && shoreFromProperty == null;
+		boolean[] values = { instincts, walkAround, shallowShore, !"false".equals(p.get("mineagen.travel.skipBuried")),
 				!"false".equals(p.get("mineagen.fight.chargeGuard")),
 				!"false".equals(p.get("mineagen.fight.recover")),
 				!"false".equals(p.get("mineagen.dig.floorLavaGuard")),
+				!"false".equals(p.get("mineagen.reflex.plugInflow")),
 				!"false".equals(p.get("mineagen.fight.spawnerHold")),
 				!"false".equals(p.get("mineagen.fight.spawnerHoldOpen")),
 				!"false".equals(p.get("mineagen.travel.passBlazes")),
@@ -315,7 +335,7 @@ public class SwitchesParity {
 				!"false".equals(p.get("mineagen.fight.skipUnreachable")),
 				!"false".equalsIgnoreCase(p.getOrDefault("mineagen.killPosition", "true").trim()),
 				"true".equalsIgnoreCase(p.getOrDefault("mineagen.watch", "false").trim()) };
-		String[] names = { "instincts", "travel.walkAround", "fight.chargeGuard", "fight.recover", "dig.floorLavaGuard", "fight.spawnerHold", "fight.spawnerHoldOpen",
+		String[] names = { "instincts", "travel.walkAround", "travel.shallowShore", "travel.skipBuried", "fight.chargeGuard", "fight.recover", "dig.floorLavaGuard", "reflex.plugInflow", "fight.spawnerHold", "fight.spawnerHoldOpen",
 				"travel.passBlazes", "fight.forestHunt", "fight.fullIds", "fight.skipUnreachable", "killPosition", "watch" };
 		StringBuilder line = new StringBuilder("switches");
 		for (int i = 0; i < names.length; i++) line.append(' ').append(names[i]).append('=').append(values[i] ? "on" : "off");

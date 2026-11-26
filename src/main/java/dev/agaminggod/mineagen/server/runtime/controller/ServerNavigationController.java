@@ -1625,10 +1625,25 @@ public final class ServerNavigationController implements ServerController {
 		Vec3 landing = center(waypoint.position());
 		double targetDx = landing.x - player.getX();
 		double targetDz = landing.z - player.getZ();
+		GridPosition feet = grid(player.position());
+		boolean wading = ServerTravelController.shallowShoreEnabled() && wadeWithoutJump(waypoint.traversal(), player.isInWater(),
+				world.isShallowWater(feet) || world.isShallowWater(new GridPosition(feet.x(), feet.y() - 1, feet.z())),
+				target.y - player.getY(), player.horizontalCollision);
 		return jumpNeeded(waypoint.traversal(), target.y - player.getY(),
 				Math.sqrt(targetDx * targetDx + targetDz * targetDz))
-				|| shallowWater || SwimPlanning.navigationJump(swimming, target.y - player.getY(), settleOnFloor)
+				|| !wading && (shallowWater || SwimPlanning.navigationJump(swimming, target.y - player.getY(), settleOnFloor))
 				|| (climbing && target.y > player.getY() + 0.15D);
+	}
+
+	/**
+	 * In one-deep water a held jump floats the body off the bed, and a walk waypoint only advances on the ground: in the
+	 * 8 fresh games of 25 Nov the bot bobbed in place until navigation timed out. A wading player walks on the bed and
+	 * jumps only at a step up or when pressed against the bank.
+	 */
+	static boolean wadeWithoutJump(TraversalType traversal, boolean inWater, boolean shallowUnderFeet, double rise,
+			boolean horizontalCollision) {
+		return inWater && shallowUnderFeet && traversal != TraversalType.SWIM && traversal != TraversalType.CLIMB
+				&& rise <= STEP_HEIGHT && !horizontalCollision;
 	}
 
 	/** Whether this move targets a seen portal, so crossing through it is its arrival. */

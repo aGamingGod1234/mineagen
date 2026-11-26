@@ -6,6 +6,8 @@ import { LiveTaskViews } from '../src/live-task-view.mjs';
 import { NativeToolRuntime } from '../src/native-tool-runtime.mjs';
 import { AgentRegistry } from '../src/agent-registry.mjs';
 import { FakeBridge, FakePlanner, start, immutableGoalSpec, factToWireObservation, eventually } from './fixtures/dynamic-main-fixture.mjs';
+// These cases are the stock.foodFloor off arm (the route before the food floor); food-floor-route.test.mjs has the on arm.
+process.env.MINEAGEN_FOOD_FLOOR = 'off';
 
 // The cooked-meat stock heads the route before the first descent, but gives way to the stone, iron and kit steps once a
 // food hand-back found no source this life, or half the stock is held with nothing to cook and no animal in view.
