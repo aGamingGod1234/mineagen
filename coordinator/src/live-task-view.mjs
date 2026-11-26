@@ -12,7 +12,7 @@ import { composeContinuityHeader, dependentChain, inventoryEffect, rememberResul
 import { boundPlacements, functionalPlacement, placementAt, placementCellsInDimension, placementsForItems, prunePlacements, relevantPlacement, samePlacementBlock } from './plan-placement-memory.mjs';
 import { armorMaterialNeed, chainText, howtoChain, howtoHeldRecipe, howtoHoldings, howtoTopic } from './howto.mjs';
 import { fortressSearchOption } from './nether-regions.mjs';
-import { NETHER_OPTIONS_BYTES, SOURCE_BLOCKS, bedSpawnOption, descentRespawnFact, knownLine, needOptions, netherReadiness, netherRouteOption, pearlHuntLine, pearlOptions, pearlSourceInView, pearlsWanted, pickaxeTier, portalAtHand, progressionGoal, textResources } from './need-sources.mjs';
+import { NETHER_OPTIONS_BYTES, SOURCE_BLOCKS, bedSpawnOption, descentRespawnFact, knownLine, needOptions, netherReadiness, netherRouteOption, pearlHuntLine, pearlOptions, pearlSourceInView, pearlTarget, pearlsWanted, pickaxeTier, portalAtHand, progressionGoal, textResources } from './need-sources.mjs';
 import { VILLAGE_POI, headingOf, sightingKind } from './search-coverage.mjs';
 import { foodStockHandback, portalDeathMark, portalSearchStock, routeLine, skillFitsLine, woodStockHandback } from './skill-fits.mjs';
 import { KIT_ITEMS } from './end-readiness.mjs';
@@ -789,7 +789,7 @@ export class LiveTaskViews {
   const kitAccess = kitStep ? openNether() : null;
   if (kitAccess) return kitAccess;
   const ids = step && step.status !== 'complete' ? stepNeeds(step, state).filter(Boolean).map(need => need.id) : [];
-  const pearls = { observation: deadSample(state.observation) ? null : state.observation, pearls: pearlsWanted(step?.check) };
+  const pearls = { observation: deadSample(state.observation) ? null : state.observation, pearls: pearlTarget(step?.check) };
   if (ids.length) return needOptions({ ids, chainKey: requirementChain(step, state, { counted: true })?.key ?? null, position, known, placed, items, frames, ...pearls });
   const access = nether(step) ?? (stage ? openNether() : null);
   if (access) return access;
@@ -903,7 +903,7 @@ export class LiveTaskViews {
   const tick = ((Number(o.world?.dayTime) % 24000) + 24000) % 24000;
   const overworld = o.world?.dimension === 'minecraft:overworld' && (tick >= 13000 && tick < 23000 || (o.entities ?? []).some(e => e?.type === 'minecraft:enderman'));
   if (o.world?.dimension !== 'minecraft:the_nether' && !overworld) return null;
-  return pearlOptions({ observation: o, position: memory.position, known: memory.known, items: o.inventory.items, needed: pearlsWanted(open) ?? 12 });
+  return pearlOptions({ observation: o, position: memory.position, known: memory.known, items: o.inventory.items, needed: pearlTarget(open) });
  }
  /** The model's authored intent for other references (how-to, orientation) to point at; never a replacement for it. */
  intent(record) {
