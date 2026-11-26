@@ -88,6 +88,10 @@ test('a portal cast underground is entered with what is carried: no climb back u
 	assert.ok(deep.startsWith(`usual next step: ${PORTAL_ENTRY_NEXT}`), deep);
 	assert.doesNotMatch(deep, /obtain|points|before entering/);
 	assert.match(deep, /food stocks are optional unless health or hunger is low/);
+	// Raw meat already carried is cooked there first, with no hunt: a furnace held or stone for one, and fuel.
+	const raw = line(sample([item('iron_pickaxe'), item('cooked_beef', 2), item('beef', 3), item('cobblestone', 20), item('oak_log', 3)], { y: -54, skyOpen: false }), { known });
+	assert.match(raw, /^usual next step: obtain cooked_beef count 5 using a furnace before entering the portal \(3 raw beef held: cook it here, no hunt/);
+	assert.ok(line(sample([item('iron_pickaxe'), item('beef', 3), item('oak_log', 3)], { y: -54, skyOpen: false }), { known }).startsWith(`usual next step: ${PORTAL_ENTRY_NEXT}`), 'no furnace, no stone: straight in');
 });
 
 test('a death past the portal stage re-arms the stock at the portal floor', () => {

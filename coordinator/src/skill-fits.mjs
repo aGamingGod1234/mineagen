@@ -455,11 +455,24 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 	// stock.foodFloor at the Overworld portal: food to the floor and the trip's wood, from the surface, before going
 	// through. Released as the descent's stock is: down a mine, or by a hand-back while nothing is in view to take.
 	const portalStock = () => {
-		if (!facts.floorOn || facts.below) return null;
+		if (!facts.floorOn) return null;
+		if (facts.below) return cookHeldRaw();
 		if (facts.foodPoints < FOOD_FLOOR_PORTAL && !(facts.foodHandedBack && facts.nearbyMeat === null)) return line(...stockFloorNext(facts, FOOD_FLOOR_PORTAL, 'before entering the portal'));
 		const wood = woodFloor(facts);
 		if (facts.woodLogs < wood && !facts.woodHandedBack) return line(`obtain log count ${facts.logs + Math.ceil(wood - facts.woodLogs)} before entering the portal`, `wood ${Math.floor(facts.woodLogs)}/${wood} logs (minimum) for tables, sticks and shields after a death`);
 		return null;
+	};
+	// Underground the stock lets go (no climb back for food), but raw meat already carried is cooked before the portal:
+	// a furnace held or 8 stone to make one, and fuel, cost a minute; a steak is worth 3 times a raw cut.
+	const cookHeldRaw = () => {
+		const meat = MEATS.find(m => count(new RegExp('^minecraft:' + m + '$')) > 0);
+		if (meat === undefined || !FOOD_POINTS['cooked_' + meat]) return null;
+		const furnace = count(/^minecraft:furnace$/) > 0 || count(/^minecraft:(cobblestone|cobbled_deepslate|blackstone)$/) >= 8;
+		const fuel = count(/^minecraft:(coal|charcoal|coal_block|[a-z_]+_(log|planks|stem|wood|hyphae))$/) > 0;
+		if (!furnace || !fuel) return null;
+		const raw = count(new RegExp('^minecraft:' + meat + '$')), cooked = count(new RegExp('^minecraft:cooked_' + meat + '$'));
+		return line(`obtain cooked_${meat} count ${cooked + raw} using a furnace before entering the portal`,
+			`${raw} raw ${meat} held: cook it here, no hunt (food ${facts.foodPoints} points)`);
 	};
 	// Instincts arm: food first in every dimension (C27), before more resource travel.
 	let foodNote = '';
