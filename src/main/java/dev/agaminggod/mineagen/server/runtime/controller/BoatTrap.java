@@ -42,7 +42,7 @@ import net.minecraft.world.phys.Vec3;
  * far side from it. When flat clear floor is not in line (fungi, roots, steps in a warped forest), a carried block goes
  * down at the feet' level first and the boat on top of it.
  *
- * <p>Wood: a hunt that starts with no boat but 5 planks of one boat wood (or logs of it) crafts one first, at a seen
+ * <p>Wood: a hunt that starts with no boat but 13 planks of one boat wood (logs count 4; 8 stay for tools) crafts one first, at a seen
  * table, a carried one put down beside the body (picked up again after), or one made from 4 more planks. Crimson and
  * warped planks make no boat (vanilla). With no boat and no wood the hunt is main's.
  *
@@ -52,6 +52,8 @@ final class BoatTrap {
 	/** Calm endermen this far off (horizontal) are trapped; nearer ones are fought as before, farther ones walked toward. */
 	/** Pearls for the eye plan (12 eyes and spares): a hunt that ends holding these is over, and the boat is taken back. */
 	static final int PEARLS_DONE = 12;
+	/** Planks' worth of boat wood (logs count 4) never spent on boats. */
+	static final int WOOD_RESERVE = 8;
 	static final double MIN_RANGE = 4.5D;
 	static final double MAX_RANGE = 28.0D;
 	/** An enderman more than this above or below the feet is across a step or a drop: no straight walk into a boat. */
@@ -196,7 +198,10 @@ final class BoatTrap {
 			if (boats(player) > 0 || hands == null || threatened(player)) { supply = Supply.DONE; return null; }
 			species = boatWood(player);
 			if (species == null) { supply = Supply.DONE; note("no boat and no 5 planks of one boat wood: hunting without a trap"); return null; }
-			boatsWanted = wood(player, species) >= 10 ? 2 : 1;
+			int wood = wood(player, species);
+			// Boats left standing are not taken along: keep two logs' worth for tools and a table later.
+			if (wood < 5 + WOOD_RESERVE) { supply = Supply.DONE; note("only " + wood + " planks of wood, kept for tools: hunting without a trap"); return null; }
+			boatsWanted = wood >= 10 + WOOD_RESERVE ? 2 : 1;
 			supply = Supply.PLANKS;
 		}
 		if (++supplyTicks > 20 * 45) return endSupply(player, "boat craft took over 45 s");
