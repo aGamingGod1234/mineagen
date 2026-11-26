@@ -6463,6 +6463,50 @@
       "status": "checked"
     },
     {
+      "predicate": "do_step accepts verb recover_items with target {} or {timeoutMs}; it normalizes to the blocking recover_items body tool, rejects other target keys, skips void, lava, other-dimension and spent drops, makes a stone pickaxe first for underground drops with no walked way, walks back, picks up the lost stacks and re-wears the kit.",
+      "checks": [
+        {
+          "file": "coordinator/test/recover-items.test.mjs",
+          "test": "do_step recover_items normalizes to the foreground job and takes only timeoutMs",
+          "type": "node-behavior"
+        },
+        {
+          "file": "coordinator/test/recover-items.test.mjs",
+          "test": "production runtime: do_step recover_items reads the remembered death and drives body actions",
+          "type": "node-behavior"
+        },
+        {
+          "file": "coordinator/test/recover-items.test.mjs",
+          "test": "a fall death: walk back, pick up every stack, wear the shield and chestplate",
+          "type": "node-behavior"
+        },
+        {
+          "file": "coordinator/test/recover-items.test.mjs",
+          "test": "lava, the void, another dimension and spent drops are skipped without moving",
+          "type": "node-behavior"
+        },
+        {
+          "file": "coordinator/test/recover-items.test.mjs",
+          "test": "drops deep underground with no walked way and no pickaxe: make a stone pickaxe, then dig back down to them",
+          "type": "node-behavior"
+        }
+      ],
+      "id": "tool:do_step:enum:verb:recover_items",
+      "contract": {
+        "id": "tool:do_step:enum:verb:recover_items",
+        "claim": "\"recover_items\"",
+        "kind": "enum",
+        "tool": "do_step",
+        "path": "verb",
+        "value": "recover_items"
+      },
+      "location": {
+        "file": "coordinator/src/native-minecraft-tools.mjs",
+        "line": 118
+      },
+      "status": "checked"
+    },
+    {
       "predicate": "A real accepted witness for do_step.target passes normalizeMinecraftToolCall; all advertised type/required/extra/range/length/item constraints reject counterexamples before dispatch.",
       "checks": [
         {
@@ -6525,7 +6569,7 @@
       "id": "tool:do_step:parameter:target",
       "contract": {
         "id": "tool:do_step:parameter:target",
-        "claim": "Verb arguments: act fields (mine x,y,z: vein/tree; craft recipeId,count, table x,y,z if needed; smelt furnace_transaction), gather, find {block|biome|mob|structure,within?,throwCap?,allowEyeReserveUse? (true spends eye reserve)}, build {structure:nether_portal|pillar|bridge|shelter,at?,materials?,size?}, obtain {item,count}, or repair_inventory {menuId,containerId,stateId,itemId,inputs:[{slot,fingerprint},{slot,fingerprint}],allowComponentLoss:true} from inspected inventory menu slots.",
+        "claim": "Verb arguments: act fields (mine x,y,z: vein/tree; craft recipeId,count, table x,y,z if needed; smelt furnace_transaction), gather, find {block|biome|mob|structure,within?,throwCap?,allowEyeReserveUse? (true spends eye reserve)}, build {structure:nether_portal|pillar|bridge|shelter,at?,materials?,size?}, obtain {item,count}, recover_items {} (after a death: walk back, a stone pickaxe first for underground drops, pick up, re-wear), or repair_inventory {menuId,containerId,stateId,itemId,inputs:[{slot,fingerprint},{slot,fingerprint}],allowComponentLoss:true} from inspected inventory menu slots.",
         "kind": "parameter",
         "tool": "do_step",
         "path": "target"
