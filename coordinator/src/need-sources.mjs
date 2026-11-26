@@ -697,7 +697,7 @@ export function pearlOptions({ observation = null, position = null, known = null
 		const night = tick >= 13000 && tick < 23000;
 		parts.push(night ? 'night now: endermen spawn in the dark on open ground (about 1 in 50 night spawns), seen from afar standing tall' : `endermen spawn at night (in ~${round((13000 - tick + (tick >= 13000 ? 24000 : 0)) / 20 / 60)} min), about 1 in 50 night spawns`);
 	}
-	if (warpedHere || warped || inView || enderman || parts.some((part) => part.startsWith('night now'))) parts.push('enderman fight: 40 health, hits ~7 (~4 through full iron); iron sword 6 per hit (~7 hits); a 2-high gap or standing water is optional protection, not a prerequisite; a stare at its eyes provokes one; collect its pearl');
+	if (warpedHere || warped || inView || enderman || parts.some((part) => part.startsWith('night now'))) parts.push('enderman fight: 40 health, hits ~7 (~4 through full iron); iron sword 6 per hit (~7 hits); in a warped forest fight_until digs a pit trap where you stand and fights from it (3 plain blocks, a pickaxe); a stare at its eyes provokes one; collect its pearl');
 	// Put the model's primary route and enderman fight facts before secondary currency facts.
 	if (inView || warpedHere || warped) {
 		const lead = parts.findIndex((part) => part.includes(': 0-1 pearl per kill'));

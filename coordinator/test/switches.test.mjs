@@ -143,6 +143,7 @@ const READS = [
 	['obtain.costs', 'coordinator/src/obtain-runner.mjs', "const OBTAIN_COSTS = getSwitch('obtain.costs').value;"],
 	['obtain.fillLegs', 'coordinator/src/obtain-runner.mjs', "const FILL_LEGS = getSwitch('obtain.fillLegs').value;"],
 	['obtain.fillEdge', 'coordinator/src/obtain-runner.mjs', "const FILL_EDGE = getSwitch('obtain.fillEdge').value;"],
+	['route.forestPearls', 'coordinator/src/skill-fits.mjs', "getSwitch('route.forestPearls').value"],
 	['kit.habit', 'coordinator/src/kit-habit.mjs', "getSwitch('kit.habit', environment)"],
 	['night.cover', 'coordinator/src/night-cover.mjs', "getSwitch('night.cover', environment)"],
 	['tools.program', 'coordinator/src/native-minecraft-tools.mjs', "getSwitch('tools.program', environment)"],
@@ -158,6 +159,7 @@ const READS = [
 	['fight.spawnerHold', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/SpawnerHold.java', 'public static final boolean ENABLED = dev.agaminggod.mineagen.server.Switches.get("fight.spawnerHold");'],
 	['fight.spawnerHoldOpen', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/SpawnerHold.java', 'public static final boolean OPEN_FIGHT = dev.agaminggod.mineagen.server.Switches.get("fight.spawnerHoldOpen");'],
 	['fight.forestHunt', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/WarpedForestHunt.java', 'static boolean enabled = dev.agaminggod.mineagen.server.Switches.get("fight.forestHunt");'],
+	['fight.pitTrap', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/PitTrap.java', 'static final boolean ENABLED = dev.agaminggod.mineagen.server.Switches.get("fight.pitTrap");'],
 	['fight.fullIds', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerFightUntilController.java', 'Switches.get("fight.fullIds")'],
 	['fight.skipUnreachable', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/UnreachableTargets.java', 'Switches.get("fight.skipUnreachable")'],
 	['killPosition', 'src/main/java/dev/agaminggod/mineagen/server/perception/KillSighting.java', 'Switches.get("killPosition")'],
@@ -192,6 +194,7 @@ test('every reader reads its switch through the registry, and no switch variable
 		'fight.spawnerHold': { property: 'mineagen.fight.spawnerHold', properties: [[undefined, true], ['false', false], [' false', true]] },
 		'fight.spawnerHoldOpen': { property: 'mineagen.fight.spawnerHoldOpen', properties: [[undefined, true], ['false', false], ['0', true]] },
 		'fight.forestHunt': { property: 'mineagen.fight.forestHunt', properties: [[undefined, false], ['true', true], ['TRUE', true], [' true', false]] },
+		'fight.pitTrap': { property: 'mineagen.fight.pitTrap', properties: [[undefined, true], ['false', false], ['FALSE', true]] },
 		'fight.fullIds': { property: 'mineagen.fight.fullIds', properties: [[undefined, true], ['false', false], ['FALSE', true]] },
 		'fight.skipUnreachable': { property: 'mineagen.fight.skipUnreachable', properties: [[undefined, true], ['false', false], ['FALSE', true]] },
 		'killPosition': { property: 'mineagen.killPosition', properties: [[undefined, true], ['false', false], [' FALSE ', false], ['no', true]] },
@@ -305,12 +308,13 @@ public class SwitchesParity {
 				!"false".equals(p.get("mineagen.fight.spawnerHold")),
 				!"false".equals(p.get("mineagen.fight.spawnerHoldOpen")),
 				"true".equalsIgnoreCase(p.get("mineagen.fight.forestHunt")),
+				!"false".equals(p.get("mineagen.fight.pitTrap")),
 				!"false".equals(p.get("mineagen.fight.fullIds")),
 				!"false".equals(p.get("mineagen.fight.skipUnreachable")),
 				!"false".equalsIgnoreCase(p.getOrDefault("mineagen.killPosition", "true").trim()),
 				"true".equalsIgnoreCase(p.getOrDefault("mineagen.watch", "false").trim()) };
 		String[] names = { "instincts", "travel.walkAround", "fight.chargeGuard", "fight.recover", "fight.spawnerHold", "fight.spawnerHoldOpen",
-				"fight.forestHunt", "fight.fullIds", "fight.skipUnreachable", "killPosition", "watch" };
+				"fight.forestHunt", "fight.pitTrap", "fight.fullIds", "fight.skipUnreachable", "killPosition", "watch" };
 		StringBuilder line = new StringBuilder("switches");
 		for (int i = 0; i < names.length; i++) line.append(' ').append(names[i]).append('=').append(values[i] ? "on" : "off");
 		return line.toString();

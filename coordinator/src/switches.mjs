@@ -122,6 +122,10 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'obtain.fillLegs', env: 'MINEAGEN_OBTAIN_FILL_LEGS', side: 'coordinator', default: true, parser: OFF_EXACT, status: 'default-on',
 		reason: 'A walk to water goes in 10 s legs and fills at the first source in reach; off is the one 90 s walk to the sighting, for A/B rooms.',
 		readers: ['coordinator/src/obtain-runner.mjs FILL_LEGS (module load, process.env only)'] }),
+	// coordinator/src/skill-fits.mjs routeLine: per route line.
+	entry({ name: 'route.forestPearls', env: 'MINEAGEN_ROUTE_FOREST_PEARLS', side: 'coordinator', default: true, parser: OFF_EXACT, status: 'default-on',
+		reason: 'In the Nether, standing in a warped forest with pearls short, the route line names the enderman hunt there before the fortress.',
+		readers: ['coordinator/src/skill-fits.mjs routeLine (per call, process.env)'] }),
 	// coordinator/src/obtain-runner.mjs FILL_EDGE: read once at module load.
 	entry({ name: 'obtain.fillEdge', env: 'MINEAGEN_OBTAIN_FILL_EDGE', side: 'coordinator', default: true, parser: OFF_EXACT, status: 'default-on',
 		reason: 'A walk to water that ends at an edge over water 3-8 blocks below digs down beside the drop and fills there (room kit-gate-6); off is the A/B off arm.',
@@ -188,6 +192,10 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'fight.forestHunt', property: 'mineagen.fight.forestHunt', side: 'server', default: false, parser: JAVA_GET_BOOLEAN, status: 'default-off',
 		reason: 'Forest-walking pearl hunt: ended 22 of 40 forest hunts with a pearl against 13, but died in 9 against 4 (#78).',
 		readers: ['WarpedForestHunt.java enabled (class load)'] }),
+	// PitTrap.java ENABLED: read once at class load.
+	entry({ name: 'fight.pitTrap', property: 'mineagen.fight.pitTrap', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
+		reason: 'An enderman pearl hunt in a warped forest digs a capped 2-deep window pit where the bot stands, stares from 1 deep, drops in when one is angry and kills it from below; built roofs had 17 kills, unbuilt ones 0 (26 Nov records).',
+		readers: ['PitTrap.java ENABLED (class load)'] }),
 	// ServerFightUntilController.java fullIds(): per fight call.
 	entry({ name: 'fight.fullIds', property: 'mineagen.fight.fullIds', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
 		reason: 'fight_until keeps the mob and item ids it was given in full ("ender_pearl" -> "minecraft:ender_pearl"), so forest mode and drop pickup match bare ids from the model.',

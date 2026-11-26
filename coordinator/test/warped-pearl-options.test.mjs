@@ -9,7 +9,7 @@ test('warped forest fight facts and hunting survive the bounded pearl line befor
  assert.ok(Buffer.byteLength(fact)<=PEARL_OPTIONS_BYTES);
  assert.ok(fact.indexOf('standing in a warped forest')<fact.indexOf('seen gold:'));
  assert.ok(fact.indexOf('enderman fight: 40 health')<fact.indexOf('seen gold:'));
- assert.match(fact,/enderman fight: 40 health.*optional protection, not a prerequisite/);
+ assert.match(fact,/enderman fight: 40 health.*pit trap where you stand and fights from it/);
  assert.doesNotMatch(fact,/look_away|from cover/);
  assert.match(fact,/seen gold: 0 blocks \+ 1 Nether ores/);assert.match(fact,/barter the 2 held gold/);
 });
