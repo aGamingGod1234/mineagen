@@ -941,7 +941,8 @@ public final class ServerRestController implements ServerController {
 
 	private static boolean solid(ServerPlayer player, BlockPos at) {
 		BlockState state = SeenTerrain.of(player).known(at.getX(), at.getY(), at.getZ());
-		return state != null && state.isCollisionShapeFullBlock(player.level(), at);
+		// Mud's top sits 2 pixels low but holds a body like any floor (rest.softGround).
+		return state != null && (state.isCollisionShapeFullBlock(player.level(), at) || softGround && state.is(Blocks.MUD));
 	}
 
 	/** A seen full block a player can dig out to stand in: no fluid, no block entity, not bedrock or leaves, nothing that falls. */
