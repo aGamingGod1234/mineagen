@@ -789,7 +789,8 @@ public final class ServerTravelController implements ServerController {
 			// stop treading water and let the body sink onto the bed, as a player lets go of jump. Held jump kept it
 			// bobbing at the surface, never on the ground, so it never counted as out: 40 of 47 water timeouts in
 			// 8 fresh games ended over such a bank ("shore at x,62,z not reached" with the body in that column).
-			settle = shallowShoreEnabled() && settleOnBank(eyesUnder, off, shore.y(), player.getY());
+			// The 4 s rejection above may have just cleared the shore.
+			settle = shore != null && shallowShoreEnabled() && settleOnBank(eyesUnder, off, shore.y(), player.getY());
 			if (settle) forward = false;
 			pitch = eyesUnder ? SwimPlanning.SURFACING_PITCH : 0.0F;
 			// A bank whose way leads out of the water over a drop the walking code would not take is not swum to.
