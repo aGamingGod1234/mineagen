@@ -101,5 +101,29 @@
 		"cooldownMs": 1000,
 		"ttlMs": 3600000,
 		"coordinatorDefault": true
+	},
+	{
+		"id": "default-fountain-post",
+		"kind": "stance",
+		"priority": 4,
+		"when": [
+			{
+				"type": "dragon_aloft",
+				"crystals": 0,
+				"beyond": 7
+			},
+			{
+				"type": "health_below",
+				"value": 10,
+				"not": true
+			}
+		],
+		"do": {
+			"type": "hold_post"
+		},
+		"maxMs": 20000,
+		"cooldownMs": 5000,
+		"ttlMs": 3600000,
+		"coordinatorDefault": true
 	}
 ]

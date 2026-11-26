@@ -23,10 +23,10 @@ import java.util.regex.Pattern;
 public final class ReflexSpec {
 	/**
 	 * The model's own 12 rules plus the coordinator's 16 default rules (15 survival rules and the owed-drops habit) and the
-	 * 5 it arms only in the End (breath, the dragon's throw, the gaze guard, water against an angry enderman and the run
-	 * to a perched dragon's head, reflexes.mjs DIMENSION_REFLEXES).
+	 * 6 it arms only in the End (breath, the dragon's throw, the gaze guard, water against an angry enderman, the run
+	 * to a perched dragon's head and the wait beside the fountain, reflexes.mjs DIMENSION_REFLEXES).
 	 */
-	public static final int MAX_RULES = 33;
+	public static final int MAX_RULES = 34;
 	/** Ids the coordinator's default survival rules carry (reflexes.mjs DEFAULT_REFLEXES). */
 	public static final String DEFAULT_RULE_PREFIX = "default-";
 	public static final int MAX_CONDITIONS = 4;
@@ -138,6 +138,8 @@ public final class ReflexSpec {
 		condition("dragon_charging", true, new Param("within", ParamKind.NUMBER, 8.0D, 96.0D, false));
 		// The dragon seen sitting on the exit fountain within range, the body on the ground near its height.
 		condition("dragon_perched", true, new Param("within", ParamKind.NUMBER, 4.0D, 32.0D, false));
+		// The dragon flying with at most `crystals` pillar crystals left, the body on the island more than `beyond` from the fountain.
+		condition("dragon_aloft", true, new Param("crystals", ParamKind.NUMBER, 0.0D, 10.0D, false), new Param("beyond", ParamKind.NUMBER, 6.0D, 32.0D, false));
 		// Digging (midgame): the head inside a solid block, as falling sand or gravel lands on it.
 		condition("suffocating", false);
 		// A mob hurt the body within withinS seconds (the hurt flash and its direction), or a hostile's shot is about to land.
@@ -172,6 +174,8 @@ public final class ReflexSpec {
 		action("dodge");
 		// Walk to a perched dragon's head and swing at it each recharge until it takes off (fight_target on the head part).
 		action("strike_head");
+		// Walk to the ground beside the exit fountain, on the body's side, and wait there for the dragon to land.
+		action("hold_post");
 	}
 
 	private ReflexSpec() {

@@ -263,6 +263,7 @@ public final class ReflexSensors {
 			case "cloud_near" -> cloud(player, condition.number("within", 1.0D));
 			case "dragon_charging" -> dragonCharging(player, condition.number("within", DRAGON_CHARGE_RANGE), frame);
 			case "dragon_perched" -> dragonPerched(player, condition.number("within", DRAGON_PERCH_RANGE), frame);
+			case "dragon_aloft" -> dragonAloft(player, (int) condition.number("crystals", 0.0D), condition.number("beyond", POST_BEYOND));
 			// The in-wall view (the block's texture fills the screen) and its damage every half second.
 			case "attacked" -> attacked(player, condition.number("withinS", 4.0D));
 			case "suffocating" -> flag(!ReflexActions.DigOut.stuckCells(player).isEmpty());
@@ -690,6 +691,38 @@ public final class ReflexSensors {
 			if (seen) return new Reading(true, head != null ? head : dragon);
 		}
 		return Reading.FALSE;
+	}
+
+	/** Default {@code beyond} of {@code dragon_aloft}: farther than this from the fountain's centre, the body is off its post. */
+	static final double POST_BEYOND = 7.0D;
+	/** How far from the fountain the island counts: past this the body is on an outer island or far out over the void. */
+	static final double POST_ISLAND = 120.0D;
+
+	/**
+	 * The dragon alive and flying (not sitting on the fountain) with at most {@code crystals} of the pillar crystals still
+	 * healing it, and the body on the ground of the main island more than {@code beyond} blocks from the fountain's
+	 * centre. What a player knows from the boss bar and the pillars going dark, and where they stand to wait for the
+	 * landing: the dragon perches on the fountain and turns its head to the nearest player. In 20 End games the bot was
+	 * within 10 blocks on 35 of 287 landings, and those gave 161 of the 179 perch damage. The focus is the dragon.
+	 */
+	private static Reading dragonAloft(ServerPlayer player, int crystals, double beyond) {
+		if (!player.onGround()) return Reading.FALSE;
+		for (net.minecraft.world.entity.boss.enderdragon.EnderDragon dragon : player.level().getEntitiesOfClass(
+				net.minecraft.world.entity.boss.enderdragon.EnderDragon.class, player.getBoundingBox().inflate(POST_ISLAND * 2.0D),
+				net.minecraft.world.entity.boss.enderdragon.EnderDragon::isAlive)) {
+			if (dragon.getPhaseManager().getCurrentPhase().isSitting()) continue;
+			var fight = dragon.getDragonFight();
+			if (fight == null || fight.aliveCrystals() > crystals) continue;
+			net.minecraft.core.BlockPos origin = dragon.getFightOrigin();
+			if (offPost(player.getX() - origin.getX(), player.getZ() - origin.getZ(), beyond)) return new Reading(true, dragon);
+		}
+		return Reading.FALSE;
+	}
+
+	/** A body {@code dx, dz} from the fountain's centre is off its post: farther than {@code beyond}, still on the island. */
+	static boolean offPost(double dx, double dz, double beyond) {
+		double distance = Math.sqrt(dx * dx + dz * dz);
+		return distance > beyond && distance <= POST_ISLAND;
 	}
 
 	/** Rising faster than this is a throw, not a jump (a jump leaves the ground at 0.42 blocks a tick). */

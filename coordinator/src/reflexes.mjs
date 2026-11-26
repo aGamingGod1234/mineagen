@@ -79,6 +79,12 @@ export const DIMENSION_REFLEXES = Object.freeze({
 		// fight, shot or flight; a model command takes the body back as from any stance. A stance, not a trigger, so it
 		// comes back after the breath run while the dragon still sits; at 10 health or less it stays out.
 		{ id: 'default-perch-strike', kind: 'stance', priority: 6, when: [{ type: 'dragon_perched', within: 24 }, { type: 'health_below', value: 10, not: true }], do: { type: 'strike_head' }, maxMs: 20_000, cooldownMs: 1_000, ttlMs: 3_600_000 },
+		// The crystals are out and the dragon flies: a player waits for the landing beside the fountain, where it perches and
+		// turns its head to the nearest player. In 20 End games the body stood within 10 blocks of the fountain 9% of the time
+		// after the last crystal; the 35 of 287 landings it was that close gave 161 of the 179 perch damage (the dragon sat
+		// 13-27 s), the rest ended in 3-12 s. The walk takes only an idle or waiting body and ends 7 blocks from the centre;
+		// the head run above takes the landing. At 10 health or less it stays out, as the head run does.
+		{ id: 'default-fountain-post', kind: 'stance', priority: 4, when: [{ type: 'dragon_aloft', crystals: 0, beyond: 7 }, { type: 'health_below', value: 10, not: true }], do: { type: 'hold_post' }, maxMs: 20_000, cooldownMs: 5_000, ttlMs: 3_600_000 },
 	].map((rule) => Object.freeze(rule))),
 });
 const MOST_DIMENSION_REFLEXES = Math.max(0, ...Object.values(DIMENSION_REFLEXES).map((rules) => rules.length));
@@ -86,7 +92,7 @@ export const DEFAULT_REFLEX_IDS = Object.freeze(new Set([...DEFAULT_REFLEXES, ..
 // The mod runs at most this many rules (ReflexSpec.MAX_RULES): the cap of every rule-set bound on the wire (C24). The
 // model's own rules plus the defaults (with the most any dimension adds) must fit it, so a new default needs a raise on
 // both sides first.
-export const MAX_REFLEX_RULES = 33;
+export const MAX_REFLEX_RULES = 34;
 if (MAX_REFLEXES + DEFAULT_REFLEXES.length + MOST_DIMENSION_REFLEXES > MAX_REFLEX_RULES) throw new Error(`reflex rules ${MAX_REFLEXES} + ${DEFAULT_REFLEXES.length} + ${MOST_DIMENSION_REFLEXES} exceed the mod's ${MAX_REFLEX_RULES}`);
 
 /**
@@ -217,6 +223,8 @@ export const REFLEX_CONDITIONS = Object.freeze({
 	dragon_charging: { within: number(8, 96) },
 	// The dragon seen sitting on the exit fountain within range, the body on the ground near its height.
 	dragon_perched: { within: number(4, 32) },
+	// The dragon flying with at most `crystals` pillar crystals left, the body on the island more than `beyond` from the fountain.
+	dragon_aloft: { crystals: number(0, 10), beyond: number(6, 32) },
 	// Digging (midgame): the head inside a solid block, as falling sand or gravel lands on it.
 	suffocating: {},
 	// A mob hurt you within withinS seconds, or a hostile's shot lands within 1 s.
@@ -256,6 +264,8 @@ export const REFLEX_ACTIONS = Object.freeze({
 	dodge: {},
 	// Walk to a perched dragon's head and swing at it each recharge until it takes off (fight_target on the head part).
 	strike_head: {},
+	// Walk to the ground beside the exit fountain, on the body's side, and wait there for the dragon to land.
+	hold_post: {},
 });
 
 function codedError(code, message) { return Object.assign(new Error(message), { code }); }
@@ -403,6 +413,7 @@ export function reflexLacks(action, observation) {
 		case 'place_block': return action.item === undefined || has((item) => item.hotbar === true || item.slot === 'mainhand', action.item) ? null : `no ${action.item} in hotbar`;
 		case 'select': return action.item === undefined || has((item) => typeof item.slot === 'number' || item.slot === 'mainhand' || item.slot === 'offhand', action.item) ? null : `no ${action.item} in inventory`;
 		case 'shield': return has((item) => item.slot === 'mainhand' || item.slot === 'offhand', 'minecraft:shield') ? null : 'no shield in either hand';
+		case 'hold_post':
 		case 'strike_head': return items.some((item) => (item.hotbar === true || item.slot === 'mainhand') && /_(sword|axe)$/.test(item.itemId ?? '')) ? null : 'no sword or axe in hotbar';
 		default: return null;
 	}
