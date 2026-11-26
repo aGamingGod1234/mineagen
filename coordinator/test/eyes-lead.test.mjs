@@ -10,18 +10,22 @@ const plan = { steps: [
 	{ id: 'gold', check: 'has:minecraft:golden_helmet*1', dependsOn: [] },
 	{ id: 'blaze', check: 'has:minecraft:blaze_rod*6', dependsOn: ['cover'] },
 	{ id: 'eyes', check: 'has:minecraft:ender_eye*12', dependsOn: ['pearls', 'blaze'] },
-	{ id: 'stronghold', check: 'seen:minecraft:stronghold', dependsOn: [] },
+	{ id: 'stronghold', check: 'seen:minecraft:stronghold', dependsOn: ['eyes'] },
 	{ id: 'end', check: 'in:minecraft:the_end', dependsOn: ['stronghold'] },
 	{ id: 'dragon', check: 'killed:minecraft:ender_dragon', dependsOn: ['end'] },
 ] };
-const open = plan.steps.map(s => s.id);
+// Open as planProgress leaves it with the eyes short: the stronghold waits on them, so it is not open.
+const open = ['depth', 'pearls', 'gold'];
 const at = items => ({ world: { dimension: 'minecraft:overworld' }, inventory: { items } });
 
 test('an eye in hand puts the stronghold and End steps ahead of lost Nether prep; none, or the off switch, keeps plan order', () => {
-	assert.deepEqual(openOrder(plan, { open }, at([{ itemId: 'minecraft:ender_eye', count: 10 }])).slice(0, 3), ['stronghold', 'end', 'depth']);
+	assert.deepEqual(openOrder(plan, { open }, at([{ itemId: 'minecraft:ender_eye', count: 10 }])).slice(0, 3), ['stronghold', 'depth', 'pearls']);
+	// A stale sample has no inventory: the last live inventory stands in.
+	assert.equal(openOrder(plan, { open }, { ready: false }, null, [{ itemId: 'minecraft:ender_eye', count: 10 }])[0], 'stronghold');
 	assert.deepEqual(openOrder(plan, { open }, at([{ itemId: 'minecraft:ender_pearl', count: 10 }])), open);
 	process.env.MINEAGEN_EYES_HOLD = '0';
 	try { assert.deepEqual(openOrder(plan, { open }, at([{ itemId: 'minecraft:ender_eye', count: 10 }])), open); } finally { delete process.env.MINEAGEN_EYES_HOLD; }
 	// Stronghold seen: the End step leads.
-	assert.equal(openOrder(plan, { open: open.filter(id => id !== 'stronghold') }, at([{ itemId: 'minecraft:ender_eye', count: 10 }]))[0], 'end');
+	const seen = { steps: plan.steps.map(s => s.id === 'stronghold' ? { ...s, status: 'complete' } : s) };
+	assert.equal(openOrder(seen, { open: ['end', ...open] }, at([{ itemId: 'minecraft:ender_eye', count: 10 }]))[0], 'end');
 });

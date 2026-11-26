@@ -484,7 +484,7 @@ export class LiveTaskViews {
   // Every read re-checks each step against the current inventory, armour, dimension and placements (plan-drop credit included).
   if (tool.operation === 'read' && this.#reconcile(state)) { state.revision++; this.#save(state); }
   const checked = planEvidence(state.plan, authored);
-  const facts = planProgress(state.plan), open = facts ? openOrder(state.plan, facts, state.observation, state.known) : [];
+  const facts = planProgress(state.plan), open = facts ? openOrder(state.plan, facts, state.observation, state.known, state.liveInventory) : [];
   const first = state.plan?.steps.find(s => s.id === state.intent?.step && s.status !== 'complete') ?? state.plan?.steps.find(s => s.id === open[0]);
   // The whole requirement chain, uncut, for the step the wake line abbreviates.
   const found = first ? requirementChain(first, state) : null;
@@ -617,7 +617,7 @@ export class LiveTaskViews {
   const add = (text, ids = []) => pieces.push({ text, ids });
   // The model's intent step stays first whatever its state; no other step is singled out as next.
   const intendedId = state.intent?.step, intended = byId.get(intendedId);
-  const open = openOrder(plan, facts, state.observation, state.known);
+  const open = openOrder(plan, facts, state.observation, state.known, state.liveInventory);
   const first = intended && intended.status !== 'complete' ? intended : byId.get(open[0]);
   const needs = first ? stepNeeds(first, state).filter(Boolean).map(need => need.id) : [];
   const found = first ? requirementChain(first, state) : null;
@@ -786,7 +786,7 @@ export class LiveTaskViews {
   if (step?.check) return null;
   // An unchecked first step (a manual preparation) leaves the plan's open Nether milestone the next checked
   // outcome: its sources, not the next pickaxe tier, which would make diamonds look like the route.
-  const facts = planProgress(state.plan), open = facts ? openOrder(state.plan, facts, state.observation, state.known) : [];
+  const facts = planProgress(state.plan), open = facts ? openOrder(state.plan, facts, state.observation, state.known, state.liveInventory) : [];
   for (const id of open) {
    const later = state.plan.steps.find(s => s.id === id);
    const options = later && later !== step ? nether(later) : null;
@@ -1163,7 +1163,7 @@ function progressFocus(state) {
  const intended = plan?.steps.find(s => s.id === state.intent?.step && s.status !== 'complete' && !early.has(s.id));
  if (intended || !early.size) return intended ?? firstUnfinished(state);
  const reached = { steps: plan.steps.map(s => early.has(s.id) ? { ...s, status: 'complete' } : s) }, facts = planProgress(reached);
- const open = facts ? openOrder(reached, facts, state.observation, state.known) : [];
+ const open = facts ? openOrder(reached, facts, state.observation, state.known, state.liveInventory) : [];
  return plan.steps.find(s => s.id === open[0]) ?? firstUnfinished(state);
 }
 /** The intent's step while unfinished, else the first open step: the step the wake line and stall clock follow. */
@@ -1172,7 +1172,7 @@ const PORTAL_KIT = new Set(['minecraft:water_bucket', 'minecraft:flint_and_steel
 function firstUnfinished(state) {
  const plan = state.plan, facts = planProgress(plan);
  const intended = plan?.steps.find(s => s.id === state.intent?.step && s.status !== 'complete');
- return intended ?? plan?.steps.find(s => s.id === state.planFocus && s.status !== 'complete') ?? plan?.steps.find(s => s.status === 'active') ?? (facts ? plan.steps.find(s => s.id === openOrder(plan, facts, state.observation, state.known)[0]) : undefined);
+ return intended ?? plan?.steps.find(s => s.id === state.planFocus && s.status !== 'complete') ?? plan?.steps.find(s => s.status === 'active') ?? (facts ? plan.steps.find(s => s.id === openOrder(plan, facts, state.observation, state.known, state.liveInventory)[0]) : undefined);
 }
 // With an eye in hand outside the Nether and the End, the open stronghold and End steps come first: a player follows
 // the eye they hold. Without this the first open step was a lost Nether-prep step (lava depth, portal frame, pearl or
@@ -1180,10 +1180,12 @@ function firstUnfinished(state) {
 // games (26 Nov) the bot then dug to the lava floor beside the stronghold estimate and built a Nether portal.
 // MINEAGEN_EYES_HOLD=0 keeps plan order, as for the eyes-in-hand route line.
 const EYE_LEAD = /(^| )(seen:minecraft:stronghold|in:minecraft:the_end)( |$)/;
-function eyesLead(plan, open, observation) {
- if (process.env.MINEAGEN_EYES_HOLD === '0' || !(observation?.inventory?.items ?? []).some(r => r?.itemId === 'minecraft:ender_eye' && r.count > 0)) return [...open];
- const byId = new Map(plan.steps.map(s => [s.id, s]));
- const lead = open.filter(id => EYE_LEAD.test(byId.get(id)?.check ?? ''));
+// A stale sample leaves the view without an inventory ({ ready: false }); the last live inventory stands in for it.
+function eyesLead(plan, open, observation, held) {
+ if (process.env.MINEAGEN_EYES_HOLD === '0' || !(observation?.inventory?.items ?? held ?? []).some(r => r?.itemId === 'minecraft:ender_eye' && r.count > 0)) return [...open];
+ // The stronghold step is taken from the whole plan, not only the open steps: a plan whose stronghold step depends on
+ // 12 eyes closes it once the eyes fall short, which is the case this is for. The End step leads only once open.
+ const lead = plan.steps.filter(s => s.status !== 'complete' && EYE_LEAD.test(s.check ?? '') && (open.includes(s.id) || /(^| )seen:minecraft:stronghold( |$)/.test(s.check))).map(s => s.id);
  return [...lead, ...open.filter(id => !lead.includes(id))];
 }
 // A bed explodes when used in the Nether or the End.
@@ -1197,9 +1199,9 @@ const BED_UNSAFE = new Set(['minecraft:the_nether', 'minecraft:the_end']);
  * so the step the stall clock follows does not flip as an enderman walks in and out of sight. A manual step whose
  * prerequisites were all passed by skipping is behind the player; a spawn:bed step is not shown where a bed explodes.
  */
-export function openOrder(plan, facts, observation, known = null) {
+export function openOrder(plan, facts, observation, known = null, held = null) {
  const dimension = observation?.world?.dimension;
- if (!BED_UNSAFE.has(dimension)) return eyesLead(plan, facts.open, observation);
+ if (!BED_UNSAFE.has(dimension)) return eyesLead(plan, facts.open, observation, held);
  const byId = new Map(plan.steps.map(s => [s.id, s]));
  const manual = s => s.check === null && s.kind === 'manual';
  const steps = facts.open.map(id => byId.get(id)).filter(s => !(s.check ?? '').split(' ').includes('spawn:bed')
