@@ -126,6 +126,10 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'obtain.fillEdge', env: 'MINEAGEN_OBTAIN_FILL_EDGE', side: 'coordinator', default: true, parser: OFF_EXACT, status: 'default-on',
 		reason: 'A walk to water that ends at an edge over water 3-8 blocks below digs down beside the drop and fills there (room kit-gate-6); off is the A/B off arm.',
 		readers: ['coordinator/src/obtain-runner.mjs FILL_EDGE (module load, process.env only)'] }),
+	// coordinator/src/reflexes.mjs fountainPostEnabled(environment): read when a ReflexManager is built.
+	entry({ name: 'end.fountainPost', env: 'MINEAGEN_FOUNTAIN_POST', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
+		reason: 'With the crystals out, walks a bot more than 14 blocks out back to 9 from the fountain for the landing; off drops the End default, for A/B games and a rollback.',
+		readers: ['coordinator/src/reflexes.mjs fountainPostEnabled (ReflexManager construction)'] }),
 	// coordinator/src/kit-habit.mjs kitHabitEnabled(environment): per call.
 	entry({ name: 'kit.habit', env: 'MINEAGEN_KIT_HABIT', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
 		reason: 'Keeps a shield, iron armour and food in reach after each obtain; off is the A/B off arm (#32).',

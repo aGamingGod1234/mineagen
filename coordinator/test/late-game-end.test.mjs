@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { DEFAULT_REFLEXES, DIMENSION_REFLEXES, MAX_REFLEXES, MAX_REFLEX_RULES, ReflexBook, normalizeReflexEntries } from '../src/reflexes.mjs';
+import { DEFAULT_REFLEXES, DIMENSION_REFLEXES, MAX_REFLEXES, MAX_REFLEX_RULES, ReflexBook, fountainPostEnabled, normalizeReflexEntries } from '../src/reflexes.mjs';
 import { currentDangers, dangerCoverage } from '../src/danger-contexts.mjs';
 import { validateProtocolV2Payload } from '../src/protocol-v2.mjs';
 import { FakePlanner, eventually, factToWireObservation, start } from './fixtures/dynamic-main-fixture.mjs';
@@ -28,6 +28,15 @@ test('End defaults follow the dimension: armed on entering the End, gone on leav
 	// Entering the Nether arms none of them.
 	book.observeContext('a', live(NETHER));
 	assert.ok(END_IDS.every((id) => !ids(book).some((row) => row.startsWith(id))));
+});
+
+test('MINEAGEN_FOUNTAIN_POST=off leaves the fountain wait out of the End defaults; the head run stays', () => {
+	const book = new ReflexBook({ fountainPost: false });
+	book.observeContext('a', live(END));
+	assert.ok(!ids(book).some((row) => row.startsWith('default-fountain-post')), 'no fountain wait');
+	assert.ok(ids(book).includes('default-perch-strike*'), 'the head run still arms');
+	assert.equal(fountainPostEnabled({ MINEAGEN_FOUNTAIN_POST: 'off' }), false);
+	assert.equal(fountainPostEnabled({}), true);
 });
 
 test('a first sample already in the End (a staged start, a reconnect) arms them, and a respawn in the End again', () => {

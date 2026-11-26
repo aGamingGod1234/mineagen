@@ -106,6 +106,15 @@ export function instinctsEnabled(environment = {}) {
 	return getSwitch('instincts', environment).value;
 }
 
+/** MINEAGEN_FOUNTAIN_POST=off drops default-fountain-post from the End defaults (the rule never arms). */
+export function fountainPostEnabled(environment = {}) {
+	return getSwitch('end.fountainPost', environment).value;
+}
+
+function withoutFountainPost(dimensionDefaults) {
+	return Object.fromEntries(Object.entries(dimensionDefaults).map(([dimension, rules]) => [dimension, rules.filter((rule) => rule.id !== 'default-fountain-post')]));
+}
+
 /**
  * The automatic stance (D3): the brain need not set one. It is only numbers in the default rules below, so the wire and
  * older mods see ordinary rules (C23). steady equals DEFAULT_REFLEXES.
@@ -449,8 +458,9 @@ export class ReflexBook {
 	/** dimensionDefaults: {dimension: rules} armed only there; by default DIMENSION_REFLEXES with the production defaults. */
 	// instincts defaults to the switch (on unless MINEAGEN_INSTINCTS lists something else), so a practice room's book plays as
 	// the coordinator's does in a model game.
-	constructor({ now = Date.now, defaults = DEFAULT_REFLEXES, dimensionDefaults = defaults === DEFAULT_REFLEXES ? DIMENSION_REFLEXES : {}, instincts = instinctsEnabled(process.env) } = {}) {
-		this.#now = now; this.#defaults = defaults; this.#dimensionDefaults = dimensionDefaults; this.#instincts = instincts === true;
+	constructor({ now = Date.now, defaults = DEFAULT_REFLEXES, dimensionDefaults = defaults === DEFAULT_REFLEXES ? DIMENSION_REFLEXES : {}, instincts = instinctsEnabled(process.env), fountainPost = fountainPostEnabled(process.env) } = {}) {
+		this.#now = now; this.#defaults = defaults; this.#instincts = instincts === true;
+		this.#dimensionDefaults = fountainPost ? dimensionDefaults : withoutFountainPost(dimensionDefaults);
 	}
 
 	#agent(agentId) {
