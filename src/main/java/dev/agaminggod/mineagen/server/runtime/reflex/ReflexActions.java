@@ -296,6 +296,29 @@ final class ReflexActions {
 		private boolean defers = true;
 		private int lowered;
 		private final Map<Integer, Long> swungAt = new java.util.HashMap<>();
+		/** Set by defend before each tick: the weapon slot to hold and the visible part of the focus's hitbox. */
+		private int weaponSlot = -1;
+		private Vec3 focusAim;
+
+		Shield arm(int slot, Vec3 aim) {
+			weaponSlot = slot;
+			focusAim = aim;
+			return this;
+		}
+
+		private int slot(ServerPlayer player) {
+			return counterSlot(hand, weaponSlot, player.getInventory().getSelectedSlot());
+		}
+
+		/** With the shield in the offhand the main hand is free, so it holds defend's weapon, not what the body last used. */
+		static int counterSlot(InteractionHand shieldHand, int weaponSlot, int selected) {
+			return shieldHand == InteractionHand.OFF_HAND && weaponSlot >= 0 ? weaponSlot : selected;
+		}
+
+		/** Round a corner the middle of the focus can sit behind stone, so the counter aims at the part defend saw. */
+		static Vec3 counterAim(Object target, Object focus, Vec3 focusAim, Vec3 center) {
+			return target == focus && focusAim != null ? focusAim : center;
+		}
 
 		@Override
 		public void end(ServerPlayer player) {
@@ -350,7 +373,7 @@ final class ReflexActions {
 				if (strike != null) return strike;
 			}
 			Vec3 target = meet != null ? meet : volley ? shotFrom : guardPoint(player, context.focus(), close, now);
-			AgentInputState aim = look(player, target, 0.0F, 0.0F, false, true, player.getInventory().getSelectedSlot(), hand);
+			AgentInputState aim = look(player, target, 0.0F, 0.0F, false, true, slot(player), hand);
 			if (below == null) {
 				if (dev.agaminggod.mineagen.server.runtime.controller.BrinkGuard.needsFooting(player)) {
 					aim = new AgentInputState(0, 0, false, false, false, false, true, aim.yaw(), 40.0F,
@@ -396,9 +419,10 @@ final class ReflexActions {
 				return null;
 			}
 			lowered++;
-			input.accept(look(player, target.getBoundingBox().getCenter(), 0.0F, 0.0F, false, false,
-					player.getInventory().getSelectedSlot(), InteractionHand.MAIN_HAND));
-			if (!player.isUsingItem() && Tracer.rayTrace(player, 1.0F, range.effectiveMaxRange(player), false) instanceof EntityHitResult hit
+			int slot = slot(player);
+			input.accept(look(player, counterAim(target, focus, focusAim, target.getBoundingBox().getCenter()), 0.0F, 0.0F,
+					false, false, slot, InteractionHand.MAIN_HAND));
+			if (!player.isUsingItem() && player.getInventory().getSelectedSlot() == slot && Tracer.rayTrace(player, 1.0F, range.effectiveMaxRange(player), false) instanceof EntityHitResult hit
 					&& hit.getEntity() == target) {
 				player.attack(target);
 				ArmSwing.attack(player, InteractionHand.MAIN_HAND);
@@ -544,8 +568,13 @@ final class ReflexActions {
 		 * in the won ones 19 of 27 were blocked facing it. Not a mob whose weapon disables the shield (an axe), nor a crowd.
 		 */
 		static boolean faces(ServerPlayer player, Mob mob, int crowd) {
-			return FACE_MELEE && mob != null && crowd < CROWD && player.getOffhandItem().is(Items.SHIELD)
-					&& !dev.agaminggod.mineagen.server.perception.ThreatDamage.expectedHit(mob, player).disablesShield();
+			return FACE_MELEE && mob != null && facesWith(crowd, player.getOffhandItem().is(Items.SHIELD), ThreatPerception.isRanged(mob),
+					() -> dev.agaminggod.mineagen.server.perception.ThreatDamage.expectedHit(mob, player).disablesShield());
+		}
+
+		/** A ranged mob gives no swing to counter between, so it keeps the ordinary attack, as an axe that breaks the shield does. */
+		static boolean facesWith(int crowd, boolean offhandShield, boolean ranged, java.util.function.BooleanSupplier disablesShield) {
+			return crowd < CROWD && offhandShield && !ranged && !disablesShield.getAsBoolean();
 		}
 
 		private Mob outmatching(ServerPlayer player, Mob mob) {
@@ -940,7 +969,7 @@ final class ReflexActions {
 				if (stepping != null) return stepping;
 			}
 			if (target instanceof Mob facing && faces(player, facing, crowd.size())) {
-				Step held = faceGuard.tick(new Context(player, facing, context.stance(), context.memory(), null, context.below(),
+				Step held = faceGuard.arm(slot, swing.aim()).tick(new Context(player, facing, context.stance(), context.memory(), null, context.below(),
 						context.fightShields()), input);
 				if (held.status() == ReflexScheduler.ActionStatus.RUNNING) {
 					guardTicks++;
