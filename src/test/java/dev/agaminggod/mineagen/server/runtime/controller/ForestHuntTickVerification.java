@@ -107,6 +107,7 @@ public final class ForestHuntTickVerification {
 			verifyFailedPerchBacksOff();
 			verifyNotForest();
 			verifyBareIds();
+			verifyStaysWithoutForestMode();
 		} finally {
 			WarpedForestHunt.probe = savedProbe;
 			WarpedForestHunt.walks = savedWalks;
@@ -362,6 +363,51 @@ public final class ForestHuntTickVerification {
 				if (saved == null) System.clearProperty("mineagen.fight.fullIds"); else System.setProperty("mineagen.fight.fullIds", saved);
 			}
 		}
+	}
+
+	/**
+	 * Forest walks off (main's default): a pearl hunt started in a warped forest waits in place to its time cap instead of
+	 * NO_TARGET_SEEN at 30 s; -Dmineagen.fight.forestStay=false and a hunt outside the forest hand back as before.
+	 */
+	private static void verifyStaysWithoutForestMode() throws Exception {
+		boolean walking = WarpedForestHunt.enabled;
+		WarpedForestHunt.enabled = false;
+		try {
+			try (Fixture fixture = Fixture.create()) {
+				WarpedForestHunt.walks = (goal, mayModify, now) -> fixture.walk(3, ServerController.State.SUCCEEDED, "ARRIVED", goal);
+				ServerController.TickResult end = fixture.run(fixture.hunt(hunt(60_000L), null), 1_400);
+				check(end.state() == ServerController.State.TIMED_OUT && "FIGHT_UNTIL_TIMED_OUT".equals(end.reasonCode()) && fixture.walksMade == 0,
+						"walks off: a forest pearl hunt stays to its time cap, no NO_TARGET_SEEN at 30 s, no relocation: " + end.reasonCode() + " " + fixture.walksMade);
+			}
+			String saved = System.getProperty("mineagen.fight.forestStay");
+			System.setProperty("mineagen.fight.forestStay", "false");
+			try (Fixture fixture = Fixture.create()) {
+				ServerController.TickResult end = fixture.run(fixture.hunt(hunt(60_000L), null), 1_400);
+				check("NO_TARGET_SEEN".equals(end.reasonCode()), "fight.forestStay=false: the old 30 s hand-back: " + end.reasonCode());
+			} finally {
+				if (saved == null) System.clearProperty("mineagen.fight.forestStay"); else System.setProperty("mineagen.fight.forestStay", saved);
+			}
+			WarpedForestHunt.Probe forest = WarpedForestHunt.probe;
+			WarpedForestHunt.probe = (player, at) -> "minecraft:basalt_deltas";
+			try (Fixture fixture = Fixture.create()) {
+				ServerController.TickResult end = fixture.run(fixture.hunt(hunt(60_000L), null), 1_400);
+				check("NO_TARGET_SEEN".equals(end.reasonCode()), "outside the forest the hunt hands back at 30 s as before: " + end.reasonCode());
+			} finally {
+				WarpedForestHunt.probe = forest;
+			}
+			try (Fixture fixture = Fixture.create()) {
+				JsonObject eyes = hunt(60_000L);
+				eyes.addProperty("untilItem", "minecraft:ender_eye");
+				ServerController.TickResult end = fixture.run(fixture.hunt(eyes, null), 1_400);
+				check("NO_TARGET_SEEN".equals(end.reasonCode()), "an enderman hunt for something else than pearls hands back as before: " + end.reasonCode());
+			}
+		} finally {
+			WarpedForestHunt.enabled = walking;
+		}
+		check(ServerFightUntilController.staysInForest(true, false, true, true, WarpedForestHunt.BIOME), "on, walks off, enderman pearls, forest: stays");
+		check(!ServerFightUntilController.staysInForest(true, true, true, true, WarpedForestHunt.BIOME), "forest mode owns its own quiet spells");
+		check(!ServerFightUntilController.staysInForest(false, false, true, true, WarpedForestHunt.BIOME), "switch off: as before");
+		check(!ServerFightUntilController.staysInForest(true, false, false, true, WarpedForestHunt.BIOME), "other mobs: as before");
 	}
 
 	private static JsonObject hunt(long timeoutMs) {

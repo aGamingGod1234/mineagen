@@ -173,6 +173,30 @@ public final class ServerFightUntilController implements ServerController {
 	static boolean fullIds() {
 		return dev.agaminggod.mineagen.server.Switches.get("fight.fullIds");
 	}
+
+	/** The fight.forestStay switch, read per call (on unless -Dmineagen.fight.forestStay=false). */
+	static boolean forestStay() {
+		return dev.agaminggod.mineagen.server.Switches.get("fight.forestStay");
+	}
+
+	/**
+	 * A pearl hunt on endermen started in a warped forest, outside forest mode, waits there for the next enderman instead
+	 * of handing back NO_TARGET_SEEN after 30 s or AREA_CLEARED after a kill; it still stops at the count, the timeout,
+	 * fleeAtHealth, lava, a cancel, or once the body is out of the forest. Set 1 games (26 Nov): 12 of 13 such calls on
+	 * main handed back "none seen" after 30 s with an enderman within 32 blocks, and the model walked off after 11 of 12.
+	 */
+	static boolean staysInForest(boolean switchOn, boolean forestMode, boolean enderman, boolean pearls, String biomeAtFeet) {
+		return switchOn && !forestMode && enderman && pearls && WarpedForestHunt.BIOME.equals(biomeAtFeet);
+	}
+
+	/**
+	 * A mob other than the hunted kind hurt the body within HURT_TURN_TICKS: the stay ends and the usual hand-back follows,
+	 * so the model can answer it. Smoke room (seed 8675309): a piglin took a waiting body to 0.9 health over 477 s.
+	 */
+	private boolean hurtByOther(ServerPlayer player) {
+		LivingEntity by = player.getLastHurtByMob();
+		return by != null && by.getType() != mob && player.tickCount - player.getLastHurtByMobTimestamp() <= HURT_TURN_TICKS;
+	}
 	private final int untilCount;
 	private final Weapon weapon;
 	private final boolean collect;
@@ -391,6 +415,8 @@ public final class ServerFightUntilController implements ServerController {
 	private int breakOuts;
 	/** Forest mode (WarpedForestHunt): an enderman count fight started in a warped forest; null otherwise. */
 	private WarpedForestHunt forest;
+	/** staysInForest at the call's start: quiet spells in the forest wait on instead of handing back. */
+	private final boolean stays;
 	/** Forest mode with roof:true: a shelter is built at the next contact with a calm enderman, while blocks last. */
 	private boolean roofWanted;
 	/** Forest mode: the calm enderman in range the body has kept in view (ForestRoof), and the last shelter it left. */
@@ -453,6 +479,8 @@ public final class ServerFightUntilController implements ServerController {
 			roof = false;
 			collectWhenClear = !collect && choices.mayMove();
 		}
+		this.stays = staysInForest(forestStay(), forest != null, mob == McEntityTypes.ENDERMAN, "minecraft:ender_pearl".equals(untilItemId),
+				WarpedForestHunt.biomeAt(player));
 		this.elapsedTime = new ElapsedTimeAccumulator(now);
 	}
 
@@ -736,7 +764,8 @@ public final class ServerFightUntilController implements ServerController {
 			TickResult moving = tickForest(player, elapsed, nowEpochMs, false);
 			if (moving != null) return moving;
 		}
-		if (forest == null && elapsed - lastTargetMs >= NO_TARGET_MS) {
+		boolean waitsOn = stays && WarpedForestHunt.inForest(player) && !hurtByOther(player);
+		if (forest == null && !waitsOn && elapsed - lastTargetMs >= NO_TARGET_MS) {
 			return stop(player, TickResult.failed("NO_TARGET_SEEN", String.format(Locale.ROOT,
 					"No %s seen within %.0f blocks of %s for %.0f s%s", mobId, radius, cell(center), NO_TARGET_MS / 1000.0D, seenOutside(player, elapsed)), progress(player)));
 		}
@@ -751,7 +780,7 @@ public final class ServerFightUntilController implements ServerController {
 		boolean waitsForMore = forest != null || waitsForMore(mob, roof, spot);
 		long quietMs = areaCleared.observe(kills, waitsForMore, elapsed, lastTargetMs,
 				AreaCleared.applies(kills, waitsForMore) && (clearDropsWaiting || passedOverInView(player)), lookStep);
-		if (quietMs >= 0L)
+		if (quietMs >= 0L && !waitsOn)
 			return stop(player, TickResult.failed("AREA_CLEARED", String.format(Locale.ROOT,
 					"No %s left in view within %.0f blocks of %s after %d kill%s (looked around %.1f s)%s", mobId, radius, cell(center),
 					kills, kills == 1 ? "" : "s", quietMs / 1000.0D, seenOutside(player, elapsed)), progress(player)));

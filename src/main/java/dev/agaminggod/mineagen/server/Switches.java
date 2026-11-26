@@ -76,6 +76,8 @@ public final class Switches {
 		new Switch("fight.spawnerHoldOpen", null, "mineagen.fight.spawnerHoldOpen", "server", true, JAVA_NOT_FALSE_EXACT, null, "default-on"),
 		// WarpedForestHunt.java enabled: class load (tests reassign it).
 		new Switch("fight.forestHunt", null, "mineagen.fight.forestHunt", "server", false, JAVA_GET_BOOLEAN, null, "default-off"),
+		// ServerFightUntilController.java forestStay(): per fight call.
+		new Switch("fight.forestStay", null, "mineagen.fight.forestStay", "server", true, JAVA_NOT_FALSE_EXACT, null, "default-on"),
 		// ServerFightUntilController.java fullIds(): per fight call.
 		new Switch("fight.fullIds", null, "mineagen.fight.fullIds", "server", true, JAVA_NOT_FALSE_EXACT, null, "default-on"),
 		// UnreachableTargets.java fromProperty(): per fight call.
