@@ -1,3 +1,4 @@
+import { getSwitch } from './switches.mjs';
 import { foodAdviceNeeded, quickBedSource } from './survival-advice.mjs';
 // For an open step's needs: the base resource each comes from, the remembered places that could supply it, and the
 // vanilla ways to get it with typical yields. Facts only; the model weighs them and chooses where to go.
@@ -751,7 +752,93 @@ export function pearlHuntLine({ observation = null, position = null, open = '' }
 	return `enderman ${Math.round(target.distance)} m, ${dy === 0 ? 'level' : dy > 0 ? `${dy} up` : `${-dy} down`}, ${angry ? 'angry at you' : 'calm'}`
 		+ `${others > 0 ? `, ${others} more within ${HUNT_RANGE} m` : ''}; pearls ${held}/${needed} open`
 		+ `${/^(travel_to|navigate_to)$/.test(action ?? '') ? `; your ${action} is still running and does not stop for it` : ''}`
-		+ (unready === null ? '' : `; not geared for it (${unready}): it hits for 7 and has 40 health, so leave a calm one calm and do not look at it until you are`);
+		+ (unready === null ? '' : `; not geared for an open fight (${unready}): it hits for 7 and has 40 health; ${boatTrapLine(observation)}`);
+}
+
+// Boats seat a mob that walks into them; only Overworld wood (and bamboo, as a raft) makes one: Nether stems do not.
+const BOAT_WOOD = '(?:oak|spruce|birch|jungle|acacia|dark_oak|mangrove|cherry|pale_oak|bamboo)';
+const BOAT_ITEM = new RegExp(`^minecraft:${BOAT_WOOD}_(?:chest_)?(?:boat|raft)$`);
+const BOAT_PLANKS = new RegExp(`^minecraft:${BOAT_WOOD}_planks$`);
+const BOAT_LOG = new RegExp(`^minecraft:(?:stripped_)?(?:oak|spruce|birch|jungle|acacia|dark_oak|mangrove|cherry|pale_oak)_(?:log|wood)$|^minecraft:(?:stripped_)?bamboo_block$`);
+
+/**
+ * The boat trap for a body not geared to fight an enderman in the open: what it holds toward one and the method, or why
+ * it is off (rain makes endermen teleport). Knowledge for the model's choice, not a step it must take.
+ */
+export function boatKit(items) {
+	const count = (pattern) => (items ?? []).reduce((sum, item) => sum + (pattern.test(item?.itemId ?? '') && item.count > 0 ? item.count : 0), 0);
+	// A boat takes 5 planks of one wood: count each wood on its own (a log makes 4 planks, a bamboo block 2) and keep the most.
+	const woods = new Map();
+	for (const item of items ?? []) {
+		if (!(item?.count > 0)) continue;
+		const id = item.itemId ?? '';
+		const plank = BOAT_PLANKS.test(id) ? /^minecraft:(.+)_planks$/.exec(id)[1] : null;
+		const log = plank === null && BOAT_LOG.test(id) ? /^minecraft:(?:stripped_)?(.+?)(?:_log|_wood|_block)$/.exec(id)[1] : null;
+		const wood = plank ?? log;
+		if (wood === null) continue;
+		woods.set(wood, (woods.get(wood) ?? 0) + item.count * (plank !== null ? 1 : wood === 'bamboo' ? 2 : 4));
+	}
+	return { boats: count(BOAT_ITEM), planks: Math.max(0, ...woods.values()) };
+}
+
+export function boatTrapLine(observation) {
+	const { boats, planks } = boatKit(observation?.inventory?.items);
+	if (observation?.world?.raining === true) return 'a boat trap fails in rain (it teleports), so leave a calm one calm and do not look at it until the rain stops';
+	const kit = boats > 0 ? `you hold ${boats} boat${boats > 1 ? 's' : ''}` : planks >= 5 ? `you hold wood for a boat (${planks} planks' worth; 5 at a crafting table; if it is out of view after the craft it is still near: turn to find it, it stands tall)` : null;
+	if (kit === null) return 'no boat or 5 Overworld planks for a boat trap (keep one boat for the next one), so leave a calm one calm and do not look at it until you have one or are geared';
+	return `trap it in a boat instead (${kit}): place the boat 1-2 blocks in front of you on its side, stare at its eyes so it charges through the boat, and once its row shows appearance.seatedIn a boat (the boat row shows passenger) fight_target the enderman's id with pursue:false from where you stand (seated it cannot teleport or reach you); never hit the boat while it is empty or the enderman stands beside it: that breaks the boat and drops it; break the boat only after the kill to keep it`;
+}
+
+export const ENDERMAN_TRAP_TRIGGER = 'enderman_trap_ready';
+// A calm enderman this far and this near the player's level is worth the walk: in 48 games 19 such stayed unvisited.
+const TRAP_WAKE_RANGE = 48;
+const TRAP_WAKE_CLIMB = 6;
+/**
+ * The night hunt (switch night.hunt): pearls short, a trap or a blade in hand, health to fight, in the Overworld. The
+ * night-cover stop lets a search or fight aimed at an enderman go on while it holds (s1 hunt1, 26 Nov: 2 of 8 hunt games
+ * had their enderman walk refused as FIND_NIGHT or NIGHT while the wake line told them to hunt).
+ */
+export function nightHuntOn(observation, { environment = process.env } = {}) {
+	if (!getSwitch('night.hunt', environment).value || observation?.world?.dimension !== 'minecraft:overworld') return false;
+	if (!(Number(observation?.player?.health) >= 10)) return false;
+	const items = observation?.inventory?.items ?? [];
+	const pearls = items.reduce((sum, item) => sum + (/^minecraft:ender_(pearl|eye)$/.test(item?.itemId ?? '') && item.count > 0 ? item.count : 0), 0);
+	if (pearls >= 12) return false;
+	const { boats, planks } = boatKit(items);
+	return boats > 0 || planks >= 5 || items.some((item) => /_(sword|axe)$/.test(item?.itemId ?? '') && item.count > 0);
+}
+
+/**
+ * A calm enderman newly within TRAP_WAKE_RANGE and TRAP_WAKE_CLIMB while pearls and eyes are under 12, it is not raining and the
+ * body holds a boat or 5 Overworld planks' worth: the trap is ready, so a player turns to it. Once per enderman
+ * (state.endermanTrapSeen keeps the ids it woke for). Returns { id, distance } or null.
+ */
+export function endermanTrapEdge(state, observation, { environment = process.env } = {}) {
+	const items = observation?.inventory?.items;
+	if (!Array.isArray(items) || observation?.world?.raining === true || /the_(nether|end)$/.test(observation?.world?.dimension ?? '')) return null;
+	const held = items.reduce((sum, item) => sum + (/^minecraft:ender_(pearl|eye)$/.test(item?.itemId ?? '') && item.count > 0 ? item.count : 0), 0);
+	if (held >= 12) return null;
+	const kit = boatKit(items);
+	if (kit.boats === 0 && kit.planks < 5) return null;
+	const player = observation.player ?? {};
+	const py = (observation.position ?? player.position ?? player)?.y;
+	if (!Number.isFinite(py)) return null;
+	const [range, climb] = getSwitch('night.hunt', environment).value ? [TRAP_WAKE_RANGE, TRAP_WAKE_CLIMB] : [HUNT_RANGE, HUNT_CLIMB];
+	state.endermanTrapSeen ??= new Set();
+	const idOf = (row) => row?.uuid ?? row?.stableId ?? row?.id;
+	const target = (observation.entities ?? []).filter((row) => row?.type === 'minecraft:enderman' && row.alive !== false && row.perceivedBy !== 'sound'
+		&& row.targetingAgent !== true && row.appearance?.screaming !== true && Number.isFinite(row.distance) && row.distance <= range
+		&& Math.abs((row.y ?? row.position?.y ?? Infinity) - py) <= climb && idOf(row) !== undefined && !state.endermanTrapSeen.has(idOf(row)))
+		.sort((a, b) => a.distance - b.distance)[0];
+	if (target === undefined) return null;
+	const id = idOf(target);
+	state.endermanTrapSeen.add(id);
+	return { id, distance: Math.round(target.distance) };
+}
+
+/** Lets an enderman the edge picked wake a later sample: this one woke for something more urgent. */
+export function forgetEndermanTrap(state, id) {
+	state?.endermanTrapSeen?.delete(id);
 }
 
 const SWORD_TIERS = Object.freeze({ wooden: 1, golden: 1, stone: 2, copper: 2, iron: 3, diamond: 4, netherite: 5 });

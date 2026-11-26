@@ -12,6 +12,7 @@ import { howtoIndex } from './howto.mjs';
 import { DAMAGE_STOPS, FIGHT_STOPS, DISCARD, LIFE_SAFETY_STOPS, MAX_FIND_TIMEOUT_MS, UNREACHED, UNREACHED_SPOT, caveLog, hostileIsDanger, sameVein } from './find-search.mjs';
 import { threatRows, blazeBlocksErrand } from './search-danger.mjs';
 import { nightMoveStop } from './night-cover.mjs';
+import { nightHuntOn } from './need-sources.mjs';
 import { REGEN_RESUME_HEALTH, bodyDanger, eatCalls, lowHealthFork } from './fork-rule.mjs';
 import { heldCounts, heldOf, keepPickaxeMakings, planObtain, readyTimes, resolveObtainItem, searchCost, seenRowCost, shortId, OBTAIN_STATIONS } from './obtain-plan.mjs';
 import { JOB_BLOCK, houseYield, lootSources, structureReach } from './loot-sources.mjs';
@@ -627,7 +628,8 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		if (danger !== null || rawBody.interrupted() || rawBody.stopped()) return halted();
 		if (left() <= 0) return expired;
 		// A walk to water already under way keeps on as its next leg when night falls, as the one long walk did.
-		const night = type === undefined || walkingOn ? null : nightMoveStop(o, type, args, { openSky: typeof rawBody.openSky === 'function' ? rawBody.openSky() : null });
+		const night = type === undefined || walkingOn ? null : nightMoveStop(o, type, args, { openSky: typeof rawBody.openSky === 'function' ? rawBody.openSky() : null,
+			hunting: /^(?:minecraft:)?ender_pearl$/.test(String(item ?? '')) && nightHuntOn(o) });
 		if (night !== null) { nightStop = night; step(`not now: ${night}`); return nightRefused; }
 		if (blazeBlocksErrand(o) === null) return null;
 		danger = 'blaze exposure: stay in cover or choose combat before resource travel';
