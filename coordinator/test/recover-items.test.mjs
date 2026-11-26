@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { runRecoverItems, recoverable, STAND_OFF } from '../src/recover-items.mjs';
+import { recoverable, STAND_OFF } from '../src/recover-items.mjs';
+import { runRecoverItems } from './helpers/checked-body.mjs';
 import { respawnLead, dropLoss, killerMob, RECOVER_FIRST_MOVE } from '../src/respawn-recovery.mjs';
 import { normalizeMinecraftToolCall } from '../src/native-minecraft-tools.mjs';
 import { RecoveryProgressStore } from '../src/recovery-progress-wrap.mjs';

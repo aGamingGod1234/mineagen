@@ -11,7 +11,7 @@
 //   menu as act menu_close; its look is the search body's.
 // The wrap only checks: the fake still gets the raw arguments, so tests that assert on what was sent stay as they are.
 // A move assigned to a wrapped body later is wrapped as it is assigned. Tests import searchFor, runObtain, keepKit,
-// lootChest, followEyes and findPortalRoom from here, not from src, so every call wraps the body it is given (test/checked-body-coverage.test.mjs).
+// lootChest, followEyes, findPortalRoom and runRecoverItems from here, not from src, so every call wraps the body it is given (test/checked-body-coverage.test.mjs).
 // A refused move rejects, and it is also recorded, so a runner that swallows the throw (production obtain turns it
 // into a FAILED result) still fails the test file when its tests end.
 import { after } from 'node:test';
@@ -23,6 +23,7 @@ import { keepKit as keepKitUnchecked } from '../../src/kit-habit.mjs';
 import { lootChest as lootChestUnchecked } from '../../src/loot-step.mjs';
 import { followEyes as followEyesUnchecked } from '../../src/find-eyes.mjs';
 import { findPortalRoom as findPortalRoomUnchecked } from '../../src/find-portal-room.mjs';
+import { runRecoverItems as runRecoverItemsUnchecked } from '../../src/recover-items.mjs';
 
 export const CHECKED_BODY = Symbol.for('mineagen.test.checkedBody');
 const refusals = [];
@@ -130,3 +131,4 @@ export const keepKit = (body, craft, options) => keepKitUnchecked(checkedObtainB
 export const lootChest = (body, cell, options) => lootChestUnchecked(checkedObtainBody(body), cell, options);
 export const followEyes = (target, body, options) => followEyesUnchecked(target, checkedSearchBody(body), options);
 export const findPortalRoom = (body, options) => findPortalRoomUnchecked(checkedSearchBody(body), options);
+export const runRecoverItems = (args, body, options) => runRecoverItemsUnchecked(args, checkedObtainBody(body), options);

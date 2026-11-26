@@ -18,6 +18,13 @@ export const FAILURE_CODES = Object.freeze({
 	ESCAPE_EXPOSED: ['body', null],
 	ESCAPE_TIMEOUT: ['body', null],
 	ESCAPE_STEP_REFUSED: ['body', null],
+	// recover_items (do_step recover_items): why a walk back for the drops did not start.
+	NO_DEATH_RECORD: ['body', null],
+	NOTHING_LOST: ['item', null],
+	DROPS_DESTROYED: ['item', null],
+	DIED_IN_LAVA: ['item', null],
+	DROPS_EXPIRED: ['item', null],
+	OTHER_DIMENSION: ['body', null],
 	// ServerActionExecutor: a reflex held the running action paused past REFLEX_HOLD_LIMIT_MS.
 	HELD_BY_REFLEX: ['body', null],
 	UNDERGROUND: ['ok'],
