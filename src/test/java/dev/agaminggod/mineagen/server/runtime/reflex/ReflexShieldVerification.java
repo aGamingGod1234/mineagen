@@ -136,6 +136,10 @@ public final class ReflexShieldVerification {
 					"a creeper blasts, so it is not held behind the shield");
 			check(!ReflexActions.Defend.contact((net.minecraft.world.entity.Entity) unsafe.allocateInstance(mobClass("net.minecraft.world.entity.monster.skeleton.WitherSkeleton", "net.minecraft.world.entity.monster.WitherSkeleton"))),
 					"a wither skeleton swings, so it is held behind the shield");
+			check(ReflexActions.Defend.noSwing(List.of((net.minecraft.world.entity.Mob) unsafe.allocateInstance(mobClass(
+					"net.minecraft.world.entity.monster.cubemob.MagmaCube", "net.minecraft.world.entity.monster.MagmaCube")))),
+					"one mob near that never swings stops the hold, so the counter is never left waiting for good");
+			check(!ReflexActions.Defend.noSwing(List.of()), "no other attacker near: the hold stands");
 		} catch (ReflectiveOperationException e) {
 			throw new IllegalStateException(e);
 		}
