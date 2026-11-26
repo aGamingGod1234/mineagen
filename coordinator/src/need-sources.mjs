@@ -1,4 +1,5 @@
 import { foodAdviceNeeded, quickBedSource } from './survival-advice.mjs';
+import { getSwitch } from './switches.mjs';
 // For an open step's needs: the base resource each comes from, the remembered places that could supply it, and the
 // vanilla ways to get it with typical yields. Facts only; the model weighs them and chooses where to go.
 import { headingOf, notableBuilt, sightingKind } from './search-coverage.mjs';
@@ -60,7 +61,8 @@ const RESOURCES = [
 	{ name: 'blaze_rod', ids: /^(blaze_rod|blaze_powder|brewing_stand|ender_eye)$/,
 		sighting: (row, kind) => kind === 'structure' && /^nether fortress/.test(row.what) || kind === 'mob' && row.what === 'minecraft:blaze'
 			|| kind === 'spawner' && (row.mob === 'minecraft:blaze' || row.mob === undefined && row.nether === true),
-		ways: 'only from blazes (0-1 rod each, ~half) at fortress spawners (active within 16 blocks) and in fortress pieces' },
+		ways: 'only from blazes (0-1 rod each, ~half) at fortress spawners (active within 16 blocks) and in fortress pieces'
+			+ (getSwitch('find.fortressLayout').value ? '; a fortress spawner stands on a raised platform at the top of the nether brick stairs, so climb the stairs rather than chase blazes' : '') },
 	{ name: 'coal', ids: /^(coal|charcoal|coal_ore|deepslate_coal_ore|coal_block|torch|soul_torch|campfire|fire_charge)$/,
 		sighting: (row, kind) => kind === 'vein' && /coal_ore$/.test(row.what) || kind === 'cave',
 		blocks: /(^|:)(deepslate_)?coal_ore$/,

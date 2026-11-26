@@ -83,6 +83,8 @@ public final class ServerSpawnerHoldController implements ServerController {
 	private boolean resumeChecked;
 	/** Ticks spent looking round for a cell site before the ordinary fight takes over. */
 	private int siteLooks;
+	/** The cell where the body stood when no seen cell was in the ring (fight.spawnerHoldOwnCell), tried once. */
+	private BlockPos ownCell;
 	private String fallbackWhy = "";
 	/** fight_target on this blaze, held from the cell: the hold ends when it dies (or is gone), not at a rod count. */
 	private LivingEntity target;
@@ -101,6 +103,8 @@ public final class ServerSpawnerHoldController implements ServerController {
 	private final int untilCount;
 	private final float fleeAtHealth;
 	private final long timeoutMs;
+	/** The model's own timeout: the ordinary fight a hold hands over to keeps it ({@link #timeoutMs} can be longer). */
+	private final long modelTimeoutMs;
 	private final ElapsedTimeAccumulator elapsedTime;
 	private final CombatInputLease eatInput = new CombatInputLease();
 	private final List<BlockPos> triedSites = new ArrayList<>();
@@ -209,6 +213,11 @@ public final class ServerSpawnerHoldController implements ServerController {
 	private static final int REOPEN_TRIES = 3;
 	private static final long SEAL_MS = 8_000L, REOPEN_MS = 20_000L;
 	private String cancelFacts;
+	/**
+	 * A fight_until spot made before the body saw any spawner: the model's call as written (spot kept) for the ordinary
+	 * fight when the look-round finds no spawner by that spot.
+	 */
+	private JsonObject spotCall;
 
 	public ServerSpawnerHoldController(ServerPlayer player, JsonObject arguments, ServerProtectionPolicy protection, BlockPos spawner,
 			ServerFightUntilController.Roofing roofing, long now) {
@@ -223,8 +232,9 @@ public final class ServerSpawnerHoldController implements ServerController {
 				.orElseThrow(() -> new AgentDomainException("INVALID_FIELD", "untilItem: no item " + untilItemId));
 		this.untilCount = arguments.get("untilCount").getAsInt();
 		this.fleeAtHealth = arguments.has("fleeAtHealth") ? arguments.get("fleeAtHealth").getAsFloat() : ServerFightUntilController.DEFAULT_FLEE_AT_HEALTH;
-		this.timeoutMs = Math.min(ServerFightUntilController.MAX_TIMEOUT_MS,
+		this.modelTimeoutMs = Math.min(ServerFightUntilController.MAX_TIMEOUT_MS,
 				arguments.has("timeoutMs") ? arguments.get("timeoutMs").getAsLong() : ServerFightUntilController.DEFAULT_TIMEOUT_MS);
+		this.timeoutMs = Math.min(ServerFightUntilController.MAX_TIMEOUT_MS, SpawnerHold.holdTimeoutMs(modelTimeoutMs));
 		this.elapsedTime = new ElapsedTimeAccumulator(now);
 		Arrays.fill(witherHits, Long.MIN_VALUE);
 		// The hold owns the body from the moment it is the active action: reflexes run before its first tick, and a
@@ -300,19 +310,34 @@ public final class ServerSpawnerHoldController implements ServerController {
 		return this;
 	}
 
+	/**
+	 * The look-round form of a spot call (fight.spawnerHoldSpot): the body had seen no spawner when the model named a spot,
+	 * so the hold looks round first and takes the fight only for a spawner within {@link SpawnerHold#SCAN} of that spot;
+	 * otherwise the call runs as written. Real games (26 Nov): 5 of 8 blaze fights near a fortress spawner started before
+	 * the body had seen it (one 6 blocks away), and every one kept the ordinary fight.
+	 */
+	public ServerSpawnerHoldController lookingFromSpot(JsonObject call) {
+		this.spotCall = call.deepCopy();
+		return this;
+	}
+
 	/** The ordinary fight with the time left ({@code elapsed} of the action spent), not a fresh timeout. */
 	private ServerController ordinaryFight(ServerPlayer player, long now, long elapsed) {
 		if (openFight != null) return openFight.get();
-		JsonObject left = model.deepCopy();
+		JsonObject left = (spotCall != null ? spotCall : model).deepCopy();
 		// roof is the hold's own option; the ordinary blaze fight refuses it.
 		left.remove("roof");
-		left.addProperty("timeoutMs", Math.max(1_000L, timeoutMs - elapsed));
+		left.addProperty("timeoutMs", Math.max(1_000L, modelTimeoutMs - elapsed));
 		return new ServerFightUntilController(player, left, protection, now, "fight_until", null, roofing);
 	}
 
 	/** True while a spawner hold owns this body (its whole run, not only in the cell): back-off reflexes stand aside. */
 	public static boolean holding(ServerPlayer player) {
 		return HOLDING.contains(player.getUUID());
+	}
+
+	private static Double num(JsonObject call, String key) {
+		return call.has(key) && call.get(key).isJsonPrimitive() && call.get(key).getAsJsonPrimitive().isNumber() ? call.get(key).getAsDouble() : null;
 	}
 
 	private static boolean fortress(Level level, BlockPos spawner) {
@@ -357,7 +382,10 @@ public final class ServerSpawnerHoldController implements ServerController {
 		// floor and retreat apply: the open fight below runs then and owns that floor (its bailout retreats before it hands
 		// back), so the hold does not hand back first. Its timeout is the check above.
 		boolean openFightNext = SpawnerHold.OPEN_FIGHT && phase != Phase.HOLD && emergency == null;
-		float floor = target != null && (wallInLeft(player) || openFightNext) ? -1.0F : fleeAtHealth;
+		// fight_until form too: while a wall-in is left, low health walls in and heals (the emergency wall-in) instead of
+		// handing back in the open at the model's fleeAtHealth. Real games (26 Nov): calls asked 12-16, so holds started at
+		// 13-15 health ended in 0-2 s with no cell, and the body was left on the deck by the spawner with nothing running.
+		float floor = (target != null || SpawnerHold.SPOT) && wallInLeft(player) || target != null && openFightNext ? -1.0F : fleeAtHealth;
 		String code = SpawnerHold.handBack(new SpawnerHold.Sense(ServerFightUntilController.count(player, untilItem), untilCount, player.getHealth(),
 				floor, player.getFoodData().getFoodLevel(), foodSlot(player) >= 0, elapsed, target != null ? Long.MAX_VALUE : timeoutMs, spawnerGone,
 				phase == Phase.HOLD ? elapsed - lastBlazeMs : 0L, phase == Phase.HOLD || emergency != null, sitesFailed, noSiteLeft,
@@ -471,6 +499,13 @@ public final class ServerSpawnerHoldController implements ServerController {
 	private TickResult scan(ServerPlayer player, long now, long elapsed) {
 		if (scanTicks % 5 == 0) {
 			BlockPos found = seenFortressSpawner(player);
+			if (found != null && spotCall != null && !SpawnerHold.spotAtSpawner(found, num(spotCall, "x"), num(spotCall, "y"), num(spotCall, "z"))) {
+				HOLDING.remove(player.getUUID());
+				shieldInput.release();
+				fallbackWhy = "the spawner seen at " + found.toShortString() + " is not by the spot";
+				fallback = ordinaryFight(player, now, elapsed);
+				return fallback.tick(player, now);
+			}
 			if (found != null) {
 				spawner = found;
 				phase = Phase.SITE;
@@ -570,8 +605,15 @@ public final class ServerSpawnerHoldController implements ServerController {
 			return TickResult.running(progress(player));
 		}
 		if (siteLooks > 0) shieldInput.release();
+		boolean own = false;
+		if (bestCell == null && SpawnerHold.OWN_CELL && ownCell == null && builds == 0 && player.onGround()) {
+			// No seen cell in the ring: wall in where the body stands, doorway toward the spawner.
+			BlockPos at = player.blockPosition();
+			Direction toward = SpawnerHold.ownCellOpening(at.getX() - spawner.getX(), at.getZ() - spawner.getZ());
+			if (toward != null && !triedSites.contains(at) && standable(player, seen, at)) { bestCell = at; bestOpening = toward; own = true; ownCell = at; }
+		}
 		if (bestCell == null) {
-			if (sitesFailed == 0 && builds == 0) {
+			if (builds == 0 && sitesFailed == (ownCell == null ? 0 : 1)) {
 				// No cell to build here at all: the ordinary fight runs instead of a hand-back (real fortress room: the
 				// hand-back left the body standing in the open by the spawner, where it died).
 				note("no seen cell 6-12 blocks from the spawner: the ordinary fight runs");
@@ -592,11 +634,19 @@ public final class ServerSpawnerHoldController implements ServerController {
 		for (BlockPos at : shelterCells(cell, opening)) if (!solid(player, seen, at)) needed++;
 		int carried = blockItem == null ? 0 : ServerFightUntilController.count(player, BuiltInRegistries.ITEM.getValue(Identifier.parse(blockItem)));
 		// A shelter that already stands needs no blocks: the body walks in and holds without any placing.
+		if (own && needed > 0 && (blockItem == null || carried < needed)) {
+			note("no seen cell 6-12 blocks from the spawner and too few blocks to wall in here: the ordinary fight runs");
+			HOLDING.remove(player.getUUID());
+			cancelParts(player);
+			fallbackWhy = "no seen cell 6-12 blocks from the spawner";
+			fallback = ordinaryFight(player, now, lastElapsed);
+			return fallback.tick(player, now);
+		}
 		if (needed > 0 && (blockItem == null || carried < needed))
 			return stop(player, TickResult.failed("ROOF_BLOCKS_MISSING", String.format(Locale.ROOT,
 					"spawner hold: the shelter at %s needs %d full solid blocks of one kind; carries %s. Fetch blocks, or roof:false fights in the open",
 					cell.toShortString(), needed, blockItem == null ? "none" : carried + " " + blockItem), progress(player)));
-		note(String.format(Locale.ROOT, "site %s, %.1f blocks from the spawner, doorway %s, %d blocks to place", cell.toShortString(),
+		note(String.format(Locale.ROOT, "%s %s, %.1f blocks from the spawner, doorway %s, %d blocks to place", own ? "no seen cell in the ring: own cell" : "site", cell.toShortString(),
 				Math.sqrt(cell.distSqr(spawner)), opening.getSerializedName(), needed));
 		phase = Phase.WALK;
 		return walkToSite(player, now);

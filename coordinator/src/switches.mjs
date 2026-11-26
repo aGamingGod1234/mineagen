@@ -106,6 +106,10 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'find.lavaStairs', env: 'MINEAGEN_LAVA_STAIRS', side: 'coordinator', default: false, parser: ON_EXACT, status: 'default-off',
 		reason: 'Stairs from the surface won lava-gate-8 (0 to 7 of 10) but lost lava-gate-3 (8 to 0 of 10, pickaxes wore out) and lava-gate-6 (deaths 0 to 7 of 10) (#74).',
 		readers: ['coordinator/src/find-search.mjs lavaStairs (per call, process.env only)'] }),
+	// coordinator/src/find-fortress.mjs fortressLayout(environment): per fortress floor leg.
+	entry({ name: 'find.fortressLayout', env: 'MINEAGEN_FORTRESS_LAYOUT', side: 'coordinator', default: true, parser: OFF_EXACT, status: 'default-on',
+		reason: 'The spawner search climbs seen nether brick stairs toward the raised spawner platform instead of heading for blazes; blazes as the signpost drew it into strays (13 of 28 near-spawner fights before the spawner was seen).',
+		readers: ['coordinator/src/find-fortress.mjs fortressLayout (per leg)', 'coordinator/src/need-sources.mjs blaze_rod ways (load)'] }),
 	// coordinator/src/find-search.mjs dryStart(environment): per call.
 	entry({ name: 'find.dryStart', env: 'MINEAGEN_FIND_DRY_START', side: 'coordinator', default: true, parser: OFF_EXACT, status: 'default-on',
 		reason: 'A lava search from the surface walks off seen water before its first dig down (kit gates on main: 55 of 79 first digs met water, 3 lit); off is the A/B off arm.',
@@ -184,6 +188,21 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'fight.spawnerHoldOpen', property: 'mineagen.fight.spawnerHoldOpen', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
 		reason: 'Fights in the open and walls in only to heal; real fortress room: the open fight kept 39 rods in 9 runs, the cell fight 7 (#89).',
 		readers: ['SpawnerHold.java OPEN_FIGHT (class load)'] }),
+	// SpawnerHold.java SPOT: static final, class load.
+	entry({ name: 'fight.spawnerHoldSpot', property: 'mineagen.fight.spawnerHoldSpot', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
+		reason: 'A blaze fight_until whose spot is by a seen spawner runs the spawner hold, which walls in to heal at low health instead of handing back at the model fleeAtHealth; game-shape spawner rooms with a pickaxe: rods kept in 8 of 10 against 6.',
+		readers: ['SpawnerHold.java SPOT (class load)'] }),
+	// SpawnerHold.java MIN_TIME: static final, class load.
+	entry({ name: 'fight.spawnerHoldMinTime', property: 'mineagen.fight.spawnerHoldMinTime', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
+		reason: 'A spawner hold runs at least 45 s before a timeout ends it; real games gave 7-10 s timeouts to 6 of 20 holds and none of those chose a cell.',
+		readers: ['SpawnerHold.java MIN_TIME (class load)'] }),
+	entry({ name: 'fight.spawnerHoldOwnCell', property: 'mineagen.fight.spawnerHoldOwnCell', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
+		reason: 'With no seen cell 6-12 blocks from the spawner, the hold walls in where the body stands; real games handed over at once in 2 of 2 and the ordinary fight died in both.',
+		readers: ['SpawnerHold.java OWN_CELL (class load)'] }),
+	// TravelStops.java PASS_BLAZES: static final, class load.
+	entry({ name: 'travel.passBlazes', property: 'mineagen.travel.passBlazes', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
+		reason: 'A trip keeps walking past a blaze more than 6 blocks off and through its fire while health is above 10, instead of halting in the open where it can land shots; real games stopped 10-12 walks per 3 games for far blazes.',
+		readers: ['TravelStops.java PASS_BLAZES (class load)'] }),
 	// WarpedForestHunt.java enabled: static (tests reassign it), class load.
 	entry({ name: 'fight.forestHunt', property: 'mineagen.fight.forestHunt', side: 'server', default: false, parser: JAVA_GET_BOOLEAN, status: 'default-off',
 		reason: 'Forest-walking pearl hunt: ended 22 of 40 forest hunts with a pearl against 13, but died in 9 against 4 (#78).',

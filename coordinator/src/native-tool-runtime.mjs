@@ -33,7 +33,7 @@ import { STEP_ACTIONS } from './wake-filter.mjs';
 import { CONTEXT_TRIGGERS, SURVIVAL_TRIGGERS } from './arena-script/program-engine.mjs';
 import { defaultServiceTier } from './constants.mjs';
 import { actionLeaseTimeoutMs, requestedActionTimeoutMs } from './work-lease-supervisor.mjs';
-import { PLAN_COUNT_ACTIONS, countSkillDurationMs, planCountDefault } from './plan-count.mjs';
+import { COUNT_FIGHT_COLLECT_MS, PLAN_COUNT_ACTIONS, SPAWNER_HOLD_MIN_MS, blazeHoldFight, countSkillDurationMs, planCountDefault } from './plan-count.mjs';
 import { WALL_CLOCK, completeClock } from './game-clock.mjs';
 
 const FORGET_REASONS = /agent_removed|server_replaced|coordinator_stopped/;
@@ -3220,6 +3220,10 @@ export class NativeToolRuntime {
 				const durationMs = countSkillDurationMs(tool);
 				if (durationMs !== null) { try { request.extendLease?.(durationMs); } catch { /* the lease is the planner's */ } }
 			}
+		}
+		// A blaze fight may run as a spawner hold, which takes at least SPAWNER_HOLD_MIN_MS whatever the model's timeoutMs.
+		if (waitForCompletion && blazeHoldFight(tool, this.#observations.get(record.agentId)?.observation?.entities)) {
+			try { request.extendLease?.(SPAWNER_HOLD_MIN_MS + COUNT_FIGHT_COLLECT_MS); } catch { /* the lease is the planner's */ }
 		}
 		// Classified before dispatch: eating the last food removes the evidence that it was food.
 		const sampleAfter = sequenceIndex === null && programCommand === null && this.#needsPostActionFacts(record, tool);

@@ -1,5 +1,6 @@
 package dev.agaminggod.mineagen.server.runtime.controller;
 
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 
 /**
@@ -19,6 +20,40 @@ public final class SpawnerHold {
 	 * fight kept 39 rods in 9 runs, the cell fight 7; the plain spawner room: the open fight died in 8 of 10, healing nowhere.
 	 */
 	public static final boolean OPEN_FIGHT = dev.agaminggod.mineagen.server.Switches.get("fight.spawnerHoldOpen");
+	/**
+	 * On by default; -Dmineagen.fight.spawnerHoldSpot=false turns off the whole spot rule: a fight_until spot by the
+	 * spawner keeps the ordinary fight ({@link #spotAtSpawner}), a spot named before any spawner was seen no longer looks
+	 * round, bare ids no longer reach the hold ({@link #blazeRods}), and the fight_until hold hands back at the model's
+	 * fleeAtHealth again while a wall-in is left.
+	 */
+	public static final boolean SPOT = dev.agaminggod.mineagen.server.Switches.get("fight.spawnerHoldSpot");
+	/**
+	 * On by default; -Dmineagen.fight.spawnerHoldMinTime=false keeps the model's own timeout. A hold runs at least
+	 * {@link #MIN_HOLD_MS} before a timeout ends it: real games (26 Nov A/B) gave 7-10 s timeouts to 6 of 20 holds, and
+	 * none of those chose a cell, so every one ended in the open. The model can still cancel it.
+	 */
+	public static final boolean MIN_TIME = dev.agaminggod.mineagen.server.Switches.get("fight.spawnerHoldMinTime");
+	/** Long enough to choose a cell 6-12 blocks out, walk there and wall in (game-shape rooms: the first build at 10-40 s). */
+	public static final long MIN_HOLD_MS = 45_000L;
+
+	/**
+	 * On by default; -Dmineagen.fight.spawnerHoldOwnCell=false hands over to the ordinary fight as before. With no seen cell
+	 * 6-12 blocks from the spawner, the hold walls in where the body stands: real games (26 Nov smoke) handed over at once
+	 * in 2 of 2 games ("no seen cell"), and the ordinary fight died in both.
+	 */
+	public static final boolean OWN_CELL = dev.agaminggod.mineagen.server.Switches.get("fight.spawnerHoldOwnCell");
+
+	/** The doorway for a cell where the body stands (offset from the spawner), or null when it is no place to hold. */
+	static Direction ownCellOpening(double dx, double dz) {
+		double horizontal = Math.hypot(dx, dz);
+		return horizontal < 2.0D || horizontal > SCAN ? null : facing(-dx, -dz);
+	}
+
+	/** The time a hold runs before its timeout: the model's, raised to {@link #MIN_HOLD_MS} while the switch is on. */
+	public static long holdTimeoutMs(long modelMs) {
+		return MIN_TIME ? Math.max(modelMs, MIN_HOLD_MS) : modelMs;
+	}
+
 	/** A seen fortress spawner within this many blocks of the body starts a hold. */
 	public static final double SCAN = 24.0D;
 	/** The cell stands this far (horizontal) from the spawner: a vanilla spawner runs only with a player within 16. */
@@ -73,6 +108,33 @@ public final class SpawnerHold {
 	/** Whether fight_until starts a spawner hold instead of the open-ground fight. roof:false keeps the open fight. */
 	public static boolean applies(boolean nether, boolean blaze, Boolean roofArgument, boolean spawnerNear) {
 		return nether && blaze && spawnerNear && !Boolean.FALSE.equals(roofArgument);
+	}
+
+	/**
+	 * A fight_until spot (x, y, z) that names the seen spawner's own ground: within {@link #SCAN} blocks of it. Such a spot
+	 * asks for the fight at the spawner, so the hold takes it and picks its own cell; a spot farther off keeps the ordinary
+	 * fight there. A missing y counts as the spawner's height; a spot without x or z is not one. Real games (26 Nov, 55
+	 * games): 240 of 270 Nether blaze fight_until calls named a spot, which turned the hold off; 56 of them were made
+	 * within 24 blocks of a spawner the body had seen, 30 on the spawner block itself, and none of those fights got a rod.
+	 */
+	public static boolean spotAtSpawner(BlockPos spawner, Double x, Double y, Double z) {
+		if (!SPOT || spawner == null || x == null || z == null) return false;
+		double dx = x - (spawner.getX() + 0.5D), dz = z - (spawner.getZ() + 0.5D), dy = y == null ? 0.0D : y - spawner.getY();
+		return dx * dx + dy * dy + dz * dz <= SCAN * SCAN;
+	}
+
+	/**
+	 * True for a blaze-for-rods fight_until, with or without the {@code minecraft:} prefix. The hold's gate compared the raw
+	 * strings, so "blaze"/"blaze_rod" (12 and 10 of 276 real-game blaze calls, 26 Nov) never got the hold. With
+	 * fight.spawnerHoldSpot off only the full ids count, as before.
+	 */
+	public static boolean blazeRods(String mob, String untilItem) {
+		return "minecraft:blaze".equals(full(mob)) && "minecraft:blaze_rod".equals(full(untilItem));
+	}
+
+	/** The full id the hold runs on: the bare id gains {@code minecraft:} while fight.spawnerHoldSpot is on. */
+	public static String full(String id) {
+		return SPOT && id != null && !id.isBlank() && id.indexOf(':') < 0 ? "minecraft:" + id.trim() : id;
 	}
 
 	/** True when a mob of this height cannot pass a gap of that many blocks (a block over a two-high doorway). */

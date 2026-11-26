@@ -58,3 +58,16 @@ test('schema: single is a boolean and excludes an explicit count', () => {
 	assert.throws(() => validateAction({ type: 'fight_target', targetId: BLAZE, timeoutMs: 15000, single: 'yes' }), /boolean/);
 	assert.throws(() => validateAction({ type: 'fight_target', targetId: BLAZE, timeoutMs: 15000, single: true, untilItem: 'minecraft:blaze_rod', untilCount: 3 }), /exclude/);
 });
+
+test('blaze fights the body may hold at a spawner get the hold minimum in their lease', async () => {
+	const { blazeHoldFight, SPAWNER_HOLD_MIN_MS } = await import('../src/plan-count.mjs');
+	assert.equal(SPAWNER_HOLD_MIN_MS, 45_000);
+	assert.equal(blazeHoldFight({ actionType: 'fight_until', arguments: { mob: 'minecraft:blaze', untilItem: 'minecraft:blaze_rod' } }), true);
+	assert.equal(blazeHoldFight({ actionType: 'fight_until', arguments: { mob: 'blaze' } }), true);
+	assert.equal(blazeHoldFight({ actionType: 'fight_until', arguments: { mob: 'minecraft:zombie' } }), false);
+	const entities = [{ uuid: 'b1', type: 'minecraft:blaze' }, { uuid: 'w1', type: 'minecraft:wither_skeleton' }];
+	assert.equal(blazeHoldFight({ actionType: 'fight_target', arguments: { targetId: 'b1', timeoutMs: 9000 } }, entities), true);
+	assert.equal(blazeHoldFight({ actionType: 'fight_target', arguments: { targetId: 'w1' } }, entities), false);
+	assert.equal(blazeHoldFight({ actionType: 'fight_target', arguments: { targetId: 'gone' } }, entities), false);
+	assert.equal(blazeHoldFight({ actionType: 'move_to', arguments: {} }), false);
+});

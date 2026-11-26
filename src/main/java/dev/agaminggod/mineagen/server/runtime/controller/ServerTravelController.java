@@ -154,6 +154,9 @@ public final class ServerTravelController implements ServerController {
 	private final Set<UUID> passedHostiles = new HashSet<>();
 	/** Terrain damage shrugged off on this trip (a berry bush, a cactus, a short drop), and how. */
 	private float shrugged;
+	/** Blazes walked past and blaze fire walked through on this trip (travel.passBlazes). */
+	private final Set<UUID> passedBlazes = new HashSet<>();
+	private float blazeFire;
 	private final java.util.List<String> shrugNotes = new java.util.ArrayList<>();
 	private final Set<GridPosition> refused = new HashSet<>();
 	private ServerNavigationController leg;
@@ -563,11 +566,17 @@ public final class ServerTravelController implements ServerController {
 				return engage(player, attacker, String.format(Locale.ROOT, "hit you for %.1f (%s)", lastHealth - health, cause), nowEpochMs);
 			}
 			float lost = lastHealth - health;
-			if (!TravelStops.shrugsOff(source == null ? null : source.getMsgId(), source != null && source.getEntity() != null, lost, shrugged, health, minHealth))
-				return fail(player, "TRAVEL_DAMAGED", String.format(Locale.ROOT, "Took %.1f damage (%s); health %.1f", lost, cause, health));
-			// A scratch from the terrain itself: a player keeps going.
-			shrugged += lost;
-			shrugNotes.add(String.format(Locale.ROOT, "%.1f (%s)", lost, cause));
+			String attacker = source == null || source.getEntity() == null ? null : BuiltInRegistries.ENTITY_TYPE.getKey(source.getEntity().getType()).toString();
+			if (!fightThrough && TravelStops.passesBlazeFire(TravelStops.PASS_BLAZES, source == null ? null : source.getMsgId(), attacker, health, minHealth)) {
+				// Blaze fire on the way: a player keeps moving, since standing still is what lets the next volley land.
+				blazeFire += lost;
+			} else {
+				if (!TravelStops.shrugsOff(source == null ? null : source.getMsgId(), source != null && source.getEntity() != null, lost, shrugged, health, minHealth))
+					return fail(player, "TRAVEL_DAMAGED", String.format(Locale.ROOT, "Took %.1f damage (%s); health %.1f", lost, cause, health));
+				// A scratch from the terrain itself: a player keeps going.
+				shrugged += lost;
+				shrugNotes.add(String.format(Locale.ROOT, "%.1f (%s)", lost, cause));
+			}
 		}
 		lastHealth = health;
 		if (health <= minHealth && startHealth > minHealth) return fail(player, "LOW_HEALTH", "Health fell to " + format(health) + " (minHealth " + format(minHealth) + ")");
@@ -589,6 +598,10 @@ public final class ServerTravelController implements ServerController {
 				if (!fightThrough && TravelStops.cannotReach(player, mob)) { passedHostiles.add(mob.getUUID()); continue; }
 				// A new one stops it only when it is coming for the body: close, targeting and closing in, or a ranged
 				// mob targeting it. One that is not after the body, or falls behind the sprint, is passed.
+				if (!fightThrough && TravelStops.passesBlaze(TravelStops.PASS_BLAZES, BuiltInRegistries.ENTITY_TYPE.getKey(mob.getType()).toString(), distance)) {
+					passedBlazes.add(mob.getUUID());
+					continue;
+				}
 				if (!fightThrough && !TravelStops.stopsFor(false, distance, previous, targeting,
 						BuiltInRegistries.ENTITY_TYPE.getKey(mob.getType()).toString())) {
 					passedHostiles.add(mob.getUUID());
@@ -2238,6 +2251,7 @@ public final class ServerTravelController implements ServerController {
 				+ (reflexResumes == 0 ? "" : "; replanned after " + reflexResumes + " reflex firing(s)")
 				+ (passedHostiles.isEmpty() ? "" : "; passed " + passedHostiles.size() + " hostile(s) not coming for you")
 				+ (shrugNotes.isEmpty() ? "" : "; shrugged off " + String.join(", ", shrugNotes) + " damage")
+				+ (passedBlazes.isEmpty() && blazeFire == 0.0F ? "" : String.format(Locale.ROOT, "; kept moving past %d blaze(s) and through %.1f blaze fire damage", passedBlazes.size(), blazeFire))
 				+ (dugDown == 0 ? "" : "; dug " + dugDown + " dig_to staircase(s) toward the target's level")
 				+ (walkedAround == 0 ? "" : "; walked round " + walkedAround + " time(s) before building");
 	}

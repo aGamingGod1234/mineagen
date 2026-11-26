@@ -60,10 +60,22 @@ const RANGED = process.env.RANGED ?? 'none';
 // STANDIN=until (d41 fight-until): the stand-in makes one fight_until call (blaze -> UNTIL rods, WEAPON) and repeats it
 // only after the skill hands back, eating below 10 health; LOW_HP=1 sets fleeAtHealth 14 to exercise the health stop.
 // KIT=arrival: the kit real fortress arrivals carried (see kit()); default: this room's armoured kit.
+// PICKAXE=1 (KIT=arrival): add a stone pickaxe; the 26 Nov fortress save points carried 3-7 pickaxes each.
 const KIT = process.env.KIT ?? 'default';
 if (!['default', 'arrival'].includes(KIT)) throw new Error('KIT must be default or arrival');
+const PICKAXE = process.env.PICKAXE === '1';
 const STANDIN = process.env.STANDIN ?? 'script', UNTIL = Number(process.env.UNTIL ?? 3), WEAPON = process.env.WEAPON ?? 'auto';
 const LOW_HP = process.env.LOW_HP === '1';
+// CALL_SHAPE=game (STANDIN=until): the fight_until real games make at a fortress spawner (26 Nov, 270 Nether blaze calls):
+// the spawner block as the spot (x, y, z), radius 12, fleeAtHealth 14, sword, collect, 90 s, called again after each hand-back.
+const CALL_SHAPE = process.env.CALL_SHAPE ?? 'plain', GAME_FLEE = Number(process.env.GAME_FLEE ?? 14);
+// The game-shape call as made before the body has seen the spawner (26 Nov model games: 5 of 8 blaze fights by a spawner):
+// FACE_AWAY=1 places the body facing away from the spawner, SPOT=feet names the body's own cell instead of the spawner
+// block, and BARE=1 writes the ids without minecraft: (22 of 276 real blaze calls).
+const FACE_AWAY = process.env.FACE_AWAY === '1', SPOT_AT = process.env.SPOT ?? 'spawner', BARE = process.env.BARE === '1';
+// GAME_TIMEOUT_MS: the timeout real game calls carry (26 Nov A/B: 7-10 s on 6 of 20 holds); GAME_TARGET=1 makes the call
+// fight_target on the nearest seen blaze (the model's commonest short call there), fight_until when none is seen.
+const GAME_TIMEOUT_MS = Number(process.env.GAME_TIMEOUT_MS ?? 90000), GAME_TARGET = process.env.GAME_TARGET === '1';
 // STANDIN=count (d41 fight-count): the same loop, but the call is fight_target on the nearest seen blaze with
 // untilItem blaze_rod + untilCount UNTIL (count mode); no blaze in view -> fight_until. DEFAULTS=1 also arms the default
 // survival reflexes beside the shield rules. Rooms must play with the defaults a real game has: the production
@@ -237,6 +249,7 @@ async function kit() {
 		await command(`item replace entity ${agent} hotbar.0 with minecraft:stone_sword`);
 		await command(`item replace entity ${agent} hotbar.1 with minecraft:cobblestone 64`);
 		await command(`item replace entity ${agent} hotbar.2 with minecraft:cooked_beef 4`);
+		if (PICKAXE) await command(`item replace entity ${agent} hotbar.3 with minecraft:stone_pickaxe`);
 		await command(`item replace entity ${agent} weapon.offhand with minecraft:shield`);
 		return;
 	}
@@ -367,7 +380,8 @@ try {
 			if (!/cloned\s+\d+\s+block/i.test(restored)) throw new Error('Could not restore trial terrain: '+restored);
 			await nether(`random reset minecraft:entities/blaze ${2026100900 + repeat}`);
 			if (SAVE_POINT) for (const fill of SAVE_POINT.fills) await nether(fill);
-			await command(`execute in minecraft:the_nether run tp ${agent} ${cell[0]} ${cell[1]} ${cell[2]} 0 0`);
+			const yaw = FACE_AWAY ? (Math.atan2(-(SPAWNER[0] + 0.5 - cell[0]), SPAWNER[2] + 0.5 - cell[2]) * 180 / Math.PI + 180).toFixed(1) : 0;
+			await command(`execute in minecraft:the_nether run tp ${agent} ${cell[0]} ${cell[1]} ${cell[2]} ${yaw} 0`);
 			await kit();
 			const survivalSeconds = 1200 + goalOrdinal++; survivalTicks = survivalSeconds * 20;
 			const restart = inbox.wait('goal_control', e=>e.agentId===record.agentId && e.payload.operation==='start');
@@ -377,7 +391,7 @@ try {
 			await bridge.send('agent_ready',record.agentId,{goalRevision:record.goalRevision,reconciled:false});
 			await armShield(); await rate.idleSleep(1500);
 			// Priming a shield stance can walk; the measured trial starts at the authored deck cell.
-			await nether(`tp ${agent} ${cell[0]} ${cell[1]} ${cell[2]} 0 0`);
+			await nether(`tp ${agent} ${cell[0]} ${cell[1]} ${cell[2]} ${yaw} 0`);
 			if (SAVE_POINT) for (const [dx, dy, dz] of SAVE_POINT.blazes) await nether(`summon minecraft:blaze ${cell[0]+dx} ${cell[1]+dy} ${cell[2]+dz} {PersistenceRequired:1b}`);
 			const damage = await damageCounter(command, agent);
 			const damageAtStart = await damage().catch(() => null);
@@ -495,6 +509,8 @@ try {
 						else { type = 'wait'; args = { durationMs: 1000 }; }
 					}
 					else if (STANDIN === 'count' && blaze && blaze.perceivedBy !== 'sound' && blaze.distance <= 24) { type = 'fight_target'; args = { targetId: blaze.uuid, untilItem: 'minecraft:blaze_rod', untilCount: UNTIL, fleeAtHealth: LOW_HP ? 14 : 6, timeoutMs: Math.max(1000, Math.min(600000, runDeadline - now())) }; }
+					else if (CALL_SHAPE === 'game' && GAME_TARGET && blaze && blaze.perceivedBy !== 'sound' && blaze.distance <= 24) { type = 'fight_target'; args = { targetId: blaze.uuid, collect: true, fleeAtHealth: GAME_FLEE, timeoutMs: Math.max(1000, Math.min(GAME_TIMEOUT_MS, runDeadline - now())) }; }
+					else if (CALL_SHAPE === 'game') { const at = SPOT_AT === 'feet' ? cell.map(Math.floor) : SPAWNER; type = 'fight_until'; args = { mob: BARE ? 'blaze' : 'minecraft:blaze', untilItem: BARE ? 'blaze_rod' : 'minecraft:blaze_rod', untilCount: UNTIL, weapon: 'sword', collect: true, fleeAtHealth: GAME_FLEE, x: at[0], y: at[1], z: at[2], radius: 12, timeoutMs: Math.max(1000, Math.min(GAME_TIMEOUT_MS, runDeadline - now())) }; }
 					else { type = 'fight_until'; args = { mob: 'minecraft:blaze', untilItem: 'minecraft:blaze_rod', untilCount: UNTIL, weapon: WEAPON, fleeAtHealth: LOW_HP ? 14 : 6, timeoutMs: Math.max(1000, Math.min(600000, runDeadline - now())) }; }
 					const res = await act(type, args, Math.max(1000, runDeadline - now(), type === 'fight_target' ? 180000 : 0) + 20000);
 					if (refusedBeforeRunning(res)) run.refused = (run.refused ?? 0) + 1; else run.calls[type] = (run.calls[type] ?? 0) + 1;

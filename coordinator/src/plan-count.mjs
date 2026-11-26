@@ -37,6 +37,19 @@ export const COUNT_FIGHT_MAX_MS = 600_000;
 // After the count ends: collect:true walks to the drops, collect:false waits for a clear area and then walks.
 export const COUNT_FIGHT_COLLECT_MS = 20_000;
 
+// A spawner hold runs at least this long before a timeout ends it (SpawnerHold.MIN_HOLD_MS, fight.spawnerHoldMinTime).
+export const SPAWNER_HOLD_MIN_MS = 45_000;
+
+/** True for a fight the body may run as a spawner hold: fight_until on blazes, or fight_target on a seen blaze. */
+export function blazeHoldFight(action, entities = []) {
+	const args = action?.arguments;
+	if (args === null || typeof args !== 'object') return false;
+	if (action.actionType === 'fight_until') return args.mob === 'minecraft:blaze' || args.mob === 'blaze';
+	if (action.actionType !== 'fight_target') return false;
+	const target = (Array.isArray(entities) ? entities : []).find((entry) => entry && (entry.uuid ?? entry.stableId) === args.targetId);
+	return target?.type === 'minecraft:blaze';
+}
+
 /** How long the body can run this action as a count skill, or null when it is not one. */
 export function countSkillDurationMs(action) {
 	const args = action?.arguments;

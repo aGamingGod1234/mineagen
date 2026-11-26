@@ -1,0 +1,5 @@
+# #283 Fight blazes from the spawner hold when the model names a spot, writes short ids, or has not seen the spawner yet
+
+- **Problem:** At a blaze spawner the model nearly always tells the bot where to fight ("fight blazes here"). Any named spot, a short item name such as `blaze_rod`, or a spawner the bot had not looked at yet switched off the bot's own spawner fight. That fight builds a little cell, walls in to heal and goes back out. Without it the bot stood in the open and gave up at 7 hearts.
+- **Solution:** A named spot near a spawner, short names, and a spot named before the spawner was seen now all lead to the spawner fight. In the last case the bot first looks round for the spawner, the way a player turns to find where the blazes come from.
+- **Result:** Measured in practice rooms against the same build without the change. Rooms shaped like the game's call: the spawner fight started in 9 of 11 rooms vs 0 of 11; rods kept 8 vs 1; deaths 1 vs 2. Rooms with the spot on the spawner block: rods kept 13 vs 9; deaths 2 vs 3.
