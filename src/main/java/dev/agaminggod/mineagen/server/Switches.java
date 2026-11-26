@@ -86,6 +86,8 @@ public final class Switches {
 		new Switch("fight.forestHunt", null, "mineagen.fight.forestHunt", "server", false, JAVA_GET_BOOLEAN, null, "default-off"),
 		// ServerFightUntilController.java fullIds(): per fight call.
 		new Switch("fight.fullIds", null, "mineagen.fight.fullIds", "server", true, JAVA_NOT_FALSE_EXACT, null, "default-on"),
+		// BoatTrap.java enabled(): per fight call; property or env.
+		new Switch("fight.boatTrap", "MINEAGEN_FIGHT_BOAT_TRAP", "mineagen.fight.boatTrap", "server", true, NOT_FALSE_WORD, JAVA_NOT_FALSE_EXACT, "default-on"),
 		// UnreachableTargets.java fromProperty(): per fight call.
 		new Switch("fight.skipUnreachable", null, "mineagen.fight.skipUnreachable", "server", true, JAVA_NOT_FALSE_EXACT, null, "default-on"),
 		// KillSighting.java enabled(): per call.

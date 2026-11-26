@@ -268,6 +268,7 @@ public final class VerificationMain {
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.RangedTargetContractVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.BowBallisticsVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.EndermanGazeVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.runtime.controller.BoatTrapVerification.verify();
 		passedAssertions += GoalVerificationRuntimeVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.perception.ObservationPageVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.perception.PlayerObservationEventsVerification.verify();
