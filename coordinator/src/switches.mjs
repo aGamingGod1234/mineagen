@@ -114,6 +114,11 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'find.dryFlood', env: 'MINEAGEN_FIND_DRY_FLOOD', side: 'coordinator', default: true, parser: OFF_EXACT, status: 'default-on',
 		reason: 'Water that ran into an opened tunnel and stopped short of the body is a shut way the search turns from, not danger that ends it; off is the A/B off arm.',
 		readers: ['coordinator/src/find-search.mjs dryFlood (per call)'] }),
+	// coordinator/src/skill-fits.mjs routeLine and coordinator/src/live-task-view.mjs openOrder: per call.
+	entry({ name: 'route.eyesHold', env: 'MINEAGEN_EYES_HOLD', side: 'coordinator', default: true,
+		parser: Object.freeze({ id: 'off-if:0|off', kind: 'boolean', unset: true, parse: (raw) => !['0', 'off'].includes(String(raw)) }), status: 'default-on',
+		reason: 'With an eye in hand the route and the plan lead to the stronghold and its portal before any trip back to the Nether (8 eyes-to-dragon games: 4 went back with 9-11 eyes, 3 died there); 0 or off is the A/B off arm.',
+		readers: ['coordinator/src/skill-fits.mjs routeLine (per call)', 'coordinator/src/live-task-view.mjs openOrder (per call)'] }),
 	// coordinator/src/obtain-runner.mjs OBTAIN_COSTS: read once at module load.
 	entry({ name: 'obtain.costs', env: 'MINEAGEN_OBTAIN_COSTS', side: 'coordinator', default: true, parser: OFF_EXACT, status: 'default-on',
 		reason: 'Off plans as before chest looting, the seen-source cost model and the one-trip kit iron, for A/B rooms (#115).',
