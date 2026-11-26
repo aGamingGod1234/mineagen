@@ -74,7 +74,7 @@ import { searchHoldsSteer } from './search-danger.mjs';
 import { carriedFoodToEat, naturalRegeneration } from './fork-rule.mjs';
 // Danger triggers a running count skill handles itself when they come from its own mob (see countSkillKinds).
 const COUNT_SKILL_HELD = new Set(['damage', 'threat', 'projectile', 'fire']);
-import { DEFAULT_REFLEXES, DIMENSION_REFLEXES, ReflexBook, instinctsEnabled } from './reflexes.mjs';
+import { DEFAULT_REFLEXES, ReflexBook, dimensionReflexes, instinctsEnabled } from './reflexes.mjs';
 import { describeSwitches, resolveSwitches } from './switches.mjs';
 import { kitHabitEnabled } from './kit-habit.mjs';
 // Namespace import: situationStrategyTopic is optional, so the changed line works with or without it.
@@ -345,7 +345,7 @@ export class DynamicCoordinator extends EventEmitter {
 			...(nativeClock === undefined ? {} : { clock: nativeClock }),
 			// The game's rule book arms the default survival rules (ruling 16); a bare runtime has the model's rules only.
 			// The End's own defaults arm whenever the coordinator arms defaults at all (late-game wall, order 12).
-			reflexBook: new ReflexBook({ defaults: reflexDefaults, dimensionDefaults: reflexDefaults.length > 0 ? DIMENSION_REFLEXES : {}, instincts: reflexInstincts }),
+			reflexBook: new ReflexBook({ defaults: reflexDefaults, dimensionDefaults: reflexDefaults.length > 0 ? dimensionReflexes(process.env) : {}, instincts: reflexInstincts }),
 			kitHabit,
 			taskPlan: (record, tool) => this.#taskViews.operate(record, tool),
 			knownStations: (record) => this.#taskViews.placedStations(record),

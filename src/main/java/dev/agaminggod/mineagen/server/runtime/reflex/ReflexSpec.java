@@ -23,10 +23,10 @@ import java.util.regex.Pattern;
 public final class ReflexSpec {
 	/**
 	 * The model's own 12 rules plus the coordinator's 16 default rules (15 survival rules and the owed-drops habit) and the
-	 * 5 it arms only in the End (breath, the dragon's throw, the gaze guard, water against an angry enderman and the run
-	 * to a perched dragon's head, reflexes.mjs DIMENSION_REFLEXES).
+	 * 6 it arms only in the End (breath, the dragon's throw, the gaze guard, water against an angry enderman, the run
+	 * to a perched dragon's head and the water catch of a fall, reflexes.mjs DIMENSION_REFLEXES).
 	 */
-	public static final int MAX_RULES = 33;
+	public static final int MAX_RULES = 34;
 	/** Ids the coordinator's default survival rules carry (reflexes.mjs DEFAULT_REFLEXES). */
 	public static final String DEFAULT_RULE_PREFIX = "default-";
 	public static final int MAX_CONDITIONS = 4;

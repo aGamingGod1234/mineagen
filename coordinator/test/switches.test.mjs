@@ -149,6 +149,7 @@ const READS = [
 	['experience', 'coordinator/src/experience-store.mjs', "getSwitch('experience', environment)"],
 	['experience.frozen', 'coordinator/src/experience-store.mjs', "getSwitch('experience.frozen', environment)"],
 	['instincts', 'coordinator/src/reflexes.mjs', "getSwitch('instincts', environment)"],
+	['end.fallCatch', 'coordinator/src/reflexes.mjs', "getSwitch('end.fallCatch', environment)"],
 	['end.highDescent', 'coordinator/src/dragon-fight-facts.mjs', "getSwitch('end.highDescent', environment)"],
 	['instincts', 'src/main/java/dev/agaminggod/mineagen/server/runtime/reflex/Instincts.java', 'Switches.get("instincts")'],
 	['travel.walkAround', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerTravelController.java', 'Switches.get("travel.walkAround")'],

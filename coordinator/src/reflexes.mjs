@@ -79,14 +79,25 @@ export const DIMENSION_REFLEXES = Object.freeze({
 		// fight, shot or flight; a model command takes the body back as from any stance. A stance, not a trigger, so it
 		// comes back after the breath run while the dragon still sits; at 10 health or less it stays out.
 		{ id: 'default-perch-strike', kind: 'stance', priority: 6, when: [{ type: 'dragon_perched', within: 24 }, { type: 'health_below', value: 10, not: true }], do: { type: 'strike_head' }, maxMs: 20_000, cooldownMs: 1_000, ttlMs: 3_600_000 },
+		// The dragon's charge knocks a body off the cage column (about 20 blocks up) and the fall kills: 20 of 44 deaths in
+		// 20 real-model End games, the water bucket in the hotbar in 16 of 17, and the model never arms a catch of its own.
+		// A player empties the bucket under them once the ground is in reach and scoops it back after landing (the place
+		// action's falling path); the engine lets this run through a yield (clutching). With no bucket held the rule sleeps.
+		// An arm of 6 games with it caught 24 falls (3 off the cage height), none wrong.
+		{ id: 'default-end-fall', kind: 'trigger', priority: 9, when: [{ type: 'falling', blocks: 4 }], do: { type: 'place', item: 'minecraft:water_bucket', where: 'below' }, maxMs: 8_000, ttlMs: 3_600_000 },
 	].map((rule) => Object.freeze(rule))),
 });
+/** The dimension defaults the switches leave armed: MINEAGEN_END_FALL_CATCH=off drops the End fall catch (end.fallCatch). */
+export function dimensionReflexes(environment = process.env) {
+	if (getSwitch('end.fallCatch', environment).value) return DIMENSION_REFLEXES;
+	return Object.freeze({ ...DIMENSION_REFLEXES, 'minecraft:the_end': Object.freeze(DIMENSION_REFLEXES['minecraft:the_end'].filter((rule) => rule.id !== 'default-end-fall')) });
+}
 const MOST_DIMENSION_REFLEXES = Math.max(0, ...Object.values(DIMENSION_REFLEXES).map((rules) => rules.length));
 export const DEFAULT_REFLEX_IDS = Object.freeze(new Set([...DEFAULT_REFLEXES, ...Object.values(DIMENSION_REFLEXES).flat()].map((rule) => rule.id)));
 // The mod runs at most this many rules (ReflexSpec.MAX_RULES): the cap of every rule-set bound on the wire (C24). The
 // model's own rules plus the defaults (with the most any dimension adds) must fit it, so a new default needs a raise on
 // both sides first.
-export const MAX_REFLEX_RULES = 33;
+export const MAX_REFLEX_RULES = 34;
 if (MAX_REFLEXES + DEFAULT_REFLEXES.length + MOST_DIMENSION_REFLEXES > MAX_REFLEX_RULES) throw new Error(`reflex rules ${MAX_REFLEXES} + ${DEFAULT_REFLEXES.length} + ${MOST_DIMENSION_REFLEXES} exceed the mod's ${MAX_REFLEX_RULES}`);
 
 /**
@@ -434,10 +445,10 @@ export class ReflexBook {
 	// The latest sample that carried the inventory: a scoop is read against it, so a sample without one between hides none.
 	#stocked = new Map();
 
-	/** dimensionDefaults: {dimension: rules} armed only there; by default DIMENSION_REFLEXES with the production defaults. */
+	/** dimensionDefaults: {dimension: rules} armed only there; by default dimensionReflexes() with the production defaults. */
 	// instincts defaults to the switch (on unless MINEAGEN_INSTINCTS lists something else), so a practice room's book plays as
 	// the coordinator's does in a model game.
-	constructor({ now = Date.now, defaults = DEFAULT_REFLEXES, dimensionDefaults = defaults === DEFAULT_REFLEXES ? DIMENSION_REFLEXES : {}, instincts = instinctsEnabled(process.env) } = {}) {
+	constructor({ now = Date.now, defaults = DEFAULT_REFLEXES, dimensionDefaults = defaults === DEFAULT_REFLEXES ? dimensionReflexes(process.env) : {}, instincts = instinctsEnabled(process.env) } = {}) {
 		this.#now = now; this.#defaults = defaults; this.#dimensionDefaults = dimensionDefaults; this.#instincts = instincts === true;
 	}
 

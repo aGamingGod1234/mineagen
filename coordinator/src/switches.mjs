@@ -155,6 +155,10 @@ export const SWITCHES = Object.freeze([
 		propertyParser: JAVA_GET_BOOLEAN, status: 'default-on',
 		reason: 'Issue 2 Step 2 instincts arm: stance, heal, pace, fight-through, weapon and food (#24). All 300 practice rooms x10, 23 Nov: passes 2,786 of 3,203 off against 2,811 of 3,218 on, deaths 75 against 63; one room changed: travel fights through a zombie instead of stopping (#185).',
 		readers: ['coordinator/src/reflexes.mjs instinctsEnabled (per call; env only)', 'Instincts.java enabled (per call; property or env)'] }),
+	// coordinator/src/reflexes.mjs dimensionReflexes(environment): per call (dynamic-main at startup, each ReflexBook).
+	entry({ name: 'end.fallCatch', env: 'MINEAGEN_END_FALL_CATCH', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
+		reason: 'Arms default-end-fall in the End: a fall of 4+ blocks places the water bucket below. End knock-off room, 10 runs a side: 60 of 60 throws caught against 0 of 60, deaths 0 against 30 (#277). off drops the rule; the equal-priority tie-break for falling rules stays in the mod.',
+		readers: ['coordinator/src/reflexes.mjs dimensionReflexes (per call)'] }),
 	// coordinator/src/dragon-fight-facts.mjs endCrystalFact(..., environment): per call.
 	entry({ name: 'end.highDescent', env: 'MINEAGEN_END_HIGH_DESCENT', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
 		reason: 'Feet above y75 in the End, the crystal fact adds how to come down a built column: dig_to shaft to the ground, no water poured on the top. In End games, 5 of 6 descents from y95+ died, each after a pour on the top or a sideways dig. off leaves the advice out.',
