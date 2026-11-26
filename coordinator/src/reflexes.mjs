@@ -162,12 +162,20 @@ export function resolveAutoStance(observation, previous = 'steady') {
 	return 'steady';
 }
 
-/** A default rule with its stance numbers; any other rule is returned as a copy. */
-export function materializeDefault(rule, stance = 'steady') {
+// reflex.unarmouredFloor: below this armour (an iron chestplate alone gives 6) a fight keeps the steady retreat and cover floors.
+export const UNARMOURED_FIGHT_ARMOUR = 6;
+const UNARMOURED_FLOOR_RULES = new Set(['default-retreat', 'default-cover']);
+
+/** A default rule with its stance numbers; any other rule is returned as a copy. `armor` is the body's armour points. */
+export function materializeDefault(rule, stance = 'steady', armor = null) {
 	const copy = structuredClone(rule);
 	const setting = STANCE_SETTINGS[rule.id];
 	if (setting === undefined || !STANCES.includes(stance)) return copy;
-	for (const condition of copy.when) if (condition.type === setting.condition && condition.not !== true) condition.value = setting[stance];
+	// An unarmoured fight retreats at 7 rather than 4: in 8 fresh games 40 of 42 deaths had no armour on, and a zombie's
+	// 3-4 per hit takes the last 4 health before a 10-block sprint gets clear.
+	const floorStance = stance === 'fight' && UNARMOURED_FLOOR_RULES.has(rule.id) && Number.isFinite(armor) && armor < UNARMOURED_FIGHT_ARMOUR
+		&& getSwitch('reflex.unarmouredFloor').value ? 'steady' : stance;
+	for (const condition of copy.when) if (condition.type === setting.condition && condition.not !== true) condition.value = setting[floorStance];
 	// kit.rekit: hurt (cautious), eat with a mob 4 blocks off rather than 8. A retreat's 10-block sprint leaves a chaser about
 	// that close, and fresh game g5 sat at 1.2 health for 19 s holding cooked beef with zombies 5-8 blocks off.
 	if (rule.id === 'default-eat' && stance === 'cautious' && getSwitch('kit.rekit').value) {
@@ -563,7 +571,7 @@ export class ReflexBook {
 		const missing = [...this.#defaults, ...here].filter((rule) => !agent.rules.has(rule.id) && !agent.declined.has(rule.id));
 		if (missing.length === 0 && !restanced && gone.length === 0) return false;
 		for (const rule of missing) {
-			agent.rules.set(rule.id, this.#instincts ? materializeDefault(rule, agent.stance) : structuredClone(rule));
+			agent.rules.set(rule.id, this.#instincts ? materializeDefault(rule, agent.stance, observation?.player?.armor) : structuredClone(rule));
 			agent.defaults.add(rule.id);
 		}
 		agent.revision += 1;
@@ -584,7 +592,7 @@ export class ReflexBook {
 		let changed = false;
 		for (const base of this.#defaults) {
 			if (!agent.defaults.has(base.id) || !agent.rules.has(base.id)) continue;
-			const next = materializeDefault(base, agent.stance);
+			const next = materializeDefault(base, agent.stance, observation?.player?.armor);
 			if (JSON.stringify(next) === JSON.stringify(agent.rules.get(base.id))) continue;
 			agent.rules.set(base.id, next);
 			changed = true;

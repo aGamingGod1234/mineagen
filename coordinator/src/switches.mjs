@@ -134,6 +134,10 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'kit.rekit', env: 'MINEAGEN_REKIT', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
 		reason: 'Armour from carried iron before a second bucket, armour put on when hurt, and eating with a mob 4+ blocks off when hurt (cautious stance). 40 of 42 deaths in 8 fresh games on main 069e471 had no armour, one with 13 iron carried; off is the A/B off arm.',
 		readers: ['coordinator/src/kit-habit.mjs rekitEnabled (per call)', 'coordinator/src/reflexes.mjs materializeDefault (per call)'] }),
+	// coordinator/src/reflexes.mjs materializeDefault: per call.
+	entry({ name: 'reflex.unarmouredFloor', env: 'MINEAGEN_UNARMOURED_FLOOR', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
+		reason: 'A fight with under 6 armour keeps the steady retreat (7) and cover (6) floors instead of the fight 4; in 8 fresh games on main 069e471, 40 of 42 deaths had no armour on. off is the A/B off arm.',
+		readers: ['coordinator/src/reflexes.mjs materializeDefault (per call)'] }),
 	// coordinator/src/night-cover.mjs nightMoveStop(..., { environment }): per call.
 	entry({ name: 'night.cover', env: 'MINEAGEN_NIGHT_COVER', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
 		reason: 'Keeps an unarmoured bot under cover on its first night; off restores the old climb-out for room A/Bs (#117).',
@@ -204,6 +208,10 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'killPosition', property: 'mineagen.killPosition', side: 'server', default: true, parser: flag({ token: 'false', means: 'off', trim: true, anyCase: true }), status: 'default-on',
 		reason: 'Sends where a seen kill died; false withholds it from the wire as an A/B arm (#25).',
 		readers: ['KillSighting.java enabled (per call)'] }),
+	// CombatBailout.java holdRetreat: static, class load (tests reassign it).
+	entry({ name: 'fight.holdBailRetreat', env: 'MINEAGEN_HOLD_BAIL_RETREAT', side: 'server', default: true, parser: OFF_WORD, status: 'default-on',
+		reason: 'A hold-ground fight (pursue:false) that bails out at low health backs away on open ground outside the End instead of standing still in reach until the next model turn (why-deaths report on 8 fresh games). off is the A/B off arm.',
+		readers: ['CombatBailout.java holdRetreat (class load)'] }),
 	// ReflexEngine.java holdRun: static, class load (tests reassign it).
 	entry({ name: 'reflex.holdRun', env: 'MINEAGEN_REFLEX_HOLD_RUN', side: 'server', default: true, parser: OFF_WORD, status: 'default-on',
 		reason: 'Retreat, cover and defend finish their run (10 s at most) before any model command takes the body, as lava, air and creeper do. In 21 of 42 deaths of 8 fresh games on main 069e471 the next command ended one mid-run; off is the A/B off arm.',

@@ -235,3 +235,17 @@ test('flag on: the fortress stance takes effect without the 3 s dwell', () => {
 	assert.equal(valueOf(book, 'default-retreat', 'health_below'), 14);
 	assert.match(book.takeReport('a'), /; stance fortress \(auto\)/);
 });
+
+test('an unarmoured fight keeps the steady retreat and cover floors; armour or the off switch keeps the fight floor', () => {
+	const retreat = DEFAULT_REFLEXES.find((rule) => rule.id === 'default-retreat');
+	const cover = DEFAULT_REFLEXES.find((rule) => rule.id === 'default-cover');
+	const floor = (rule, armor) => materializeDefault(rule, 'fight', armor).when.find((condition) => condition.type === 'health_below').value;
+	assert.equal(floor(retreat, 0), STANCE_SETTINGS['default-retreat'].steady);
+	assert.equal(floor(cover, 2), STANCE_SETTINGS['default-cover'].steady);
+	assert.equal(floor(retreat, 6), STANCE_SETTINGS['default-retreat'].fight);
+	assert.equal(floor(retreat, null), STANCE_SETTINGS['default-retreat'].fight);
+	const saved = process.env.MINEAGEN_UNARMOURED_FLOOR;
+	process.env.MINEAGEN_UNARMOURED_FLOOR = 'off';
+	try { assert.equal(floor(retreat, 0), STANCE_SETTINGS['default-retreat'].fight); }
+	finally { if (saved === undefined) delete process.env.MINEAGEN_UNARMOURED_FLOOR; else process.env.MINEAGEN_UNARMOURED_FLOOR = saved; }
+});

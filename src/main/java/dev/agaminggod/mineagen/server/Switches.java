@@ -84,6 +84,7 @@ public final class Switches {
 		// KillSighting.java enabled(): per call.
 		new Switch("killPosition", null, "mineagen.killPosition", "server", true, NOT_FALSE_WORD, null, "default-on"),
 		// ReflexEngine.java holdRun: class load (tests reassign it).
+		new Switch("fight.holdBailRetreat", "MINEAGEN_HOLD_BAIL_RETREAT", null, "server", true, OFF_WORD, null, "default-on"),
 		new Switch("reflex.holdRun", "MINEAGEN_REFLEX_HOLD_RUN", null, "server", true, OFF_WORD, null, "default-on"),
 		// ReflexScheduler.java eatThrough: class load (tests reassign it).
 		new Switch("reflex.eatThrough", "MINEAGEN_EAT_THROUGH", null, "server", true, OFF_WORD, null, "default-on"),

@@ -40,6 +40,18 @@ final class CombatBailout implements ServerController {
 		return new CombatBailout(new ServerFleeController(dragon, SEPARATION, budget(remainingMs), now).retreatOnly(), trigger, "DRAGON_TOOK_OFF");
 	}
 
+	/**
+	 * A hold-ground fight (pursue:false) that bails out at low health still backs away on open ground outside the End. Fresh
+	 * games: a bot that stopped at low health with no retreat stood still in reach until the next model turn. The retreat
+	 * steers around lava and deep drops, so a pillar top or roof stays put only where every heading is unsafe; the End keeps
+	 * the old stand-still (pillars over the void).
+	 */
+	static boolean holdRetreat = dev.agaminggod.mineagen.server.Switches.get("fight.holdBailRetreat");
+
+	static boolean retreatsFromHold(boolean enabled, boolean onGround, boolean inEnd) {
+		return enabled && onGround && !inEnd;
+	}
+
 	static long budget(long remainingMs) {
 		return Math.max(0L, Math.min(MAX_RETREAT_MS, remainingMs));
 	}
@@ -47,7 +59,10 @@ final class CombatBailout implements ServerController {
 	static CombatBailout start(ServerPlayer player, Entity target, float threshold, boolean mayMove,
 			long remainingMs, long now) {
 		String trigger = String.format(Locale.ROOT, "Health %.1f reached fleeAtHealth %.1f", player.getHealth(), threshold);
-		if (!mayMove) return new CombatBailout(null, trigger + "; hold-ground choice forbids movement; no retreat attempted");
+		if (!mayMove && !(holdRetreat && retreatsFromHold(true, player.onGround(),
+				player.level().dimension() == net.minecraft.world.level.Level.END))) {
+			return new CombatBailout(null, trigger + "; hold-ground choice forbids movement; no retreat attempted");
+		}
 		if (budget(remainingMs) == 0L) return new CombatBailout(null, trigger + "; action deadline reached; no retreat attempted");
 		if (target == null || !target.isAlive() || target.isRemoved() || target.level() != player.level()) {
 			target = player.level().getEntitiesOfClass(LivingEntity.class,

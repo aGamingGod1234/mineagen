@@ -162,9 +162,11 @@ const READS = [
 	['fight.skipUnreachable', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/UnreachableTargets.java', 'Switches.get("fight.skipUnreachable")'],
 	['killPosition', 'src/main/java/dev/agaminggod/mineagen/server/perception/KillSighting.java', 'Switches.get("killPosition")'],
 	['watch', 'src/main/java/dev/agaminggod/mineagen/server/watch/Watcher.java', 'Switches.get("watch")'],
+	['fight.holdBailRetreat', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/CombatBailout.java', 'Switches.get("fight.holdBailRetreat")'],
 	['reflex.holdRun', 'src/main/java/dev/agaminggod/mineagen/server/runtime/reflex/ReflexEngine.java', 'Switches.get("reflex.holdRun")'],
 	['reflex.eatThrough', 'src/main/java/dev/agaminggod/mineagen/server/runtime/reflex/ReflexScheduler.java', 'Switches.get("reflex.eatThrough")'],
 	['kit.rekit', 'coordinator/src/kit-habit.mjs', "getSwitch('kit.rekit', environment)"],
+	['reflex.unarmouredFloor', 'coordinator/src/reflexes.mjs', "getSwitch('reflex.unarmouredFloor')"],
 	['kit.habit', 'scripts/quality/test-iron-kit-live.mjs', "getSwitch('kit.habit')"],
 	['night.cover', 'scripts/quality/test-obtain-live.mjs', "getSwitch('night.cover')"],
 ];
@@ -311,11 +313,12 @@ public class SwitchesParity {
 				!"false".equals(p.get("mineagen.fight.fullIds")),
 				!"false".equals(p.get("mineagen.fight.skipUnreachable")),
 				!"false".equalsIgnoreCase(p.getOrDefault("mineagen.killPosition", "true").trim()),
+				!"off".equalsIgnoreCase(String.valueOf(env.get("MINEAGEN_HOLD_BAIL_RETREAT")).trim()),
 				!"off".equalsIgnoreCase(String.valueOf(env.get("MINEAGEN_REFLEX_HOLD_RUN")).trim()),
 				!"off".equalsIgnoreCase(String.valueOf(env.get("MINEAGEN_EAT_THROUGH")).trim()),
 				"true".equalsIgnoreCase(p.getOrDefault("mineagen.watch", "false").trim()) };
 		String[] names = { "instincts", "travel.walkAround", "fight.chargeGuard", "fight.recover", "fight.spawnerHold", "fight.spawnerHoldOpen",
-				"fight.forestHunt", "fight.fullIds", "fight.skipUnreachable", "killPosition", "reflex.holdRun", "reflex.eatThrough", "watch" };
+				"fight.forestHunt", "fight.fullIds", "fight.skipUnreachable", "killPosition", "fight.holdBailRetreat", "reflex.holdRun", "reflex.eatThrough", "watch" };
 		StringBuilder line = new StringBuilder("switches");
 		for (int i = 0; i < names.length; i++) line.append(' ').append(names[i]).append('=').append(values[i] ? "on" : "off");
 		return line.toString();
