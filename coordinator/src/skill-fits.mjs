@@ -3,7 +3,6 @@ import { getSwitch } from './switches.mjs';
 import { endKit } from './end-readiness.mjs';
 import { foodAdviceNeeded, portalBedSource } from './survival-advice.mjs';
 import { heldCounts, keepPickaxeMakings, planObtain } from './obtain-plan.mjs';
-import { getSwitch } from './switches.mjs';
 
 // One wake fact: a goal skill (fight_until, barter_until, build nether_portal by casting, cast_obsidian) whose preconditions hold right now, with the
 // call's fields and the facts that make it fit. It names a call the model may make; nothing runs from it.
