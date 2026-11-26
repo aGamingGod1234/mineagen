@@ -1969,12 +1969,25 @@ public final class ServerActionExecutor {
 				&& player.level().dimension() == net.minecraft.world.level.Level.NETHER;
 		// pursue:false (stay put) and sneak:true (crouch on an edge) keep the ordinary fight: the hold walks to its cell
 		// site and on rod trips, and does not crouch.
-		// An explicit spot (x, y, z) also keeps it: the ordinary fight hunts and returns there, the hold would pick its own cell.
+		// An explicit spot (x, y, z) away from the seen spawner also keeps it: the ordinary fight hunts and returns there. A spot
+		// on the spawner's own ground asks for the fight at the spawner: the hold takes it and picks its own cell there.
+		boolean spot = arguments.has("x") || arguments.has("y") || arguments.has("z");
+		boolean spotAtSpawner = spot && dev.agaminggod.mineagen.server.runtime.controller.SpawnerHold.spotAtSpawner(spawner,
+				arguments.has("x") ? number(arguments, "x") : null, arguments.has("y") ? number(arguments, "y") : null,
+				arguments.has("z") ? number(arguments, "z") : null);
 		boolean constrained = arguments.has("pursue") && !bool(arguments, "pursue") || arguments.has("sneak") && bool(arguments, "sneak")
-				|| arguments.has("x") || arguments.has("y") || arguments.has("z");
-		if (!constrained && dev.agaminggod.mineagen.server.runtime.controller.SpawnerHold.applies(nether, blaze, roof, true))
-			return new dev.agaminggod.mineagen.server.runtime.controller.ServerSpawnerHoldController(player, arguments, protection, spawner,
+				|| spot && !spotAtSpawner;
+		if (!constrained && dev.agaminggod.mineagen.server.runtime.controller.SpawnerHold.applies(nether, blaze, roof, true)) {
+			JsonObject held = arguments;
+			if (spotAtSpawner) {
+				held = arguments.deepCopy();
+				held.remove("x");
+				held.remove("y");
+				held.remove("z");
+			}
+			return new dev.agaminggod.mineagen.server.runtime.controller.ServerSpawnerHoldController(player, held, protection, spawner,
 					roofing(request), GameClock.nowMs());
+		}
 		return new dev.agaminggod.mineagen.server.runtime.controller.ServerFightUntilController(
 				player, arguments, protection, GameClock.nowMs(), "fight_until", null, roofing(request));
 	}
