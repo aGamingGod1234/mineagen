@@ -189,6 +189,10 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'dig.floorLavaGuard', property: 'mineagen.dig.floorLavaGuard', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
 		reason: 'break_block never breaks the floor under the feet with lava heard or seen at it, even with acceptLavaRisk; 1 of 7 lava deaths in 8 fresh games dropped into a pool that way.',
 		readers: ['ServerActionExecutor.java FLOOR_LAVA_GUARD (class load)'] }),
+	// ReflexActions.java LeaveFire.PLUG_INFLOW: static (tests reassign it), class load.
+	entry({ name: 'reflex.plugInflow', property: 'mineagen.reflex.plugInflow', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
+		reason: 'Before stepping back from lava seen coming, the lava reflex puts one block in the cell it flows in through; 1 of 7 lava deaths in 8 fresh games backed off a dug-into flow that then followed it.',
+		readers: ['ReflexActions.java LeaveFire.PLUG_INFLOW (class load)'] }),
 	// SpawnerHold.java ENABLED: static final, class load.
 	entry({ name: 'fight.spawnerHold', property: 'mineagen.fight.spawnerHold', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
 		reason: 'Holds a blaze spawner from a roofed cell; staged fortress runs lost 12 of 28 deaths to wither skeletons on open decks (#89).',
