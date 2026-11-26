@@ -1174,6 +1174,18 @@ function firstUnfinished(state) {
  const intended = plan?.steps.find(s => s.id === state.intent?.step && s.status !== 'complete');
  return intended ?? plan?.steps.find(s => s.id === state.planFocus && s.status !== 'complete') ?? plan?.steps.find(s => s.status === 'active') ?? (facts ? plan.steps.find(s => s.id === openOrder(plan, facts, state.observation, state.known)[0]) : undefined);
 }
+// With an eye in hand outside the Nether and the End, the open stronghold and End steps come first: a player follows
+// the eye they hold. Without this the first open step was a lost Nether-prep step (lava depth, portal frame, pearl or
+// rod supply, reopened once the eyes fell below 12), and the "Doing:" line named it every wake. In eight eyes-to-dragon
+// games (26 Nov) the bot then dug to the lava floor beside the stronghold estimate and built a Nether portal.
+// MINEAGEN_EYES_HOLD=0 keeps plan order, as for the eyes-in-hand route line.
+const EYE_LEAD = /(^| )(seen:minecraft:stronghold|in:minecraft:the_end)( |$)/;
+function eyesLead(plan, open, observation) {
+ if (process.env.MINEAGEN_EYES_HOLD === '0' || !(observation?.inventory?.items ?? []).some(r => r?.itemId === 'minecraft:ender_eye' && r.count > 0)) return [...open];
+ const byId = new Map(plan.steps.map(s => [s.id, s]));
+ const lead = open.filter(id => EYE_LEAD.test(byId.get(id)?.check ?? ''));
+ return [...lead, ...open.filter(id => !lead.includes(id))];
+}
 // A bed explodes when used in the Nether or the End.
 const BED_UNSAFE = new Set(['minecraft:the_nether', 'minecraft:the_end']);
 /**
@@ -1187,7 +1199,7 @@ const BED_UNSAFE = new Set(['minecraft:the_nether', 'minecraft:the_end']);
  */
 export function openOrder(plan, facts, observation, known = null) {
  const dimension = observation?.world?.dimension;
- if (!BED_UNSAFE.has(dimension)) return [...facts.open];
+ if (!BED_UNSAFE.has(dimension)) return eyesLead(plan, facts.open, observation);
  const byId = new Map(plan.steps.map(s => [s.id, s]));
  const manual = s => s.check === null && s.kind === 'manual';
  const steps = facts.open.map(id => byId.get(id)).filter(s => !(s.check ?? '').split(' ').includes('spawn:bed')
