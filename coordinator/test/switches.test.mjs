@@ -169,6 +169,7 @@ const READS = [
 	['reflex.plugInflow', 'src/main/java/dev/agaminggod/mineagen/server/runtime/reflex/ReflexActions.java', 'static boolean PLUG_INFLOW = dev.agaminggod.mineagen.server.Switches.get("reflex.plugInflow");'],
 	['fight.spawnerHold', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/SpawnerHold.java', 'public static final boolean ENABLED = dev.agaminggod.mineagen.server.Switches.get("fight.spawnerHold");'],
 	['fight.spawnerHoldOpen', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/SpawnerHold.java', 'public static final boolean OPEN_FIGHT = dev.agaminggod.mineagen.server.Switches.get("fight.spawnerHoldOpen");'],
+	['travel.passBlazes', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/TravelStops.java', 'public static final boolean PASS_BLAZES = dev.agaminggod.mineagen.server.Switches.get("travel.passBlazes");'],
 	['fight.forestHunt', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/WarpedForestHunt.java', 'static boolean enabled = dev.agaminggod.mineagen.server.Switches.get("fight.forestHunt");'],
 	['fight.fullIds', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerFightUntilController.java', 'Switches.get("fight.fullIds")'],
 	['fight.skipUnreachable', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/UnreachableTargets.java', 'Switches.get("fight.skipUnreachable")'],
@@ -216,6 +217,7 @@ test('every reader reads its switch through the registry, and no switch variable
 		'reflex.plugInflow': { property: 'mineagen.reflex.plugInflow', properties: [[undefined, true], ['false', false], ['FALSE', true]] },
 		'fight.spawnerHold': { property: 'mineagen.fight.spawnerHold', properties: [[undefined, true], ['false', false], [' false', true]] },
 		'fight.spawnerHoldOpen': { property: 'mineagen.fight.spawnerHoldOpen', properties: [[undefined, true], ['false', false], ['0', true]] },
+		'travel.passBlazes': { property: 'mineagen.travel.passBlazes', properties: [[undefined, true], ['false', false], ['0', true]] },
 		'fight.forestHunt': { property: 'mineagen.fight.forestHunt', properties: [[undefined, false], ['true', true], ['TRUE', true], [' true', false]] },
 		'fight.fullIds': { property: 'mineagen.fight.fullIds', properties: [[undefined, true], ['false', false], ['FALSE', true]] },
 		'fight.skipUnreachable': { property: 'mineagen.fight.skipUnreachable', properties: [[undefined, true], ['false', false], ['FALSE', true]] },
@@ -335,6 +337,7 @@ public class SwitchesParity {
 				!"false".equals(p.get("mineagen.reflex.plugInflow")),
 				!"false".equals(p.get("mineagen.fight.spawnerHold")),
 				!"false".equals(p.get("mineagen.fight.spawnerHoldOpen")),
+				!"false".equals(p.get("mineagen.travel.passBlazes")),
 				"true".equalsIgnoreCase(p.get("mineagen.fight.forestHunt")),
 				!"false".equals(p.get("mineagen.fight.fullIds")),
 				!"false".equals(p.get("mineagen.fight.skipUnreachable")),
@@ -346,7 +349,7 @@ public class SwitchesParity {
 				!"off".equalsIgnoreCase(String.valueOf(env.get("MINEAGEN_EAT_THROUGH")).trim()),
 				"true".equalsIgnoreCase(p.getOrDefault("mineagen.watch", "false").trim()) };
 		String[] names = { "instincts", "travel.walkAround", "travel.shallowShore", "travel.skipBuried", "fight.chargeGuard", "fight.recover", "dig.floorLavaGuard", "reflex.plugInflow", "fight.spawnerHold", "fight.spawnerHoldOpen",
-				"fight.forestHunt", "fight.fullIds", "fight.skipUnreachable", "killPosition", "fight.holdBailRetreat", "rest.softGround", "creeper.guard", "reflex.holdRun", "reflex.eatThrough", "watch" };
+				"travel.passBlazes", "fight.forestHunt", "fight.fullIds", "fight.skipUnreachable", "killPosition", "fight.holdBailRetreat", "rest.softGround", "creeper.guard", "reflex.holdRun", "reflex.eatThrough", "watch" };
 		StringBuilder line = new StringBuilder("switches");
 		for (int i = 0; i < names.length; i++) line.append(' ').append(names[i]).append('=').append(values[i] ? "on" : "off");
 		return line.toString();

@@ -116,6 +116,32 @@ public final class TravelStops {
 	}
 
 	/**
+	 * On by default; -Dmineagen.travel.passBlazes=false stops for blazes and their fire as before. A player crossing a
+	 * fortress keeps moving past a blaze: one that is standing still is the one it hits. Real games from fortress
+	 * entrances stopped 10-12 walks a side for a blaze more than 6 blocks off, and each stop left the body standing in
+	 * the open while the model answered.
+	 */
+	public static final boolean PASS_BLAZES = dev.agaminggod.mineagen.server.Switches.get("travel.passBlazes");
+	/** Health a trip keeps moving through blaze fire above; at or below it the hit hands back as before. */
+	public static final float BLAZE_FIRE_FLOOR = 10.0F;
+
+	/** Whether a blaze that would stop the trip is passed instead: more than {@link #CLOSE} away. */
+	public static boolean passesBlaze(boolean on, String typeId, double distance) {
+		return on && "minecraft:blaze".equals(typeId) && distance > CLOSE;
+	}
+
+	/**
+	 * Whether a hit is blaze fire the trip keeps moving through: a fireball from a blaze, or the burning after it
+	 * ({@code onFire}, {@code inFire}), with health left above {@link #BLAZE_FIRE_FLOOR} and {@code minHealth}. Lava is
+	 * never passed.
+	 */
+	public static boolean passesBlazeFire(boolean on, String msgId, String attackerType, float health, float minHealth) {
+		if (!on || msgId == null) return false;
+		boolean fire = "onFire".equals(msgId) || "inFire".equals(msgId) || "fireball".equals(msgId) && "minecraft:blaze".equals(attackerType);
+		return fire && health > Math.max(BLAZE_FIRE_FLOOR, minHealth);
+	}
+
+	/**
 	 * Whether this hit is shrugged off: terrain damage with no attacker ({@code msgId} a bush, cactus or fall), at most
 	 * {@link #MINOR_HIT}, within {@link #MINOR_TOTAL} for the trip, and leaving health above {@code minHealth}.
 	 */

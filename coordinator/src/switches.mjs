@@ -239,6 +239,10 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'fight.spawnerHoldOpen', property: 'mineagen.fight.spawnerHoldOpen', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
 		reason: 'Fights in the open and walls in only to heal; real fortress room: the open fight kept 39 rods in 9 runs, the cell fight 7 (#89).',
 		readers: ['SpawnerHold.java OPEN_FIGHT (class load)'] }),
+	// TravelStops.java PASS_BLAZES: static final, class load.
+	entry({ name: 'travel.passBlazes', property: 'mineagen.travel.passBlazes', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
+		reason: 'A trip keeps walking past a blaze more than 6 blocks off and through its fire while health is above 10, instead of halting in the open where it can land shots; real games stopped 10-12 walks per 3 games for far blazes.',
+		readers: ['TravelStops.java PASS_BLAZES (class load)'] }),
 	// WarpedForestHunt.java enabled: static (tests reassign it), class load.
 	entry({ name: 'fight.forestHunt', property: 'mineagen.fight.forestHunt', side: 'server', default: false, parser: JAVA_GET_BOOLEAN, status: 'default-off',
 		reason: 'Forest-walking pearl hunt: ended 22 of 40 forest hunts with a pearl against 13, but died in 9 against 4 (#78).',
