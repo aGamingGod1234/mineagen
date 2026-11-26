@@ -45,6 +45,8 @@ test('the trap signal is an attention trigger of its own, and the wake filter wa
 	assert.deepEqual(classified, { attention: true, priority: 'ordinary', trigger: ENDERMAN_TRAP_TRIGGER });
 	// Damage in the same sample still outranks it.
 	assert.equal(classifyObservationTrigger({ attention: true, changedFacts: ['player.health'] }, observation, { endermanTrap: { id: 'a' } }).trigger, 'damage');
+	assert.equal(classifyObservationTrigger({ attention: false, changedFacts: ['entities'] }, observation, { endermanTrap: { id: 'a' }, dimensionChanged: true }).trigger, 'dimension_changed', 'a portal crossing keeps its trigger');
+	assert.equal(classifyObservationTrigger({ attention: false, changedFacts: ['entities'] }, observation, { endermanTrap: { id: 'a' }, toolBreak: { itemId: 'minecraft:stone_pickaxe' } }).trigger, 'tool_broke', 'a broken tool keeps its trigger');
 	const filter = new WakeFilter();
 	filter.take('bot', observation); // the model has been shown an enderman already
 	assert.equal(filter.discovery('bot', { attention: { attention: true, priority: 'ordinary', trigger: 'attention' }, observation, goalText: 'beat the game' }), null);

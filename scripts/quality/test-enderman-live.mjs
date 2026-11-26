@@ -414,7 +414,8 @@ try {
 		if (died) { await command('kill @e[type=minecraft:enderman]'); await (await startAction('respawn', {})).result.catch(() => null); died = false; await sleep(2000); }
 		return { tick, name, onBlock, salt, steps, built, provoked, seated, seatedAfterMs, lostWhileSeated, fight: outcome?.state ?? null, fightMessage: String(outcome?.message ?? '').slice(0, 160),
 			healthBefore: before, lost: dead ? before : +(before - lowest).toFixed(1), dead, killed: killedAfterMs !== null, killedAfterMs, pearls, heldPearls, groundItems, boatLeft, side, seenSeated,
-			// The bot's view says so too: a seated enderman in view shows appearance.seatedIn, so it knows when to strike.
+			// The bot's view says so too: a seated enderman shows appearance.seatedIn, so it knows when to strike. Out of view
+			// (null) is no evidence, so it fails the trial like false.
 			seatShown: typeof seenSeated === 'object' && seenSeated !== null ? /_(?:chest_)?(?:boat|raft)$/.test(String(seenSeated.appearance?.seatedIn ?? '')) : null };
 	};
 	for (const [name, onBlock, base, side] of [['boat-floor', false, 800, 0], ['boat-block', true, 900, 0], ['boat-aside', false, 1000, 2], ['boat-crowded', false, 1100, 0]]) {
@@ -428,7 +429,7 @@ try {
 			const integrity = rows.flatMap((row) => row.tick.integrity ?? []);
 			if (integrity.length) results[name].integrity = integrity;
 			// The body can run the trap: every trial built it, and every provoked enderman sat and died with the body alive.
-			results[name].pass = results[name].built === rows.length && rows.every((row) => !row.provoked || (row.seated && row.killed && !row.dead && row.seatShown !== false));
+			results[name].pass = results[name].built === rows.length && rows.every((row) => !row.provoked || (row.seated && row.killed && !row.dead && row.seatShown === true));
 			// Every repeat must exercise the trap: one provoked trial among unprovoked ones is not a three-repeat pass.
 			const unprovoked = rows.filter((row) => row.built && !row.provoked).length;
 			if (unprovoked > 0) results[name].notExercised = `the stare never provoked the enderman in ${unprovoked} of ${rows.length} trials`;

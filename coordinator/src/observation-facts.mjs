@@ -180,7 +180,8 @@ export function classifyObservationTrigger(payload, observation, signals = null)
 	// The dragon landing on the fountain is the melee window: about 5 s with nobody within 20 blocks, so it is not held.
 	if (signals?.dragonPerch != null) return { attention: true, priority: 'urgent', trigger: DRAGON_PERCHED_TRIGGER };
 	// A calm enderman close while a boat trap is held (need-sources.mjs endermanTrapEdge): it wanders off in seconds, so it is not held.
-	if (signals?.endermanTrap != null) return { attention: true, priority: 'ordinary', trigger: ENDERMAN_TRAP_TRIGGER };
+	// A portal crossing or a broken tool in the same sample keeps its own trigger: a running program always reassesses those.
+	if (signals?.endermanTrap != null && signals?.dimensionChanged !== true && signals?.toolBreak == null) return { attention: true, priority: 'ordinary', trigger: ENDERMAN_TRAP_TRIGGER };
 	// An ordinary named observation cannot hide simultaneous survival facts.
 	// A held tool breaking is seen and heard at once; the empty hand changes what every following action does. Its facts
 	// ride on the observation (toolBroke), so a danger wake in the same sample carries them too.
