@@ -11,6 +11,8 @@ export const SKILL_FITS_BYTES = 240;
 const FIGHT_RANGE = 24;
 const BARTER_RANGE = 32;
 const LAVA_RANGE = 16;
+// build nether_portal casts at a pool seen within this many blocks of the site (ServerBuildController CAST_LAVA_RANGE).
+const BUILD_LAVA_RANGE = 64;
 const MELEE = /^minecraft:(wooden|golden|stone|copper|iron|diamond|netherite)_(sword|axe)$/;
 const GOLD_ARMOUR = /^minecraft:golden_(helmet|chestplate|leggings|boots)$/;
 const WORN = new Set(['head', 'chest', 'legs', 'feet']);
@@ -274,9 +276,15 @@ const ROUTE = [
 		if (f.count(/^minecraft:obsidian$/) >= 10) return ['build nether_portal', `${f.count(/^minecraft:obsidian$/)} obsidian held`];
 		// obtain fills a carried bucket at the nearest water; gate games that read "fill a bucket with water" asked obtain for
 		// water_bucket (then refused) or climbed to the surface for it.
-		if (!f.count(/^minecraft:water_bucket$/)) return [`obtain water_bucket, then ${f.pools ? 'build nether_portal beside the lava pool' : 'find block minecraft:lava and build nether_portal beside it'}`, kit];
-		if (!f.pools) return ['find block minecraft:lava, then build nether_portal beside the pool (casts the frame with your buckets, lights it)', `water bucket held, ${kit}`];
-		return ['build nether_portal beside the lava pool (casts the frame with your buckets and lights it)', `water bucket held, ${kit}`];
+		// A remembered pool beyond the build verb's reach is a trip, not a cast: say where it is so a nearer pool can win.
+		const pool = f.pool, near = pool && pool.d <= BUILD_LAVA_RANGE;
+		const target = !pool ? 'find block minecraft:lava and build nether_portal beside it'
+			: near ? `build nether_portal beside the lava pool at ${pool.at}, ${pool.d} blocks away`
+			: `find block minecraft:lava nearer than the pool ${pool.d} blocks away at ${pool.at} (or go there), then build nether_portal beside it`;
+		if (!f.count(/^minecraft:water_bucket$/)) return [`obtain water_bucket, then ${target}`, kit];
+		if (!pool) return ['find block minecraft:lava, then build nether_portal beside the pool (casts the frame with your buckets, lights it)', `water bucket held, ${kit}`];
+		if (!near) return [target, `water bucket held, ${kit}`];
+		return [`${target} (casts the frame with your buckets and lights it)`, `water bucket held, ${kit}`];
 	} },
 ];
 
@@ -348,6 +356,21 @@ function foodSource(o) {
  * hand-back this life (woodStockHandback) released the trip's wood step; diedSincePortal: the body died after it last
  * stood in the Nether, or after the portal stage was first seen (a lit frame or a visit), so the kit comes back first.
  */
+/** The nearest remembered still-lava source in this dimension, by its cells (or its first sighting), and how far it is. */
+function nearestPool(o, known, dimension) {
+	const at = o.position ?? o.player?.position ?? o.player;
+	if (![at?.x, at?.y, at?.z].every(Number.isFinite)) return null;
+	const cells = (known.lavaPools ?? []).filter(p => p?.dimension === dimension)
+		.flatMap(p => Array.isArray(p.cells) && p.cells.length ? p.cells.map(c => String(c).split(',').map(Number)) : [[p.x, p.y, p.z]])
+		.filter(c => c.length === 3 && c.every(Number.isFinite));
+	let best = null;
+	for (const [x, y, z] of cells) {
+		const d = Math.hypot(x + 0.5 - at.x, y + 0.5 - at.y, z + 0.5 - at.z);
+		if (!best || d < best.d) best = { at: `${x},${y},${z}`, d };
+	}
+	return best && { at: best.at, d: Math.round(best.d) };
+}
+
 export function routeLine({ observation: o = null, known = null, memory = null, foodHandedBack = false, woodHandedBack = false, kitHandedBack = new Set(), diedSincePortal = false, evaluate, instincts = false } = {}) {
 	if (!live(o) || !Array.isArray(o.inventory?.items) || remembered(o, 'inventory') || known === null || typeof evaluate !== 'function') return null;
 	const items = o.inventory.items.filter(i => i?.count > 0);
@@ -375,7 +398,7 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 	const rodsShort = Math.max(0, rodsPlanned - rods), pearlsShort = Math.max(0, eyesPlanned - pearls);
 	const planFacts = `rods ${rods}/${rodsPlanned}, pearls ${pearls}/${eyesPlanned}, eyes ${eyesHeld} held + ${filled} set; plan ${EYE_PLAN} eyes, ${EYES} fill the frame`;
 	const facts = { count, foodNeeded: foodAdviceNeeded(o), foodHandedBack: foodHandedBack === true, food: count(EDIBLE), cookedMeat: count(COOKED_MEAT), rawMeat: count(RAW_FOOD), nearbyMeat: nearbyMeat(o), blocks: count(MOULD), wood: count(/^minecraft:([a-z_]+_(log|planks|stem))$/), iron: count(/^minecraft:(iron_ingot|raw_iron)$/),
-		buckets: count(/^minecraft:(bucket|water_bucket|lava_bucket)$/), pools: (known.lavaPools ?? []).filter(p => p?.dimension === dimension).length,
+		buckets: count(/^minecraft:(bucket|water_bucket|lava_bucket)$/), pools: (known.lavaPools ?? []).filter(p => p?.dimension === dimension).length, pool: nearestPool(o, known, dimension),
 		below: belowGround(o), woodHandedBack: woodHandedBack === true, logs: count(/^minecraft:[a-z_]+_log$/), ingots: count(/^minecraft:iron_ingot$/) };
 	const worn = new Set(items.filter(i => ['head', 'chest', 'legs', 'feet'].includes(i.slot)).map(i => i.slot));
 	const carriedId = re => items.find(i => !['head', 'chest', 'legs', 'feet'].includes(i.slot) && re.test(i.itemId ?? ''))?.itemId?.replace(/^minecraft:/, '') ?? null;
