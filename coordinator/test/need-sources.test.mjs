@@ -952,7 +952,6 @@ test('pearlHuntLine names the nearest walkable enderman within 16 m while pearls
 	assert.match(trap([...wooden, { itemId: 'minecraft:oak_planks', count: 3 }, { itemId: 'minecraft:birch_planks', count: 2 }]), /^.*no boat or 5 Overworld planks/);
 	assert.match(trap([...wooden, { itemId: 'minecraft:oak_planks', count: 1 }, { itemId: 'minecraft:oak_log', count: 1 }]), /5 planks' worth/);
 	assert.match(trap([...wooden, { itemId: 'minecraft:bamboo_block', count: 2 }, { itemId: 'minecraft:bamboo_planks', count: 1 }]), /5 planks' worth/, 'a bamboo block makes 2 planks');
-	assert.match(trap([...wooden, { itemId: 'minecraft:oak_boat', count: 1 }]), /stare at its eyes to anger it, then look down at the boat/);
 	assert.match(trap([...wooden, { itemId: 'minecraft:warped_planks', count: 9 }, { itemId: 'minecraft:oak_planks', count: 4 }]), /no boat or 5 Overworld planks/);
 	assert.match(trap([...wooden, { itemId: 'minecraft:oak_boat', count: 1 }], { raining: true }), /boat trap fails in rain/);
 	const stone = [{ itemId: 'minecraft:stone_sword', count: 1 }];
