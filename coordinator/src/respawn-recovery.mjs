@@ -1,4 +1,10 @@
 import { headingOf } from './search-coverage.mjs';
+import { getSwitch } from './switches.mjs';
+
+/** MINEAGEN_RECOVER_ITEMS=off restores the old respawn: no walk-back lead, and recover_items refuses. */
+export function recoverEnabled(environment = process.env) {
+	return getSwitch('recover.items', environment).value;
+}
 
 const MIN_Y = { 'minecraft:overworld': -64, 'minecraft:the_nether': 0, 'minecraft:the_end': 0 };
 const DIMENSION_NAMES = { 'minecraft:overworld': 'the Overworld', 'minecraft:the_nether': 'the Nether', 'minecraft:the_end': 'the End' };
@@ -12,13 +18,22 @@ const flat = (a, b) => Math.round(Math.hypot(a.x - b.x, a.z - b.z));
 const finite = (p) => [p?.x, p?.y, p?.z].every(Number.isFinite);
 export const dimensionName = (id) => DIMENSION_NAMES[id] ?? id;
 
-/** 'void' or 'lava' when the death itself destroyed the drops (vanilla death messages), else null. */
+/** 'void' or 'lava' when the death itself destroyed the drops (damage type, else the vanilla death message), else null. */
 export function dropLoss(death) {
 	const cause = typeof death?.cause === 'string' ? death.cause : '';
+	if (death?.damageType === 'minecraft:out_of_world') return 'void';
+	if (death?.damageType === 'minecraft:lava') return 'lava';
 	if (/fell out of the world|didn't want to live in the same world as/.test(cause)) return 'void';
 	if (Number.isFinite(death?.y) && Number.isFinite(MIN_Y[death?.dimensionId]) && death.y < MIN_Y[death.dimensionId]) return 'void';
 	if (/tried to swim in lava/.test(cause)) return 'lava';
 	return null;
+}
+
+/** The mob type that killed (damage receipt's attacker, else the death message's "slain/shot/blown up by"), or null. */
+export function killerMob(death) {
+	if (typeof death?.attacker === 'string' && death.attacker !== 'minecraft:player') return death.attacker;
+	const named = /(?:slain|shot|blown up|killed|fireballed|stung|impaled|squashed|frozen to death) by (?:an? )?([A-Z][A-Za-z ]+?)(?: using .*)?$/.exec(String(death?.cause ?? '').trim());
+	return named ? `minecraft:${named[1].trim().toLowerCase().replace(/ /g, '_')}` : null;
 }
 
 export function deathCause(death) {
@@ -86,7 +101,7 @@ export function lostItemsText(rows, limit = 8) {
  * The respawn wake's lead sentence: where the drops of the death just suffered wait, how long, and the way back; or that
  * the death destroyed them. Null without a recent death record with lost items, or once its drop time is spent.
  */
-export function respawnLead(recovery, observation, { now = observation?.observedAtEpochMs } = {}) {
+export function respawnLead(recovery, observation, { now = observation?.observedAtEpochMs, environment = process.env } = {}) {
 	const death = recovery?.lastDeath, at = observation?.position ?? observation?.player;
 	const rows = Array.isArray(recovery?.lastLostInventory) ? recovery.lastLostInventory : [];
 	if (!death || !finite(death) || !finite(at) || typeof death.dimensionId !== 'string' || rows.length === 0) return null;
@@ -102,8 +117,12 @@ export function respawnLead(recovery, observation, { now = observation?.observed
 	const items = lostItemsText(rows);
 	const route = recoveryRoute(death, observation);
 	if (loss === 'lava') return `Respawned. You died in lava ${where} (${cause}): drops that fell into it burned; any that landed beside it wait there (${dropClockText(clock)}). Carried then: ${items}.${route ? ` ${route}` : ''}`;
-	return `Respawned. Your drops wait where you died ${where} (${cause}): ${items}; ${dropClockText(clock)}.${route ? ` ${route}` : ''}`;
+	const first = death.dimensionId === here && recoverEnabled(environment) ? ` ${RECOVER_FIRST_MOVE}${killerMob(death) ? ' A mob killed you, so it stops 16 blocks short and looks first, and hands back if 3 or more hostiles guard them.' : ''}` : '';
+	return `Respawned. Your drops wait where you died ${where} (${cause}): ${items}; ${dropClockText(clock)}.${route ? ` ${route}` : ''}${first}`;
 }
+
+/** The respawn wake's first move when the drops are in this dimension and survived the death. */
+export const RECOVER_FIRST_MOVE = 'A player goes straight back for them before rebuilding anything: do_step recover_items {} walks there by travel (making a stone pickaxe first and digging down when they lie underground with no walked way there), picks up every stack and puts armour, shield and food back.';
 
 /** Only held items, worn slots and remembered sightings; no terrain scan or autonomous recovery choice. */
 export function recoveryPreparation(death, observation) {

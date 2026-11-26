@@ -375,6 +375,9 @@ function normalizeDeath(value) {
 	const y = Number.isFinite(value.y) ? value.y : 0;
 	const z = Number.isFinite(value.z) ? value.z : 0;
 	const diedAtEpochMs = Number.isSafeInteger(value.diedAtEpochMs) && value.diedAtEpochMs > 0 ? value.diedAtEpochMs : null;
+	// The receipt's damage type and killer (protocol-v2 death facts): what decides whether the drops survived and whether
+	// the way back is guarded, without parsing the English message.
+	const id = (field) => typeof value[field] === 'string' && /^[a-z0-9_.-]+:[a-z0-9_./-]+$/.test(value[field]) ? { [field]: value[field] } : {};
 	return Object.freeze({
 		cause,
 		...(dimensionId === null ? {} : { dimensionId }),
@@ -382,6 +385,7 @@ function normalizeDeath(value) {
 		y,
 		z,
 		...(diedAtEpochMs === null ? {} : { diedAtEpochMs }),
+		...id('damageType'), ...id('attacker'), ...id('directAttacker'),
 	});
 }
 

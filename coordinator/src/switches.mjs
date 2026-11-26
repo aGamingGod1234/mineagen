@@ -134,6 +134,10 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'kit.habit', env: 'MINEAGEN_KIT_HABIT', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
 		reason: 'Keeps a shield, iron armour and food in reach after each obtain; off is the A/B off arm (#32).',
 		readers: ['coordinator/src/kit-habit.mjs kitHabitEnabled (per call)'] }),
+	// coordinator/src/respawn-recovery.mjs recoverEnabled(environment): per call.
+	entry({ name: 'recover.items', env: 'MINEAGEN_RECOVER_ITEMS', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
+		reason: 'After a death the respawn wake leads with do_step recover_items, which walks back (a stone pickaxe first for underground drops) and picks the kit up; off restores the old respawn wake and refuses the verb.',
+		readers: ['coordinator/src/respawn-recovery.mjs recoverEnabled (per call)'] }),
 	// coordinator/src/night-cover.mjs nightMoveStop(..., { environment }): per call.
 	entry({ name: 'night.cover', env: 'MINEAGEN_NIGHT_COVER', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
 		reason: 'Keeps an unarmoured bot under cover on its first night; off restores the old climb-out for room A/Bs (#117).',
