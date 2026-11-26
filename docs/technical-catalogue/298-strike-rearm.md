@@ -1,0 +1,5 @@
+# #298 End: the dragon head strike tries again 10 s after giving up, instead of staying off
+
+- **Problem:** a reflex that walks the bot to the dragon's head gave up for the whole game after four failed tries, and those four tries took about 4 seconds. In half of 20 End games the bot lost its main way to hurt a perched dragon, and in 3 games it lost it from the start of the fight.
+- **Solution:** the reflex now rests 10 seconds and comes back, the way a player who couldn't reach the head tries again on the next landing.
+- **Result:** Before (switch off), the strike was switched off for the rest of the game in 2 of 2 End games, the bot reached the dragon's head 8 times and killed the dragon 1 of 2 times with 1 death. After (switch on, same build, same two saves), the strike was never left off, reached the head 27 times and killed the dragon 2 of 2 times with 0 deaths. Measured from 4 paired 45-minute End games (head reaches counted from reflex events in the part of each game the logs keep); 2 pairs is a small sample. Over 20 earlier End games the strike had been switched off in 10.

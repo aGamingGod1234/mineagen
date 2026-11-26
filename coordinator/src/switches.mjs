@@ -279,6 +279,11 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'watch', property: 'mineagen.watch', side: 'server', default: false, parser: flag({ token: 'true', means: 'on', trim: true, anyCase: true }), status: 'diagnostic',
 		reason: 'Writes the arena-watch progress and danger logs the quality reports read; off on players\' servers because it scans the world every few ticks.',
 		readers: ['Watcher.java enabled (per call)'] }),
+	// ReflexScheduler.java rearmTicks(): per disable; property or env.
+	entry({ name: 'end.strikeRearm', env: 'MINEAGEN_END_STRIKE_REARM', property: 'mineagen.end.strikeRearm', side: 'server', default: true,
+		parser: flag({ token: 'false', means: 'off', trim: true, anyCase: true }), propertyParser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
+		reason: 'The dragon head strike rests 10 s after four failed tries in a row instead of staying off for the game; 10 of 20 End games lost it, 3 from the start.',
+		readers: ['ReflexScheduler.java rearmTicks (per disable)'] }),
 ]);
 
 const BY_NAME = new Map(SWITCHES.map((item) => [item.name, item]));
