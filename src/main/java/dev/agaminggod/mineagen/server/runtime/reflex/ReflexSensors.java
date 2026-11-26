@@ -694,7 +694,7 @@ public final class ReflexSensors {
 	}
 
 	/** Default {@code beyond} of {@code dragon_aloft}: farther than this from the fountain's centre, the body is off its post. */
-	static final double POST_BEYOND = 7.0D;
+	static final double POST_BEYOND = 14.0D;
 	/** How far from the fountain the island counts: past this the body is on an outer island or far out over the void. */
 	static final double POST_ISLAND = 120.0D;
 
@@ -714,10 +714,22 @@ public final class ReflexSensors {
 			var fight = dragon.getDragonFight();
 			if (fight == null || fight.aliveCrystals() > crystals) continue;
 			net.minecraft.core.BlockPos origin = dragon.getFightOrigin();
+			// The fight's own count lags (it reads 0 at End entry with all ten standing: the walk fired 10 crystals up),
+			// so the crystals standing round the fountain are counted too, as the boss bar's pillars show a player.
+			if (standingCrystals(player, origin) > crystals) continue;
 			if (offPost(player.getX() - origin.getX(), player.getZ() - origin.getZ(), beyond)) return new Reading(true, dragon);
 		}
 		return Reading.FALSE;
 	}
+
+	/** End crystals alive within the pillar ring (the outermost pillar stands about 43 blocks from the fountain). */
+	static int standingCrystals(ServerPlayer player, net.minecraft.core.BlockPos origin) {
+		return player.level().getEntitiesOfClass(net.minecraft.world.entity.boss.enderdragon.EndCrystal.class,
+				new net.minecraft.world.phys.AABB(origin).inflate(CRYSTAL_RING, 128.0D, CRYSTAL_RING),
+				net.minecraft.world.entity.boss.enderdragon.EndCrystal::isAlive).size();
+	}
+
+	static final double CRYSTAL_RING = 56.0D;
 
 	/** A body {@code dx, dz} from the fountain's centre is off its post: farther than {@code beyond}, still on the island. */
 	static boolean offPost(double dx, double dz, double beyond) {

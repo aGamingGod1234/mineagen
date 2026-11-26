@@ -338,13 +338,13 @@ public final class EndBreathFloorVerification {
 
 	/**
 	 * The wait beside the fountain: a stance under the head run, for a flying dragon with no crystal left, taking only an
-	 * idle or waiting body, asleep without a sword or axe, and aimed at the ground just outside the rim on the body's side.
+	 * idle or waiting body, asleep without a sword or axe, and aimed at the ground 9 out on the body's side.
 	 */
 	private static void fountainPostWaitsBesideTheFountain(List<ReflexSpec.Rule> end) {
 		ReflexSpec.Rule post = named(end, "default-fountain-post");
 		check(post.kind() == ReflexSpec.Kind.STANCE && "hold_post".equals(post.action().type()), "the fountain post is a stance that runs hold_post");
 		check(post.when().stream().anyMatch(condition -> "dragon_aloft".equals(condition.type()) && condition.number("crystals", -1.0D) == 0.0D
-				&& condition.number("beyond", 0.0D) == 7.0D), "it waits for a flying dragon with no crystal left, off the post past 7 blocks");
+				&& condition.number("beyond", 0.0D) == 14.0D), "it waits for a flying dragon with no crystal left, off the post past 14 blocks");
 		check(post.when().stream().anyMatch(condition -> "health_below".equals(condition.type()) && condition.negated()), "it stays out at low health");
 		check(!ReflexScheduler.floor(post), "it is no hazard floor: a model command takes the body back");
 		check(named(end, "default-perch-strike").priority() > post.priority(), "the head run outranks it, so a landing is struck");
@@ -355,12 +355,12 @@ public final class EndBreathFloorVerification {
 				dev.agaminggod.mineagen.protocol.ActionType.FIGHT_TARGET, dev.agaminggod.mineagen.protocol.ActionType.BREAK_BLOCK)) {
 			check(!ReflexEngine.gatedTruth(post, true, own), "it leaves the body's own " + own.wireName() + " alone");
 		}
-		check(ReflexSensors.offPost(20.0D, 5.0D, 7.0D) && !ReflexSensors.offPost(4.0D, 4.0D, 7.0D), "20 blocks out is off the post, 5.7 is on it");
-		check(!ReflexSensors.offPost(150.0D, 0.0D, 7.0D), "an outer island is not the main island's fountain");
+		check(ReflexSensors.offPost(20.0D, 5.0D, ReflexSensors.POST_BEYOND) && !ReflexSensors.offPost(9.0D, 4.0D, ReflexSensors.POST_BEYOND), "20 blocks out is off the post, 9.8 is on it");
+		check(!ReflexSensors.offPost(150.0D, 0.0D, ReflexSensors.POST_BEYOND), "an outer island is not the main island's fountain");
 		double[] east = ReflexActions.HoldPost.postOffset(30.0D, 0.0D), corner = ReflexActions.HoldPost.postOffset(-12.0D, -12.0D);
-		check(Math.abs(east[0] - 5.0D) < 1.0E-9D && Math.abs(east[1]) < 1.0E-9D, "a body east of the fountain waits 5 east of its centre");
-		check(Math.abs(Math.hypot(corner[0], corner[1]) - 5.0D) < 1.0E-9D && corner[0] < 0.0D && corner[1] < 0.0D, "on its own side, 5 out");
-		check(ReflexActions.HoldPost.postOffset(0.0D, 0.0D)[0] == 5.0D, "a body on the centre picks a side");
+		check(Math.abs(east[0] - 9.0D) < 1.0E-9D && Math.abs(east[1]) < 1.0E-9D, "a body east of the fountain waits 9 east of its centre");
+		check(Math.abs(Math.hypot(corner[0], corner[1]) - 9.0D) < 1.0E-9D && corner[0] < 0.0D && corner[1] < 0.0D, "on its own side, 9 out");
+		check(ReflexActions.HoldPost.postOffset(0.0D, 0.0D)[0] == 9.0D, "a body on the centre picks a side");
 		ReflexActions.Held sword = new ReflexActions.Held("minecraft:iron_sword", false, false);
 		check(ReflexActions.lacks(post.action(), slot -> slot == 3 ? sword : ReflexActions.Held.EMPTY, 0, ReflexActions.Held.EMPTY) == null, "a hotbar sword wakes it");
 		check(ReflexActions.lacks(post.action(), slot -> ReflexActions.Held.EMPTY, 0, ReflexActions.Held.EMPTY) != null, "no weapon leaves it asleep");

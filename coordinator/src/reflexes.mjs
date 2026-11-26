@@ -82,9 +82,10 @@ export const DIMENSION_REFLEXES = Object.freeze({
 		// The crystals are out and the dragon flies: a player waits for the landing beside the fountain, where it perches and
 		// turns its head to the nearest player. In 20 End games the body stood within 10 blocks of the fountain 9% of the time
 		// after the last crystal; the 35 of 287 landings it was that close gave 161 of the 179 perch damage (the dragon sat
-		// 13-27 s), the rest ended in 3-12 s. The walk takes only an idle or waiting body and ends 7 blocks from the centre;
+		// 13-27 s), the rest ended in 3-12 s. The walk takes only an idle or waiting body more than 14 blocks out (the model's
+		// own wait is 10-15 out; pulling it to 5 fought that wait, and the model removed the rule) and ends 9 from the centre;
 		// the head run above takes the landing. At 10 health or less it stays out, as the head run does.
-		{ id: 'default-fountain-post', kind: 'stance', priority: 4, when: [{ type: 'dragon_aloft', crystals: 0, beyond: 7 }, { type: 'health_below', value: 10, not: true }], do: { type: 'hold_post' }, maxMs: 20_000, cooldownMs: 5_000, ttlMs: 3_600_000 },
+		{ id: 'default-fountain-post', kind: 'stance', priority: 4, when: [{ type: 'dragon_aloft', crystals: 0, beyond: 14 }, { type: 'health_below', value: 10, not: true }], do: { type: 'hold_post' }, maxMs: 20_000, cooldownMs: 5_000, ttlMs: 3_600_000 },
 	].map((rule) => Object.freeze(rule))),
 });
 const MOST_DIMENSION_REFLEXES = Math.max(0, ...Object.values(DIMENSION_REFLEXES).map((rules) => rules.length));

@@ -2040,11 +2040,12 @@ final class ReflexActions {
 	 * its sight. In 20 End games the body stood within 10 blocks of the fountain 9% of the time after the last crystal; on
 	 * the 35 of 287 landings it was that close the dragon sat 13-27 s and took 161 of the 179 perch damage, on the rest it
 	 * left in 3-12 s. The walk goes to the ground {@link #POST_RADIUS} blocks out from the fountain's centre on the body's
-	 * own side (outside the bedrock rim), and is done there; the head run (default-perch-strike) takes the landing.
+	 * own side, and is done there; the head run (default-perch-strike) takes the landing.
 	 */
 	static final class HoldPost implements Behaviour {
-		/** Blocks from the fountain's centre to the post: the bedrock rim ends 3.5 out, and the head reaches past it. */
-		static final double POST_RADIUS = 5.0D;
+		/** Blocks from the fountain's centre to the post: inside the 10 where the landings were struck, out of the rim's
+		 * breath and wing reach; the model's own wait (10-15 out) only gets pulled back once past 14. */
+		static final double POST_RADIUS = 9.0D;
 		static final double POST_TOLERANCE = 1.5D;
 		static final long POST_MS = 20_000L;
 		private ServerNavigationController walk;
