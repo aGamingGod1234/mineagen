@@ -106,6 +106,12 @@ test('translator food examples sum common held foods within the check cap', () =
 		'cooked_cod', 'cooked_salmon', 'baked_potato', 'carrot', 'apple', 'sweet_berries'].map(id => `minecraft:${id}`)));
 });
 
+test('the kill step advises waiting 7-10 blocks from the fountain unless end.closeWait is off', () => {
+	const request = { ...REQUEST, originalRequest: 'beat the game.' };
+	assert.match(buildGoalSpecTranslatorPrompt(request, { environment: {} }), /wait on open island ground 7-10 blocks from the central bedrock fountain, off any breath cloud/);
+	assert.match(buildGoalSpecTranslatorPrompt(request, { environment: { MINEAGEN_END_CLOSE_WAIT: 'off' } }), /wait on open island ground 10-15 blocks from the central bedrock fountain, within perch range/);
+});
+
 test('agent planning guidance leaves suggestions revisable and preparation bounded by capability', () => {
 	const agent = readFileSync(new URL('../config/minecraft-agent/AGENTS.md', import.meta.url), 'utf8');
 	const control = readFileSync(new URL('../config/minecraft-agent/.codex/skills/minecraft-control/references/control-reference.md', import.meta.url), 'utf8');

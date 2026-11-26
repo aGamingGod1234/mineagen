@@ -126,6 +126,15 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'obtain.fillEdge', env: 'MINEAGEN_OBTAIN_FILL_EDGE', side: 'coordinator', default: true, parser: OFF_EXACT, status: 'default-on',
 		reason: 'A walk to water that ends at an edge over water 3-8 blocks below digs down beside the drop and fills there (room kit-gate-6); off is the A/B off arm.',
 		readers: ['coordinator/src/obtain-runner.mjs FILL_EDGE (module load, process.env only)'] }),
+	// coordinator/src/skill-fits.mjs foodFloorOn(environment): per call (routeLine).
+	// coordinator/src/obtain-runner.mjs gatherNeed: per call.
+	entry({ name: 'stock.foodFloor', env: 'MINEAGEN_FOOD_FLOOR', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
+		reason: 'Surface stock once: 8 fresh games of 25 Nov left the Nether for food in 3 of 5 saves and entered it with no food 14 of 20 times; the route now holds a food-points and wood minimum before the descent and the portal; off is the A/B off arm.',
+		readers: ['coordinator/src/skill-fits.mjs foodFloorOn (per call)', 'coordinator/src/obtain-runner.mjs gatherNeed (per call)'] }),
+	// coordinator/src/native-tool-runtime.mjs #portalStockGate: per call.
+	entry({ name: 'stock.portalGate', env: 'MINEAGEN_PORTAL_STOCK_GATE', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
+		reason: 'A walk into a lit Overworld portal while the route still asks for the surface food or wood minimum runs that obtain instead (twice per life at most); a refusal the model could repeat was walked past 16 of 17 times (#268); off leaves the minimum as route advice.',
+		readers: ['coordinator/src/native-tool-runtime.mjs #portalStockGate (per call)'] }),
 	// coordinator/src/kit-habit.mjs kitHabitEnabled(environment): per call.
 	entry({ name: 'kit.habit', env: 'MINEAGEN_KIT_HABIT', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
 		reason: 'Keeps a shield, iron armour and food in reach after each obtain; off is the A/B off arm (#32).',
@@ -163,6 +172,14 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'end.highDescent', env: 'MINEAGEN_END_HIGH_DESCENT', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
 		reason: 'Feet above y75 in the End, the crystal fact adds how to come down a built column: dig_to shaft to the ground, no water poured on the top. In End games, 5 of 6 descents from y95+ died, each after a pour on the top or a sideways dig. off leaves the advice out.',
 		readers: ['coordinator/src/dragon-fight-facts.mjs endCrystalFact (per call)'] }),
+	// coordinator/src/dragon-fight-facts.mjs rememberEndCrystals(..., environment): per call.
+	entry({ name: 'end.crystalGone', env: 'MINEAGEN_END_CRYSTAL_GONE', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
+		reason: 'The mod reports an End crystal it saw blow up, or whose spot it saw empty, as an alive:false row, and the crystal memory counts it destroyed. Before, only the bot\'s own shot results cleared one: in 8 of 16 End games that broke all ten, the fact kept 1-3 crystals standing for the rest of the fight. off ignores those rows.',
+		readers: ['coordinator/src/dragon-fight-facts.mjs rememberEndCrystals (per call)'] }),
+	// coordinator/src/dragon-fight-facts.mjs dragonFinishFacts(environment): per call.
+	entry({ name: 'end.closeWait', env: 'MINEAGEN_END_CLOSE_WAIT', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
+		reason: 'The dragon fight facts advise waiting 7-10 blocks from the fountain, off any breath cloud, instead of 10-15. In 26 Nov End games, landings with the player 6-10 blocks out were hit 30 of 41 times, 10-20 out 3 of 81. off keeps the 10-15 advice.',
+		readers: ['coordinator/src/dragon-fight-facts.mjs dragonFinishFacts (per call)'] }),
 	// coordinator/src/need-sources.mjs pearlTarget(text, environment): per call.
 	entry({ name: 'route.pearlPlan', env: 'MINEAGEN_ROUTE_PEARL_PLAN', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
 		reason: 'Pearl lines count toward the eye plan (15 pearls) or a larger step count, instead of the step\'s own count or 12. A check naming the frame\'s 12 eyes stopped the pearl hunt at 12 while the route asked for 15, and 1 in 5 thrown eyes breaks. off keeps the step count.',
