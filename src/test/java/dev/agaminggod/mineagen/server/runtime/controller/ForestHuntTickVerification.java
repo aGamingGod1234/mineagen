@@ -106,6 +106,7 @@ public final class ForestHuntTickVerification {
 			verifyUnreachablePassedOver();
 			verifyFailedPerchBacksOff();
 			verifyNotForest();
+			verifyBareIds();
 		} finally {
 			WarpedForestHunt.probe = savedProbe;
 			WarpedForestHunt.walks = savedWalks;
@@ -326,6 +327,20 @@ public final class ForestHuntTickVerification {
 			check("NO_TARGET_SEEN".equals(end.reasonCode()) && fixture.walksMade == 0, "a non-forest hunt runs as on base: " + end.reasonCode());
 		} finally {
 			WarpedForestHunt.probe = forest;
+		}
+	}
+
+	/** The model often writes ids without "minecraft:": a bare enderman / ender_pearl hunt still walks the forest. */
+	private static void verifyBareIds() throws Exception {
+		try (Fixture fixture = Fixture.create()) {
+			WarpedForestHunt.walks = (goal, mayModify, now) -> fixture.walk(5, ServerController.State.SUCCEEDED, "ARRIVED", goal);
+			JsonObject args = hunt(60_000L);
+			args.addProperty("mob", "enderman");
+			args.addProperty("untilItem", "ender_pearl");
+			ServerController.TickResult end = fixture.run(fixture.hunt(args, null), 1_400);
+			check(fixture.walksMade > 0, "bare ids still start forest walks: " + fixture.walksMade + " " + end.reasonCode());
+			check(end.message().contains("minecraft:enderman: ") && end.message().contains("minecraft:ender_pearl "),
+					"the receipt names the full ids: " + end.message());
 		}
 	}
 

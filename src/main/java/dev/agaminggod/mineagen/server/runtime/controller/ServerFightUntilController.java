@@ -402,12 +402,16 @@ public final class ServerFightUntilController implements ServerController {
 		this.firstTarget = firstTarget;
 		this.roofing = roofing;
 		this.protection = Objects.requireNonNull(protection, "protection must not be null");
-		this.mobId = arguments.get("mob").getAsString();
-		this.mob = BuiltInRegistries.ENTITY_TYPE.getOptional(Identifier.parse(mobId))
-				.orElseThrow(() -> new AgentDomainException("INVALID_FIELD", "mob: no entity type " + mobId));
-		this.untilItemId = arguments.get("untilItem").getAsString();
-		this.untilItem = BuiltInRegistries.ITEM.getOptional(Identifier.parse(untilItemId))
-				.orElseThrow(() -> new AgentDomainException("INVALID_FIELD", "untilItem: no item " + untilItemId));
+		String mobArg = arguments.get("mob").getAsString();
+		this.mob = BuiltInRegistries.ENTITY_TYPE.getOptional(Identifier.parse(mobArg))
+				.orElseThrow(() -> new AgentDomainException("INVALID_FIELD", "mob: no entity type " + mobArg));
+		// Ids are kept in their full namespaced form: the model often writes "ender_pearl", and forest mode, drop
+		// matching and the receipts compare against "minecraft:ender_pearl".
+		this.mobId = BuiltInRegistries.ENTITY_TYPE.getKey(mob).toString();
+		String itemArg = arguments.get("untilItem").getAsString();
+		this.untilItem = BuiltInRegistries.ITEM.getOptional(Identifier.parse(itemArg))
+				.orElseThrow(() -> new AgentDomainException("INVALID_FIELD", "untilItem: no item " + itemArg));
+		this.untilItemId = BuiltInRegistries.ITEM.getKey(untilItem).toString();
 		this.untilCount = arguments.get("untilCount").getAsInt();
 		this.weapon = arguments.has("weapon") ? Weapon.valueOf(arguments.get("weapon").getAsString().toUpperCase(Locale.ROOT)) : Weapon.AUTO;
 		this.fleeAtHealth = arguments.has("fleeAtHealth") ? arguments.get("fleeAtHealth").getAsFloat() : DEFAULT_FLEE_AT_HEALTH;
