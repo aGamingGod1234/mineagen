@@ -64,6 +64,13 @@ public final class SpawnerHoldVerification {
 		check(!SpawnerHold.spotAtSpawner(spawner, -389.0D, 70.0D, -210.0D), "a spot 28 blocks off keeps the ordinary fight there");
 		check(!SpawnerHold.spotAtSpawner(null, -389.0D, 70.0D, -238.0D), "no seen spawner: the spot keeps the ordinary fight");
 		check(!SpawnerHold.spotAtSpawner(spawner, -389.0D, 70.0D, null), "a spot without z is not one");
+		check(SpawnerHold.blazeRods("minecraft:blaze", "minecraft:blaze_rod"), "full ids are a blaze rod fight");
+		check(SpawnerHold.blazeRods("blaze", "blaze_rod"), "bare ids are the same fight");
+		check(SpawnerHold.blazeRods("minecraft:blaze", "blaze_rod"), "a mixed call is too");
+		check(!SpawnerHold.blazeRods("blaze", "ender_pearl"), "a blaze fight for another item is not");
+		check(!SpawnerHold.blazeRods("wither_skeleton", "blaze_rod"), "another mob is not");
+		check(!SpawnerHold.blazeRods(null, "blaze_rod"), "no mob is not");
+		check("minecraft:blaze_rod".equals(SpawnerHold.full("blaze_rod")) && "mod:x".equals(SpawnerHold.full("mod:x")), "full adds only the missing prefix");
 	}
 
 	private static SpawnerHold.Sense sense(int held, float health, int hunger, boolean food, long elapsed, boolean gone, long quiet, boolean inCell,

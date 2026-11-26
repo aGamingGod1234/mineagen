@@ -1960,7 +1960,7 @@ public final class ServerActionExecutor {
 
 	/** fight_until; blazes at a seen fortress spawner get the body-owned spawner hold (roof:false keeps the open fight). */
 	private dev.agaminggod.mineagen.server.runtime.controller.ServerController fightUntil(ServerActionRequest request, ServerPlayer player, JsonObject arguments) {
-		boolean blaze = "minecraft:blaze".equals(string(arguments, "mob")) && "minecraft:blaze_rod".equals(string(arguments, "untilItem"));
+		boolean blaze = dev.agaminggod.mineagen.server.runtime.controller.SpawnerHold.blazeRods(string(arguments, "mob"), string(arguments, "untilItem"));
 		BlockPos spawner = blaze && dev.agaminggod.mineagen.server.runtime.controller.SpawnerHold.ENABLED
 				? dev.agaminggod.mineagen.server.runtime.controller.ServerSpawnerHoldController.seenFortressSpawner(player) : null;
 		Boolean roof = arguments.has("roof") ? bool(arguments, "roof") : null;
@@ -1975,18 +1975,20 @@ public final class ServerActionExecutor {
 		boolean spotAtSpawner = spot && dev.agaminggod.mineagen.server.runtime.controller.SpawnerHold.spotAtSpawner(spawner,
 				arguments.has("x") ? number(arguments, "x") : null, arguments.has("y") ? number(arguments, "y") : null,
 				arguments.has("z") ? number(arguments, "z") : null);
+		// A spot named before the body saw any spawner looks round first; the hold takes it only for a spawner by the spot.
+		boolean spotUnseen = spot && spawner == null && dev.agaminggod.mineagen.server.runtime.controller.SpawnerHold.SPOT && arguments.has("x") && arguments.has("z");
 		boolean constrained = arguments.has("pursue") && !bool(arguments, "pursue") || arguments.has("sneak") && bool(arguments, "sneak")
-				|| spot && !spotAtSpawner;
+				|| spot && !spotAtSpawner && !spotUnseen;
 		if (!constrained && dev.agaminggod.mineagen.server.runtime.controller.SpawnerHold.applies(nether, blaze, roof, true)) {
-			JsonObject held = arguments;
-			if (spotAtSpawner) {
-				held = arguments.deepCopy();
-				held.remove("x");
-				held.remove("y");
-				held.remove("z");
-			}
-			return new dev.agaminggod.mineagen.server.runtime.controller.ServerSpawnerHoldController(player, held, protection, spawner,
+			JsonObject held = arguments.deepCopy();
+			held.remove("x");
+			held.remove("y");
+			held.remove("z");
+			held.addProperty("mob", dev.agaminggod.mineagen.server.runtime.controller.SpawnerHold.full(string(arguments, "mob")));
+			held.addProperty("untilItem", dev.agaminggod.mineagen.server.runtime.controller.SpawnerHold.full(string(arguments, "untilItem")));
+			var hold = new dev.agaminggod.mineagen.server.runtime.controller.ServerSpawnerHoldController(player, held, protection, spawner,
 					roofing(request), GameClock.nowMs());
+			return spotUnseen ? hold.lookingFromSpot(arguments) : hold;
 		}
 		return new dev.agaminggod.mineagen.server.runtime.controller.ServerFightUntilController(
 				player, arguments, protection, GameClock.nowMs(), "fight_until", null, roofing(request));
