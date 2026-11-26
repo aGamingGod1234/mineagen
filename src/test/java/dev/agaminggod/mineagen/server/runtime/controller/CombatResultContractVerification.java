@@ -86,9 +86,12 @@ public final class CombatResultContractVerification {
 		target.alive = true;
 		player.health = 6;
 		player.burningTicks = 80;
+		boolean holdRetreat = CombatBailout.holdRetreat;
+		CombatBailout.holdRetreat = false;
 		var holdGround = new ServerFightController(target, null, 6F, false,
 				CombatPlanning.TargetPolicy.NAMED, false, false, 1000, 1000);
 		var bailout = holdGround.tick(player, 1000);
+		CombatBailout.holdRetreat = holdRetreat;
 		check(bailout, ServerController.State.FAILED, "LOW_HEALTH_BAILOUT");
 		check(bailout.message().contains("input idle, motion stationary, onFire=true (4.0s), contact=none"),
 				"real low-health fight stop remains idle and burning on dry ground");

@@ -30,6 +30,9 @@ public final class RestSpotVerification {
 					"the bed's head points along the offset's larger axis, away from the body");
 			assertions += 2;
 		}
+		check(ServerRestController.softDiggable(true, false) && ServerRestController.softDiggable(false, true) && !ServerRestController.softDiggable(false, false),
+				"rest digs through mud and through sand or gravel");
+		assertions++;
 		check(ServerRestController.sideOf(2, -1) == Direction.EAST && ServerRestController.sideOf(-1, -2) == Direction.NORTH,
 				"(2, -1) faces east and (-1, -2) faces north");
 		assertions++;

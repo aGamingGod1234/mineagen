@@ -8,7 +8,7 @@
 //           wait out the night, open the wall at morning; reports health lost and whether the body is out.
 // Then, on the first seed: day (REST_NOT_NIGHT), a sealed room underground (UNDERGROUND), the Nether (REST_NOT_HERE).
 // CASES also takes thin1/thin2 (3 cobblestone on a 1- or 2-thick stone roof over a cavern: the hole must not open into it)
-// and empty/sand/snow (nothing held at dusk, 12500, on the natural ground of a dry spot or a 9x9 pad of sand or snow
+// and empty/sand/snow/mud (nothing held at dusk, 12500, on the natural ground of a dry spot or a 9x9 pad of sand, snow or mud
 // blocks): rest's dug hole, the only shelter an empty-handed body has.
 // TICK_RATE (default 60) speeds the server while a walled-in night runs. The fixture otherwise runs at 20 TPS and ignores
 // FIXTURE_TICK_RATE: at 80, 2 of 6 walled-in nights took 3-4 damage and 1 of 6 bed nights could not place its bed, which no
@@ -247,7 +247,7 @@ async function session(seed, index) {
 			await s.command(`fill ${x - 4} ${y} ${z - 4} ${x + 4} ${y + 3} ${z + 4} minecraft:air`);
 			await s.command(`tp ${AGENT} ${x + 0.5} ${y} ${z + 0.5}`);
 		};
-		for (const [name, block] of [['empty', null], ['sand', 'sand'], ['snow', 'snow_block']]) {
+		for (const [name, block] of [['empty', null], ['sand', 'sand'], ['snow', 'snow_block'], ['mud', 'mud']]) {
 			if (CASES.includes(name)) await run(name, { kit: [], at: pad9(block), setTime: 12500, fast: true });
 		}
 		// A flat stone pad of its own for the bed cases (spreadplayers can leave the body where the last case stood).

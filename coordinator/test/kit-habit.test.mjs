@@ -25,7 +25,10 @@ test('after a respawn with iron and wood back in hand, the body crafts the shiel
 });
 
 test('armour comes only from iron the route does not still need', () => {
-	assert.equal(ironReserved([item('stone_pickaxe', 'mainhand')]), 3 + 1 + 6 + 1);
+	assert.equal(ironReserved([item('stone_pickaxe', 'mainhand')], { environment: { MINEAGEN_REKIT: 'off' } }), 3 + 1 + 6 + 1);
+	// kit.rekit: the second bucket's iron waits for the chestplate (fresh game g5: 13 iron carried, no armour).
+	assert.equal(ironReserved([item('stone_pickaxe', 'mainhand')]), 3 + 1 + 3 + 1);
+	assert.equal(ironReserved([item('stone_pickaxe', 'mainhand'), item('iron_chestplate', 'chest')]), 3 + 1 + 6 + 1);
 	assert.equal(ironReserved([...ironKit, item('shield', 'offhand')]), 0);
 	// 11 ingots before the iron pickaxe, shield, buckets and flint and steel: all of it is spoken for.
 	assert.equal(nextKitStep(sample([item('stone_pickaxe', 'mainhand'), item('shield', 'offhand'), item('iron_ingot', 1, 10)])), null);
@@ -63,7 +66,11 @@ test('food only in the main inventory moves to a free hotbar slot, not the selec
 });
 
 test('the habit waits while the body is hurt or the sample has no inventory', () => {
-	assert.equal(nextKitStep(sample([item('shield', 20)], { health: 9 })), null);
+	// kit.rekit: hurt, it still puts on what it carries (no time spent), but crafts nothing.
+	assert.deepEqual(nextKitStep(sample([item('shield', 20)], { health: 9 })), { kind: 'equip', sourceSlot: 20, targetSlot: 'offhand', itemId: 'minecraft:shield' });
+	assert.equal(nextKitStep(sample([...ironKit, item('shield', 'offhand'), item('iron_ingot', 1, 8)], { health: 9 })), null);
+	process.env.MINEAGEN_REKIT = 'off';
+	try { assert.equal(nextKitStep(sample([item('shield', 20)], { health: 9 })), null); } finally { delete process.env.MINEAGEN_REKIT; }
 	assert.equal(nextKitStep({ player: { health: 20 } }), null);
 	assert.equal(nextKitStep(null), null);
 });
