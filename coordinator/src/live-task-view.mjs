@@ -744,9 +744,11 @@ export class LiveTaskViews {
   const current = this.#state(record);
   if (current.observation?.world?.dimension !== 'minecraft:overworld') return null;
   const route = this.#routeNow(record, current, current);
-  const step = /^usual next step: obtain ((?:cooked_)?[a-z_]+) count (\d+)\b[^(]*before entering the portal/.exec(route ?? '');
+  // The re-kit after a death asks for the food minimum "before going back": the gate holds that one too, food only.
+  const asked = /^usual next step: obtain ((?:cooked_)?[a-z_]+) count (\d+)\b[^(]*before (entering the portal|going back)/.exec(route ?? '');
+  const step = asked !== null && (asked[3] === 'entering the portal' || asked[1].startsWith('cooked_')) ? asked : null;
   // The floor's step with no meat animal in view names no item: the gate searches for the cooked meat held most.
-  const search = step === null && /^usual next step: look for [a-z/]+ nearby, then obtain cooked meat with a furnace before entering the portal/.test(route ?? '')
+  const search = step === null && /^usual next step: look for [a-z/]+ nearby, then obtain cooked meat with a furnace before (?:entering the portal|going back)/.test(route ?? '')
    ? portalSearchStock(current.observation) : null;
   if (step === null && search === null) return null;
   const portals = (current.known?.frames ?? []).filter(f => f?.lit === true && f.dimension === 'minecraft:overworld' && [f.x, f.z].every(Number.isFinite));

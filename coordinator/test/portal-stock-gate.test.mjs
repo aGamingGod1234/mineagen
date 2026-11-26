@@ -69,9 +69,12 @@ test('a walk into the lit portal below the minimum runs the stock obtain instead
 
 test('the gate turns two walks per life, then lets the bot go in short', async t => {
 	const h = await harness(t);
-	await h.step(walk(104.5, 695.5));
-	await h.step(walk(105, 696));
+	const first = await h.step(walk(104.5, 695.5));
+	const second = await h.step(walk(105, 696));
 	assert.equal(h.walksToPortal(), 0);
+	// The second walk comes with the body idle since the first obtain (stoodStillMs): the hand-back marker survives it.
+	assert.equal(second.stoodStillMs >= 0, true, JSON.stringify(Object.keys(second)));
+	for (const result of [first, second]) assert.equal(result.stockedTool?.kind, 'obtain');
 	await h.step(walk(104.5, 695.5));
 	assert.equal(h.walksToPortal(), 1);
 	assert.equal(h.traces.filter(row => row.event === 'native_portal_stock_turned').length, 2);
@@ -104,5 +107,29 @@ test('the floor\'s look-for step at the portal gives the gate the meat held, and
 	const stock = views.portalStock(r);
 	assert.deepEqual([stock?.item, stock?.count, stock?.portals.length], ['cooked_beef', 17, 1]);
 	assert.equal(views.noteFoodHandback(r, { kind: 'obtain', arguments: { item: 'cooked_beef', count: 17 } }, { state: 'TIMED_OUT', reasonCode: 'OBTAIN_TIMEOUT' }), true);
+	assert.equal(views.portalStock(r), null);
+});
+
+test('the re-kit after a death holds the walk back for food, not for the rest of the kit', async () => {
+	// Review of PR 287: the re-kit asks for the food minimum "before going back", which the gate did not read, so a
+	// respawned bot could walk into the Nether short.
+	const spec = immutableGoalSpec('beat the game', { type: 'entity_killed_by_agent', entityType: 'minecraft:ender_dragon', afterGoalStart: true });
+	const r = { agentId: 'stock-rekit', currentGoal: 'beat the game', currentGoalSpec: spec, goalRevision: 1 };
+	const it = (id, count = 1) => ({ itemId: `minecraft:${id}`, count });
+	const at = (ms, items, entities = []) => ({ ...sample(), observedAtEpochMs: ms, entities, inventory: { items },
+		sighted: { portalFrames: [{ x: 104, y: 64, z: 695, axis: 'x', obsidian: 10, needed: 10, lit: true }] } });
+	const kit = [it('iron_pickaxe'), it('shield'), it('bucket', 2), it('flint_and_steel'), it('oak_log', 15), it('iron_sword')];
+	const views = new LiveTaskViews();
+	await views.observe(r, at(1000, [...kit, it('cooked_beef', 20)]));
+	await views.observe(r, { ...at(2000, []), player: { dead: true, health: 0 } });
+	await views.observe(r, at(3000, [...kit, it('cooked_beef', 2)], [{ type: 'minecraft:cow', distance: 8, alive: true }]));
+	assert.match(views.continuity(r).route, /^usual next step: obtain cooked_beef count 17 .*before going back/);
+	assert.deepEqual([views.portalStock(r)?.item, views.portalStock(r)?.count], ['cooked_beef', 17]);
+	await views.observe(r, at(4000, [...kit, it('cooked_beef', 2)]));
+	assert.match(views.continuity(r).route, /^usual next step: look for .* before going back/);
+	assert.equal(views.portalStock(r)?.item, 'cooked_beef');
+	// A re-kit step that is not food walks on: the gate runs only the stock obtain.
+	await views.observe(r, at(5000, [it('oak_log', 15), it('cooked_beef', 20)]));
+	assert.doesNotMatch(views.continuity(r).route, /obtain cooked_/);
 	assert.equal(views.portalStock(r), null);
 });
