@@ -2112,6 +2112,7 @@ src/test/java/dev/agaminggod/mineagen/server/runtime/input/VanillaMoveInputVerif
 src/test/java/dev/agaminggod/mineagen/server/runtime/menu/MenuCapabilityRegistryVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/reflex/ArrowDodgeVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/reflex/DefaultEatRearmingVerification.java
+src/test/java/dev/agaminggod/mineagen/server/runtime/reflex/DefaultRearmVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/reflex/DrawnBowShieldVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/reflex/EndBreathFloorVerification.java
 src/test/java/dev/agaminggod/mineagen/server/runtime/reflex/LeaveFireDouseRecoveryVerification.java

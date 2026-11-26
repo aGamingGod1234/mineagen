@@ -230,6 +230,11 @@ export const SWITCHES = Object.freeze([
 		parser: flag({ token: 'false', means: 'off', trim: true, anyCase: true }), propertyParser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
 		reason: 'The dragon head strike rests 10 s after four failed tries in a row instead of staying off for the game; 10 of 20 End games lost it, 3 from the start.',
 		readers: ['ReflexScheduler.java rearmTicks (per disable)'] }),
+	// ReflexScheduler.java rearmTicks(): per disable; property or env.
+	entry({ name: 'reflex.defaultRearm', env: 'MINEAGEN_REFLEX_DEFAULT_REARM', property: 'mineagen.reflex.defaultRearm', side: 'server', default: true,
+		parser: flag({ token: 'false', means: 'off', trim: true, anyCase: true }), propertyParser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
+		reason: 'A coordinator default reflex rests 60 s after the loop limits switch it off instead of staying off for the game; the End edge step-away was lost in 14 of 24 End games.',
+		readers: ['ReflexScheduler.java rearmTicks (per disable)'] }),
 ]);
 
 const BY_NAME = new Map(SWITCHES.map((item) => [item.name, item]));
