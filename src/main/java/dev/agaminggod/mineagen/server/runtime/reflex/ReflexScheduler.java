@@ -636,8 +636,8 @@ public final class ReflexScheduler {
 
 	/**
 	 * Priority, with a fall catch first among equals: in the air nothing else a rule does helps, and the catch has about a
-	 * second. A running breath hold at the same priority kept the End's water catch from firing and the body died of the
-	 * fall (real-model End game, knocked off the cage column with a water bucket in the hotbar).
+	 * second. Guards the End's water catch against a running breath hold of the same priority; in the knock-off room the
+	 * breath run ended as the body dropped out of the cloud, so the catch fired in time without it as well.
 	 */
 	static int rank(ReflexSpec.Rule rule) {
 		boolean catchesFall = false;
