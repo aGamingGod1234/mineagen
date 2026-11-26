@@ -27,11 +27,13 @@ test('respawn.restFirst: errands rest first at night on open ground; fights, fli
 function harness(observation) {
 	const record = { agentId: 'rest-agent', goalRevision: 1, provider: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'low', serviceTier: 'default' };
 	const sent = [];
+	const ids = [];
 	const results = {};
 	const runtime = new NativeToolRuntime({ registry: { get: () => record },
 		bridge: { send: async (type, _agent, payload) => {
 			if (type !== 'action_command') return;
 			sent.push(payload.actionType);
+			ids.push(payload.actionId);
 			const reply = results[payload.actionType] ?? { state: 'SUCCEEDED', reasonCode: 'ACTION_COMPLETED' };
 			if (reply === 'hang') return;
 			queueMicrotask(() => runtime.onActionResult(record, { actionId: payload.actionId, goalRevision: 1, executionStarted: true, ...reply }));
@@ -40,7 +42,7 @@ function harness(observation) {
 	// A respawn's fresh body sample arrives after the lifecycle disposal, as in a game.
 	const respawn = async () => { await runtime.dispose(record.agentId, 'goal_respawn'); runtime.updateObservation(record, structuredClone(observation), { eventSequence: 2 }); };
 	const run = (tool, extra = {}) => runtime.execute({ agentId: record.agentId, goalRevision: 1, turnId: 't', callId: `c${sent.length}`, tool, ...extra }, record);
-	return { runtime, record, sent, results, run, respawn };
+	return { runtime, record, sent, ids, results, run, respawn };
 }
 
 test('after a night respawn the first walk rests until morning first, then walks; the next walk goes straight', async () => {
@@ -113,4 +115,17 @@ test('the automatic rest renews the errand\'s lease when it ends, and danger han
 		assert.match(result.message, /your travel_to did not start/);
 		await runtime.dispose(record.agentId, 'test_complete');
 	}
+});
+
+test('a walk queued after another action rests once that action has ended, so the rest does not stale it', async () => {
+	const { runtime, record, sent, ids, run, respawn } = harness(at(15_000));
+	await respawn();
+	const first = await run({ kind: 'action', actionType: 'equip', arguments: { item: 'shield', slot: 'offhand' } });
+	assert.deepEqual(sent, ['equip'], 'equipping is not an errand');
+	assert.equal(first.state, 'SUCCEEDED');
+	const result = await run({ ...walk, after: ids[0] });
+	assert.deepEqual(sent, ['equip', 'rest', 'travel_to']);
+	assert.equal(result.state, 'SUCCEEDED');
+	assert.equal(result.predecessor?.actionId, ids[0]);
+	await runtime.dispose(record.agentId, 'test_complete');
 });

@@ -1124,7 +1124,8 @@ export class NativeToolRuntime {
 			// A death or a new goal during the yield ends this call: nothing may dispatch onto a body that is no longer this one.
 			if (this.#executionEpoch(record.agentId) !== epoch) throw codedError('STALE_NATIVE_TOOL', 'Lifecycle changed while the reflex yielded the body');
 		}
-		if (this.#nightRespawns.has(record.agentId)) {
+		// A call with `after` rests once its predecessor resolves (#executeAfter re-enters here), or the rest would stale it.
+		if (this.#nightRespawns.has(record.agentId) && request.tool.after === undefined) {
 			const rested = await this.#restFirst(request, record);
 			if (rested !== null) {
 				if (!rested.goOn) return rested.result;
