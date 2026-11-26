@@ -23,8 +23,10 @@ test('an eye in hand puts the stronghold and End steps ahead of lost Nether prep
 	// A stale sample has no inventory: the last live inventory stands in.
 	assert.equal(openOrder(plan, { open }, { ready: false }, null, [{ itemId: 'minecraft:ender_eye', count: 10 }])[0], 'stronghold');
 	assert.deepEqual(openOrder(plan, { open }, at([{ itemId: 'minecraft:ender_pearl', count: 10 }])), open);
-	process.env.MINEAGEN_EYES_HOLD = '0';
-	try { assert.deepEqual(openOrder(plan, { open }, at([{ itemId: 'minecraft:ender_eye', count: 10 }])), open); } finally { delete process.env.MINEAGEN_EYES_HOLD; }
+	for (const off of ['0', 'off']) {
+		process.env.MINEAGEN_EYES_HOLD = off;
+		try { assert.deepEqual(openOrder(plan, { open }, at([{ itemId: 'minecraft:ender_eye', count: 10 }])), open); } finally { delete process.env.MINEAGEN_EYES_HOLD; }
+	}
 	// Stronghold seen: the End step leads.
 	const seen = { steps: plan.steps.map(s => s.id === 'stronghold' ? { ...s, status: 'complete' } : s) };
 	assert.equal(openOrder(seen, { open: ['end', ...open] }, at([{ itemId: 'minecraft:ender_eye', count: 10 }]))[0], 'end');

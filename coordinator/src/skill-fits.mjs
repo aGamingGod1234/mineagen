@@ -1,4 +1,5 @@
 import { EYE_PLAN } from './eye-plan.mjs';
+import { getSwitch } from './switches.mjs';
 import { endKit } from './end-readiness.mjs';
 import { foodAdviceNeeded, portalBedSource } from './survival-advice.mjs';
 import { heldCounts, keepPickaxeMakings, planObtain } from './obtain-plan.mjs';
@@ -8,8 +9,8 @@ import { heldCounts, keepPickaxeMakings, planObtain } from './obtain-plan.mjs';
 
 export const SKILL_FITS_BYTES = 240;
 // fight_until's default area radius; barter_until looks for piglins within 32 blocks (it walks that far to one), cast_obsidian for lava within 16.
-// Off switch for the eyes-in-hand route below (26 Nov): MINEAGEN_EYES_HOLD=0 restores the count-and-go-back route.
-const EYES_HOLD = () => process.env.MINEAGEN_EYES_HOLD !== '0';
+// Off switch for the eyes-in-hand route below (26 Nov): MINEAGEN_EYES_HOLD=0 (or off) restores the count-and-go-back route.
+const EYES_HOLD = () => getSwitch('route.eyesHold').value;
 const FIGHT_RANGE = 24;
 const BARTER_RANGE = 32;
 const LAVA_RANGE = 16;

@@ -1,4 +1,5 @@
 import { codePointLength } from './text-length.mjs';
+import { getSwitch } from './switches.mjs';
 import { createHash } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -1182,7 +1183,7 @@ function firstUnfinished(state) {
 const EYE_LEAD = /(^| )(seen:minecraft:stronghold|in:minecraft:the_end)( |$)/;
 // A stale sample leaves the view without an inventory ({ ready: false }); the last live inventory stands in for it.
 function eyesLead(plan, open, observation, held) {
- if (process.env.MINEAGEN_EYES_HOLD === '0' || !(observation?.inventory?.items ?? held ?? []).some(r => r?.itemId === 'minecraft:ender_eye' && r.count > 0)) return [...open];
+ if (!getSwitch('route.eyesHold').value || !(observation?.inventory?.items ?? held ?? []).some(r => r?.itemId === 'minecraft:ender_eye' && r.count > 0)) return [...open];
  // The stronghold step is taken from the whole plan, not only the open steps: a plan whose stronghold step depends on
  // 12 eyes closes it once the eyes fall short, which is the case this is for. The End step leads only once open.
  const lead = plan.steps.filter(s => s.status !== 'complete' && EYE_LEAD.test(s.check ?? '') && (open.includes(s.id) || /(^| )seen:minecraft:stronghold( |$)/.test(s.check))).map(s => s.id);
