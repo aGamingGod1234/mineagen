@@ -8,7 +8,7 @@ import { normalizeMinecraftToolCall } from '../src/native-minecraft-tools.mjs';
 import { NativeToolRuntime } from '../src/native-tool-runtime.mjs';
 import { adaptObservation } from '../src/observation-adapter.mjs';
 import { validateProtocolV2Payload } from '../src/protocol-v2.mjs';
-import { DEFAULT_REFLEXES, DIMENSION_REFLEXES, MAX_REFLEXES, MAX_REFLEX_REPORT_BYTES, REFLEX_ACTIONS, REFLEX_CONDITIONS, REFLEX_RESEND_MS, ReflexBook, normalizeReflexEntries, MAX_REFLEX_RULES } from '../src/reflexes.mjs';
+import { DEFAULT_REFLEXES, DIMENSION_REFLEXES, MAX_REFLEXES, MAX_REFLEX_REPORT_BYTES, REFLEX_ACTIONS, REFLEX_CONDITIONS, REFLEX_RESEND_MS, ReflexBook, dimensionReflexes, normalizeReflexEntries, MAX_REFLEX_RULES } from '../src/reflexes.mjs';
 
 const SHIELD = { id: 'blaze-shield', kind: 'stance', priority: 7, when: [{ type: 'hostile_near', within: 12, mobs: ['blaze'] }], do: { type: 'shield' }, maxS: 8 };
 const SWAP = { id: 'tool-swap', when: { type: 'tool_broke', tool: 'pickaxe' }, do: { type: 'select', tool: 'pickaxe' }, wake: true };
@@ -101,7 +101,7 @@ test('protocol carries reflex_update and the observation reflex status', () => {
 	assert.match(readFileSync(new URL('../../src/main/java/dev/agaminggod/mineagen/server/runtime/reflex/ReflexSpec.java', import.meta.url), 'utf8'),
 		new RegExp(`MAX_RULES = ${MAX_REFLEX_RULES};`), 'the mod accepts the same full set');
 	// C24: both wire bounds cap at the mod's 33, one more rule is refused, and the full set (with the End's own defaults) fits.
-	assert.equal(MAX_REFLEX_RULES, 33);
+	assert.equal(MAX_REFLEX_RULES, 34);
 	assert.ok(MAX_REFLEXES + DEFAULT_REFLEXES.length + DIMENSION_REFLEXES['minecraft:the_end'].length <= MAX_REFLEX_RULES);
 	const over = Array.from({ length: MAX_REFLEX_RULES + 1 }, (_, index) => ({ ...full[0], id: `rule-${index}` }));
 	assert.throws(() => validateProtocolV2Payload('reflex_update', { revision: 4, rules: over, yield: false }), 'one rule over the cap is refused on the wire');
@@ -478,4 +478,13 @@ test('a pour held against an angry enderman is remembered from its running repor
 	assert.deepEqual(book.pours('a', end), [], 'a pour the hold scooped back is forgotten from its report');
 	assert.deepEqual(book.pours('a', overworld), [{ x: 9, y: 60, z: -3 }], 'the Overworld pour at the same coordinates is kept');
 	book.clear('a');
+});
+
+test('MINEAGEN_END_FALL_CATCH=off drops only the End fall catch from the dimension defaults', () => {
+	const END = 'minecraft:the_end';
+	assert.equal(dimensionReflexes({}), DIMENSION_REFLEXES);
+	assert.ok(dimensionReflexes({})[END].some((rule) => rule.id === 'default-end-fall'));
+	const off = dimensionReflexes({ MINEAGEN_END_FALL_CATCH: ' OFF ' });
+	assert.deepEqual(off[END].map((rule) => rule.id), DIMENSION_REFLEXES[END].map((rule) => rule.id).filter((id) => id !== 'default-end-fall'));
+	assert.equal(dimensionReflexes({ MINEAGEN_END_FALL_CATCH: 'on' }), DIMENSION_REFLEXES);
 });
