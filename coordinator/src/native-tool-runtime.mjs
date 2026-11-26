@@ -3238,7 +3238,8 @@ export class NativeToolRuntime {
 		const epoch = this.#executionEpoch(agentId);
 		try { request.extendLease?.(REST_FIRST_MS); } catch { /* the lease is the planner's */ }
 		let result;
-		try { result = await this.#executeAction(request, record, { kind: 'action', actionType: 'rest', arguments: { timeoutMs: REST_FIRST_MS } }, null, true); }
+		// A blocking run like a rest the model calls, so danger hands the body back to the model early (interruptBlockingTool).
+		try { result = await this.#withBlockingToolRun(record, () => this.#executeAction(request, record, { kind: 'action', actionType: 'rest', arguments: { timeoutMs: REST_FIRST_MS } }, null, true)); }
 		catch (error) {
 			if (this.#executionEpoch(agentId) !== epoch) throw error;
 			return null;
@@ -3246,7 +3247,11 @@ export class NativeToolRuntime {
 		if (this.#executionEpoch(agentId) !== epoch) throw codedError('STALE_NATIVE_TOOL', 'Lifecycle changed while resting after the night respawn');
 		this.#trace('native_rest_first', { agentId, goalRevision: record.goalRevision, kind: tool.kind, state: result?.state, reasonCode: result?.reasonCode });
 		const note = `respawned at night with no armour, so rest ran first: ${result?.reasonCode ?? result?.state}`;
-		if (['SUCCEEDED', 'FAILED', 'TIMED_OUT'].includes(result?.state) && result?.reasonCode !== 'AGENT_DEAD') return { goOn: true, note };
+		if (['SUCCEEDED', 'FAILED', 'TIMED_OUT'].includes(result?.state) && result?.reasonCode !== 'AGENT_DEAD') {
+			// The rest may have spent the lease; the errand starts now with its own.
+			try { request.renewLease?.(); } catch { /* the lease is the planner's */ }
+			return { goOn: true, note };
+		}
 		return { goOn: false, note, result: result !== null && typeof result === 'object'
 			? { ...result, message: `${note}; ${result.message ?? ''}; your ${tool.kind === 'action' ? tool.actionType : tool.kind} did not start: decide, then carry on` } : result };
 	}

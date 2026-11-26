@@ -288,6 +288,8 @@ final class ReflexActions {
 
 	static final class Shield implements Behaviour {
 		private final boolean counter;
+		/** Faces the focus only, whatever else shoots or swings: a fusing creeper's blast outweighs any arrow. */
+		private final boolean pinned;
 		private int lastDamage = -1;
 		private int blocked;
 		private int countered;
@@ -308,7 +310,12 @@ final class ReflexActions {
 		}
 
 		Shield(boolean counter) {
+			this(counter, false);
+		}
+
+		Shield(boolean counter, boolean pinned) {
 			this.counter = counter;
+			this.pinned = pinned;
 		}
 
 		@Override
@@ -331,7 +338,7 @@ final class ReflexActions {
 			String held = (blocked == 0 ? "shield raised" : "blocked " + blocked + " hit(s)") + (countered > 0 ? ", countered " + countered : "");
 			long now = player.level().getGameTime();
 			// A player holding a shield turns it to the shot about to land, not to whichever mob is nearest.
-			Entity shot = ReflexSensors.incomingShot(player, SHIELD_SHOT_SECONDS);
+			Entity shot = pinned ? null : ReflexSensors.incomingShot(player, SHIELD_SHOT_SECONDS);
 			// In flight it faces where the shot will touch the body (vanilla's block test); after, back along its line,
 			// toward the shooter, so the next draw stays in view.
 			Vec3 meet = shot == null ? null : ReflexSensors.strikeFacing(player, shot);
@@ -350,7 +357,8 @@ final class ReflexActions {
 				Step strike = counter(player, context.focus(), close, now, input);
 				if (strike != null) return strike;
 			}
-			Vec3 target = meet != null ? meet : volley ? shotFrom : guardPoint(player, context.focus(), close, now);
+			Vec3 target = pinned && context.focus() != null ? context.focus().getBoundingBox().getCenter()
+					: meet != null ? meet : volley ? shotFrom : guardPoint(player, context.focus(), close, now);
 			AgentInputState aim = look(player, target, 0.0F, 0.0F, false, true, player.getInventory().getSelectedSlot(), hand);
 			if (below == null) {
 				if (dev.agaminggod.mineagen.server.runtime.controller.BrinkGuard.needsFooting(player)) {
@@ -3060,7 +3068,7 @@ final class ReflexActions {
 			int shieldSlot = inHand ? -1 : hotbarShield(player);
 			Vec3 at = creeper.getBoundingBox().getCenter();
 			if (inHand) {
-				if (guardShield == null) guardShield = new Shield(false);
+				if (guardShield == null) guardShield = new Shield(false, true);
 				// Toward the creeper itself, standing: never deferred to a paused fight's own shield, never walking under it.
 				Context toward = new Context(player, creeper, context.stance(), context.memory(), at, null, false);
 				Step held = guardShield.tick(toward, input);

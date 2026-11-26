@@ -33,12 +33,13 @@ function harness(observation) {
 			if (type !== 'action_command') return;
 			sent.push(payload.actionType);
 			const reply = results[payload.actionType] ?? { state: 'SUCCEEDED', reasonCode: 'ACTION_COMPLETED' };
+			if (reply === 'hang') return;
 			queueMicrotask(() => runtime.onActionResult(record, { actionId: payload.actionId, goalRevision: 1, executionStarted: true, ...reply }));
 		} } });
 	runtime.updateObservation(record, structuredClone(observation), { eventSequence: 1 });
 	// A respawn's fresh body sample arrives after the lifecycle disposal, as in a game.
 	const respawn = async () => { await runtime.dispose(record.agentId, 'goal_respawn'); runtime.updateObservation(record, structuredClone(observation), { eventSequence: 2 }); };
-	const run = (tool) => runtime.execute({ agentId: record.agentId, goalRevision: 1, turnId: 't', callId: `c${sent.length}`, tool }, record);
+	const run = (tool, extra = {}) => runtime.execute({ agentId: record.agentId, goalRevision: 1, turnId: 't', callId: `c${sent.length}`, tool, ...extra }, record);
 	return { runtime, record, sent, results, run, respawn };
 }
 
@@ -85,6 +86,31 @@ test('a stuck rest still lets the errand go; a rest cut short hands back without
 		await run({ kind: 'action', actionType: 'rest', arguments: { timeoutMs: 600_000 } });
 		await run(walk);
 		assert.deepEqual(sent, ['rest', 'travel_to'], 'the model resting itself clears the habit');
+		await runtime.dispose(record.agentId, 'test_complete');
+	}
+});
+
+test('the automatic rest renews the errand\'s lease when it ends, and danger hands it back to the model early', async () => {
+	{
+		const { runtime, record, sent, run, respawn } = harness(at(15_000));
+		const leases = [];
+		await respawn();
+		await run(walk, { extendLease: ms => leases.push(['extend', ms]), renewLease: () => leases.push(['renew']) });
+		assert.deepEqual(sent, ['rest', 'travel_to']);
+		assert.deepEqual(leases, [['extend', 600_000], ['renew']], 'the errand gets its own lease after the rest');
+		await runtime.dispose(record.agentId, 'test_complete');
+	}
+	{
+		const { runtime, record, sent, results, run, respawn } = harness(at(15_000));
+		results.rest = 'hang';
+		await respawn();
+		const pending = run(walk);
+		for (let i = 0; i < 50 && !sent.includes('rest'); i++) await new Promise(done => setTimeout(done, 10));
+		assert.equal(runtime.interruptBlockingTool(record.agentId), true, 'the rest is an interruptible blocking run');
+		const result = await pending;
+		assert.deepEqual(sent, ['rest']);
+		assert.equal(result.state, 'RUNNING');
+		assert.match(result.message, /your travel_to did not start/);
 		await runtime.dispose(record.agentId, 'test_complete');
 	}
 });

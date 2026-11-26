@@ -13,7 +13,7 @@ const TICK_RATE = unshownTickRate('blast damage is read off sampled health; at a
 import { ReflexBook } from '../../coordinator/src/reflexes.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
 import { damageCounter, damageEvidence, deathCounter } from './lib/damage-counter.mjs';
-import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
+import { finishRun, roomVerdict, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const USAGE = 'Usage: test-creeper-deadend-live.mjs [OUT_DIR] [--strict|--descriptive] under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME (CASES, REPEATS, ARENA_JAR)';
@@ -118,7 +118,7 @@ try {
 		console.log(`[deadend] ${kit} ${repeat}: ${died ? 'DIED' : `blast damage ${row.blastDamage}`}, exploded ${exploded}, reflexes ${row.reflexEvents.join(' | ')}`);
 		await writeFile(path.join(out, 'runs.json'), JSON.stringify(runs, null, 1));
 	}
-	const by = kit => { const rows = runs.filter(r => r.kit === kit && r.valid); return { valid: rows.length, deaths: rows.filter(r => r.died).length,
+	const by = kit => { const rows = runs.filter(r => r.kit === kit && ['PASS', 'FAIL'].includes(roomVerdict(r).verdict)); return { valid: rows.length, deaths: rows.filter(r => r.died).length,
 		meanBlastDamage: rows.length ? +(rows.reduce((a, r) => a + r.blastDamage, 0) / rows.length).toFixed(1) : null }; };
 	const summary = Object.fromEntries(CASES.map(kit => [kit, by(kit)]));
 	await writeFile(path.join(out, 'summary.json'), JSON.stringify(summary, null, 2));
