@@ -14,7 +14,7 @@ import { armorMaterialNeed, chainText, howtoChain, howtoHeldRecipe, howtoHolding
 import { fortressSearchOption } from './nether-regions.mjs';
 import { NETHER_OPTIONS_BYTES, SOURCE_BLOCKS, bedSpawnOption, descentRespawnFact, knownLine, needOptions, netherReadiness, netherRouteOption, pearlHuntLine, pearlOptions, pearlSourceInView, pearlsWanted, pickaxeTier, portalAtHand, progressionGoal, textResources } from './need-sources.mjs';
 import { VILLAGE_POI, headingOf, sightingKind } from './search-coverage.mjs';
-import { foodStockHandback, portalDeathMark, routeLine, skillFitsLine, woodStockHandback } from './skill-fits.mjs';
+import { foodStockHandback, portalDeathMark, portalSearchStock, routeLine, skillFitsLine, woodStockHandback } from './skill-fits.mjs';
 import { KIT_ITEMS } from './end-readiness.mjs';
 import { beatsTheGame } from './goal-spec-translator.mjs';
 import { dropLoss, recoveryRoute } from './respawn-recovery.mjs';
@@ -745,9 +745,12 @@ export class LiveTaskViews {
   if (current.observation?.world?.dimension !== 'minecraft:overworld') return null;
   const route = this.#routeNow(record, current, current);
   const step = /^usual next step: obtain ((?:cooked_)?[a-z_]+) count (\d+)\b[^(]*before entering the portal/.exec(route ?? '');
-  if (step === null) return null;
+  // The floor's step with no meat animal in view names no item: the gate searches for the cooked meat held most.
+  const search = step === null && /^usual next step: look for [a-z/]+ nearby, then obtain cooked meat with a furnace before entering the portal/.test(route ?? '')
+   ? portalSearchStock(current.observation) : null;
+  if (step === null && search === null) return null;
   const portals = (current.known?.frames ?? []).filter(f => f?.lit === true && f.dimension === 'minecraft:overworld' && [f.x, f.z].every(Number.isFinite));
-  return { line: route, item: step[1], count: Number(step[2]), portals, worldId: current.worldId ?? null, deaths: current.deaths ?? 0 };
+  return { line: route, item: search?.item ?? step[1], count: search?.count ?? Number(step[2]), portals, worldId: current.worldId ?? null, deaths: current.deaths ?? 0 };
  }
  /** The trigger for a no-progress or repeated-result fact not yet woken for ('no_progress' | 'repeated_result'), once. */
  progressWake(record) {

@@ -969,7 +969,11 @@ export class NativeToolRuntime {
 			const turned = this.#portalStockGate(record, request);
 			if (turned !== null) request = turned.request;
 			let result = await this.#executeTool(request, record, lifecycleGeneration);
-			if (turned !== null && result !== null && typeof result === 'object' && !Array.isArray(result)) result = { ...result, stockedFirst: turned.note };
+			if (turned !== null && result !== null && typeof result === 'object' && !Array.isArray(result)) {
+				result = { ...result, stockedFirst: turned.note };
+				// Not shown to the model: the food hand-back reads the obtain that ran, not the walk that was asked for.
+				Object.defineProperty(result, 'stockedTool', { value: turned.request.tool, enumerable: false });
+			}
 			if (idleSince !== undefined && result !== null && typeof result === 'object' && !Array.isArray(result)) result = { ...result, stoodStillMs: Math.max(0, arrivedAt - idleSince) };
 			// These results report the latest program's end to the model.
 			if (['program_status', 'respond_program', 'cancel_program'].includes(request.tool.kind) && result?.programId === this.#unreportedProgramEnds.get(record.agentId)?.programId

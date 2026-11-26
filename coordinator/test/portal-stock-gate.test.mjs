@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { NativeToolRuntime } from '../src/native-tool-runtime.mjs';
 import { normalizeMinecraftToolCall } from '../src/native-minecraft-tools.mjs';
+import { LiveTaskViews } from '../src/live-task-view.mjs';
+import { immutableGoalSpec } from './fixtures/dynamic-main-fixture.mjs';
 
 // stock.portalGate: room ai-stock-portal of 26 Nov, an on-arm bot saw "obtain cooked_porkchop count 9 ... before entering
 // the portal (food 126/256)" and walked into the portal with 8 steaks. A walk into the portal while the route still asks
@@ -60,6 +62,9 @@ test('a walk into the lit portal below the minimum runs the stock obtain instead
 	assert.ok(h.commands.some(row => row.type === 'action_command'), 'the obtain sent its own body steps');
 	// The planner's lease was sized for the walk; the room's turned obtains were cancelled 20 s in until it was extended.
 	assert.ok(h.leases.some(ms => ms >= 360_000), JSON.stringify(h.leases));
+	// The food hand-back reads the obtain that ran; the model is not shown it.
+	assert.equal(result.stockedTool?.kind, 'obtain');
+	assert.doesNotMatch(JSON.stringify(result), /stockedTool/);
 });
 
 test('the gate turns two walks per life, then lets the bot go in short', async t => {
@@ -83,4 +88,21 @@ test('a walk elsewhere, a met minimum and the off arm all walk as asked', async 
 	await off.step(walk(104.5, 695.5));
 	assert.equal(off.walksToPortal(), 1);
 	assert.equal(off.traces.some(row => row.event === 'native_portal_stock_turned'), false);
+});
+
+test('the floor\'s look-for step at the portal gives the gate the meat held, and a short gate hunt lets the next walk in', async () => {
+	// Room ai-stock-portal-25, 27 Nov: on-arm bots walked in at 158 and 237 of 256 under "look for cows/pigs/sheep/chickens
+	// nearby", a step that named no item for the gate; and a gate hunt that came back short did not release the step.
+	const spec = immutableGoalSpec('beat the game', { type: 'entity_killed_by_agent', entityType: 'minecraft:ender_dragon', afterGoalStart: true });
+	const r = { agentId: 'stock-view', currentGoal: 'beat the game', currentGoalSpec: spec, goalRevision: 1 };
+	const views = new LiveTaskViews();
+	const o = { ...sample(), observedAtEpochMs: 1000, entities: [],
+		inventory: { items: [{ itemId: 'minecraft:iron_pickaxe', count: 1 }, { itemId: 'minecraft:cooked_beef', count: 11 }, { itemId: 'minecraft:oak_log', count: 15 }] },
+		sighted: { portalFrames: [{ x: 104, y: 64, z: 695, axis: 'x', obsidian: 10, needed: 10, lit: true }] } };
+	await views.observe(r, o);
+	assert.match(views.continuity(r).route, /^usual next step: look for .* before entering the portal \(food 174\/256/);
+	const stock = views.portalStock(r);
+	assert.deepEqual([stock?.item, stock?.count, stock?.portals.length], ['cooked_beef', 17, 1]);
+	assert.equal(views.noteFoodHandback(r, { kind: 'obtain', arguments: { item: 'cooked_beef', count: 17 } }, { state: 'TIMED_OUT', reasonCode: 'OBTAIN_TIMEOUT' }), true);
+	assert.equal(views.portalStock(r), null);
 });

@@ -242,6 +242,19 @@ function stockFloorNext(f, floor, where) {
 		`${why}; ${raw ? 'raw meat held' : `${f.meatInView[meat] ?? 1} in view`}`];
 }
 
+/**
+ * stock.portalGate's obtain for the floor's "look for" step (no meat animal in view): the cooked meat held most (cooked
+ * beef when none), counted up to the floor. In room ai-stock-portal-25 two on-arm bots walked in at 158 and 237 of 256
+ * under that step, which named no item for the gate to run. Returns { item, count }.
+ */
+export function portalSearchStock(o, floor = FOOD_FLOOR_PORTAL) {
+	const items = Array.isArray(o?.inventory?.items) ? o.inventory.items.filter(i => i?.count > 0) : [];
+	const held = meat => items.filter(i => i.itemId === `minecraft:cooked_${meat}`).reduce((n, i) => n + i.count, 0);
+	const meat = MEATS.filter(m => held(m) > 0).sort((a, b) => held(b) - held(a))[0] ?? 'beef';
+	const short = Math.max(0, floor - foodPoints(items));
+	return { item: `cooked_${meat}`, count: held(meat) + Math.max(1, Math.ceil(short / FOOD_POINTS[`cooked_${meat}`])) };
+}
+
 function stockFoodNext(f) {
 	if (f.floorOn) return f.rekit === true ? stockFloorNext(f, FOOD_FLOOR_PORTAL, 'before going back') : stockFloorNext(f, FOOD_FLOOR_DESCENT, 'before going down');
 	const exact = meat => f.count(new RegExp('^minecraft:' + meat + '$'));

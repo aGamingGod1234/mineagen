@@ -2832,7 +2832,8 @@ export class DynamicCoordinator extends EventEmitter {
 			if (current?.goalRevision === work.goalRevision
 				&& this.#isConnectionEpochCurrent(work.connectionEpoch)
 				&& this.#isLifecycleGenerationCurrent(work.agentId, work.lifecycleGeneration)) {
-				this.#taskViews.noteFoodHandback(current, toolRequest.tool, result);
+				// A walk the portal gate turned into the stock obtain hands back like that obtain (stock.portalGate).
+				this.#taskViews.noteFoodHandback(current, result?.stockedTool ?? toolRequest.tool, result);
 				if (toolRequest.tool.kind === 'task_plan' && toolRequest.tool.operation === 'intent' && result?.state === 'SUCCEEDED') {
 					const intent = toolRequest.tool.intent;
 					const label = this.#taskViews.snapshot(current).plan?.steps.find(step => step.id === intent.step)?.label ?? intent.step;
