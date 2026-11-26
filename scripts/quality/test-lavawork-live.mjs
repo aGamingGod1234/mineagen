@@ -232,9 +232,9 @@ try {
 		await set('0 79 0 minecraft:obsidian');
 		await command(`tp ${agent} 0.5 80 0.5 0 60`); await rate.idleSleep(1500); await lookAround(60);
 	};
-	const standOn = async (name, rules, rescueAt) => {
+	const standOn = async (name, rules, rescueAt, extra) => {
 		try {
-			await reset(); await pool();
+			await reset(); await pool(); if (extra) await extra();
 			await give(0, 'minecraft:diamond_pickaxe'); await act('select_item', { itemId: 'minecraft:diamond_pickaxe' });
 			if (rules.length) o = await setReflexes(rules);
 			o = await observe(); const before = health(o);
@@ -258,6 +258,13 @@ try {
 	if (want('standon-armed')) {
 		const result = await standOn('standon-armed', [{ id: 'lava', priority: 9, when: { type: 'in_lava' }, do: { type: 'leave_lava' }, maxS: 6, wake: true }], 0);
 		if (result) { result.pass = result.break.state === 'SUCCEEDED' && !result.died && !result.final?.inLava && result.reflexEvents.some((row) => /out of lava/.test(row.detail ?? '')); await settle('standon-armed'); }
+	}
+
+	// The same block over lava, with a lava cell in sight beside it (r6, a fresh-game death: the model read LAVA_BEHIND on
+	// the block it stood on and sent acceptLavaRisk:true). With dig.floorLavaGuard the second swing is refused too.
+	if (want('standon-seen')) {
+		const result = await standOn('standon-seen', [], 10, async () => { await set('1 79 0 minecraft:lava'); await lookAround(60); });
+		if (result) { result.pass = result.firstBreak.reason === 'LAVA_BEHIND' && result.break.state !== 'SUCCEEDED' && /acceptLavaRisk does not apply/.test(result.break.message ?? '') && result.inLavaSamples === 0 && !result.died; await settle('standon-seen'); }
 	}
 
 	// The safe setup: from dry ground two cells away, pour water beside the pool so it runs onto the lava, take it back,

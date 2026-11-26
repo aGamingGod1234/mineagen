@@ -176,6 +176,10 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'fight.recover', property: 'mineagen.fight.recover', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
 		reason: 'Backs off to heal during a fight; false is the fixture A/B off arm.',
 		readers: ['ServerFightUntilController.java RECOVER (class load)'] }),
+	// ServerActionExecutor.java FLOOR_LAVA_GUARD: static (tests reassign it), class load.
+	entry({ name: 'dig.floorLavaGuard', property: 'mineagen.dig.floorLavaGuard', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
+		reason: 'break_block never breaks the floor under the feet with lava heard or seen at it, even with acceptLavaRisk; 1 of 7 lava deaths in 8 fresh games dropped into a pool that way.',
+		readers: ['ServerActionExecutor.java FLOOR_LAVA_GUARD (class load)'] }),
 	// SpawnerHold.java ENABLED: static final, class load.
 	entry({ name: 'fight.spawnerHold', property: 'mineagen.fight.spawnerHold', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
 		reason: 'Holds a blaze spawner from a roofed cell; staged fortress runs lost 12 of 28 deaths to wither skeletons on open decks (#89).',
