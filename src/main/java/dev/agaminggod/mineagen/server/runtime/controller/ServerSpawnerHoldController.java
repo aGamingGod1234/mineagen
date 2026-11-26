@@ -83,6 +83,8 @@ public final class ServerSpawnerHoldController implements ServerController {
 	private boolean resumeChecked;
 	/** Ticks spent looking round for a cell site before the ordinary fight takes over. */
 	private int siteLooks;
+	/** The cell where the body stood when no seen cell was in the ring (fight.spawnerHoldOwnCell), tried once. */
+	private BlockPos ownCell;
 	private String fallbackWhy = "";
 	/** fight_target on this blaze, held from the cell: the hold ends when it dies (or is gone), not at a rod count. */
 	private LivingEntity target;
@@ -603,8 +605,15 @@ public final class ServerSpawnerHoldController implements ServerController {
 			return TickResult.running(progress(player));
 		}
 		if (siteLooks > 0) shieldInput.release();
+		boolean own = false;
+		if (bestCell == null && SpawnerHold.OWN_CELL && ownCell == null && builds == 0 && player.onGround()) {
+			// No seen cell in the ring: wall in where the body stands, doorway toward the spawner.
+			BlockPos at = player.blockPosition();
+			Direction toward = SpawnerHold.ownCellOpening(at.getX() - spawner.getX(), at.getZ() - spawner.getZ());
+			if (toward != null && !triedSites.contains(at) && standable(player, seen, at)) { bestCell = at; bestOpening = toward; own = true; ownCell = at; }
+		}
 		if (bestCell == null) {
-			if (sitesFailed == 0 && builds == 0) {
+			if (builds == 0 && sitesFailed == (ownCell == null ? 0 : 1)) {
 				// No cell to build here at all: the ordinary fight runs instead of a hand-back (real fortress room: the
 				// hand-back left the body standing in the open by the spawner, where it died).
 				note("no seen cell 6-12 blocks from the spawner: the ordinary fight runs");
@@ -625,11 +634,19 @@ public final class ServerSpawnerHoldController implements ServerController {
 		for (BlockPos at : shelterCells(cell, opening)) if (!solid(player, seen, at)) needed++;
 		int carried = blockItem == null ? 0 : ServerFightUntilController.count(player, BuiltInRegistries.ITEM.getValue(Identifier.parse(blockItem)));
 		// A shelter that already stands needs no blocks: the body walks in and holds without any placing.
+		if (own && needed > 0 && (blockItem == null || carried < needed)) {
+			note("no seen cell 6-12 blocks from the spawner and too few blocks to wall in here: the ordinary fight runs");
+			HOLDING.remove(player.getUUID());
+			cancelParts(player);
+			fallbackWhy = "no seen cell 6-12 blocks from the spawner";
+			fallback = ordinaryFight(player, now, lastElapsed);
+			return fallback.tick(player, now);
+		}
 		if (needed > 0 && (blockItem == null || carried < needed))
 			return stop(player, TickResult.failed("ROOF_BLOCKS_MISSING", String.format(Locale.ROOT,
 					"spawner hold: the shelter at %s needs %d full solid blocks of one kind; carries %s. Fetch blocks, or roof:false fights in the open",
 					cell.toShortString(), needed, blockItem == null ? "none" : carried + " " + blockItem), progress(player)));
-		note(String.format(Locale.ROOT, "site %s, %.1f blocks from the spawner, doorway %s, %d blocks to place", cell.toShortString(),
+		note(String.format(Locale.ROOT, "%s %s, %.1f blocks from the spawner, doorway %s, %d blocks to place", own ? "no seen cell in the ring: own cell" : "site", cell.toShortString(),
 				Math.sqrt(cell.distSqr(spawner)), opening.getSerializedName(), needed));
 		phase = Phase.WALK;
 		return walkToSite(player, now);

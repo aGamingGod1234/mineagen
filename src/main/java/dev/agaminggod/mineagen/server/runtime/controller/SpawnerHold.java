@@ -36,6 +36,19 @@ public final class SpawnerHold {
 	/** Long enough to choose a cell 6-12 blocks out, walk there and wall in (game-shape rooms: the first build at 10-40 s). */
 	public static final long MIN_HOLD_MS = 45_000L;
 
+	/**
+	 * On by default; -Dmineagen.fight.spawnerHoldOwnCell=false hands over to the ordinary fight as before. With no seen cell
+	 * 6-12 blocks from the spawner, the hold walls in where the body stands: real games (26 Nov smoke) handed over at once
+	 * in 2 of 2 games ("no seen cell"), and the ordinary fight died in both.
+	 */
+	public static final boolean OWN_CELL = dev.agaminggod.mineagen.server.Switches.get("fight.spawnerHoldOwnCell");
+
+	/** The doorway for a cell where the body stands (offset from the spawner), or null when it is no place to hold. */
+	static Direction ownCellOpening(double dx, double dz) {
+		double horizontal = Math.hypot(dx, dz);
+		return horizontal < 2.0D || horizontal > SCAN ? null : facing(-dx, -dz);
+	}
+
 	/** The time a hold runs before its timeout: the model's, raised to {@link #MIN_HOLD_MS} while the switch is on. */
 	public static long holdTimeoutMs(long modelMs) {
 		return MIN_TIME ? Math.max(modelMs, MIN_HOLD_MS) : modelMs;

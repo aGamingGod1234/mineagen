@@ -78,6 +78,7 @@ public final class Switches {
 		new Switch("fight.spawnerHoldSpot", null, "mineagen.fight.spawnerHoldSpot", "server", true, JAVA_NOT_FALSE_EXACT, null, "default-on"),
 		// SpawnerHold.java MIN_TIME: class load.
 		new Switch("fight.spawnerHoldMinTime", null, "mineagen.fight.spawnerHoldMinTime", "server", true, JAVA_NOT_FALSE_EXACT, null, "default-on"),
+		new Switch("fight.spawnerHoldOwnCell", null, "mineagen.fight.spawnerHoldOwnCell", "server", true, JAVA_NOT_FALSE_EXACT, null, "default-on"),
 		// WarpedForestHunt.java enabled: class load (tests reassign it).
 		new Switch("fight.forestHunt", null, "mineagen.fight.forestHunt", "server", false, JAVA_GET_BOOLEAN, null, "default-off"),
 		// ServerFightUntilController.java fullIds(): per fight call.

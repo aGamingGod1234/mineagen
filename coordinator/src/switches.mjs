@@ -188,6 +188,9 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'fight.spawnerHoldMinTime', property: 'mineagen.fight.spawnerHoldMinTime', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
 		reason: 'A spawner hold runs at least 45 s before a timeout ends it; real games gave 7-10 s timeouts to 6 of 20 holds and none of those chose a cell.',
 		readers: ['SpawnerHold.java MIN_TIME (class load)'] }),
+	entry({ name: 'fight.spawnerHoldOwnCell', property: 'mineagen.fight.spawnerHoldOwnCell', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
+		reason: 'With no seen cell 6-12 blocks from the spawner, the hold walls in where the body stands; real games handed over at once in 2 of 2 and the ordinary fight died in both.',
+		readers: ['SpawnerHold.java OWN_CELL (class load)'] }),
 	// WarpedForestHunt.java enabled: static (tests reassign it), class load.
 	entry({ name: 'fight.forestHunt', property: 'mineagen.fight.forestHunt', side: 'server', default: false, parser: JAVA_GET_BOOLEAN, status: 'default-off',
 		reason: 'Forest-walking pearl hunt: ended 22 of 40 forest hunts with a pearl against 13, but died in 9 against 4 (#78).',

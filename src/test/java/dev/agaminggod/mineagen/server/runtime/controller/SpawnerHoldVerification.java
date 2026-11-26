@@ -62,6 +62,11 @@ public final class SpawnerHoldVerification {
 			check(SpawnerHold.holdTimeoutMs(9_000L) == SpawnerHold.MIN_HOLD_MS, "a 9 s call holds for the minimum");
 			check(SpawnerHold.holdTimeoutMs(90_000L) == 90_000L, "a longer call keeps its own time");
 		} else check(SpawnerHold.holdTimeoutMs(9_000L) == 9_000L, "switch off: the model's 9 s stands");
+		// Own cell: doorway toward the spawner, none on top of it or out of range.
+		check(SpawnerHold.ownCellOpening(4, 0) == net.minecraft.core.Direction.WEST, "own cell east of the spawner opens west");
+		check(SpawnerHold.ownCellOpening(0, -5) == net.minecraft.core.Direction.SOUTH, "own cell north of the spawner opens south");
+		check(SpawnerHold.ownCellOpening(1, 0) == null, "no own cell beside the spawner");
+		check(SpawnerHold.ownCellOpening(30, 0) == null, "no own cell out of range");
 		if (!SpawnerHold.SPOT) {
 			// -Dmineagen.fight.spawnerHoldSpot=false: the spot rule and the bare ids are off, as before the switch.
 			check(!SpawnerHold.spotAtSpawner(spawner, -389.0D, 70.0D, -238.0D), "switch off: a spot on the spawner keeps the ordinary fight");
