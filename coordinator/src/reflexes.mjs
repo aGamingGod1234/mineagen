@@ -87,6 +87,11 @@ export const DIMENSION_REFLEXES = Object.freeze({
 		{ id: 'default-end-fall', kind: 'trigger', priority: 9, when: [{ type: 'falling', blocks: 4 }], do: { type: 'place', item: 'minecraft:water_bucket', where: 'below' }, maxMs: 8_000, ttlMs: 3_600_000 },
 	].map((rule) => Object.freeze(rule))),
 });
+/** The dimension defaults the switches leave armed: MINEAGEN_END_FALL_CATCH=off drops the End fall catch (end.fallCatch). */
+export function dimensionReflexes(environment = process.env) {
+	if (getSwitch('end.fallCatch', environment).value) return DIMENSION_REFLEXES;
+	return Object.freeze({ ...DIMENSION_REFLEXES, 'minecraft:the_end': Object.freeze(DIMENSION_REFLEXES['minecraft:the_end'].filter((rule) => rule.id !== 'default-end-fall')) });
+}
 const MOST_DIMENSION_REFLEXES = Math.max(0, ...Object.values(DIMENSION_REFLEXES).map((rules) => rules.length));
 export const DEFAULT_REFLEX_IDS = Object.freeze(new Set([...DEFAULT_REFLEXES, ...Object.values(DIMENSION_REFLEXES).flat()].map((rule) => rule.id)));
 // The mod runs at most this many rules (ReflexSpec.MAX_RULES): the cap of every rule-set bound on the wire (C24). The
@@ -440,10 +445,10 @@ export class ReflexBook {
 	// The latest sample that carried the inventory: a scoop is read against it, so a sample without one between hides none.
 	#stocked = new Map();
 
-	/** dimensionDefaults: {dimension: rules} armed only there; by default DIMENSION_REFLEXES with the production defaults. */
+	/** dimensionDefaults: {dimension: rules} armed only there; by default dimensionReflexes() with the production defaults. */
 	// instincts defaults to the switch (on unless MINEAGEN_INSTINCTS lists something else), so a practice room's book plays as
 	// the coordinator's does in a model game.
-	constructor({ now = Date.now, defaults = DEFAULT_REFLEXES, dimensionDefaults = defaults === DEFAULT_REFLEXES ? DIMENSION_REFLEXES : {}, instincts = instinctsEnabled(process.env) } = {}) {
+	constructor({ now = Date.now, defaults = DEFAULT_REFLEXES, dimensionDefaults = defaults === DEFAULT_REFLEXES ? dimensionReflexes(process.env) : {}, instincts = instinctsEnabled(process.env) } = {}) {
 		this.#now = now; this.#defaults = defaults; this.#dimensionDefaults = dimensionDefaults; this.#instincts = instincts === true;
 	}
 

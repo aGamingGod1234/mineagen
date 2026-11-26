@@ -155,6 +155,10 @@ export const SWITCHES = Object.freeze([
 		propertyParser: JAVA_GET_BOOLEAN, status: 'default-on',
 		reason: 'Issue 2 Step 2 instincts arm: stance, heal, pace, fight-through, weapon and food (#24). All 300 practice rooms x10, 23 Nov: passes 2,786 of 3,203 off against 2,811 of 3,218 on, deaths 75 against 63; one room changed: travel fights through a zombie instead of stopping (#185).',
 		readers: ['coordinator/src/reflexes.mjs instinctsEnabled (per call; env only)', 'Instincts.java enabled (per call; property or env)'] }),
+	// coordinator/src/reflexes.mjs dimensionReflexes(environment): per call (dynamic-main at startup, each ReflexBook).
+	entry({ name: 'end.fallCatch', env: 'MINEAGEN_END_FALL_CATCH', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
+		reason: 'Arms default-end-fall in the End: a fall of 4+ blocks places the water bucket below. End knock-off room, 10 runs a side: 60 of 60 throws caught against 0 of 60, deaths 0 against 30 (#277). off drops the rule; the equal-priority tie-break for falling rules stays in the mod.',
+		readers: ['coordinator/src/reflexes.mjs dimensionReflexes (per call)'] }),
 	// ServerTravelController.java walkAroundEnabled(): per call; property or env.
 	entry({ name: 'travel.walkAround', env: 'MINEAGEN_TRAVEL_WALK_AROUND', property: 'mineagen.travel.walkAround', side: 'server', default: false, parser: ON_WORD,
 		propertyParser: JAVA_GET_BOOLEAN, status: 'default-off',
