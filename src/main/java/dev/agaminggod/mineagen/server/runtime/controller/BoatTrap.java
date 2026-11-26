@@ -519,7 +519,8 @@ final class BoatTrap {
 			faces.add(top);
 		}
 		Vec3 ideal = player.position().add(dir.scale(BOAT_AT));
-		faces.sort(Comparator.comparingDouble(top -> flat(top.subtract(ideal)).lengthSqr() + Math.abs(top.y - player.getY()) * 0.5D));
+		// A boat a block up first: one on the floor is lower than an enderman's 1-block step, so it can walk over it.
+		faces.sort(Comparator.comparingDouble(top -> flat(top.subtract(ideal)).lengthSqr() + (top.y - player.getY() > 0.5D ? 0.0D : 1.5D)));
 		return faces;
 	}
 
@@ -527,8 +528,10 @@ final class BoatTrap {
 	private String place(ServerPlayer player, LivingEntity target) {
 		Vec3 dir = flat(target.position().subtract(player.position())).normalize();
 		List<Vec3> faces = faces(player, dir);
-		if (faces.isEmpty() && hands != null && !blockTried.contains(target.getUUID())) {
-			// As players do it: a block at the feet' level in line, and the boat on top of it.
+		boolean raised = faces.stream().anyMatch(top -> top.y - player.getY() > 0.5D);
+		if (!raised && hands != null && !blockTried.contains(target.getUUID())) {
+			// As players do it: a block at the feet' level in line, and the boat on top of it. The enderman cannot step
+			// over a boat that high; it walks into it or round the block, and either way touches the boat and sits.
 			blockTried.add(target.getUUID());
 			String block = hands.blockItem(player);
 			if (block != null) {
