@@ -105,6 +105,9 @@ final class BoatTrap {
 	private ServerNavigationController step;
 	/** The block going down under a boat (multi-tick: the body turns to it first), and since when (ticks). */
 	private BlockPos blockAt;
+	/** The block this trap laid last for the current enderman: the boat goes on it first. */
+	private BlockPos laid;
+	private UUID laidFor;
 	private String blockItem;
 	private int blockTicks;
 	private UUID blockFor;
@@ -518,15 +521,25 @@ final class BoatTrap {
 			if (hit.getType() != HitResult.Type.BLOCK || !hit.getBlockPos().equals(pos) || hit.getDirection() != Direction.UP) continue;
 			faces.add(top);
 		}
+		Vec3 laidTop = null;
+		if (laid != null) {
+			Vec3 top = new Vec3(laid.getX() + 0.5D, laid.getY() + 1.0D, laid.getZ() + 0.5D);
+			faces.removeIf(face -> face.distanceToSqr(top) < 1.0E-6D);
+			if (level.getBlockState(laid).isFaceSturdy(level, laid, Direction.UP) && problem(player, top) == null
+					&& player.isWithinBlockInteractionRange(laid, 0.0D)) laidTop = top;
+		}
 		Vec3 ideal = player.position().add(dir.scale(BOAT_AT));
 		// A boat a block up first: one on the floor is lower than an enderman's 1-block step, so it can walk over it.
 		faces.sort(Comparator.comparingDouble(top -> flat(top.subtract(ideal)).lengthSqr() + (top.y - player.getY() > 0.5D ? 0.0D : 1.5D)));
+		// The block laid for this enderman first, wherever it ended up.
+		if (laidTop != null) faces.add(0, laidTop);
 		return faces;
 	}
 
 	/** Puts a carried boat down toward the enderman (on a placed block when no flat floor is in line); where, or null. */
 	private String place(ServerPlayer player, LivingEntity target) {
 		Vec3 dir = flat(target.position().subtract(player.position())).normalize();
+		if (laid != null && !target.getUUID().equals(laidFor)) laid = null;
 		List<Vec3> faces = faces(player, dir);
 		boolean raised = faces.stream().anyMatch(top -> top.y - player.getY() > 0.5D);
 		if (!raised && hands != null && !blockTried.contains(target.getUUID())) {
@@ -535,9 +548,20 @@ final class BoatTrap {
 			blockTried.add(target.getUUID());
 			String block = hands.blockItem(player);
 			if (block != null) {
-				for (double d : new double[] {BOAT_AT, 2.3D, 3.3D}) {
-					Vec3 at = player.position().add(dir.scale(d));
-					BlockPos cell = BlockPos.containing(at.x, player.getY() + 0.01D, at.z);
+				// Cells whose centre lies in line, nearest the ideal spot first.
+				Vec3 feetAt = player.position();
+				BlockPos feetCell = BlockPos.containing(feetAt.x, feetAt.y + 0.01D, feetAt.z);
+				Vec3 idealCell = feetAt.add(dir.scale(BOAT_AT));
+				List<BlockPos> cells = new ArrayList<>();
+				for (int dx = -4; dx <= 4; dx++) for (int dz = -4; dz <= 4; dz++) {
+					BlockPos cell = feetCell.offset(dx, 0, dz);
+					Vec3 off = new Vec3(cell.getX() + 0.5D - feetAt.x, 0.0D, cell.getZ() + 0.5D - feetAt.z);
+					double along = off.dot(dir);
+					if (along < BOAT_MIN || along > BOAT_MAX || Math.sqrt(Math.max(0.0D, off.lengthSqr() - along * along)) > 0.75D) continue;
+					cells.add(cell);
+				}
+				cells.sort(Comparator.comparingDouble(c -> flat(Vec3.atBottomCenterOf(c).subtract(idealCell)).lengthSqr()));
+				for (BlockPos cell : cells) {
 					Level level = player.level();
 					if (!level.getBlockState(cell).canBeReplaced() || !level.getBlockState(cell).getFluidState().isEmpty() || !mayModify.test(player, cell)) continue;
 					if (!level.getBlockState(cell.below()).isFaceSturdy(level, cell.below(), Direction.UP)) continue;
@@ -598,6 +622,8 @@ final class BoatTrap {
 		catch (dev.agaminggod.mineagen.agent.AgentDomainException refused) { why = refused.code() + ": " + refused.getMessage(); }
 		if (why != null) return TickResult.running(0.0D);
 		blocksUnder++;
+		laid = blockAt;
+		laidFor = blockFor;
 		blockAt = null;
 		return null;
 	}
