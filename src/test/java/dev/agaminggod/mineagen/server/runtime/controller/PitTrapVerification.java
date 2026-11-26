@@ -86,6 +86,9 @@ public final class PitTrapVerification {
 		check(PitTrap.rise(PitTrap.CLEAR_MS, false, false), "none hunting it for the clear spell: back up to the stance");
 		check(!PitTrap.rise(PitTrap.CLEAR_MS * 10, true, false), "mid-fight: stay");
 		check(!PitTrap.rise(PitTrap.CLEAR_MS * 10, false, true), "low health: stay in the pit");
+		check(PitTrap.returning(PitTrap.Phase.AWAY, 1) && PitTrap.returning(PitTrap.Phase.BACK, 5), "out for a pearl short of 12: the count waits until the body is back under the cap");
+		check(!PitTrap.returning(PitTrap.Phase.AWAY, PitTrap.LEAVE_AT), "12 pearls held: the count ends where the body is");
+		check(!PitTrap.returning(PitTrap.Phase.STANCE, 1) && !PitTrap.returning(PitTrap.Phase.PIT, 1), "inside the trap: the count ends there");
 		PitTrap trap = new PitTrap(FEET, Direction.NORTH, PitTrap.Phase.STANCE);
 		check(trap.cap().equals(FEET.above()) && trap.pit().equals(FEET.below(2)) && trap.high().equals(FEET.north().above()),
 				"the cap is one over the ground cell, the pit two under, the support beside the cap");

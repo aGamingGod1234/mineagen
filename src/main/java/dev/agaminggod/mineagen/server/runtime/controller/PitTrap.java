@@ -40,7 +40,16 @@ final class PitTrap {
 	/** Pearls held at which a finished call opens the trap to walk on (12 eyes of ender); short of it the body stays in. */
 	static final int LEAVE_AT = 12;
 
-	enum Phase { SUPPORT_LOW, SUPPORT_HIGH, DIG_STANCE, CAP, STANCE, DROP, PIT, RISE, EXIT, DONE }
+	/** LOOT opens the cap for a pearl lying in view, AWAY collects it, BACK walks into the stance again (then CAP). */
+	enum Phase { SUPPORT_LOW, SUPPORT_HIGH, DIG_STANCE, CAP, STANCE, DROP, PIT, RISE, LOOT, AWAY, BACK, EXIT, DONE }
+
+	/** A pearl lying this near the trap and in view from the stance is fetched once none hunts the body. */
+	static final double LOOT_RANGE = 8.0D;
+
+	/** Whether a finished count waits for the body to get back under the cap first (out for a pearl, short of LEAVE_AT). */
+	static boolean returning(Phase phase, int held) {
+		return held < LEAVE_AT && (phase == Phase.LOOT || phase == Phase.AWAY || phase == Phase.BACK || phase == Phase.CAP);
+	}
 
 	/** What the trap reads about a cell: test seam over the level. */
 	interface Cells {

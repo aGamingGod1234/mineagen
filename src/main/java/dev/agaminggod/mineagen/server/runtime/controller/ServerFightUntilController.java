@@ -410,6 +410,8 @@ public final class ServerFightUntilController implements ServerController {
 	private long trapAngryMs;
 	private long trapQuietSince;
 	private AgentInputStates.MotorState trapMotor;
+	private ServerController trapWalk;
+	private int trapLoots;
 
 	public ServerFightUntilController(ServerPlayer player, JsonObject arguments, ServerProtectionPolicy protection, long now) {
 		this(player, arguments, protection, now, "fight_until", null, null);
@@ -522,7 +524,7 @@ public final class ServerFightUntilController implements ServerController {
 			// Short of them it hands back inside the trap, and the next call goes on from it (PitTrap.existing).
 			if (trap != null && held >= PitTrap.LEAVE_AT && trap.phase != PitTrap.Phase.EXIT && (trap.inPit(player.blockPosition()) || trap.inStance(player.blockPosition()))
 					&& angryEnderman(player, 16.0D) == null) trap.to(PitTrap.Phase.EXIT);
-			if (trap == null || trap.phase != PitTrap.Phase.EXIT)
+			if (trap == null || trap.phase != PitTrap.Phase.EXIT && !PitTrap.returning(trap.phase, held))
 				return stop(player, TickResult.succeeded("UNTIL_COUNT_REACHED", "Holds " + held + " " + untilItemId + " (asked " + untilCount + ")"));
 		}
 		if (elapsed >= timeoutMs)
@@ -1323,6 +1325,7 @@ public final class ServerFightUntilController implements ServerController {
 	/** Stops using the trap for this call and goes on as main's hunt; null so the tick runs on. */
 	private TickResult dropTrap(ServerPlayer player, String why) {
 		if (trapDig != null) { trapDig.cancel(player); trapDig = null; }
+		if (trapWalk != null) { trapWalk.cancel(player); trapWalk = null; }
 		releaseGuard();
 		trapDropped = why;
 		trapWanted = false;
@@ -1412,6 +1415,9 @@ public final class ServerFightUntilController implements ServerController {
 			}
 			case PIT: return trapPit(player, now, elapsed);
 			case RISE: return trapRise(player, now, PitTrap.Phase.STANCE);
+			case LOOT: return trapLoot(player, now);
+			case AWAY: return trapAway(player, now, elapsed);
+			case BACK: return trapBack(player, now);
 			case EXIT: {
 				if (trap.inPit(feet)) return trapRise(player, now, PitTrap.Phase.EXIT);
 				int held = count(player, untilItem);
@@ -1503,6 +1509,13 @@ public final class ServerFightUntilController implements ServerController {
 			TickResult down = trapDig(player, trap.pit(), now, PitTrap.Phase.PIT, elapsed);
 			return down != null ? down : TickResult.running(progress(player));
 		}
+		if (!trapLootInView(player).isEmpty() && elapsed - trapAngryMs >= PitTrap.CLEAR_MS) {
+			if (look != null) { look.cancel(player); look = null; }
+			provoking = null;
+			note("pit trap: a pearl lies in view and none hunts you; opening the cap to fetch it");
+			trap.to(PitTrap.Phase.LOOT);
+			return TickResult.running(progress(player));
+		}
 		LivingEntity calm = trapStareTarget(player);
 		if (calm == null) {
 			provoking = null;
@@ -1523,6 +1536,68 @@ public final class ServerFightUntilController implements ServerController {
 		if (look != null) { look.cancel(player); look = null; }
 		ServerLookController.turnToward(player, calm.getEyePosition());
 		return TickResult.running(progress(player));
+	}
+
+	/** Pearls (the counted item) lying near the trap that the body sees: from the pit they lie above its eyes, unseen. */
+	private List<UUID> trapLootInView(ServerPlayer player) {
+		List<UUID> seen = new ArrayList<>();
+		for (ItemEntity item : player.level().getEntitiesOfClass(ItemEntity.class, new AABB(trap.ground).inflate(PitTrap.LOOT_RANGE),
+				e -> e.isAlive() && e.getItem().is(untilItem)))
+			if (ObservationVisibility.canSeeEntity(player, item) && protection.mayTakeEntity(player, item)) seen.add(item.getUUID());
+		return seen;
+	}
+
+	/** LOOT: from the stance, breaks the cap, then hands the walk to the drop collector (AWAY). */
+	private TickResult trapLoot(ServerPlayer player, long now) {
+		List<UUID> loot = trapLootInView(player);
+		if (loot.isEmpty()) {
+			if (trapDig != null) { trapDig.cancel(player); trapDig = null; }
+			trap.to(cells(player).solid(trap.cap()) ? PitTrap.Phase.STANCE : PitTrap.Phase.CAP);
+			return TickResult.running(progress(player));
+		}
+		if (cells(player).open(trap.cap())) {
+			if (trapDig != null) { trapDig.cancel(player); trapDig = null; }
+			collector = countCollector(loot, now);
+			trapLoots++;
+			trap.to(PitTrap.Phase.AWAY);
+			return TickResult.running(progress(player));
+		}
+		if (trap.ticks > PitTrap.STEP_TICKS) return dropTrap(player, "the cap at " + trap.cap().toShortString() + " was not broken to fetch a pearl");
+		if (trapDig == null) trapDig = roofing.clear(player, trap.cap(), 4_000L);
+		if (trapDig == null) return dropTrap(player, "no hands to open the cap with");
+		TickResult r = trapDig.tick(player, now);
+		if (r.state() != State.RUNNING) { trapDig.cancel(player); trapDig = null; }
+		return TickResult.running(progress(player));
+	}
+
+	/** AWAY: the drop collector walks to the pearl; a fight on the way is main's. Then BACK into the trap. */
+	private TickResult trapAway(ServerPlayer player, long now, long elapsed) {
+		if (melee != null || volley != null) return null;
+		if (collector != null) {
+			String done = collector.tick(player, now);
+			if (done == null) { lastTargetMs = elapsed; return TickResult.running(progress(player)); }
+			collector = null;
+			note("pit trap: fetched from the trap: " + done);
+		}
+		trap.to(PitTrap.Phase.BACK);
+		return TickResult.running(progress(player));
+	}
+
+	/** BACK: walks into the stance cell again, then the cap goes back on (CAP, then STANCE). */
+	private TickResult trapBack(ServerPlayer player, long now) {
+		if (melee != null || volley != null) return null;
+		if (trap.inStance(player.blockPosition()) && player.onGround()) {
+			if (trapWalk != null) { trapWalk.cancel(player); trapWalk = null; }
+			trap.to(PitTrap.Phase.CAP);
+			return TickResult.running(progress(player));
+		}
+		if (trapWalk == null) trapWalk = new ServerNavigationController(Vec3.atBottomCenterOf(trap.stance()), 0.3D, false, now, 15_000L, false).crouched(choices.sneak());
+		TickResult r = trapWalk.tick(player, now);
+		if (r.state() == State.RUNNING) return TickResult.running(progress(player));
+		trapWalk.cancel(player);
+		trapWalk = null;
+		if (trap.inStance(player.blockPosition())) return TickResult.running(progress(player));
+		return dropTrap(player, "the walk back into the trap at " + trap.stance().toShortString() + " ended " + r.reasonCode());
 	}
 
 	/** The nearest calm enderman in view with a clear eye line, not stared out yet: one at a time is drawn to the trap. */
@@ -2783,7 +2858,7 @@ public final class ServerFightUntilController implements ServerController {
 				"; hunt: walked toward %d enderm%s you saw in the area (%d walks reached the spot, %d found an enderman on the way, %d had no route)",
 				leads.tried(), leads.tried() == 1 ? "an" : "en", leads.reached(), huntFinds, leads.noRoute()));
 		if (forest != null) text.append("; ").append(forest.summary()).append("; shelters built: ").append(roofBuilds);
-		if (trap != null) text.append("; ").append(trap.summary()).append(trapLeave(player));
+		if (trap != null) text.append("; ").append(trap.summary()).append(trapLoots > 0 ? ", " + trapLoots + " pearl fetch" + (trapLoots == 1 ? "" : "es") + " out of it" : "").append(trapLeave(player));
 		else if (trapDropped != null) text.append("; pit trap not used: ").append(trapDropped);
 		if (!endings.isEmpty()) text.append("; endings: ").append(endings);
 		int from = Math.max(0, log.size() - 4);
@@ -2804,6 +2879,8 @@ public final class ServerFightUntilController implements ServerController {
 		if (building != null) building.cancel(player);
 		if (trapDig != null) trapDig.cancel(player);
 		trapDig = null;
+		if (trapWalk != null) trapWalk.cancel(player);
+		trapWalk = null;
 		if (step != null) step.cancel(player);
 		if (collector != null) collector.cancel(player);
 		if (ledge != null) ledge.cancel(player);
