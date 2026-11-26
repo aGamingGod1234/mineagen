@@ -388,6 +388,9 @@ public final class ReflexEngine {
 		boolean holding;
 		/** A command's yield was put off by the shelter hold; it is owed once the hold ends or the command is not a walk. */
 		boolean yieldOwed;
+		/** The action running when the put-off yield was asked: the one the command replaces, not the command itself. */
+		volatile String lastActiveId;
+		String owedBaselineId;
 		/** Game ticks of the last safety firing (cover, a hazard leave, a retreat, defend moving the body) and the last danger. */
 		long lastSafetyTick = -1L;
 		long lastHazardTick = -1L;
@@ -439,7 +442,10 @@ public final class ReflexEngine {
 		agent.revision = revision;
 		// A held shield composes with a command that only moves; that is decided once the command has started.
 		// Under fire with no shield (or low), a cover or defend firing keeps the body: the command waits (ShelterHold).
-		if (yield && agent.sheltering) agent.yieldOwed = true;
+		if (yield && agent.sheltering) {
+			agent.yieldOwed = true;
+			agent.owedBaselineId = agent.lastActiveId;
+		}
 		else if (yield && !clutching(agent)) end(agentId, agent, commandYield(agent.scheduler, agent.command, holdsMoving(agent), now));
 		end(agentId, agent, agent.scheduler.replace(parsed, now));
 		changed.add(agentId);
@@ -588,7 +594,10 @@ public final class ReflexEngine {
 				agent.lastSafetyTick, agent.lastHazardTick, gameTime), true, gameTime);
 		// The put-off yield is paid once the hold ends, the firing ends, or the command turns out not to be a plain walk
 		// (a fight, escape or spawner back-out takes the body at once).
-		if (agent.yieldOwed && (!agent.holding || agent.scheduler.current() == null || active != null && !ShelterHold.heldWalk(activeType))) {
+		agent.lastActiveId = active == null ? null : active.actionId();
+		// The replaced action still running (replace_action yields before its cancel) is not the command: wait for the new one.
+		boolean replacementStarted = active != null && !active.actionId().equals(agent.owedBaselineId);
+		if (agent.yieldOwed && (!agent.holding || agent.scheduler.current() == null || replacementStarted && !ShelterHold.heldWalk(activeType))) {
 			agent.yieldOwed = false;
 			if (agent.scheduler.current() != null && !clutching(agent)) end(agentId, agent, commandYield(agent.scheduler, agent.command, holdsMoving(agent), now));
 		}
@@ -714,9 +723,16 @@ public final class ReflexEngine {
 			changed.add(agentId);
 		}
 		end(agentId, agent, corneredHandBack(agent.scheduler, agent.command, active != null, now));
-		agent.sheltering = agent.holding && agent.scheduler.current() != null && ShelterHold.shelters(agent.behaviour);
+		// A safety firing that started this tick shelters from its first tick, not from the next.
+		if (agent.scheduler.current() != null && ShelterHold.shelters(agent.behaviour)) {
+			agent.lastSafetyTick = gameTime;
+			agent.holding = agent.shelter.tick(true, true, gameTime);
+		}
+		agent.sheltering = agent.holding && !inEnd && agent.scheduler.current() != null && ShelterHold.shelters(agent.behaviour);
 		// Between firings a hidden body under the hold waits in its cover: the walk resumes once the danger ends.
-		boolean waitsInCover = agent.holding && active != null && ShelterHold.heldWalk(activeType) && !ShelterHold.shooterSees(player);
+		// Never in the End (a cornered breath run hands the body back to the command on purpose), nor in fire or lava.
+		boolean waitsInCover = agent.holding && active != null && ShelterHold.heldWalk(activeType) && !ShelterHold.shooterSees(player)
+				&& !inEnd && !player.isInLava() && !player.isOnFire();
 		if (agent.scheduler.current() == null && waitsInCover) {
 			if (agent.controller == null) agent.controller = AgentInputRuntime.controller(player);
 			agent.lease = holdStill(agent.controller, agentId, agent.lease, player.getYRot(), player.getXRot(), player.getInventory().getSelectedSlot());
