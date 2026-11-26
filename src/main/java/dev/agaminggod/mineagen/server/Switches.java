@@ -80,6 +80,8 @@ public final class Switches {
 		new Switch("fight.fullIds", null, "mineagen.fight.fullIds", "server", true, JAVA_NOT_FALSE_EXACT, null, "default-on"),
 		// UnreachableTargets.java fromProperty(): per fight call.
 		new Switch("fight.skipUnreachable", null, "mineagen.fight.skipUnreachable", "server", true, JAVA_NOT_FALSE_EXACT, null, "default-on"),
+		// ReflexActions.java Defend.FACE_MELEE: class load.
+		new Switch("reflex.faceMelee", null, "mineagen.reflex.faceMelee", "server", true, JAVA_NOT_FALSE_EXACT, null, "default-on"),
 		// KillSighting.java enabled(): per call.
 		new Switch("killPosition", null, "mineagen.killPosition", "server", true, NOT_FALSE_WORD, null, "default-on"),
 		// Watcher.java enabled(): per call.
