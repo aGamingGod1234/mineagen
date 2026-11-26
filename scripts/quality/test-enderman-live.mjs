@@ -334,15 +334,15 @@ try {
 			await settle(name);
 		} catch (error) { await settle(name, error); }
 	}
-	// The body's boat trap (fight.boatTrap) through the model's own call: no boat, 10 oak planks and a crafting table
-	// carried, one calm enderman loose 11 blocks away, one fight_until for a pearl. rough: 1-high blocks scattered on the
+	// The body's boat trap (fight.boatTrap) through the model's own call: no boat, 20 oak planks and a crafting table
+	// carried (8 of them kept for tools), one calm enderman loose 11 blocks away, one fight_until for a pearl. rough: 1-high blocks scattered on the
 	// floor toward it (fungi and steps in a warped forest), so the boat may need a placed block under it. Measured from
 	// the receipt (crafted, placed, on a block, seated, trap kills) and the world (boats, pearls held, health lost).
 	const boatUntil = async (name, rough, salt) => {
 		await reset();
 		for (const slot of ['armor.chest', 'armor.legs']) await command(`item replace entity ${agent} ${slot} with minecraft:air`);
 		await command(`item replace entity ${agent} hotbar.0 with minecraft:iron_sword`);
-		await command(`item replace entity ${agent} hotbar.1 with minecraft:oak_planks 10`);
+		await command(`item replace entity ${agent} hotbar.1 with minecraft:oak_planks 20`);
 		await command(`item replace entity ${agent} hotbar.2 with minecraft:crafting_table 1`);
 		await command(`item replace entity ${agent} hotbar.3 with minecraft:cobblestone 16`);
 		await command(`tp ${agent} 0.5 80 0.5 0 0`);
