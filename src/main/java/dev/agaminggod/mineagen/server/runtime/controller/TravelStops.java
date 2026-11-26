@@ -95,6 +95,17 @@ public final class TravelStops {
 	/** The body must outlast this many of the mob's hits (after armour); Defend backs away from a mob below it. */
 	public static final int SAFE_HITS = 3;
 
+	/** An angry enderman is fought while the body outlasts this many of its hits; it teleports, so it cannot be outrun. */
+	public static final int ENDERMAN_SAFE_HITS = 2;
+
+	/**
+	 * Whether an enderman after the body ({@code targeting}) is fought where it is, as a player turns on one that is
+	 * already hunting it: a sword or axe on the hotbar, health above {@code minHealth} and above two of its hits.
+	 */
+	public static boolean fightsAngryEnderman(String typeId, boolean targeting, boolean weapon, float health, float minHealth, double hit) {
+		return "minecraft:enderman".equals(typeId) && targeting && weapon && health > minHealth && hit > 0.0D && health > ENDERMAN_SAFE_HITS * hit;
+	}
+
 	/**
 	 * Whether a hostile that would stop the trip is one the body fights through instead (instincts arm, the model left
 	 * fightThrough unset): a listed melee mob, alone in view within {@link #LONE_RANGE}, a sword or axe in the hotbar, and

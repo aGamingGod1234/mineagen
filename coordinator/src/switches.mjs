@@ -172,6 +172,14 @@ export const SWITCHES = Object.freeze([
 		propertyParser: JAVA_GET_BOOLEAN, status: 'default-off',
 		reason: 'Practice rooms 21 Nov (Nether courses): pickaxe uses per 100 blocks gained 69.8 on against 60.2 off (50 runs each), and 148.6 against 141.8 (34 each) (#68).',
 		readers: ['ServerTravelController.java walkAroundEnabled (per call)'] }),
+	// ServerTravelController.java GAZE_GUARD: read once at class load.
+	entry({ name: 'travel.gazeGuard', property: 'mineagen.travel.gazeGuard', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
+		reason: 'travel_to scans, peeks and bridges with its own looks, which skipped the calm-enderman gaze guard its walking legs already have; in a warped forest a scan can meet an enderman\'s eyes and provoke it mid-walk.',
+		readers: ['ServerTravelController.java GAZE_GUARD (class load)'] }),
+	// ServerTravelController.java ENDERMAN_FIGHT: read once at class load.
+	entry({ name: 'travel.endermanFight', property: 'mineagen.travel.endermanFight', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
+		reason: 'An angry enderman that hits or closes on the body during travel_to is fought there (sword or axe, health above two of its hits) instead of stopping the trip, so the body does not stand still through the next model turn while it keeps hitting.',
+		readers: ['ServerTravelController.java ENDERMAN_FIGHT (class load)'] }),
 	// ServerFightUntilController.java CHARGE_GUARD: static final, class load.
 	entry({ name: 'fight.chargeGuard', property: 'mineagen.fight.chargeGuard', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
 		reason: 'Raises the shield before a charged blaze\'s volley; false is the fixture A/B off arm.',

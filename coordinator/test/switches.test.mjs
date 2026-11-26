@@ -154,6 +154,8 @@ const READS = [
 	['end.highDescent', 'coordinator/src/dragon-fight-facts.mjs', "getSwitch('end.highDescent', environment)"],
 	['instincts', 'src/main/java/dev/agaminggod/mineagen/server/runtime/reflex/Instincts.java', 'Switches.get("instincts")'],
 	['travel.walkAround', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerTravelController.java', 'Switches.get("travel.walkAround")'],
+	['travel.gazeGuard', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerTravelController.java', 'static final boolean GAZE_GUARD = dev.agaminggod.mineagen.server.Switches.get("travel.gazeGuard");'],
+	['travel.endermanFight', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerTravelController.java', 'static final boolean ENDERMAN_FIGHT = dev.agaminggod.mineagen.server.Switches.get("travel.endermanFight");'],
 	['fight.chargeGuard', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerFightUntilController.java', 'static final boolean CHARGE_GUARD = dev.agaminggod.mineagen.server.Switches.get("fight.chargeGuard");'],
 	['fight.recover', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerFightUntilController.java', 'static final boolean RECOVER = dev.agaminggod.mineagen.server.Switches.get("fight.recover");'],
 	['fight.spawnerHold', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/SpawnerHold.java', 'public static final boolean ENABLED = dev.agaminggod.mineagen.server.Switches.get("fight.spawnerHold");'],
@@ -189,6 +191,8 @@ test('every reader reads its switch through the registry, and no switch variable
 			properties: [[undefined, false], ['TRUE', true], [' true', false], ['on', false]] },
 		'instincts': { env: 'MINEAGEN_INSTINCTS', property: 'mineagen.instincts', table: [[undefined, true], ['instincts', true], ['x, instincts', true], ['Instincts', false], ['off', false], ['', false]],
 			properties: [[undefined, true], ['True', true], ['false', false], ['1', false]] },
+		'travel.gazeGuard': { property: 'mineagen.travel.gazeGuard', properties: [[undefined, true], ['false', false], ['FALSE', true]] },
+		'travel.endermanFight': { property: 'mineagen.travel.endermanFight', properties: [[undefined, true], ['false', false], ['FALSE', true]] },
 		'fight.chargeGuard': { property: 'mineagen.fight.chargeGuard', properties: [[undefined, true], ['false', false], ['FALSE', true], ['no', true]] },
 		'fight.recover': { property: 'mineagen.fight.recover', properties: [[undefined, true], ['false', false], ['False', true]] },
 		'fight.spawnerHold': { property: 'mineagen.fight.spawnerHold', properties: [[undefined, true], ['false', false], [' false', true]] },
@@ -303,6 +307,8 @@ public class SwitchesParity {
 		boolean walkAround = "true".equalsIgnoreCase(p.get("mineagen.travel.walkAround"))
 				|| "on".equalsIgnoreCase(String.valueOf(env.get("MINEAGEN_TRAVEL_WALK_AROUND")).trim());
 		boolean[] values = { instincts, walkAround,
+				!"false".equals(p.get("mineagen.travel.gazeGuard")),
+				!"false".equals(p.get("mineagen.travel.endermanFight")),
 				!"false".equals(p.get("mineagen.fight.chargeGuard")),
 				!"false".equals(p.get("mineagen.fight.recover")),
 				!"false".equals(p.get("mineagen.fight.spawnerHold")),
@@ -313,7 +319,7 @@ public class SwitchesParity {
 				!"false".equals(p.get("mineagen.fight.skipUnreachable")),
 				!"false".equalsIgnoreCase(p.getOrDefault("mineagen.killPosition", "true").trim()),
 				"true".equalsIgnoreCase(p.getOrDefault("mineagen.watch", "false").trim()) };
-		String[] names = { "instincts", "travel.walkAround", "fight.chargeGuard", "fight.recover", "fight.spawnerHold", "fight.spawnerHoldOpen",
+		String[] names = { "instincts", "travel.walkAround", "travel.gazeGuard", "travel.endermanFight", "fight.chargeGuard", "fight.recover", "fight.spawnerHold", "fight.spawnerHoldOpen",
 				"fight.forestHunt", "fight.pitTrap", "fight.fullIds", "fight.skipUnreachable", "killPosition", "watch" };
 		StringBuilder line = new StringBuilder("switches");
 		for (int i = 0; i < names.length; i++) line.append(' ').append(names[i]).append('=').append(values[i] ? "on" : "off");
