@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { combatFacts } from '../src/combat-facts.mjs';
 import { buildNativeEventInput, classifyObservationTrigger } from '../src/dynamic-main.mjs';
 import { decodeModelFacts, encodeNativeEventInput, ModelObservationViews } from '../src/model-fact-encoding.mjs';
-import { CAGED_CRYSTAL_FACTS, END_HIGH_FEET_Y, HIGH_DESCENT_FACTS, dragonPerchEdge, dragonPerchLine, endCrystalFact, noteCombatDispatch, rememberEndCrystals, settleCombatResult } from '../src/dragon-fight-facts.mjs';
+import { CAGED_CRYSTAL_FACTS, END_HIGH_FEET_Y, dragonFinishFacts, HIGH_DESCENT_FACTS, dragonPerchEdge, dragonPerchLine, endCrystalFact, noteCombatDispatch, rememberEndCrystals, settleCombatResult } from '../src/dragon-fight-facts.mjs';
 
 const HEAD = '00000000-0000-0000-0000-0000000000a1';
 const dragon = (motion, extra = {}) => ({ stableId: 'dragon', type: 'minecraft:ender_dragon', alive: true, perceivedBy: 'sight', x: 0.5, y: 67.8, z: 0.4, distance: 9.6, appearance: { motion }, ...extra });
@@ -50,7 +50,9 @@ test('the perch wake states the breath geometry and the kill arithmetic for the 
 test('the ordinary flying-dragon wake gives the fountain and timing facts before a short perch', () => {
 	const o = end([dragon('flying')]);
 	const facts = combatFacts(o);
-	assert.match(facts, /waiting on open ground 10-15 blocks from the fountain/);
+	assert.match(facts, /Wait on open ground 7-10 blocks from the fountain, off any visible breath cloud/);
+	assert.match(dragonFinishFacts({ MINEAGEN_END_CLOSE_WAIT: 'off' }), /waiting on open ground 10-15 blocks from the fountain/);
+	assert.doesNotMatch(dragonFinishFacts({}), /10-15/);
 	assert.match(facts, /empty perch lasts only about 5 seconds, often less than a reply/);
 	assert.match(facts, /iron sword recharges in 0\.625 seconds/);
 	assert.match(facts, /visible cloud lasts about 10 seconds/);

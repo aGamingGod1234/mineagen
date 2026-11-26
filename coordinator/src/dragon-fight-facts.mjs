@@ -46,6 +46,16 @@ export const PERCH_FACTS = 'Perched, arrows bounce off it; its head takes full m
 // These are useful before the landing wake: a distant player's reply often outlasts the whole empty perch.
 export const DRAGON_FINISH_FACTS = 'The dragon lands on the bedrock exit fountain in the island centre, not a pillar or the arrival platform. With the crystals gone it cannot heal. A player waiting on open ground 10-15 blocks from the fountain is within its 20-block perch range before it lands; from farther away the empty perch lasts only about 5 seconds, often less than a reply. Its head takes full melee damage: an iron sword recharges in 0.625 seconds, so nine charged hits take about 6 seconds and force takeoff. The sides and back are in the wings; the front is in the breath cloud when it breathes. A visible cloud lasts about 10 seconds, then that ground clears; the fountain remains the next landing spot. An open mouth shows anger, not its target: dragon hits anger endermen too. A gaze guard must outrank movement reflexes so it can turn your view off calm endermen while a dodge runs.';
 
+// 26 Nov End games, landings after the last crystal: a player 6-10 blocks from the fountain hit the perched dragon in 30 of
+// 41, one 10-20 blocks out in 3 of 81, and clean games spent half that time 10-20 out, as the old advice said.
+const FINISH_WAIT_FAR = 'A player waiting on open ground 10-15 blocks from the fountain is within its 20-block perch range before it lands;';
+const FINISH_WAIT_CLOSE = 'Wait on open ground 7-10 blocks from the fountain, off any visible breath cloud: there you are a few steps from its head when it lands (landings with the player 6-10 blocks out were hit 30 of 41 times, 10-20 out 3 of 81);';
+
+// MINEAGEN_END_CLOSE_WAIT=off keeps the 10-15 block waiting advice (switch end.closeWait).
+export function dragonFinishFacts(environment = process.env) {
+	return getSwitch('end.closeWait', environment).value ? DRAGON_FINISH_FACTS.replace(FINISH_WAIT_FAR, FINISH_WAIT_CLOSE) : DRAGON_FINISH_FACTS;
+}
+
 // Vanilla full-charge melee damage: a sword is 4 + its tier's bonus, these axes 7-10 (ToolMaterial, Items).
 const MELEE_DAMAGE = Object.freeze({ netherite_sword: 8, netherite_axe: 10, diamond_sword: 7, diamond_axe: 9, iron_sword: 6, iron_axe: 9,
 	stone_sword: 5, stone_axe: 9, copper_sword: 5, golden_sword: 4, golden_axe: 7, wooden_sword: 4, wooden_axe: 7 });

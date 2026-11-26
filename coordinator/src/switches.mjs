@@ -167,6 +167,10 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'end.crystalGone', env: 'MINEAGEN_END_CRYSTAL_GONE', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
 		reason: 'The mod reports an End crystal it saw blow up, or whose spot it saw empty, as an alive:false row, and the crystal memory counts it destroyed. Before, only the bot\'s own shot results cleared one: in 8 of 16 End games that broke all ten, the fact kept 1-3 crystals standing for the rest of the fight. off ignores those rows.',
 		readers: ['coordinator/src/dragon-fight-facts.mjs rememberEndCrystals (per call)'] }),
+	// coordinator/src/dragon-fight-facts.mjs dragonFinishFacts(environment): per call.
+	entry({ name: 'end.closeWait', env: 'MINEAGEN_END_CLOSE_WAIT', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
+		reason: 'The dragon fight facts advise waiting 7-10 blocks from the fountain, off any breath cloud, instead of 10-15. In 26 Nov End games, landings with the player 6-10 blocks out were hit 30 of 41 times, 10-20 out 3 of 81. off keeps the 10-15 advice.',
+		readers: ['coordinator/src/dragon-fight-facts.mjs dragonFinishFacts (per call)'] }),
 	// ServerTravelController.java walkAroundEnabled(): per call; property or env.
 	entry({ name: 'travel.walkAround', env: 'MINEAGEN_TRAVEL_WALK_AROUND', property: 'mineagen.travel.walkAround', side: 'server', default: false, parser: ON_WORD,
 		propertyParser: JAVA_GET_BOOLEAN, status: 'default-off',
