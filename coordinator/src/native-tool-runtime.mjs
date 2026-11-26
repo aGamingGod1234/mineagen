@@ -2741,6 +2741,8 @@ export class NativeToolRuntime {
 					return { state: 'FAILED', reasonCode: error?.code ?? 'ACTION_ERROR', message: String(error?.message ?? error).slice(0, 300) };
 				}
 			},
+			// Without this the planner's default lease (about 2 min) cancels a long walk back mid-way.
+			budget: (ms) => { try { request.extendLease?.(ms); } catch { /* the lease is the planner's */ } },
 			stopped: () => !current(),
 			interrupted,
 			note: (text) => {

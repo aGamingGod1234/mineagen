@@ -57,7 +57,12 @@ export function buildNativeEventInput(record, { event, trigger, programId, statu
 	const notice = normalizedEvent === 'program_planning_due' || conversationOnly === true ? [] : workNotices(observation, actionReceipt);
 	// Read before presentation copies the observation: the drop clock rides on recovery as a non-enumerable field.
 	// A live respawn reaches the model as a new-context wake whose trigger is the body's next observation, not 'respawn'.
-	const afterRespawn = trigger === 'respawn' || newContext === true && observation.recovery?.lastDeath?.respawnedAt != null;
+	// Only while the body still stands where it respawned: a later new-context wake would restart a walk back already under way.
+	const respawnedAt = observation.recovery?.lastDeath?.respawnedAt, standing = observation.position ?? observation.player;
+	const atRespawn = respawnedAt != null && Number.isFinite(standing?.x) && Number.isFinite(respawnedAt.x)
+		&& (respawnedAt.dimension === undefined || respawnedAt.dimension === observation.world?.dimension)
+		&& Math.hypot(standing.x - respawnedAt.x, standing.z - respawnedAt.z) <= 8;
+	const afterRespawn = trigger === 'respawn' || newContext === true && atRespawn;
 	const respawnRecovery = afterRespawn && conversationOnly !== true ? respawnLead(observation.recovery ?? null, observation) : null;
 	observation = presentEventObservation(compactProjectileObservation(observation), { inventoryLimit: normalizedEvent === 'program_planning_due' ? 8 : 32 });
 	const header = continuity !== null && typeof continuity === 'object' ? continuity : null;

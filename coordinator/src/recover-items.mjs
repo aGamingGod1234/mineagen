@@ -98,6 +98,8 @@ export async function runRecoverItems(args = {}, body, { now = Date.now } = {}) 
 	const from = o?.position ?? o?.player;
 	// No timeoutMs given: the budget grows with the walk, as a player's run back does (1,800 blocks is minutes, not 4).
 	if (!(Number.isSafeInteger(args?.timeoutMs) && args.timeoutMs > 0) && finite(from)) timeoutMs = Math.min(RECOVER_MAX_TIMEOUT_MS, RECOVER_TIMEOUT_MS + Math.round(flat(from, spot) * RECOVER_MS_PER_BLOCK));
+	// The job runs inside the model's turn: the turn's lease must last as long as the job's own budget.
+	body.budget?.(left());
 	const end = (state, reasonCode, why, extra = {}) => {
 		const counts = held(o);
 		const back = lost.map((row) => ({ itemId: row.itemId, count: Math.min(row.count, Math.max(0, (counts.get(row.itemId) ?? 0) - (before.get(row.itemId) ?? 0))) })).filter((row) => row.count > 0);
@@ -136,6 +138,7 @@ export async function runRecoverItems(args = {}, body, { now = Date.now } = {}) 
 	if (finite(from) && spot.y < from.y - DIG_DOWN && !walkedWay && !pickaxe(o) && typeof body.obtain === 'function') {
 		note(`make a stone pickaxe first: the drops are ${Math.round(from.y - spot.y)} blocks down with no walked way there`);
 		timeoutMs = Math.min(RECOVER_MAX_TIMEOUT_MS + PICK_FIRST_TIMEOUT_MS, timeoutMs + PICK_FIRST_TIMEOUT_MS);
+		body.budget?.(left());
 		const made = await body.obtain('minecraft:stone_pickaxe', 1, Math.max(60_000, Math.min(PICK_FIRST_TIMEOUT_MS, left())));
 		o = await body.observe();
 		if (made?.state === 'INTERRUPTED') return stop(made, 'making a stone pickaxe for the way down');

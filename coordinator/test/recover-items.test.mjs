@@ -191,9 +191,12 @@ test('production runtime: do_step recover_items reads the remembered death and d
 	runtime.updateObservation(record, { death: { cause: 'Probe fell from a high place', dimensionId: OW, ...SPOT, diedAtEpochMs: T0 } }, { eventSequence: seq, force: true });
 	w.at = { x: 0.5, y: 64, z: 0.5 }; w.ground = ground;
 	runtime.updateObservation(record, sample(), { eventSequence: ++seq });
-	const result = await runtime.execute({ agentId: record.agentId, goalRevision: 1, turnId: 't', callId: 'c',
+	const leases = [];
+	const result = await runtime.execute({ agentId: record.agentId, goalRevision: 1, turnId: 't', callId: 'c', extendLease: (ms) => leases.push(ms),
 		tool: normalizeMinecraftToolCall('do_step', { verb: 'recover_items', target: {}, why: 'Go back for the kit.' }) }, record);
 	assert.equal(result.reasonCode, 'RECOVERED', JSON.stringify(result).slice(0, 600));
+	// The planner's default lease (about 2 min) would cancel the walk back; the job extends it to its own budget.
+	assert.ok(leases.length >= 1 && leases[0] > 240_000, JSON.stringify(leases));
 	assert.equal(commands[0], 'travel_to');
 	assert.ok(commands.includes('pick_up_item') && commands.includes('equip_item'));
 	assert.ok(w.slots.some((s) => s.itemId === 'minecraft:shield' && s.slot === 'offhand'));
@@ -214,9 +217,13 @@ test('drops deep underground with no walked way and no pickaxe: make a stone pic
 		};
 		const act = w.body.act;
 		w.body.act = async (type, args) => { order.push([type]); return act(type, args); };
+		const budgets = [];
+		w.body.budget = (ms) => budgets.push(ms);
 		const result = await runRecoverItems({}, w.body);
 		assert.equal(result.reasonCode, 'RECOVERED');
 		assert.deepEqual(order.slice(0, 2), [['obtain', 'minecraft:stone_pickaxe', 1], ['travel_to']]);
+		assert.equal(budgets.length, 2, 'the walk budget, then the walk plus the pickaxe');
+		assert.ok(budgets[1] > budgets[0] + 170_000);
 		assert.equal(w.calls[0].args.y, deep.y);
 	} finally { SPOT.y = 64; }
 });
@@ -269,6 +276,8 @@ test('a live respawn wake (an observation trigger with a new context) carries th
 	const head = (options) => { const input = buildNativeEventInput(record, { event: 'observation', trigger: 'observation', observation, ...options }); return input.slice(0, input.indexOf('\n')); };
 	assert.ok(head({ newContext: true }).includes(RECOVER_FIRST_MOVE));
 	assert.ok(!head({ newContext: false }).includes('recover_items'), 'an ordinary wake does not repeat it');
+	const away = buildNativeEventInput(record, { event: 'observation', trigger: 'observation', newContext: true, observation: { ...observation, position: { x: 30.5, y: 40, z: 0.5 } } });
+	assert.ok(!away.slice(0, away.indexOf('\n')).includes('recover_items'), 'a later new context, already on the way back, does not restart it');
 	const { respawnedAt: _, ...noRespawn } = recovery.lastDeath;
 	const input = buildNativeEventInput(record, { event: 'observation', trigger: 'observation', newContext: true, observation: { ...observation, recovery: { ...recovery, lastDeath: noRespawn } } });
 	assert.ok(!input.slice(0, input.indexOf('\n')).includes('recover_items'), 'a new goal with no respawn since the death');
