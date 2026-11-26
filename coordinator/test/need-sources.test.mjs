@@ -190,7 +190,7 @@ test('the options line lists remembered sources nearest first, then typical ways
 	assert.equal(needOptions({ resources: ['iron', 'diamond'], position, known: withDiamond, cap: 200 }), tight, 'a later resource is omitted rather than appended as a clipped fragment');
 	// Pearl options price each source and make room for the next resource.
 	const eyes = needOptions({ ids: ['minecraft:ender_eye'], position, known });
-	assert.match(eyes, /^ender_pearl: 12 more needed \(pearls and eyes held 0\/12: 0 pearls; 0 gold; eyes: 1 per empty End portal frame of 12 .*\), est\. options: 12 pearls by barter take ~188 gold .*; village 141m NE dy\+54: an expert-level cleric sells pearls for emeralds \| blaze_rod: seen none remembered; ways \(typical\): only from blazes/);
+	assert.match(eyes, /^ender_pearl: 15 more needed \(pearls and eyes held 0\/15: 0 pearls; 0 gold; eyes: 1 per empty End portal frame of 12 .*\), est\. options: 15 pearls by barter take ~235 gold .*; village 141m NE dy\+54: an expert-level cleric sells pearls for emeralds \| blaze_rod: seen none remembered; ways \(typical\): only from blazes/);
 });
 
 test('mining options describe excavation costs without ranking them slowest', () => {
@@ -401,7 +401,7 @@ const rootStep = (check) => ({ id: 'need', label: 'need', kind: 'milestone', sta
 
 test('unmet roots the step line already counts still get their options', async () => {
 	const cases = [['has:minecraft:obsidian*10', /^obsidian: est\. minutes to 10 more frame obsidian from here \(no water bucket held; casting needs one, any water fills a bucket\), cheapest first: dig to the y-55 lava floors ~37[; ]/],
-		['has:minecraft:ender_pearl*12', /^ender_pearl: 12 more needed \(pearls and eyes held 0\/12: 0 pearls; 0 gold; eyes: 1 per empty End portal frame of 12 .*\), est\. options: 12 pearls by barter take ~188 gold/],
+		['has:minecraft:ender_pearl*12', /^ender_pearl: 15 more needed \(pearls and eyes held 0\/15: 0 pearls; 0 gold; eyes: 1 per empty End portal frame of 12 .*\), est\. options: 15 pearls by barter take ~235 gold/],
 		['has:minecraft:blaze_rod*6', /^blaze_rod: seen none remembered; ways \(typical\): only from blazes/],
 		['has:minecraft:iron_ingot*3', /^iron: seen none remembered; ways \(typical\): exposed ore/]];
 	for (const [check, expected] of cases) {
@@ -765,7 +765,7 @@ test('seen spawners and source mobs are remembered and offered as blaze rod and 
 	recordSightings(search, { blocks: [{ blockId: 'minecraft:spawner', ...place(84, 73, 92) }] }, 30, undefined, nether);
 	assert.equal(search.sightings.get('minecraft:spawner@10,11').mob, 'minecraft:blaze');
 	assert.match(needOptions({ ids: ['minecraft:blaze_rod'], position, known: known() }), /^blaze_rod: seen blaze 20m E dy\+5 @80,75,90, spawner\(blaze\) 24m E y73 @84,73,92; ways/);
-	assert.match(needOptions({ ids: ['minecraft:ender_pearl'], position, known: known() }), /^ender_pearl: 12 more needed .*; enderman seen 40m W @20,70,90: 0-1 pearl per kill/);
+	assert.match(needOptions({ ids: ['minecraft:ender_pearl'], position, known: known() }), /^ender_pearl: 15 more needed .*; enderman seen 40m W @20,70,90: 0-1 pearl per kill/);
 	assert.ok(![...search.sightings.values()].some(row => row.what === 'minecraft:wither_skeleton' || row.x === 0), 'other mobs and heard ones are not leads');
 	assert.match(knownLine({ known: known(), position }), /places: spawner\(blaze\) 24m E y73 @84,73,92/);
 	const overworld = createSearch();
@@ -925,28 +925,28 @@ test('pearlHuntLine names the nearest walkable enderman within 16 m while pearls
 	const enderman = (distance, y, extra = {}) => ({ type: 'minecraft:enderman', alive: true, distance, x: distance, y, z: 0, ...extra });
 	const observation = (entities, items = [{ itemId: 'minecraft:ender_pearl', count: 1 }, { itemId: 'minecraft:iron_sword', count: 1 }]) => ({ entities, inventory: { items } });
 	assert.equal(pearlHuntLine({ observation: observation([enderman(7, 51), enderman(12, 50)]), position, open }),
-		'enderman 7 m, 1 up, calm, 1 more within 16 m; pearls 1/12 open');
+		'enderman 7 m, 1 up, calm, 1 more within 16 m; pearls 1/15 open');
 	assert.equal(pearlHuntLine({ observation: observation([{ type: 'minecraft:enderman', distance: 5, position: { x: 5, y: 48, z: 0 }, targetingAgent: true }]), position, open }),
-		'enderman 5 m, 2 down, angry at you; pearls 1/12 open');
+		'enderman 5 m, 2 down, angry at you; pearls 1/15 open');
 	// A ledge 7 up is skipped for a walkable one farther off; none walkable or none within 16 m gives no line.
 	assert.match(pearlHuntLine({ observation: observation([enderman(4, 57), enderman(10, 50)]), position, open }), /^enderman 10 m, level/);
 	assert.equal(pearlHuntLine({ observation: observation([enderman(4, 57)]), position, open }), null);
 	assert.equal(pearlHuntLine({ observation: observation([enderman(17, 50)]), position, open }), null);
 	assert.equal(pearlHuntLine({ observation: { ...observation([enderman(6, 50)]), currentAction: { active: true, actionType: 'travel_to' } }, position, open }),
-		'enderman 6 m, level, calm; pearls 1/12 open; your travel_to is still running and does not stop for it');
+		'enderman 6 m, level, calm; pearls 1/15 open; your travel_to is still running and does not stop for it');
 	// No open pearl need, enough pearls held, or an unknown inventory: no line.
 	assert.equal(pearlHuntLine({ observation: observation([enderman(7, 50)]), position, open: 'has:minecraft:blaze_rod*6' }), null);
-	assert.equal(pearlHuntLine({ observation: observation([enderman(7, 50)], [{ itemId: 'minecraft:ender_pearl', count: 12 }]), position, open }), null);
+	assert.equal(pearlHuntLine({ observation: observation([enderman(7, 50)], [{ itemId: 'minecraft:ender_pearl', count: 15 }]), position, open }), null);
 	assert.equal(pearlHuntLine({ observation: { entities: [enderman(7, 50)], inventory: { items: [] }, continuity: { rememberedSections: ['inventory'] } }, position, open }), null);
 	// Not geared: the line says so, and why. An angry one is still fought (fleeing does not work), so it adds nothing.
 	const wooden = [{ itemId: 'minecraft:ender_pearl', count: 1 }, { itemId: 'minecraft:wooden_sword', count: 1 }];
 	assert.equal(pearlHuntLine({ observation: observation([enderman(7, 50)], wooden), position, open }),
-		'enderman 7 m, level, calm; pearls 1/12 open; not geared for it (only a wooden or golden weapon): it hits for 7 and has 40 health, so leave a calm one calm and do not look at it until you are');
+		'enderman 7 m, level, calm; pearls 1/15 open; not geared for it (only a wooden or golden weapon): it hits for 7 and has 40 health, so leave a calm one calm and do not look at it until you are');
 	assert.match(pearlHuntLine({ observation: { ...observation([enderman(7, 50)]), player: { health: 9, armor: 0 } }, position, open }), /not geared for it \(health 9\)/);
 	const stone = [{ itemId: 'minecraft:stone_sword', count: 1 }];
 	assert.match(pearlHuntLine({ observation: { ...observation([enderman(7, 50)], stone), player: { health: 20, armor: 4 } }, position, open }), /not geared for it \(stone weapon with 4 armour\)/);
 	assert.doesNotMatch(pearlHuntLine({ observation: { ...observation([enderman(7, 50)], stone), player: { health: 20, armor: 15 } }, position, open }), /not geared/, 'stone with iron armour is enough');
-	assert.equal(pearlHuntLine({ observation: observation([{ ...enderman(5, 50), targetingAgent: true }], []), position, open }), 'enderman 5 m, level, angry at you; pearls 0/12 open');
+	assert.equal(pearlHuntLine({ observation: observation([{ ...enderman(5, 50), targetingAgent: true }], []), position, open }), 'enderman 5 m, level, angry at you; pearls 0/15 open');
 });
 
 test('the obsidian cave option is the cheapest seen cave, not the nearest', () => {
@@ -955,4 +955,13 @@ test('the obsidian cave option is the cheapest seen cave, not the nearest', () =
 	const line = obsidianOptions({ position: { x: 0, y: 70, z: 0 }, known: { sightings: [above, below], blocks: [] } });
 	assert.match(line, /cheapest first: cave 20m E dy-40 y30 ~\d+ \(travel_to @20,30,0, /);
 	assert.doesNotMatch(line, /y78/);
+});
+
+test('pearl lines count toward the 15-pearl eye plan even when the step names the frame\'s 12 eyes, unless route.pearlPlan is off', async () => {
+	const { pearlTarget } = await import('../src/need-sources.mjs');
+	assert.equal(pearlTarget('has:minecraft:ender_eye*12', {}), 15);
+	assert.equal(pearlTarget('', {}), 15);
+	assert.equal(pearlTarget('has:minecraft:ender_pearl*18', {}), 18);
+	assert.equal(pearlTarget('has:minecraft:ender_eye*12', { MINEAGEN_ROUTE_PEARL_PLAN: 'off' }), 12);
+	assert.equal(pearlTarget('', { MINEAGEN_ROUTE_PEARL_PLAN: 'off' }), 12);
 });

@@ -356,8 +356,8 @@ test('full game: open pearls price each source from the gold held, sightings and
  await views.observe(record, nether);
  let options = views.continuity(record).options;
  // The rods step comes first: the pearl line follows its needs, ahead of the route line.
- assert.match(options, /^blaze_rod: .* \| ender_pearl: 10 more needed \(pearls and eyes held 2\/12: 2 pearls; 10 gold; eyes: 1 per empty End portal frame of 12 \(a frame starts filled 10% of the time\), 1 in 5 thrown to find the stronghold breaks\), est\. options: primary Nether pearl route: find a warped forest through visible exploration; mine seen ore and barter held gold as secondary supply; barter the 10 held gold: ~0\.6 pearls expected, 81% chance of none, ~1 min \(about 6 s per ingot with one piglin, measured 3\.2 s with 5\)/);
- assert.match(options, /10 pearls by barter take ~157 gold \(~18 gold blocks\) \| Nether route/);
+ assert.match(options, /^blaze_rod: .* \| ender_pearl: 13 more needed \(pearls and eyes held 2\/15: 2 pearls; 10 gold; eyes: 1 per empty End portal frame of 12 \(a frame starts filled 10% of the time\), 1 in 5 thrown to find the stronghold breaks\), est\. options: primary Nether pearl route: find a warped forest through visible exploration; mine seen ore and barter held gold as secondary supply; barter the 10 held gold: ~0\.6 pearls expected, 81% chance of none, ~1 min \(about 6 s per ingot with one piglin, measured 3\.2 s with 5\)/);
+ assert.match(options, /13 pearls by barter take ~204 gold \(~23 gold blocks\) \| Nether route/);
  assert.doesNotMatch(options, /2-high tunnel/, 'no enderman option, no fight rule');
  // Overworld by day with no enderman: nothing to act on, no line; at night it returns.
  const day = new LiveTaskViews();
@@ -365,7 +365,7 @@ test('full game: open pearls price each source from the gold held, sightings and
  await day.observe(record, { ...sample(1, [['iron_sword']]), player: { dead: false, x: 0.5, y: 70, z: 0.5 }, world: { worldId: 'w', dimension: 'minecraft:overworld', dayTime: 3000 } });
  assert.doesNotMatch(day.continuity(record).options ?? '', /ender_pearl:/);
  await day.observe(record, { ...sample(2, [['iron_sword']]), player: { dead: false, x: 0.5, y: 70, z: 0.5 }, world: { worldId: 'w', dimension: 'minecraft:overworld', dayTime: 15000 } });
- assert.match(day.continuity(record).options, /ender_pearl: 12 more needed .*night now: endermen spawn/);
+ assert.match(day.continuity(record).options, /ender_pearl: 15 more needed .*night now: endermen spawn/);
  // A first step that needs pearls carries the line once, in its needs.
  const first = new LiveTaskViews();
  first.suggest(record.agentId, record.currentGoal, { steps: [step('pearls', 'has:minecraft:ender_pearl*12')] });
@@ -389,15 +389,15 @@ test('full game: pearls partly gathered keep their place on the plan line, and a
  const shown = views.continuity(record);
  assert.match(shown.plan, /open pearls\[unmet:ender_pearl\|ender_eye 6\/12\]/);
  assert.ok(Buffer.byteLength(shown.plan) <= 260, shown.plan);
- assert.match(shown.options, /^ender_pearl: 6 more needed \(pearls and eyes held 6\/12: 5 pearls, 1 eyes; 3 gold; .*est\. options: primary Nether pearl route: find a warped forest through visible exploration; mine seen ore and barter held gold as secondary supply; barter the 3 held gold: ~0\.2 pearls expected, 94% chance of none, <1 min with the 1 calm piglin in view/);
- assert.match(shown.options, /6 pearls by barter take ~94 gold \(~11 gold blocks\)/);
+ assert.match(shown.options, /^ender_pearl: 9 more needed \(pearls and eyes held 6\/15: 5 pearls, 1 eyes; 3 gold; .*est\. options: primary Nether pearl route: find a warped forest through visible exploration; mine seen ore and barter held gold as secondary supply; barter the 3 held gold: ~0\.2 pearls expected, 94% chance of none, <1 min with the 1 calm piglin in view/);
+ assert.match(shown.options, /9 pearls by barter take ~141 gold \(~16 gold blocks\)/);
  const spent = { ...after, observedAtEpochMs: 1, inventory: sample(1, [['iron_pickaxe'], ['ender_pearl', 6]]).inventory };
  await views.observe(record, spent);
- assert.match(views.continuity(record).options, /^ender_pearl: 6 more needed .* \| Nether route/);
+ assert.match(views.continuity(record).options, /^ender_pearl: 9 more needed .* \| Nether route/);
  // An enderman in view: its hunt and the fight rule lead the pearl line, ahead of the barter sums.
  const enderman = { ...spent, observedAtEpochMs: 2, entities: [{ type: 'minecraft:enderman', stableId: 'e1', x: 10.5, y: 60, z: 0.5, distance: 10, alive: true }] };
  await views.observe(record, enderman);
- assert.match(views.continuity(record).options, /^ender_pearl: 6 more needed .*est\. options: 1 enderman in view: 0-1 pearl per kill .*; enderman fight: 40 health, hits ~7 .*optional protection, not a prerequisite; a stare at its eyes provokes one; collect its pearl; 6 pearls by barter take/);
+ assert.match(views.continuity(record).options, /^ender_pearl: 9 more needed .*est\. options: 1 enderman in view: 0-1 pearl per kill .*; enderman fight: 40 health, hits ~7 .*optional protection, not a prerequisite; a stare at its eyes provokes one; collect its pearl; 9 pearls by barter take/);
 });
 
 
