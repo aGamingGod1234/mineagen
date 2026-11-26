@@ -159,6 +159,7 @@ const READS = [
 	['fight.forestHunt', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/WarpedForestHunt.java', 'static boolean enabled = dev.agaminggod.mineagen.server.Switches.get("fight.forestHunt");'],
 	['fight.fullIds', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerFightUntilController.java', 'Switches.get("fight.fullIds")'],
 	['fight.skipUnreachable', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/UnreachableTargets.java', 'Switches.get("fight.skipUnreachable")'],
+	['reflex.faceMelee', 'src/main/java/dev/agaminggod/mineagen/server/runtime/reflex/ReflexActions.java', 'static final boolean FACE_MELEE = dev.agaminggod.mineagen.server.Switches.get("reflex.faceMelee");'],
 	['killPosition', 'src/main/java/dev/agaminggod/mineagen/server/perception/KillSighting.java', 'Switches.get("killPosition")'],
 	['watch', 'src/main/java/dev/agaminggod/mineagen/server/watch/Watcher.java', 'Switches.get("watch")'],
 	['kit.habit', 'scripts/quality/test-iron-kit-live.mjs', "getSwitch('kit.habit')"],
@@ -193,6 +194,7 @@ test('every reader reads its switch through the registry, and no switch variable
 		'fight.forestHunt': { property: 'mineagen.fight.forestHunt', properties: [[undefined, false], ['true', true], ['TRUE', true], [' true', false]] },
 		'fight.fullIds': { property: 'mineagen.fight.fullIds', properties: [[undefined, true], ['false', false], ['FALSE', true]] },
 		'fight.skipUnreachable': { property: 'mineagen.fight.skipUnreachable', properties: [[undefined, true], ['false', false], ['FALSE', true]] },
+		'reflex.faceMelee': { property: 'mineagen.reflex.faceMelee', properties: [[undefined, true], ['false', false], ['FALSE', true]] },
 		'killPosition': { property: 'mineagen.killPosition', properties: [[undefined, true], ['false', false], [' FALSE ', false], ['no', true]] },
 		'watch': { property: 'mineagen.watch', properties: [[undefined, false], ['true', true], [' TRUE ', true], ['1', false]] },
 	};
@@ -306,10 +308,11 @@ public class SwitchesParity {
 				"true".equalsIgnoreCase(p.get("mineagen.fight.forestHunt")),
 				!"false".equals(p.get("mineagen.fight.fullIds")),
 				!"false".equals(p.get("mineagen.fight.skipUnreachable")),
+				!"false".equals(p.get("mineagen.reflex.faceMelee")),
 				!"false".equalsIgnoreCase(p.getOrDefault("mineagen.killPosition", "true").trim()),
 				"true".equalsIgnoreCase(p.getOrDefault("mineagen.watch", "false").trim()) };
 		String[] names = { "instincts", "travel.walkAround", "fight.chargeGuard", "fight.recover", "fight.spawnerHold", "fight.spawnerHoldOpen",
-				"fight.forestHunt", "fight.fullIds", "fight.skipUnreachable", "killPosition", "watch" };
+				"fight.forestHunt", "fight.fullIds", "fight.skipUnreachable", "reflex.faceMelee", "killPosition", "watch" };
 		StringBuilder line = new StringBuilder("switches");
 		for (int i = 0; i < names.length; i++) line.append(' ').append(names[i]).append('=').append(values[i] ? "on" : "off");
 		return line.toString();
