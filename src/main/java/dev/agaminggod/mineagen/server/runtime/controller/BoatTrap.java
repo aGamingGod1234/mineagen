@@ -567,6 +567,8 @@ final class BoatTrap {
 					if (!level.getBlockState(cell.below()).isFaceSturdy(level, cell.below(), Direction.UP)) continue;
 					if (!level.getBlockState(cell.above()).getCollisionShape(level, cell.above()).isEmpty()) continue;
 					if (!level.getEntitiesOfClass(LivingEntity.class, new AABB(cell)).isEmpty()) continue;
+					// The boat on top must fit: its footprint reaches into the cells round the block.
+					if (problem(player, new Vec3(cell.getX() + 0.5D, cell.getY() + 1.0D, cell.getZ() + 0.5D)) != null) continue;
 					blockAt = cell.immutable();
 					blockItem = block;
 					blockTicks = 0;
@@ -575,7 +577,10 @@ final class BoatTrap {
 				}
 			}
 		}
-		if (faces.isEmpty()) return null;
+		if (faces.isEmpty()) {
+			note(laid != null ? "no room for a boat on the block at " + laid.toShortString() : "no floor in line for a boat toward " + target.getUUID());
+			return null;
+		}
 		int slot = boatSlot(player);
 		if (slot < 0) return null;
 		var inventory = player.getInventory();
@@ -604,6 +609,7 @@ final class BoatTrap {
 			}
 		}
 		inventory.setSelectedSlot(before);
+		note("the boat would not go down on " + faces.size() + " spot(s) toward " + target.getUUID());
 		return null;
 	}
 
