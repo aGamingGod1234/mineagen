@@ -106,7 +106,11 @@ test('steady equals the default set; each stance changes only its numbers', () =
 	assert.deepEqual([fight['default-cover'], cautious['default-cover']].map((r) => r.when[0].value), [4, 9]);
 	assert.deepEqual([fight['default-blaze-cover'], cautious['default-blaze-cover']].map((r) => r.when[0].value), [8, 14]);
 	const strip = (rule) => JSON.stringify({ ...rule, when: rule.when.map(({ value, ...c }) => c) });
-	for (const rule of DEFAULT_REFLEXES) assert.equal(strip(cautious[rule.id]), strip(rule), `${rule.id} changes nothing but a number`);
+	// kit.rekit: hurt (cautious), eat with a mob 4 blocks off, not 8; every other stance keeps 8.
+	assert.equal(cautious['default-eat'].when.find((c) => c.type === 'hostile_near').within, 4);
+	assert.equal(fight['default-eat'].when.find((c) => c.type === 'hostile_near').within, 8);
+	const eatRange = (rule) => rule.id === 'default-eat' ? { ...rule, when: rule.when.map((c) => c.type === 'hostile_near' ? { ...c, within: 8 } : c) } : rule;
+	for (const rule of DEFAULT_REFLEXES) assert.equal(strip(eatRange(cautious[rule.id])), strip(rule), `${rule.id} changes nothing but a number`);
 });
 
 test('flag off: no stance, the payload and wake line stay as before even in a fight', () => {

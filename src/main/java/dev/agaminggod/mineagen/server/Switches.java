@@ -85,6 +85,8 @@ public final class Switches {
 		new Switch("killPosition", null, "mineagen.killPosition", "server", true, NOT_FALSE_WORD, null, "default-on"),
 		// ReflexEngine.java holdRun: class load (tests reassign it).
 		new Switch("reflex.holdRun", "MINEAGEN_REFLEX_HOLD_RUN", null, "server", true, OFF_WORD, null, "default-on"),
+		// ReflexScheduler.java eatThrough: class load (tests reassign it).
+		new Switch("reflex.eatThrough", "MINEAGEN_EAT_THROUGH", null, "server", true, OFF_WORD, null, "default-on"),
 		// Watcher.java enabled(): per call.
 		new Switch("watch", null, "mineagen.watch", "server", false, TRUE_WORD, null, "diagnostic")
 	);

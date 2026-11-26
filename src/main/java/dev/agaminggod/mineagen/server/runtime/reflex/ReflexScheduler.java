@@ -667,7 +667,19 @@ public final class ReflexScheduler {
 		// floor is only level-triggered: a queued edge (a rearm after another firing) never starts it once the cloud has cleared.
 		if (state.rule.kind() == ReflexSpec.Kind.TRIGGER && state.releasesCornered) return state.lastTruth && !state.yieldedTrigger;
 		if (state.rule.kind() == ReflexSpec.Kind.TRIGGER) return state.pendingUntil >= now || state.floor && state.lastTruth && !state.yieldedTrigger;
-		return state.lastTruth && !state.suppressed;
+		return state.lastTruth && (!state.suppressed || eatsThrough(state.rule));
+	}
+
+	/**
+	 * reflex.eatThrough: the coordinator's eat stance is not put down by a model command. Suppressed for the whole of each
+	 * command, it slept through long errands while hunger sat at 12-17 (health regrows only at 18+): in the 8 fresh games on
+	 * main 069e471 about 19 of 31 deaths read had no food eaten, several with food carried. It still waits for a hostile to be
+	 * out of reach, its cooldown and every higher rule, and the command resumes once the meal is down.
+	 */
+	static boolean eatThrough = dev.agaminggod.mineagen.server.Switches.get("reflex.eatThrough");
+
+	static boolean eatsThrough(ReflexSpec.Rule rule) {
+		return eatThrough && rule.coordinatorDefault() && rule.kind() == ReflexSpec.Kind.STANCE && "eat".equals(rule.action().type());
 	}
 
 	private void recordEnd(State state, Outcome outcome, long now, String detail) {

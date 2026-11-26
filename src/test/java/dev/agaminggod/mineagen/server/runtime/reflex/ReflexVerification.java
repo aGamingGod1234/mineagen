@@ -44,6 +44,7 @@ public final class ReflexVerification {
 		expiry();
 		yieldSuppressesStanceUntilConditionClears();
 		runHoldHandsBackAfterTheRun();
+		eatStanceEatsUnderACommand();
 		replaceKeepsUnchangedState();
 		stanceFlipKeepsTheFiring();
 		retreatPaceCheck();
@@ -431,6 +432,25 @@ public final class ReflexVerification {
 		check(scheduler.anySuppressed(), "defend still under attack waits for the command");
 		check(scheduler.step(40, sense("d", true, "lava", false), RUNNING, "", true).started() == null, "it does not take the body back while attacked");
 		check("lava".equals(scheduler.step(41, sense("d", true, "lava", true), RUNNING, "", true).started()), "a floor still fires under the command");
+	}
+
+	/** reflex.eatThrough: the coordinator's eat stance eats under a model command; a model-written eat stance still yields. */
+	private static void eatStanceEatsUnderACommand() {
+		ReflexScheduler scheduler = new ReflexScheduler();
+		scheduler.replace(rules("[{\"id\":\"default-eat\",\"kind\":\"stance\",\"priority\":3,\"when\":{\"type\":\"hunger_below\",\"value\":18},\"do\":{\"type\":\"eat\"},\"cooldownMs\":20000,\"coordinatorDefault\":true}]"), 0);
+		ReflexSpec.Rule mine = rules("[{\"id\":\"mine\",\"kind\":\"stance\",\"when\":{\"type\":\"hunger_below\",\"value\":18},\"do\":{\"type\":\"eat\"}}]").get(0);
+		check("default-eat".equals(scheduler.step(1, sense("default-eat", true), RUNNING, "", true).started()), "the eat stance fires when hungry");
+		check(scheduler.yield(2).endOutcome() == ReflexScheduler.Outcome.YIELDED, "a model command ends the meal");
+		String next = scheduler.step(3, sense("default-eat", true), RUNNING, "", true).started();
+		check(next == null, "no second meal inside the cooldown: " + next);
+		boolean on = ReflexScheduler.eatThrough;
+		try {
+			check(ReflexScheduler.eatsThrough(scheduler.rule("default-eat")) == on && !ReflexScheduler.eatsThrough(mine), "only the coordinator's eat eats through");
+			String after = scheduler.step(3 + 20 * 20 + 1, sense("default-eat", true), RUNNING, "", true).started();
+			check(on ? "default-eat".equals(after) : after == null, "after its cooldown, still hungry under the same command, it eats again: " + after);
+		} finally {
+			ReflexScheduler.eatThrough = on;
+		}
 	}
 
 	private static void replaceKeepsUnchangedState() {

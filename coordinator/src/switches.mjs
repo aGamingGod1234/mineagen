@@ -130,6 +130,10 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'kit.habit', env: 'MINEAGEN_KIT_HABIT', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
 		reason: 'Keeps a shield, iron armour and food in reach after each obtain; off is the A/B off arm (#32).',
 		readers: ['coordinator/src/kit-habit.mjs kitHabitEnabled (per call)'] }),
+	// coordinator/src/kit-habit.mjs rekitEnabled(environment): per call. coordinator/src/reflexes.mjs materializeDefault: per call.
+	entry({ name: 'kit.rekit', env: 'MINEAGEN_REKIT', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
+		reason: 'Armour from carried iron before a second bucket, armour put on when hurt, and eating with a mob 4+ blocks off when hurt (cautious stance). 40 of 42 deaths in 8 fresh games on main 069e471 had no armour, one with 13 iron carried; off is the A/B off arm.',
+		readers: ['coordinator/src/kit-habit.mjs rekitEnabled (per call)', 'coordinator/src/reflexes.mjs materializeDefault (per call)'] }),
 	// coordinator/src/night-cover.mjs nightMoveStop(..., { environment }): per call.
 	entry({ name: 'night.cover', env: 'MINEAGEN_NIGHT_COVER', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
 		reason: 'Keeps an unarmoured bot under cover on its first night; off restores the old climb-out for room A/Bs (#117).',
@@ -204,6 +208,10 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'reflex.holdRun', env: 'MINEAGEN_REFLEX_HOLD_RUN', side: 'server', default: true, parser: OFF_WORD, status: 'default-on',
 		reason: 'Retreat, cover and defend finish their run (10 s at most) before any model command takes the body, as lava, air and creeper do. In 21 of 42 deaths of 8 fresh games on main 069e471 the next command ended one mid-run; off is the A/B off arm.',
 		readers: ['ReflexEngine.java holdRun (class load)'] }),
+	// ReflexScheduler.java eatThrough: static, class load (tests reassign it).
+	entry({ name: 'reflex.eatThrough', env: 'MINEAGEN_EAT_THROUGH', side: 'server', default: true, parser: OFF_WORD, status: 'default-on',
+		reason: 'The eat stance keeps eating under a model command instead of sleeping through it; in 8 fresh games on main 069e471 about 19 of 31 deaths read had no food eaten, several with food carried. off is the A/B off arm.',
+		readers: ['ReflexScheduler.java eatThrough (class load)'] }),
 	// Watcher.java enabled(): per call.
 	entry({ name: 'watch', property: 'mineagen.watch', side: 'server', default: false, parser: flag({ token: 'true', means: 'on', trim: true, anyCase: true }), status: 'diagnostic',
 		reason: 'Writes the arena-watch progress and danger logs the quality reports read; off on players\' servers because it scans the world every few ticks.',
