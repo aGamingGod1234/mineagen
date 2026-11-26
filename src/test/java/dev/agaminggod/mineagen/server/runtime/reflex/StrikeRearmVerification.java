@@ -73,6 +73,8 @@ public final class StrikeRearmVerification {
 		} finally {
 			if (saved == null) System.clearProperty("mineagen.end.strikeRearm");
 			else System.setProperty("mineagen.end.strikeRearm", saved);
+			if (savedDefault == null) System.clearProperty("mineagen.reflex.defaultRearm");
+			else System.setProperty("mineagen.reflex.defaultRearm", savedDefault);
 		}
 		return 8;
 	}
