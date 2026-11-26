@@ -163,6 +163,10 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'end.highDescent', env: 'MINEAGEN_END_HIGH_DESCENT', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
 		reason: 'Feet above y75 in the End, the crystal fact adds how to come down a built column: dig_to shaft to the ground, no water poured on the top. In End games, 5 of 6 descents from y95+ died, each after a pour on the top or a sideways dig. off leaves the advice out.',
 		readers: ['coordinator/src/dragon-fight-facts.mjs endCrystalFact (per call)'] }),
+	// coordinator/src/need-sources.mjs pearlTarget(text, environment): per call.
+	entry({ name: 'route.pearlPlan', env: 'MINEAGEN_ROUTE_PEARL_PLAN', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
+		reason: 'Pearl lines count toward the eye plan (15 pearls) or a larger step count, instead of the step\'s own count or 12. A check naming the frame\'s 12 eyes stopped the pearl hunt at 12 while the route asked for 15, and 1 in 5 thrown eyes breaks. off keeps the step count.',
+		readers: ['coordinator/src/need-sources.mjs pearlTarget (per call)'] }),
 	// ServerTravelController.java walkAroundEnabled(): per call; property or env.
 	entry({ name: 'travel.walkAround', env: 'MINEAGEN_TRAVEL_WALK_AROUND', property: 'mineagen.travel.walkAround', side: 'server', default: false, parser: ON_WORD,
 		propertyParser: JAVA_GET_BOOLEAN, status: 'default-off',
@@ -173,6 +177,10 @@ export const SWITCHES = Object.freeze([
 		parser: flag({ token: 'false', means: 'off', trim: true, anyCase: true }), propertyParser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
 		reason: 'In one-deep water the body stands and walks on the bed instead of holding jump and bobbing: the swim out stops over a shallow bank, and navigation jumps only at a step up or against the bank. In 8 fresh games 40 of 47 travel water timeouts (NO_ROUTE, about 39 min) ended bobbing over such a bank; false keeps the held jump.',
 		readers: ['ServerTravelController.java shallowShoreEnabled (per call)', 'ServerNavigationController.java jumpPending via shallowShoreEnabled (per call)'] }),
+	// ServerRetraceController.java skipBuriedEnabled(): per call; property only.
+	entry({ name: 'travel.skipBuried', property: 'mineagen.travel.skipBuried', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
+		reason: 'Retrace passes a remembered footstep that is now filled with solid blocks (often its own stair steps placed over an old tunnel) and heads for the next open one. In 8 fresh games 32 of 37 one-minute retrace stalls (about 39 min) had the body 1-6 blocks above a nearby footstep; false keeps aiming at them.',
+		readers: ['ServerRetraceController.java skipBuriedEnabled (per call)'] }),
 	// ServerFightUntilController.java CHARGE_GUARD: static final, class load.
 	entry({ name: 'fight.chargeGuard', property: 'mineagen.fight.chargeGuard', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
 		reason: 'Raises the shield before a charged blaze\'s volley; false is the fixture A/B off arm.',
