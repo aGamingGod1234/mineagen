@@ -114,6 +114,11 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'find.dryFlood', env: 'MINEAGEN_FIND_DRY_FLOOD', side: 'coordinator', default: true, parser: OFF_EXACT, status: 'default-on',
 		reason: 'Water that ran into an opened tunnel and stopped short of the body is a shut way the search turns from, not danger that ends it; off is the A/B off arm.',
 		readers: ['coordinator/src/find-search.mjs dryFlood (per call)'] }),
+	// coordinator/src/skill-fits.mjs routeLine and coordinator/src/live-task-view.mjs openOrder: per call.
+	entry({ name: 'route.eyesHold', env: 'MINEAGEN_EYES_HOLD', side: 'coordinator', default: true,
+		parser: Object.freeze({ id: 'off-if:0|off', kind: 'boolean', unset: true, parse: (raw) => !['0', 'off'].includes(String(raw)) }), status: 'default-on',
+		reason: 'With an eye in hand the route and the plan lead to the stronghold and its portal before any trip back to the Nether (8 eyes-to-dragon games: 4 went back with 9-11 eyes, 3 died there); 0 or off is the A/B off arm.',
+		readers: ['coordinator/src/skill-fits.mjs routeLine (per call)', 'coordinator/src/live-task-view.mjs openOrder (per call)'] }),
 	// coordinator/src/obtain-runner.mjs OBTAIN_COSTS: read once at module load.
 	entry({ name: 'obtain.costs', env: 'MINEAGEN_OBTAIN_COSTS', side: 'coordinator', default: true, parser: OFF_EXACT, status: 'default-on',
 		reason: 'Off plans as before chest looting, the seen-source cost model and the one-trip kit iron, for A/B rooms (#115).',
@@ -126,6 +131,15 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'obtain.fillEdge', env: 'MINEAGEN_OBTAIN_FILL_EDGE', side: 'coordinator', default: true, parser: OFF_EXACT, status: 'default-on',
 		reason: 'A walk to water that ends at an edge over water 3-8 blocks below digs down beside the drop and fills there (room kit-gate-6); off is the A/B off arm.',
 		readers: ['coordinator/src/obtain-runner.mjs FILL_EDGE (module load, process.env only)'] }),
+	// coordinator/src/skill-fits.mjs foodFloorOn(environment): per call (routeLine).
+	// coordinator/src/obtain-runner.mjs gatherNeed: per call.
+	entry({ name: 'stock.foodFloor', env: 'MINEAGEN_FOOD_FLOOR', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
+		reason: 'Surface stock once: 8 fresh games of 25 Nov left the Nether for food in 3 of 5 saves and entered it with no food 14 of 20 times; the route now holds a food-points and wood minimum before the descent and the portal; off is the A/B off arm.',
+		readers: ['coordinator/src/skill-fits.mjs foodFloorOn (per call)', 'coordinator/src/obtain-runner.mjs gatherNeed (per call)'] }),
+	// coordinator/src/native-tool-runtime.mjs #portalStockGate: per call.
+	entry({ name: 'stock.portalGate', env: 'MINEAGEN_PORTAL_STOCK_GATE', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
+		reason: 'A walk into a lit Overworld portal while the route still asks for the surface food or wood minimum runs that obtain instead (twice per life at most); a refusal the model could repeat was walked past 16 of 17 times (#268); off leaves the minimum as route advice.',
+		readers: ['coordinator/src/native-tool-runtime.mjs #portalStockGate (per call)'] }),
 	// coordinator/src/kit-habit.mjs kitHabitEnabled(environment): per call.
 	entry({ name: 'kit.habit', env: 'MINEAGEN_KIT_HABIT', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
 		reason: 'Keeps a shield, iron armour and food in reach after each obtain; off is the A/B off arm (#32).',

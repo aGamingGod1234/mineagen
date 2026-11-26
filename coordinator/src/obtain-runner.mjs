@@ -36,6 +36,14 @@ const FOODS = new Set(['beef', 'porkchop', 'mutton', 'chicken', 'rabbit', 'cod',
 const OBTAIN_COSTS = getSwitch('obtain.costs').value;
 const FILL_LEGS = getSwitch('obtain.fillLegs').value;
 const FILL_EDGE = getSwitch('obtain.fillEdge').value;
+// Free main-inventory slots a surface gather (food, logs, a hunt) starts with: drops that find no slot stay on the ground.
+const GATHER_ROOM = 2;
+const freeSlots = (o) => {
+	if (!Array.isArray(o?.inventory?.items) || o.continuity?.rememberedSections?.includes('inventory')) return null;
+	const used = new Set(o.inventory.items.filter((row) => row?.count > 0).map((row) => row.slot === 'mainhand' ? o.inventory.selectedSlot : row.slot)
+		.filter((slot) => Number.isSafeInteger(slot) && slot >= 0 && slot < 36));
+	return 36 - used.size;
+};
 const EDGE_REDO = 'dug down beside a drop to water; fill again from here';
 // Food a trip below ground is stocked with, in hunger points: one full bar (20), about a quarter hour's eating. Food the
 // trip lacks is counted in bread-sized items (5 points) for a chest's value; 4 bread held is a full bar and none is short.
@@ -1229,6 +1237,13 @@ export async function runObtain({ item, count = 1, timeoutMs = OBTAIN_DEFAULT_TI
 		if (covered !== null) { noSurface = `no way up to the surface for ${need.accept[0]}: ${covered}`; return noSurface; }
 		if (need.kind === 'mine' && need.blocks.some((block) => ORE_BLOCKS.test(block) || STONE_BLOCKS.test(block))) await pickaxeToHotbar();
 		const logs = need.kind === 'mine' && need.blocks.length > 0 && need.blocks.every((block) => /_(log|stem)$/.test(block));
+		// stock.foodFloor: a full pack of stone left food, log and mob drops on the ground (g1 of 25 Nov: 18 INVENTORY_FULL
+		// in its last 154 min). Mining drops junk as it goes; a gather that is not stone makes its room before it starts.
+		if (getSwitch('stock.foodFloor').value && !need.blocks?.some((block) => ORE_BLOCKS.test(block) || STONE_BLOCKS.test(block))) {
+			const roomy = (sample) => { const free = freeSlots(sample); return free === null ? null : free >= GATHER_ROOM; };
+			if (roomy(await body.observe()) === false) await makeRoom(new Set([...materialsKeep, ...need.accept.map(bare), ...OBTAIN_STATIONS]), roomy);
+			if (body.interrupted() || body.stopped()) return 'stopped';
+		}
 		const total = heldOf(need.accept.join('|'), counts, index) + (logs ? Math.max(need.count, LOGS_PER_TRIP) : need.count);
 		const searched = () => budget.lastSearch ? `${budget.lastSearch.reasonCode ?? budget.lastSearch.state}: ${String(budget.lastSearch.message ?? '').slice(0, 200)}` : 'not in view and no search here';
 		if (need.kind === 'kill') {

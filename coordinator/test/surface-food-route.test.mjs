@@ -5,6 +5,8 @@ import { emptyKnown, evaluatePlanCheck } from '../src/plan-checks.mjs';
 import { LiveTaskViews } from '../src/live-task-view.mjs';
 import { buildNativeEventInput } from '../src/dynamic-main.mjs';
 import { decodeModelFacts, encodeNativeEventInput, ModelObservationViews } from '../src/model-fact-encoding.mjs';
+// These cases are the stock.foodFloor off arm (the route before the food floor); food-floor-route.test.mjs has the on arm.
+process.env.MINEAGEN_FOOD_FLOOR = 'off';
 const item = (id, count = 1) => ({ itemId: `minecraft:${id}`, count });
 const tools = [item('stone_pickaxe'), item('furnace')];
 const observation = (items = tools, entities = []) => ({ ready: true, observedAtEpochMs: 1000, world: { worldId: 'w', dimension: 'minecraft:overworld' }, position: { x: 0, y: 64, z: 0 }, player: { health: 20, foodLevel: 20 }, inventory: { items }, entities });

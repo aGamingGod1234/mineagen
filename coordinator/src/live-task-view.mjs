@@ -1,4 +1,5 @@
 import { codePointLength } from './text-length.mjs';
+import { getSwitch } from './switches.mjs';
 import { createHash } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -14,7 +15,7 @@ import { armorMaterialNeed, chainText, howtoChain, howtoHeldRecipe, howtoHolding
 import { fortressSearchOption } from './nether-regions.mjs';
 import { NETHER_OPTIONS_BYTES, SOURCE_BLOCKS, bedSpawnOption, descentRespawnFact, knownLine, needOptions, netherReadiness, netherRouteOption, pearlHuntLine, pearlOptions, pearlSourceInView, pearlTarget, pearlsWanted, pickaxeTier, portalAtHand, progressionGoal, textResources } from './need-sources.mjs';
 import { VILLAGE_POI, headingOf, sightingKind } from './search-coverage.mjs';
-import { foodStockHandback, portalDeathMark, routeLine, skillFitsLine, woodStockHandback } from './skill-fits.mjs';
+import { foodStockHandback, portalDeathMark, portalSearchStock, routeLine, skillFitsLine, woodStockHandback } from './skill-fits.mjs';
 import { KIT_ITEMS } from './end-readiness.mjs';
 import { beatsTheGame } from './goal-spec-translator.mjs';
 import { dropLoss, recoveryRoute } from './respawn-recovery.mjs';
@@ -484,7 +485,7 @@ export class LiveTaskViews {
   // Every read re-checks each step against the current inventory, armour, dimension and placements (plan-drop credit included).
   if (tool.operation === 'read' && this.#reconcile(state)) { state.revision++; this.#save(state); }
   const checked = planEvidence(state.plan, authored);
-  const facts = planProgress(state.plan), open = facts ? openOrder(state.plan, facts, state.observation, state.known) : [];
+  const facts = planProgress(state.plan), open = facts ? openOrder(state.plan, facts, state.observation, state.known, state.liveInventory, state.liveDimension) : [];
   const first = state.plan?.steps.find(s => s.id === state.intent?.step && s.status !== 'complete') ?? state.plan?.steps.find(s => s.id === open[0]);
   // The whole requirement chain, uncut, for the step the wake line abbreviates.
   const found = first ? requirementChain(first, state) : null;
@@ -617,7 +618,7 @@ export class LiveTaskViews {
   const add = (text, ids = []) => pieces.push({ text, ids });
   // The model's intent step stays first whatever its state; no other step is singled out as next.
   const intendedId = state.intent?.step, intended = byId.get(intendedId);
-  const open = openOrder(plan, facts, state.observation, state.known);
+  const open = openOrder(plan, facts, state.observation, state.known, state.liveInventory, state.liveDimension);
   const first = intended && intended.status !== 'complete' ? intended : byId.get(open[0]);
   const needs = first ? stepNeeds(first, state).filter(Boolean).map(need => need.id) : [];
   const found = first ? requirementChain(first, state) : null;
@@ -719,16 +720,40 @@ export class LiveTaskViews {
   const nearThreats = (shown?.player?.threats ?? []).filter(t => t.swelling === true || Number.isFinite(t.distance) && t.distance <= 16);
   const guardThreatsNear = nearThreats.length, guardThreatsTargeting = nearThreats.filter(t => t.targeting === true).length;
   const stepProgress = progressFacts(current, Number.isFinite(current.observation?.observedAtEpochMs) ? current.observation.observedAtEpochMs : this.#now(), progressFocus(current));
-  // The route reads the sample the plan line reads: a queued observation evicted from the sample cache would name a
-  // step the plan already counts as met (an older inventory before a craft).
-  // A queued sample from before the hand-back still shows the stock it saw.
+  const route = this.#routeNow(record, current, state);
+  return composeContinuityHeader({ goal: record.currentGoal, intent: state.intent, evidence: intentEvidence(state), since, progress: this.#progressLine(state), route, stepProgress: stepProgress.progress ?? null, repeats: stepProgress.repeats ?? null, search: stepProgress.search ?? null, ...this.#memoryFacts(record, state, shown, observation?.recovery ?? null), results: state.results, running, effect: state.effect, orders, guardInstalled, guardCoverage, guardThreatsNear, guardThreatsTargeting, annotate });
+ }
+ // The route reads the sample the plan line reads: a queued observation evicted from the sample cache would name a
+ // step the plan already counts as met (an older inventory before a craft).
+ // A queued sample from before the hand-back still shows the stock it saw.
+ #routeNow(record, current, state) {
+  if (!beatsTheGame(record.currentGoalSpec)) return null;
   const released = handback => handback != null && handback.worldId === current.worldId && handback.deaths === state.deaths
    && handback.at <= state.observation?.observedAtEpochMs;
   const foodHandedBack = released(current.foodHandback), woodHandedBack = released(current.woodHandback);
   const kitHandedBack = new Set((current.kitHandbacks ?? []).filter(row => row.worldId === current.worldId && row.deaths === state.deaths).map(row => row.item));
   const diedSincePortal = Number.isSafeInteger(state.portalDeaths) && state.deaths > state.portalDeaths;
-  const route = beatsTheGame(record.currentGoalSpec) ? routeLine({ observation: state.observation, known: state.known, memory: this.#memory(record, state, ROUTE_SOURCE_BLOCKS), foodHandedBack, woodHandedBack, kitHandedBack, diedSincePortal, evaluate: evaluatePlanCheck, instincts: this.#instincts }) : null;
-  return composeContinuityHeader({ goal: record.currentGoal, intent: state.intent, evidence: intentEvidence(state), since, progress: this.#progressLine(state), route, stepProgress: stepProgress.progress ?? null, repeats: stepProgress.repeats ?? null, search: stepProgress.search ?? null, ...this.#memoryFacts(record, state, shown, observation?.recovery ?? null), results: state.results, running, effect: state.effect, orders, guardInstalled, guardCoverage, guardThreatsNear, guardThreatsTargeting, annotate });
+  return routeLine({ observation: state.observation, known: state.known, memory: this.#memory(record, state, ROUTE_SOURCE_BLOCKS), foodHandedBack, woodHandedBack, kitHandedBack, diedSincePortal, evaluate: evaluatePlanCheck, instincts: this.#instincts });
+ }
+ /**
+  * The surface stock the route still asks for at a lit Overworld portal (stock.portalGate), with the lit portals the
+  * walk is checked against; null when the route names anything else. The runtime turns a walk into the portal into
+  * this obtain, as a player stops at the frame to stock up when a herd is right there.
+  */
+ portalStock(record) {
+  if (!record.currentGoal) return null;
+  const current = this.#state(record);
+  if (current.observation?.world?.dimension !== 'minecraft:overworld') return null;
+  const route = this.#routeNow(record, current, current);
+  // The re-kit after a death asks for the food minimum "before going back": the gate holds that one too, food only.
+  const asked = /^usual next step: obtain ((?:cooked_)?[a-z_]+) count (\d+)\b[^(]*before (entering the portal|going back)/.exec(route ?? '');
+  const step = asked !== null && (asked[3] === 'entering the portal' || asked[1].startsWith('cooked_')) ? asked : null;
+  // The floor's step with no meat animal in view names no item: the gate searches for the cooked meat held most.
+  const search = step === null && /^usual next step: look for [a-z/]+ nearby, then obtain cooked meat with a furnace before (?:entering the portal|going back)/.test(route ?? '')
+   ? portalSearchStock(current.observation) : null;
+  if (step === null && search === null) return null;
+  const portals = (current.known?.frames ?? []).filter(f => f?.lit === true && f.dimension === 'minecraft:overworld' && [f.x, f.z].every(Number.isFinite));
+  return { line: route, item: search?.item ?? step[1], count: search?.count ?? Number(step[2]), portals, worldId: current.worldId ?? null, deaths: current.deaths ?? 0 };
  }
  /** The trigger for a no-progress or repeated-result fact not yet woken for ('no_progress' | 'repeated_result'), once. */
  progressWake(record) {
@@ -786,7 +811,7 @@ export class LiveTaskViews {
   if (step?.check) return null;
   // An unchecked first step (a manual preparation) leaves the plan's open Nether milestone the next checked
   // outcome: its sources, not the next pickaxe tier, which would make diamonds look like the route.
-  const facts = planProgress(state.plan), open = facts ? openOrder(state.plan, facts, state.observation, state.known) : [];
+  const facts = planProgress(state.plan), open = facts ? openOrder(state.plan, facts, state.observation, state.known, state.liveInventory, state.liveDimension) : [];
   for (const id of open) {
    const later = state.plan.steps.find(s => s.id === id);
    const options = later && later !== step ? nether(later) : null;
@@ -1163,7 +1188,7 @@ function progressFocus(state) {
  const intended = plan?.steps.find(s => s.id === state.intent?.step && s.status !== 'complete' && !early.has(s.id));
  if (intended || !early.size) return intended ?? firstUnfinished(state);
  const reached = { steps: plan.steps.map(s => early.has(s.id) ? { ...s, status: 'complete' } : s) }, facts = planProgress(reached);
- const open = facts ? openOrder(reached, facts, state.observation, state.known) : [];
+ const open = facts ? openOrder(reached, facts, state.observation, state.known, state.liveInventory, state.liveDimension) : [];
  return plan.steps.find(s => s.id === open[0]) ?? firstUnfinished(state);
 }
 /** The intent's step while unfinished, else the first open step: the step the wake line and stall clock follow. */
@@ -1172,7 +1197,23 @@ const PORTAL_KIT = new Set(['minecraft:water_bucket', 'minecraft:flint_and_steel
 function firstUnfinished(state) {
  const plan = state.plan, facts = planProgress(plan);
  const intended = plan?.steps.find(s => s.id === state.intent?.step && s.status !== 'complete');
- return intended ?? plan?.steps.find(s => s.id === state.planFocus && s.status !== 'complete') ?? plan?.steps.find(s => s.status === 'active') ?? (facts ? plan.steps.find(s => s.id === openOrder(plan, facts, state.observation, state.known)[0]) : undefined);
+ return intended ?? plan?.steps.find(s => s.id === state.planFocus && s.status !== 'complete') ?? plan?.steps.find(s => s.status === 'active') ?? (facts ? plan.steps.find(s => s.id === openOrder(plan, facts, state.observation, state.known, state.liveInventory, state.liveDimension)[0]) : undefined);
+}
+// With an eye in hand outside the Nether and the End, the open stronghold and End steps come first: a player follows
+// the eye they hold. Without this the first open step was a lost Nether-prep step (lava depth, portal frame, pearl or
+// rod supply, reopened once the eyes fell below 12), and the "Doing:" line named it every wake. In eight eyes-to-dragon
+// games (26 Nov) the bot then dug to the lava floor beside the stronghold estimate and built a Nether portal.
+// MINEAGEN_EYES_HOLD=0 keeps plan order, as for the eyes-in-hand route line.
+const EYE_LEAD = /(^| )(seen:minecraft:stronghold|in:minecraft:the_end)( |$)/;
+// A stale sample leaves the view without an inventory or a dimension ({ ready: false }); the last live inventory stands in
+// for it only while the last live dimension is known and is neither the Nether nor the End.
+function eyesLead(plan, open, observation, held, heldDimension) {
+ const items = observation?.inventory?.items ?? (heldDimension && !BED_UNSAFE.has(heldDimension) ? held : null) ?? [];
+ if (!getSwitch('route.eyesHold').value || !items.some(r => r?.itemId === 'minecraft:ender_eye' && r.count > 0)) return [...open];
+ // The stronghold step is taken from the whole plan, not only the open steps: a plan whose stronghold step depends on
+ // 12 eyes closes it once the eyes fall short, which is the case this is for. The End step leads only once open.
+ const lead = plan.steps.filter(s => s.status !== 'complete' && EYE_LEAD.test(s.check ?? '') && (open.includes(s.id) || /(^| )seen:minecraft:stronghold( |$)/.test(s.check))).map(s => s.id);
+ return [...lead, ...open.filter(id => !lead.includes(id))];
 }
 // A bed explodes when used in the Nether or the End.
 const BED_UNSAFE = new Set(['minecraft:the_nether', 'minecraft:the_end']);
@@ -1185,9 +1226,9 @@ const BED_UNSAFE = new Set(['minecraft:the_nether', 'minecraft:the_end']);
  * so the step the stall clock follows does not flip as an enderman walks in and out of sight. A manual step whose
  * prerequisites were all passed by skipping is behind the player; a spawn:bed step is not shown where a bed explodes.
  */
-export function openOrder(plan, facts, observation, known = null) {
+export function openOrder(plan, facts, observation, known = null, held = null, heldDimension = null) {
  const dimension = observation?.world?.dimension;
- if (!BED_UNSAFE.has(dimension)) return [...facts.open];
+ if (!BED_UNSAFE.has(dimension)) return eyesLead(plan, facts.open, observation, held, heldDimension);
  const byId = new Map(plan.steps.map(s => [s.id, s]));
  const manual = s => s.check === null && s.kind === 'manual';
  const steps = facts.open.map(id => byId.get(id)).filter(s => !(s.check ?? '').split(' ').includes('spawn:bed')

@@ -4,6 +4,8 @@ import { ROUTE_BYTES, portalDeathMark, routeLine } from '../src/skill-fits.mjs';
 import { emptyKnown, evaluatePlanCheck } from '../src/plan-checks.mjs';
 import { LiveTaskViews } from '../src/live-task-view.mjs';
 import { ObservedMemoryStore } from '../src/observed-memory-store.mjs';
+// These cases are the stock.foodFloor off arm (the route before the food floor); food-floor-route.test.mjs has the on arm.
+process.env.MINEAGEN_FOOD_FLOOR = 'off';
 
 // EV-KIT-4: a death past the portal stage (a lit frame or a Nether visit) takes the kit, and the route asks for it again
 // (tools, iron pickaxe, shield, armour, food when hungry) before it sends the respawn back through the portal.
