@@ -142,7 +142,10 @@ public final class ReflexEngine {
 		return firing && retreating && "strike_head".equals(rule.action().type());
 	}
 
-	/** A rule's sensed truth after the engine's gates: defend reads false while the body's own fight or flight runs. */
+	/**
+	 * A rule's sensed truth after the engine's gates: defend reads false while the body's own fight or flight runs. The walk
+	 * to the fountain takes only an idle or waiting body: a walk, shot or build the model chose is its own call.
+	 */
 	static boolean gatedTruth(ReflexSpec.Rule rule, boolean truth, ActionType activeType) {
 		return gatedTruth(rule, truth, activeType, false);
 	}
@@ -155,7 +158,8 @@ public final class ReflexEngine {
 	static boolean gatedTruth(ReflexSpec.Rule rule, boolean truth, ActionType activeType, boolean escapingShooter) {
 		// The run to a perched dragon's head stands aside the same way: the body's own fight, shot or flight is its choice.
 		return truth && !("defend".equals(rule.action().type()) && (defendStandsAside(activeType) || escapingShooter))
-				&& !("strike_head".equals(rule.action().type()) && activeType != null && !STRIKE_TAKES_FROM.contains(activeType));
+				&& !("strike_head".equals(rule.action().type()) && activeType != null && !STRIKE_TAKES_FROM.contains(activeType))
+				&& !("hold_post".equals(rule.action().type()) && activeType != null && activeType != ActionType.WAIT);
 	}
 
 	/**
@@ -279,7 +283,7 @@ public final class ReflexEngine {
 	}
 
 	/** Coordinator defaults that exist only in the End (the coordinator arms them there; see reflexes.mjs DIMENSION_REFLEXES). */
-	static final Set<String> END_DEFAULTS = Set.of("default-breath", "default-end-throw", "default-gaze", "default-ender-water", "default-perch-strike");
+	static final Set<String> END_DEFAULTS = Set.of("default-breath", "default-end-throw", "default-gaze", "default-ender-water", "default-perch-strike", "default-fountain-post");
 
 	/** The scheduler's End-only rules, blocked while the body is outside the End. */
 	static Set<String> endOnlyIds(ReflexScheduler scheduler) {

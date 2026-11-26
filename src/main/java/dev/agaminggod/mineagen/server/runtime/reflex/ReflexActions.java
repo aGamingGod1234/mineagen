@@ -171,6 +171,7 @@ final class ReflexActions {
 			case "leave_fire", "leave_lava" -> new LeaveFire();
 			// Never started: the engine treats a brace rule as a body setting (see ReflexEngine), not a firing.
 			case "strike_head" -> new StrikeHead();
+			case "hold_post" -> new HoldPost();
 			case "brace" -> (context, input) -> Step.done("brace never takes the body");
 			default -> (context, input) -> Step.failed("unknown action " + action.type());
 		};
@@ -238,6 +239,8 @@ final class ReflexActions {
 			case "select" -> item == null || holds(slots, offhand, 36, held -> item.equals(held.id())) ? null : "no " + item + " in inventory";
 			// A head hit worth the run: a sword or an axe on the hotbar (a fist does 1 a hit, about 50 swings a perch).
 			case "strike_head" -> holds(slots, Held.EMPTY, 9, held -> StrikeHead.weapon(held.id())) ? null : "no sword or axe in hotbar";
+			// The post is where the head comes within a swing: worth the walk only with a sword or an axe to swing.
+			case "hold_post" -> holds(slots, Held.EMPTY, 9, held -> StrikeHead.weapon(held.id())) ? null : "no sword or axe in hotbar";
 			default -> null;
 		};
 	}
@@ -2026,6 +2029,59 @@ final class ReflexActions {
 		/** Its 20 s run out with the dragon still sitting is a span of the perch, not a failure. */
 		@Override
 		public boolean doneAtMaxS() { return true; }
+
+		@Override
+		public boolean drivesOwnNavigation() { return true; }
+	}
+
+	/**
+	 * A player who has put out the crystals waits for the landing beside the exit fountain, not out on the island: the
+	 * dragon perches there and turns its head to the nearest player, and it stays down while that player is close and in
+	 * its sight. In 20 End games the body stood within 10 blocks of the fountain 9% of the time after the last crystal; on
+	 * the 35 of 287 landings it was that close the dragon sat 13-27 s and took 161 of the 179 perch damage, on the rest it
+	 * left in 3-12 s. The walk goes to the ground {@link #POST_RADIUS} blocks out from the fountain's centre on the body's
+	 * own side, and is done there; the head run (default-perch-strike) takes the landing.
+	 */
+	static final class HoldPost implements Behaviour {
+		/** Blocks from the fountain's centre to the post: inside the 10 where the landings were struck, out of the rim's
+		 * breath and wing reach; the model's own wait (10-15 out) only gets pulled back once past 14. */
+		static final double POST_RADIUS = 9.0D;
+		static final double POST_TOLERANCE = 1.5D;
+		static final long POST_MS = 20_000L;
+		private ServerNavigationController walk;
+
+		/** The post's column for a body {@code dx, dz} from the fountain's centre: on its side, {@link #POST_RADIUS} out. */
+		static double[] postOffset(double dx, double dz) {
+			double distance = Math.sqrt(dx * dx + dz * dz);
+			if (distance < 1.0E-3D) return new double[] {POST_RADIUS, 0.0D};
+			return new double[] {dx / distance * POST_RADIUS, dz / distance * POST_RADIUS};
+		}
+
+		@Override
+		public Step tick(Context context, Consumer<AgentInputState> input) {
+			ServerPlayer player = context.player();
+			long now = dev.agaminggod.mineagen.server.runtime.GameClock.nowMs();
+			if (walk == null) {
+				if (!(context.focus() instanceof EnderDragon dragon) || !dragon.isAlive()) return Step.done("no flying dragon");
+				BlockPos origin = dragon.getFightOrigin();
+				double[] offset = postOffset(player.getX() - origin.getX(), player.getZ() - origin.getZ());
+				int x = Mth.floor(origin.getX() + 0.5D + offset[0]), z = Mth.floor(origin.getZ() + 0.5D + offset[1]);
+				int y = player.level().getHeight(net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING, x, z);
+				walk = new ServerNavigationController(new Vec3(x + 0.5D, y, z + 0.5D), POST_TOLERANCE, false, now, POST_MS, true);
+			}
+			var result = walk.tick(player, now);
+			if (result.state() == dev.agaminggod.mineagen.server.runtime.controller.ServerController.State.RUNNING) return Step.running("walking to the fountain to wait for the landing");
+			walk.cancel(player);
+			walk = null;
+			return result.state() == dev.agaminggod.mineagen.server.runtime.controller.ServerController.State.SUCCEEDED
+					? Step.done("at the fountain") : Step.failed("walk to the fountain " + result.reasonCode());
+		}
+
+		@Override
+		public void end(ServerPlayer player) {
+			if (walk != null) walk.cancel(player);
+			walk = null;
+		}
 
 		@Override
 		public boolean drivesOwnNavigation() { return true; }

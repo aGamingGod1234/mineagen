@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { DEFAULT_REFLEXES, DIMENSION_REFLEXES, MAX_REFLEXES, MAX_REFLEX_RULES, ReflexBook, normalizeReflexEntries } from '../src/reflexes.mjs';
+import { DEFAULT_REFLEXES, DIMENSION_REFLEXES, MAX_REFLEXES, MAX_REFLEX_RULES, ReflexBook, fountainPostEnabled, normalizeReflexEntries } from '../src/reflexes.mjs';
 import { currentDangers, dangerCoverage } from '../src/danger-contexts.mjs';
 import { validateProtocolV2Payload } from '../src/protocol-v2.mjs';
 import { FakePlanner, eventually, factToWireObservation, start } from './fixtures/dynamic-main-fixture.mjs';
@@ -11,7 +11,7 @@ import { AgentRegistry } from '../src/agent-registry.mjs';
 const END = 'minecraft:the_end', OVERWORLD = 'minecraft:overworld', NETHER = 'minecraft:the_nether';
 const live = (dimension) => ({ world: { dimension }, player: { health: 20 } });
 const ids = (book) => book.list('a').map((row) => `${row.id}${row.default ? '*' : ''}`);
-const END_IDS = ['default-breath', 'default-end-throw', 'default-gaze', 'default-ender-water', 'default-perch-strike'];
+const END_IDS = ['default-breath', 'default-end-throw', 'default-gaze', 'default-ender-water', 'default-perch-strike', 'default-fountain-post'];
 
 test('End defaults follow the dimension: armed on entering the End, gone on leaving', () => {
 	const book = new ReflexBook();
@@ -20,7 +20,7 @@ test('End defaults follow the dimension: armed on entering the End, gone on leav
 	const before = book.payload('a').revision;
 	assert.equal(book.observeContext('a', live(END)), true, 'entering the End changes the set');
 	assert.ok(book.payload('a').revision > before);
-	assert.deepEqual(ids(book).slice(-5), ['default-breath*', 'default-end-throw*', 'default-gaze*', 'default-ender-water*', 'default-perch-strike*']);
+	assert.deepEqual(ids(book).slice(-6), ['default-breath*', 'default-end-throw*', 'default-gaze*', 'default-ender-water*', 'default-perch-strike*', 'default-fountain-post*']);
 	assert.equal(book.observeContext('a', live(END)), false, 'nothing more while it stays');
 	assert.equal(book.observeContext('a', live(OVERWORLD)), true, 'leaving changes the set');
 	assert.ok(END_IDS.every((id) => !ids(book).some((row) => row.startsWith(id))), 'gone after leaving');
@@ -28,6 +28,15 @@ test('End defaults follow the dimension: armed on entering the End, gone on leav
 	// Entering the Nether arms none of them.
 	book.observeContext('a', live(NETHER));
 	assert.ok(END_IDS.every((id) => !ids(book).some((row) => row.startsWith(id))));
+});
+
+test('MINEAGEN_FOUNTAIN_POST=off leaves the fountain wait out of the End defaults; the head run stays', () => {
+	const book = new ReflexBook({ fountainPost: false });
+	book.observeContext('a', live(END));
+	assert.ok(!ids(book).some((row) => row.startsWith('default-fountain-post')), 'no fountain wait');
+	assert.ok(ids(book).includes('default-perch-strike*'), 'the head run still arms');
+	assert.equal(fountainPostEnabled({ MINEAGEN_FOUNTAIN_POST: 'off' }), false);
+	assert.equal(fountainPostEnabled({}), true);
 });
 
 test('a first sample already in the End (a staged start, a reconnect) arms them, and a respawn in the End again', () => {

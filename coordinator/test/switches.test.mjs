@@ -84,6 +84,7 @@ const OLD_READERS = {
 	// On by default since the default flip; set, it reads as before (a comma list holding `instincts`).
 	'instincts': (env) => env?.MINEAGEN_INSTINCTS == null || String(env.MINEAGEN_INSTINCTS).split(',').map((word) => word.trim()).includes('instincts'),
 	'experience.frozen': (env) => env.MINEAGEN_EXPERIENCE_FROZEN === '1',
+	'end.fountainPost': (env) => String(env?.MINEAGEN_FOUNTAIN_POST ?? '').trim().toLowerCase() !== 'off',
 };
 const ENV_OF = Object.fromEntries(SWITCHES.filter((item) => item.env).map((item) => [item.name, item.env]));
 
@@ -149,6 +150,7 @@ const READS = [
 	['experience', 'coordinator/src/experience-store.mjs', "getSwitch('experience', environment)"],
 	['experience.frozen', 'coordinator/src/experience-store.mjs', "getSwitch('experience.frozen', environment)"],
 	['instincts', 'coordinator/src/reflexes.mjs', "getSwitch('instincts', environment)"],
+	['end.fountainPost', 'coordinator/src/reflexes.mjs', "getSwitch('end.fountainPost', environment)"],
 	['instincts', 'src/main/java/dev/agaminggod/mineagen/server/runtime/reflex/Instincts.java', 'Switches.get("instincts")'],
 	['travel.walkAround', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerTravelController.java', 'Switches.get("travel.walkAround")'],
 	['fight.chargeGuard', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerFightUntilController.java', 'static final boolean CHARGE_GUARD = dev.agaminggod.mineagen.server.Switches.get("fight.chargeGuard");'],
