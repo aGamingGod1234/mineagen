@@ -1,14 +1,16 @@
 import { EYE_PLAN } from './eye-plan.mjs';
+import { getSwitch } from './switches.mjs';
 import { endKit } from './end-readiness.mjs';
 import { foodAdviceNeeded, portalBedSource } from './survival-advice.mjs';
 import { heldCounts, keepPickaxeMakings, planObtain } from './obtain-plan.mjs';
-import { getSwitch } from './switches.mjs';
 
 // One wake fact: a goal skill (fight_until, barter_until, build nether_portal by casting, cast_obsidian) whose preconditions hold right now, with the
 // call's fields and the facts that make it fit. It names a call the model may make; nothing runs from it.
 
 export const SKILL_FITS_BYTES = 240;
 // fight_until's default area radius; barter_until looks for piglins within 32 blocks (it walks that far to one), cast_obsidian for lava within 16.
+// Off switch for the eyes-in-hand route below (26 Nov): MINEAGEN_EYES_HOLD=0 (or off) restores the count-and-go-back route.
+const EYES_HOLD = () => getSwitch('route.eyesHold').value;
 const FIGHT_RANGE = 24;
 const BARTER_RANGE = 32;
 const LAVA_RANGE = 16;
@@ -554,6 +556,28 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 		// A death since the visit lost the kit: it comes back before the portal return or the rebuild below.
 		const again = rekit();
 		if (again !== null) return again;
+		// Eyes in hand: no trip back to the Nether until they are set. A player follows the eyes to the stronghold, finds the
+		// portal room and sets every eye before counting what is still short, since a portal often comes with eyes already
+		// set and a found stronghold makes the return a single trip. Eight eyes-to-dragon games (26 Nov): three went back
+		// at 9-11 eyes before seeing the stronghold and one after it (three of the four died in the Nether, none came back with
+		// more); the two that reached the End never turned back.
+		if (EYES_HOLD() && eyesHeld > 0 && (rodsMissing > 0 || pearlsMissing > 0)) {
+			// Hungry or hurt with little food: the search stops on low health, so food comes first, as on the old route.
+			if (foodAdviceNeeded(o) && food < 10) return line(`obtain cooked_beef count ${20 - food} before going on (food ${food}/10)`, eyeFacts);
+			// No stone pickaxe left (worn out): the search digs down through stone, so the pickaxe comes first.
+			const tool = ROUTE.find(row => (row.id === 'wood' || row.id === 'stone') && !done(row));
+			if (tool !== undefined) { const [next, why] = tool.next(facts); return line(next, `${why}; the stronghold search digs down`); }
+			const short = `${eyeFacts}; ${eyesNeeded} short only if no frame is set`;
+			const hold = (known.structuresSeen ?? []).find(v => v.id === 'minecraft:stronghold' && v.dimension === 'minecraft:overworld');
+			if (!hold && !ok('seen:minecraft:stronghold'))
+				return line(`find structure stronghold follows thrown eyes and digs down; then find block end_portal_frame; set the eyes and count the set frames before going back${first}`, short);
+			// Its masonry in view: the find walks the passages seen (the line below the portal return).
+			if (frames.some(b => /^minecraft:(?:(?:mossy_|cracked_)?stone_bricks|iron_bars)$/.test(b?.blockId ?? '')))
+				return line('find block end_portal_frame walks observed passages to the portal room; resume after handling danger or a blocked doorway', eyeFacts);
+			const at = o.position ?? o.player?.position ?? o.player;
+			const far = hold && [at?.x, at?.z].every(Number.isFinite) && Math.hypot(at.x - hold.x, at.z - hold.z) > 48;
+			return line(`${far ? `go to the stronghold seen at ${Math.round(hold.x)},${Math.round(hold.z)}, then ` : ''}find block end_portal_frame walks its passages to the portal room; set the eyes held, then count the set frames before going back${first}`, short);
+		}
 		const portal = overworldPortal(o, memory);
 		if ((rodsMissing > 0 || pearlsMissing > 0) && portal) {
 			const stock = portalStock();
