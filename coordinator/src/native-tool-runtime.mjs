@@ -1023,6 +1023,9 @@ export class NativeToolRuntime {
 		this.#portalStockTurns.set(life, turns + 1);
 		const note = `Stock first at the portal: ${stock.line.replace(/^usual next step: /, '')}. The walk into the portal became this obtain; walk in again when it ends.`;
 		this.#trace('native_portal_stock_turned', { agentId: record.agentId, goalRevision: record.goalRevision, actionType: move.actionType, item: stock.item, count: stock.count, turn: turns + 1 });
+		// The planner sized this call's lease from the walk (about 20 s), and in room ai-stock-portal its expiry cancelled
+		// both turned obtains about 20 s into the hunt (PLANNING_LEASE_EXPIRED): the lease now covers the obtain.
+		try { request.extendLease?.(obtain.arguments.timeoutMs); } catch { /* the lease is the planner's */ }
 		return { request: { ...request, tool: obtain }, note };
 	}
 

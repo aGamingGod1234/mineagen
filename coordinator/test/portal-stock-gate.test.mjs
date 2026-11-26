@@ -37,8 +37,9 @@ async function harness(t, { stock = () => STOCK, gate } = {}) {
 		if (before === undefined) delete process.env.MINEAGEN_PORTAL_STOCK_GATE; else process.env.MINEAGEN_PORTAL_STOCK_GATE = before;
 	});
 	let call = 0;
+	const leases = [];
 	const step = async (tool) => {
-		const result = await runtime.execute({ agentId: record.agentId, goalRevision: 1, turnId: `t${++call}`, callId: `c${call}`, tool }, record);
+		const result = await runtime.execute({ agentId: record.agentId, goalRevision: 1, turnId: `t${++call}`, callId: `c${call}`, tool, extendLease: ms => leases.push(ms) }, record);
 		if (result?.state === 'RUNNING' && result.actionId) {
 			await new Promise(resolve => setImmediate(resolve));
 			return runtime.execute({ agentId: record.agentId, goalRevision: 1, turnId: `s${call}`, callId: `s${call}`, tool: { kind: 'action_status', actionId: result.actionId } }, record);
@@ -47,7 +48,7 @@ async function harness(t, { stock = () => STOCK, gate } = {}) {
 	};
 	const walksToPortal = () => commands.filter(row => row.type === 'action_command' && row.payload.actionType === 'travel_to'
 		&& Math.abs(row.payload.arguments?.x - PORTAL.x) <= 3 && Math.abs(row.payload.arguments?.z - PORTAL.z) <= 3).length;
-	return { step, commands, traces, walksToPortal };
+	return { step, commands, traces, walksToPortal, leases };
 }
 
 test('a walk into the lit portal below the minimum runs the stock obtain instead, and says so', async t => {
@@ -57,6 +58,8 @@ test('a walk into the lit portal below the minimum runs the stock obtain instead
 	assert.match(result.stockedFirst, /^Stock first at the portal: obtain cooked_porkchop count 9 /);
 	assert.equal(h.traces.filter(row => row.event === 'native_portal_stock_turned').length, 1);
 	assert.ok(h.commands.some(row => row.type === 'action_command'), 'the obtain sent its own body steps');
+	// The planner's lease was sized for the walk; the room's turned obtains were cancelled 20 s in until it was extended.
+	assert.ok(h.leases.some(ms => ms >= 360_000), JSON.stringify(h.leases));
 });
 
 test('the gate turns two walks per life, then lets the bot go in short', async t => {
