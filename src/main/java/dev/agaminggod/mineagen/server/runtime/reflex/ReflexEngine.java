@@ -732,7 +732,9 @@ public final class ReflexEngine {
 		// Between firings a hidden body under the hold waits in its cover: the walk resumes once the danger ends.
 		// Never in the End (a cornered breath run hands the body back to the command on purpose), nor in fire or lava.
 		boolean waitsInCover = agent.holding && active != null && ShelterHold.heldWalk(activeType) && !ShelterHold.shooterSees(player)
-				&& !inEnd && !player.isInLava() && !player.isOnFire();
+				&& !inEnd && !player.isInLava() && !player.isOnFire()
+				// Standing still with a melee mob closing in only hands it free hits.
+				&& ReflexActions.meleeNear(player, ReflexActions.PACK_RANGE).isEmpty();
 		if (agent.scheduler.current() == null && waitsInCover) {
 			if (agent.controller == null) agent.controller = AgentInputRuntime.controller(player);
 			agent.lease = holdStill(agent.controller, agentId, agent.lease, player.getYRot(), player.getXRot(), player.getInventory().getSelectedSlot());
