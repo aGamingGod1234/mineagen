@@ -472,6 +472,38 @@ try {
 			await settle('trap-wake');
 		} catch (error) { await settle('trap-wake', error); }
 	}
+	// Boat placement: the call shapes the bot used in live games (aimed use_item, held use_item, unaimed use_item,
+	// interact_block), on flat floor and with a block beside the aim cell. Records the result and whether a boat appeared.
+	if (want('boat-place')) {
+		try {
+			await reset();
+			const rows = [];
+			const boats = async () => (await command('execute if entity @e[type=minecraft:oak_boat]')).trim();
+			const shapes = [
+				['use-aimed-tap', 'use_item', { expectedItemId: 'minecraft:oak_boat', aimX: 0.5, aimY: 80, aimZ: 3.5, durationMs: 50 }, null],
+				['use-aimed-once', 'use_item', { expectedItemId: 'minecraft:oak_boat', aimX: 0.5, aimY: 79.85, aimZ: 3.5, durationMs: 600, mode: 'once' }, null],
+				['use-unaimed', 'use_item', { expectedItemId: 'minecraft:oak_boat', durationMs: 50 }, 'look'],
+				['interact-floor', 'interact_block', { x: 0, y: 79, z: 3, face: 'up', hand: 'main', expectedItemId: 'minecraft:oak_boat' }, null],
+				['use-aimed-block-beside', 'use_item', { expectedItemId: 'minecraft:oak_boat', aimX: 0.5, aimY: 80, aimZ: 3.5, durationMs: 50 }, 'beside'],
+				['interact-own-cell', 'interact_block', { x: 0, y: 79, z: 0, face: 'up', hand: 'main', expectedItemId: 'minecraft:oak_boat' }, null],
+			];
+			for (const [name, type, args, setup] of shapes) {
+				await command('kill @e[type=minecraft:oak_boat]'); await command('fill -3 80 -3 3 81 6 minecraft:air');
+				await command(`tp ${agent} 0.5 80 0.5 0 0`); await command(`clear ${agent}`); await command(`give ${agent} minecraft:oak_boat 1`);
+				if (setup === 'beside') await command('setblock 1 80 3 minecraft:cobblestone');
+				await rate.idleSleep(600);
+				await (await startAction('select_item', { itemId: 'minecraft:oak_boat' })).result;
+				if (setup === 'look') await (await startAction('look_at', { x: 0.5, y: 80, z: 3.6 })).result;
+				const r = await (await startAction(type, args)).result;
+				await rate.idleSleep(500);
+				const held = ((await observe())?.inventory?.items ?? []).some((item) => /_boat$/.test(item?.itemId ?? ''));
+				rows.push({ name, state: r.state, reasonCode: r.reasonCode ?? null, message: String(r.message ?? '').slice(0, 200), boatEntity: await boats(), stillHeld: held });
+			}
+			results['boat-place'] = { rows, descriptive: true, pass: true };
+			await command('kill @e[type=minecraft:oak_boat]'); await command('fill -3 80 -3 3 81 6 minecraft:air');
+			await settle('boat-place');
+		} catch (error) { await settle('boat-place', error); }
+	}
 	// Drop odds: vanilla minecraft:entities/enderman gives 0-1 pearl (uniform), +0-1 per looting level. A player kill per
 	// salt; the unsalted world-default sequence repeats the same drops, which is what one save point does to every game.
 	if (want('drop-odds')) {
