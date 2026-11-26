@@ -161,6 +161,7 @@ test('the End crystal fact gives the column descent only while the feet are high
 	assert.ok(endCrystalFact(tally, { y: END_HIGH_FEET_Y + 30 }).endsWith(HIGH_DESCENT_FACTS));
 	assert.ok(!endCrystalFact(tally, { y: 63 }).includes(HIGH_DESCENT_FACTS));
 	assert.ok(!endCrystalFact(tally).includes(HIGH_DESCENT_FACTS));
+	assert.ok(!endCrystalFact(tally, { y: END_HIGH_FEET_Y + 30 }, { MINEAGEN_END_HIGH_DESCENT: 'off' }).includes(HIGH_DESCENT_FACTS), 'the off switch drops the advice');
 	assert.match(HIGH_DESCENT_FACTS, /"pattern":"shaft","y":G,"maxShaftY":G/);
 	assert.match(HIGH_DESCENT_FACTS, /Never pour the water bucket on your own column top/);
 });

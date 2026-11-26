@@ -155,6 +155,10 @@ export const SWITCHES = Object.freeze([
 		propertyParser: JAVA_GET_BOOLEAN, status: 'default-on',
 		reason: 'Issue 2 Step 2 instincts arm: stance, heal, pace, fight-through, weapon and food (#24). All 300 practice rooms x10, 23 Nov: passes 2,786 of 3,203 off against 2,811 of 3,218 on, deaths 75 against 63; one room changed: travel fights through a zombie instead of stopping (#185).',
 		readers: ['coordinator/src/reflexes.mjs instinctsEnabled (per call; env only)', 'Instincts.java enabled (per call; property or env)'] }),
+	// coordinator/src/dragon-fight-facts.mjs endCrystalFact(..., environment): per call.
+	entry({ name: 'end.highDescent', env: 'MINEAGEN_END_HIGH_DESCENT', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
+		reason: 'Feet above y75 in the End, the crystal fact adds how to come down a built column: dig_to shaft to the ground, no water poured on the top. In End games, 5 of 6 descents from y95+ died, each after a pour on the top or a sideways dig. off leaves the advice out.',
+		readers: ['coordinator/src/dragon-fight-facts.mjs endCrystalFact (per call)'] }),
 	// ServerTravelController.java walkAroundEnabled(): per call; property or env.
 	entry({ name: 'travel.walkAround', env: 'MINEAGEN_TRAVEL_WALK_AROUND', property: 'mineagen.travel.walkAround', side: 'server', default: false, parser: ON_WORD,
 		propertyParser: JAVA_GET_BOOLEAN, status: 'default-off',

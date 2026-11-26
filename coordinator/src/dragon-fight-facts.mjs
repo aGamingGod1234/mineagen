@@ -1,3 +1,4 @@
+import { getSwitch } from './switches.mjs';
 
 export const DRAGON_PERCHED_TRIGGER = 'dragon_perched';
 // One wake per landing: perched samples within this gap belong to the same perch (rows drop out while out of view).
@@ -145,9 +146,10 @@ export const END_HIGH_FEET_Y = 75;
 // catch armed, 3 of 4 descents from y105-111 poured the bucket on the column top and all 3 fell to their deaths with it empty.
 export const HIGH_DESCENT_FACTS = 'High above the island on a column you built: come down by mining it under you with dig_to {"pattern":"shaft","y":G,"maxShaftY":G}, where G is the ground feet y at the column foot (a 47-block cobblestone column took 51 s with a pickaxe and no damage). A maxShaftY above y turns the dig sideways into the open air beside the column. Never pour the water bucket on your own column top or at your feet up there: the water pushes you off the edge and leaves the bucket empty, so the fall catch has no water to place (from y105-111, 3 of 3 such pours fell to death).';
 
-export function endCrystalFact(tally, player = null) {
+// MINEAGEN_END_HIGH_DESCENT=off leaves the high-column descent advice out (switch end.highDescent).
+export function endCrystalFact(tally, player = null, environment = process.env) {
 	if (tally == null) return null;
-	const high = Number.isFinite(player?.y) && player.y >= END_HIGH_FEET_Y ? ` ${HIGH_DESCENT_FACTS}` : '';
+	const high = Number.isFinite(player?.y) && player.y >= END_HIGH_FEET_Y && getSwitch('end.highDescent', environment).value ? ` ${HIGH_DESCENT_FACTS}` : '';
 	const standing = tally.standing.map(row => crystalEntry(row, player)).join('; ');
 	const caged = tally.standing.some(row => row.caged) ? ` ${CAGED_CRYSTAL_FACTS}` : '';
 	return `End crystals you have seen: ${tally.standing.length} standing when last seen${standing ? ` (${standing})` : ''}, ${tally.broken} broken by your own hits${tally.external ? `, ${tally.external} destroyed by something else` : ''}. The 10 obsidian pillars each start with one; standing crystals heal the dragon, and each turn of its circling lands it on the fountain with chance 1/(crystals left + 3).${caged}${high}`;
