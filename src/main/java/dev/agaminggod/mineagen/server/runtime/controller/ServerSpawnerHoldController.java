@@ -101,6 +101,8 @@ public final class ServerSpawnerHoldController implements ServerController {
 	private final int untilCount;
 	private final float fleeAtHealth;
 	private final long timeoutMs;
+	/** The model's own timeout: the ordinary fight a hold hands over to keeps it ({@link #timeoutMs} can be longer). */
+	private final long modelTimeoutMs;
 	private final ElapsedTimeAccumulator elapsedTime;
 	private final CombatInputLease eatInput = new CombatInputLease();
 	private final List<BlockPos> triedSites = new ArrayList<>();
@@ -228,8 +230,9 @@ public final class ServerSpawnerHoldController implements ServerController {
 				.orElseThrow(() -> new AgentDomainException("INVALID_FIELD", "untilItem: no item " + untilItemId));
 		this.untilCount = arguments.get("untilCount").getAsInt();
 		this.fleeAtHealth = arguments.has("fleeAtHealth") ? arguments.get("fleeAtHealth").getAsFloat() : ServerFightUntilController.DEFAULT_FLEE_AT_HEALTH;
-		this.timeoutMs = Math.min(ServerFightUntilController.MAX_TIMEOUT_MS,
+		this.modelTimeoutMs = Math.min(ServerFightUntilController.MAX_TIMEOUT_MS,
 				arguments.has("timeoutMs") ? arguments.get("timeoutMs").getAsLong() : ServerFightUntilController.DEFAULT_TIMEOUT_MS);
+		this.timeoutMs = Math.min(ServerFightUntilController.MAX_TIMEOUT_MS, SpawnerHold.holdTimeoutMs(modelTimeoutMs));
 		this.elapsedTime = new ElapsedTimeAccumulator(now);
 		Arrays.fill(witherHits, Long.MIN_VALUE);
 		// The hold owns the body from the moment it is the active action: reflexes run before its first tick, and a
@@ -322,7 +325,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 		JsonObject left = (spotCall != null ? spotCall : model).deepCopy();
 		// roof is the hold's own option; the ordinary blaze fight refuses it.
 		left.remove("roof");
-		left.addProperty("timeoutMs", Math.max(1_000L, timeoutMs - elapsed));
+		left.addProperty("timeoutMs", Math.max(1_000L, modelTimeoutMs - elapsed));
 		return new ServerFightUntilController(player, left, protection, now, "fight_until", null, roofing);
 	}
 

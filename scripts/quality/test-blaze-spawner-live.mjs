@@ -73,6 +73,9 @@ const CALL_SHAPE = process.env.CALL_SHAPE ?? 'plain', GAME_FLEE = Number(process
 // FACE_AWAY=1 places the body facing away from the spawner, SPOT=feet names the body's own cell instead of the spawner
 // block, and BARE=1 writes the ids without minecraft: (22 of 276 real blaze calls).
 const FACE_AWAY = process.env.FACE_AWAY === '1', SPOT_AT = process.env.SPOT ?? 'spawner', BARE = process.env.BARE === '1';
+// GAME_TIMEOUT_MS: the timeout real game calls carry (26 Nov A/B: 7-10 s on 6 of 20 holds); GAME_TARGET=1 makes the call
+// fight_target on the nearest seen blaze (the model's commonest short call there), fight_until when none is seen.
+const GAME_TIMEOUT_MS = Number(process.env.GAME_TIMEOUT_MS ?? 90000), GAME_TARGET = process.env.GAME_TARGET === '1';
 // STANDIN=count (d41 fight-count): the same loop, but the call is fight_target on the nearest seen blaze with
 // untilItem blaze_rod + untilCount UNTIL (count mode); no blaze in view -> fight_until. DEFAULTS=1 also arms the default
 // survival reflexes beside the shield rules. Rooms must play with the defaults a real game has: the production
@@ -506,7 +509,8 @@ try {
 						else { type = 'wait'; args = { durationMs: 1000 }; }
 					}
 					else if (STANDIN === 'count' && blaze && blaze.perceivedBy !== 'sound' && blaze.distance <= 24) { type = 'fight_target'; args = { targetId: blaze.uuid, untilItem: 'minecraft:blaze_rod', untilCount: UNTIL, fleeAtHealth: LOW_HP ? 14 : 6, timeoutMs: Math.max(1000, Math.min(600000, runDeadline - now())) }; }
-					else if (CALL_SHAPE === 'game') { const at = SPOT_AT === 'feet' ? cell.map(Math.floor) : SPAWNER; type = 'fight_until'; args = { mob: BARE ? 'blaze' : 'minecraft:blaze', untilItem: BARE ? 'blaze_rod' : 'minecraft:blaze_rod', untilCount: UNTIL, weapon: 'sword', collect: true, fleeAtHealth: GAME_FLEE, x: at[0], y: at[1], z: at[2], radius: 12, timeoutMs: Math.max(1000, Math.min(90000, runDeadline - now())) }; }
+					else if (CALL_SHAPE === 'game' && GAME_TARGET && blaze && blaze.perceivedBy !== 'sound' && blaze.distance <= 24) { type = 'fight_target'; args = { targetId: blaze.uuid, collect: true, fleeAtHealth: GAME_FLEE, timeoutMs: Math.max(1000, Math.min(GAME_TIMEOUT_MS, runDeadline - now())) }; }
+					else if (CALL_SHAPE === 'game') { const at = SPOT_AT === 'feet' ? cell.map(Math.floor) : SPAWNER; type = 'fight_until'; args = { mob: BARE ? 'blaze' : 'minecraft:blaze', untilItem: BARE ? 'blaze_rod' : 'minecraft:blaze_rod', untilCount: UNTIL, weapon: 'sword', collect: true, fleeAtHealth: GAME_FLEE, x: at[0], y: at[1], z: at[2], radius: 12, timeoutMs: Math.max(1000, Math.min(GAME_TIMEOUT_MS, runDeadline - now())) }; }
 					else { type = 'fight_until'; args = { mob: 'minecraft:blaze', untilItem: 'minecraft:blaze_rod', untilCount: UNTIL, weapon: WEAPON, fleeAtHealth: LOW_HP ? 14 : 6, timeoutMs: Math.max(1000, Math.min(600000, runDeadline - now())) }; }
 					const res = await act(type, args, Math.max(1000, runDeadline - now(), type === 'fight_target' ? 180000 : 0) + 20000);
 					if (refusedBeforeRunning(res)) run.refused = (run.refused ?? 0) + 1; else run.calls[type] = (run.calls[type] ?? 0) + 1;

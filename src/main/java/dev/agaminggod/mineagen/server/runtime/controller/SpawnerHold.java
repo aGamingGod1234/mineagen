@@ -27,6 +27,20 @@ public final class SpawnerHold {
 	 * fleeAtHealth again while a wall-in is left.
 	 */
 	public static final boolean SPOT = dev.agaminggod.mineagen.server.Switches.get("fight.spawnerHoldSpot");
+	/**
+	 * On by default; -Dmineagen.fight.spawnerHoldMinTime=false keeps the model's own timeout. A hold runs at least
+	 * {@link #MIN_HOLD_MS} before a timeout ends it: real games (26 Nov A/B) gave 7-10 s timeouts to 6 of 20 holds, and
+	 * none of those chose a cell, so every one ended in the open. The model can still cancel it.
+	 */
+	public static final boolean MIN_TIME = dev.agaminggod.mineagen.server.Switches.get("fight.spawnerHoldMinTime");
+	/** Long enough to choose a cell 6-12 blocks out, walk there and wall in (game-shape rooms: the first build at 10-40 s). */
+	public static final long MIN_HOLD_MS = 45_000L;
+
+	/** The time a hold runs before its timeout: the model's, raised to {@link #MIN_HOLD_MS} while the switch is on. */
+	public static long holdTimeoutMs(long modelMs) {
+		return MIN_TIME ? Math.max(modelMs, MIN_HOLD_MS) : modelMs;
+	}
+
 	/** A seen fortress spawner within this many blocks of the body starts a hold. */
 	public static final double SCAN = 24.0D;
 	/** The cell stands this far (horizontal) from the spawner: a vanilla spawner runs only with a player within 16. */
