@@ -163,6 +163,7 @@ const READS = [
 	['watch', 'src/main/java/dev/agaminggod/mineagen/server/watch/Watcher.java', 'Switches.get("watch")'],
 	['kit.habit', 'scripts/quality/test-iron-kit-live.mjs', "getSwitch('kit.habit')"],
 	['night.cover', 'scripts/quality/test-obtain-live.mjs', "getSwitch('night.cover')"],
+	['recover.items', 'coordinator/src/respawn-recovery.mjs', "getSwitch('recover.items', environment)"],
 ];
 
 test('every reader reads its switch through the registry, and no switch variable is parsed anywhere else', () => {

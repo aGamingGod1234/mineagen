@@ -17,6 +17,7 @@ import { minecraftCapabilities, normalizeMinecraftToolCall, toolAdjustments, too
 import { lootLedger, rememberStructures, runObtain } from './obtain-runner.mjs';
 // Slots per menu page obtain's loot step asks for: one chest row.
 const MENU_PAGE = 9;
+import { runRecoverItems } from './recover-items.mjs';
 import { resolveObtainItem } from './obtain-plan.mjs';
 import { KIT_CRAFT_TIMEOUT_MS, keepKit } from './kit-habit.mjs';
 import { runInventoryRepair } from './inventory-repair.mjs';
@@ -68,11 +69,11 @@ const EXPIRED = Symbol('expired');
 // escape is the emergency step: like fight and flee it may borrow the body from a program paused for a danger decision.
 const PAUSED_PROGRAM_DANGER_ACTIONS = new Set(['fight_target', 'flee_from', 'escape']);
 const GUARD_DEFENSIVE_ACTIONS = new Set(['fight_target', 'flee_from', 'block_with_shield', 'use_item', 'respawn']);
-const GUARD_OVERRIDE_KINDS = new Set(['action', 'start_action', 'run_program', 'sequence', 'lookAround', 'gather', 'find', 'obtain', 'repair_inventory', 'finish']);
+const GUARD_OVERRIDE_KINDS = new Set(['action', 'start_action', 'run_program', 'sequence', 'lookAround', 'gather', 'find', 'obtain', 'repair_inventory', 'recover_items', 'finish']);
 // A direct model body command takes the body from a firing reflex. Starting a program does not: the program pauses under it.
 // replace_action is one too; it yields in its own branch, once the replacement is accepted and before the old action is cancelled.
-const REFLEX_YIELD_KINDS = new Set(['action', 'start_action', 'sequence', 'lookAround', 'gather', 'find', 'obtain', 'repair_inventory']);
-const STOOD_STILL_KINDS = new Set(['action', 'start_action', 'run_program', 'sequence', 'lookAround', 'gather', 'find', 'obtain', 'repair_inventory']);
+const REFLEX_YIELD_KINDS = new Set(['action', 'start_action', 'sequence', 'lookAround', 'gather', 'find', 'obtain', 'repair_inventory', 'recover_items']);
+const STOOD_STILL_KINDS = new Set(['action', 'start_action', 'run_program', 'sequence', 'lookAround', 'gather', 'find', 'obtain', 'repair_inventory', 'recover_items']);
 const BODY_SEEN_VERBS = new Set(['travel_to', 'dig_to']);
 const STEP_RUNNING_NOTE = 'End your turn: the step runs on its own and you are woken when it ends or the body stops it, or for danger your reflexes did not handle, chat or death.';
 // keepGoing: at most this many legs in one chain, so a model that never replies still gets a completion wake.
@@ -81,7 +82,7 @@ export const MAX_KEEP_GOING_LEGS = 8;
 const KEEP_GOING_MIN_PROGRESS_BLOCKS = 1;
 const RUNNING_ACTION_STATES = new Set(['RUNNING', 'PREPARING', 'CANCELLING', 'CANCELLATION_UNCONFIRMED']);
 // Body calls that may carry reflex rules to install before they act (run_program installs its own).
-const REFLEX_CARRIER_KINDS = new Set(['action', 'sequence', 'gather', 'find', 'obtain', 'standing_order']);
+const REFLEX_CARRIER_KINDS = new Set(['action', 'sequence', 'gather', 'find', 'obtain', 'recover_items', 'standing_order']);
 // Firing outcomes during which the reflex held the body (a paused program's action was not running).
 const REFLEX_HELD_OUTCOMES = new Set(['done', 'timeout', 'failed', 'preempted', 'yielded']);
 // Game time per server tick (the body's GameClock), and the smallest server-lag shortfall worth moving a program deadline for.
@@ -1191,6 +1192,7 @@ export class NativeToolRuntime {
 		if (tool.kind === 'gather') return this.#withBlockingToolRun(record, (run) => this.#executeGather(request, record, tool, this.#executionEpoch(record.agentId), run));
 		if (tool.kind === 'find') return this.#withBlockingToolRun(record, (run) => this.#executeFind(request, record, tool, this.#executionEpoch(record.agentId), run));
 		if (tool.kind === 'obtain') return this.#withBlockingToolRun(record, (run) => this.#executeObtain(request, record, tool, this.#executionEpoch(record.agentId), run));
+		if (tool.kind === 'recover_items') return this.#withBlockingToolRun(record, (run) => this.#executeRecoverItems(request, record, tool, this.#executionEpoch(record.agentId), run));
 		if (tool.kind === 'repair_inventory') return this.#withBlockingToolRun(record, async run => {
 			const epoch = this.#executionEpoch(record.agentId);
 			const current = () => this.#executionEpoch(record.agentId) === epoch;
@@ -2707,6 +2709,53 @@ export class NativeToolRuntime {
 	 * makes its own: act, mine, moveTo and gather itself, from fresh observations, with no model turn between them.
 	 * Danger interrupting the blocking run ends it with what is done so far.
 	 */
+	/** recover_items (recover-items.mjs): back to the death spot, pick up the drops, wear the kit again; body steps as obtain's. */
+	async #executeRecoverItems(request, record, tool, executionEpoch, blockingRun) {
+		let steps = 0;
+		const current = () => this.#executionEpoch(record.agentId) === executionEpoch;
+		const interrupted = () => blockingRun.interruptedBy !== null;
+		const body = {
+			observe: async () => {
+				if (!current()) throw codedError('NATIVE_ACTION_CANCELLED', 'recover_items cancelled');
+				const facts = await this.#observe(record, { includeMetadata: false, deliver: false });
+				if (facts.freshness?.fresh !== true) throw codedError('FRESH_OBSERVATION_REQUIRED', 'recover_items needs a fresh observation at each step');
+				return facts.observation ?? {};
+			},
+			act: async (actionType, args) => {
+				if (!current()) throw codedError('NATIVE_ACTION_CANCELLED', 'recover_items cancelled before its next step');
+				if (interrupted()) return { state: 'INTERRUPTED', reasonCode: blockingRun.forkStop?.reasonCode ?? 'DANGER' };
+				steps += 1;
+				try { return await this.#executeAction(request, record, normalizeMinecraftToolCall('act', { actionType, arguments: args }), steps); }
+				catch (error) {
+					if (!current()) throw error;
+					return { state: 'FAILED', reasonCode: error?.code ?? 'ACTION_ERROR', message: String(error?.message ?? error).slice(0, 300) };
+				}
+			},
+			// A stone pickaxe before an underground walk back runs obtain's whole chain on this same body and blocking run.
+			obtain: async (item, count, timeoutMs) => {
+				if (!current()) throw codedError('NATIVE_ACTION_CANCELLED', 'recover_items cancelled before its pickaxe');
+				if (interrupted()) return { state: 'INTERRUPTED', reasonCode: blockingRun.forkStop?.reasonCode ?? 'DANGER' };
+				try { return await this.#executeObtain(request, record, { kind: 'obtain', arguments: { item, count, timeoutMs } }, executionEpoch, blockingRun); }
+				catch (error) {
+					if (!current()) throw error;
+					return { state: 'FAILED', reasonCode: error?.code ?? 'ACTION_ERROR', message: String(error?.message ?? error).slice(0, 300) };
+				}
+			},
+			// Without this the planner's default lease (about 2 min) cancels a long walk back mid-way.
+			budget: (ms) => { try { request.extendLease?.(ms); } catch { /* the lease is the planner's */ } },
+			stopped: () => !current(),
+			interrupted,
+			note: (text) => {
+				blockingRun.recover = { step: steps, label: text };
+				this.#trace('native_recover_step', { agentId: record.agentId, goalRevision: record.goalRevision, step: steps, text });
+			},
+		};
+		const result = await runRecoverItems(tool.arguments, body, { now: this.#clock.now });
+		this.#trace('native_recover_items', { agentId: record.agentId, goalRevision: record.goalRevision, state: result.state, reasonCode: result.reasonCode,
+			recovered: result.recovered ?? null, seconds: result.seconds ?? null, steps });
+		return result;
+	}
+
 	async #executeObtain(request, record, tool, executionEpoch, blockingRun) {
 		let steps = 0;
 		const current = () => this.#executionEpoch(record.agentId) === executionEpoch;

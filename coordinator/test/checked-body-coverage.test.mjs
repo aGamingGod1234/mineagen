@@ -9,13 +9,13 @@ import { checkedObtainBody, checkedSearchBody } from './helpers/checked-body.mjs
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 // The helpers that take a body and send it moves, by the module a test imports them from.
-const BODY_MODULES = ['find-search', 'obtain-runner', 'kit-habit', 'loot-step', 'find-eyes', 'find-portal-room', 'inventory-repair'];
+const BODY_MODULES = ['find-search', 'obtain-runner', 'kit-habit', 'loot-step', 'find-eyes', 'find-portal-room', 'inventory-repair', 'recover-items'];
 // Test files that drive a body helper without a checked fake, each with the reason it needs none.
 const EXEMPT = new Map([
 	['test/inventory-repair.test.mjs', 'drives repair through the real NativeToolRuntime with a fake bridge, so production normalization runs; its one direct runInventoryRepair fake must refuse before any move (act is assert.fail)'],
 ]);
 // The helpers' entry points that take a body; tests import them from the helper, which wraps the body on every call.
-const ENTRY_POINTS = ['searchFor', 'runObtain', 'keepKit', 'lootChest', 'followEyes', 'findPortalRoom'];
+const ENTRY_POINTS = ['searchFor', 'runObtain', 'keepKit', 'lootChest', 'followEyes', 'findPortalRoom', 'runRecoverItems'];
 const HELPER_IMPORT = /from '\.\/helpers\/checked-body\.mjs'/;
 // A fake's act: a key, a method, a local function, or shorthand on a body object.
 const DEFINES_ACT = /\bact\s*:|\basync\s+act\s*\(|\b(?:const|let)\s+act\s*=|[{,]\s*act\s*[,}]/;

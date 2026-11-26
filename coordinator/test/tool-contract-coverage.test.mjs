@@ -25,7 +25,7 @@ test('tool descriptions are generated from the canonical claim table without inl
 });
 
 test('model-facing contract bytes remain within the pinned baseline budgets', () => {
-	assert.ok(Buffer.byteLength(JSON.stringify(MINECRAFT_DYNAMIC_TOOLS)) <= 39_476);
+	assert.ok(Buffer.byteLength(JSON.stringify(MINECRAFT_DYNAMIC_TOOLS)) <= 39_583);
 	assert.ok(Buffer.byteLength(NATIVE_AGENT_INSTRUCTIONS) <= 1_500);
 	assert.ok(Buffer.byteLength(ARENA_SCRIPT_API_REFERENCE) <= 15_735);
 });

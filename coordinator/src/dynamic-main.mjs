@@ -2776,6 +2776,7 @@ export class DynamicCoordinator extends EventEmitter {
 			|| toolRequest.tool.kind === 'gather'
 			|| toolRequest.tool.kind === 'find'
 			|| toolRequest.tool.kind === 'obtain'
+			|| toolRequest.tool.kind === 'recover_items'
 			|| toolRequest.tool.kind === 'run_program'
 			|| toolRequest.tool.kind === 'respond_program'
 			|| toolRequest.tool.kind === 'start_action'

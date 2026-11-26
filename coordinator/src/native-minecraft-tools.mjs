@@ -59,8 +59,8 @@ const KEEP_GOING_SCHEMA = Object.freeze({ type: 'boolean' });
 // do_step verbs: the long body actions that run as one step on their own, plus crafting and smelting. Each maps to the
 // call it runs; the background ones return a handle at once, the rest their result.
 export const STEP_VERBS = Object.freeze({ travel_to: 'travel_to', dig_to: 'dig_to', mine: 'mine_vein', cast_obsidian: 'cast_obsidian', fight_until: 'fight_until',
-	build: 'build', build_shelter: 'build_shelter', barter_until: 'barter_until', rest: 'rest', gather: 'gather', find: 'find', craft: 'craft', smelt: 'furnace_transaction', obtain: 'obtain', repair_inventory: 'repair_inventory', escape: 'escape' });
-const FOREGROUND_VERBS = new Set(['gather', 'find', 'craft', 'smelt', 'obtain', 'repair_inventory']);
+	build: 'build', build_shelter: 'build_shelter', barter_until: 'barter_until', rest: 'rest', gather: 'gather', find: 'find', craft: 'craft', smelt: 'furnace_transaction', obtain: 'obtain', repair_inventory: 'repair_inventory', escape: 'escape', recover_items: 'recover_items' });
+const FOREGROUND_VERBS = new Set(['gather', 'find', 'craft', 'smelt', 'obtain', 'repair_inventory', 'recover_items']);
 export const STEP_WHY_LENGTH = 100;
 export const STEP_SEEN_PATTERN = /^seen:((?:[a-z0-9_.-]+:)?[a-z0-9_./-]+)$/;
 // The verbs whose body stops itself when a named block comes into view (stopWhenSeen ends them with TARGET_SEEN).
@@ -117,7 +117,7 @@ Omitted facts are unknown; failure.changed absent=none. queryMemory pages. explo
 export const MINECRAFT_DYNAMIC_TOOLS = Object.freeze([
 	tool('do_step', { ...objectSchema({
 		verb: { type: 'string', enum: Object.keys(STEP_VERBS) },
-		target: { type: 'object', properties: { allowComponentLoss: { type: 'boolean', enum: [true], description: 'Required true for repair_inventory: explicitly accept loss of names, non-curse enchantments and other components.' } }, description: 'Verb arguments: act fields (mine x,y,z: vein/tree; craft recipeId,count, table x,y,z if needed; smelt furnace_transaction), gather, find {block|biome|mob|structure,within?,throwCap?,allowEyeReserveUse? (true spends eye reserve)}, build {structure:nether_portal|pillar|bridge|shelter,at?,materials?,size?}, obtain {item,count}, or repair_inventory {menuId,containerId,stateId,itemId,inputs:[{slot,fingerprint},{slot,fingerprint}],allowComponentLoss:true} from inspected inventory menu slots.' },
+		target: { type: 'object', properties: { allowComponentLoss: { type: 'boolean', enum: [true], description: 'Required true for repair_inventory: explicitly accept loss of names, non-curse enchantments and other components.' } }, description: 'Verb arguments: act fields (mine x,y,z: vein/tree; craft recipeId,count, table x,y,z if needed; smelt furnace_transaction), gather, find {block|biome|mob|structure,within?,throwCap?,allowEyeReserveUse? (true spends eye reserve)}, build {structure:nether_portal|pillar|bridge|shelter,at?,materials?,size?}, obtain {item,count}, recover_items {} (after a death: walk back, a stone pickaxe first for underground drops, pick up, re-wear), or repair_inventory {menuId,containerId,stateId,itemId,inputs:[{slot,fingerprint},{slot,fingerprint}],allowComponentLoss:true} from inspected inventory menu slots.' },
 		why: { type: 'string', minLength: 1, maxLength: STEP_WHY_LENGTH },
 		until: { type: 'string', minLength: 1, maxLength: INTENT_FIELDS.until },
 		after: AFTER_SCHEMA,
@@ -935,6 +935,10 @@ function normalizeStep(args) {
 	if (args.verb === 'gather') body = normalizeMinecraftToolCall('gather', target);
 	else if (args.verb === 'find') body = normalizeFind(target);
 	else if (args.verb === 'obtain') body = normalizeObtain(target);
+	else if (args.verb === 'recover_items') {
+		requireExactKeys(target, ['timeoutMs']);
+		body = { kind: 'recover_items', arguments: { ...(target.timeoutMs === undefined ? {} : { timeoutMs: integer(target.timeoutMs, 'timeoutMs', 5_000, 900_000) }) } };
+	}
 	else if (args.verb === 'repair_inventory') {
 		requireExactKeys(target, ['menuId', 'containerId', 'stateId', 'itemId', 'inputs', 'allowComponentLoss']);
 		if (target.allowComponentLoss !== true) invalid('repair_inventory requires allowComponentLoss:true: vanilla repair may discard names, non-curse enchantments and other components');
