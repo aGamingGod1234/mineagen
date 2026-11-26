@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { combatFacts } from '../src/combat-facts.mjs';
 import { buildNativeEventInput, classifyObservationTrigger } from '../src/dynamic-main.mjs';
 import { decodeModelFacts, encodeNativeEventInput, ModelObservationViews } from '../src/model-fact-encoding.mjs';
-import { CAGED_CRYSTAL_FACTS, dragonPerchEdge, dragonPerchLine, endCrystalFact, noteCombatDispatch, rememberEndCrystals, settleCombatResult } from '../src/dragon-fight-facts.mjs';
+import { CAGED_CRYSTAL_FACTS, END_HIGH_FEET_Y, HIGH_DESCENT_FACTS, dragonPerchEdge, dragonPerchLine, endCrystalFact, noteCombatDispatch, rememberEndCrystals, settleCombatResult } from '../src/dragon-fight-facts.mjs';
 
 const HEAD = '00000000-0000-0000-0000-0000000000a1';
 const dragon = (motion, extra = {}) => ({ stableId: 'dragon', type: 'minecraft:ender_dragon', alive: true, perceivedBy: 'sight', x: 0.5, y: 67.8, z: 0.4, distance: 9.6, appearance: { motion }, ...extra });
@@ -154,4 +154,15 @@ test('production encoded wakes deliver the whole cage procedure without changing
 		assert.doesNotMatch(payload.combat ?? '', /CAGE ACCESS|DESCENT|End crystals/);
 		assert.deepEqual(away, saved);
 	}
+});
+
+test('the End crystal fact gives the column descent only while the feet are high above the island', () => {
+	const tally = { standing: [{ x: 1, y: 90, z: 1 }], broken: 2 };
+	assert.ok(endCrystalFact(tally, { y: END_HIGH_FEET_Y + 30 }).endsWith(HIGH_DESCENT_FACTS));
+	assert.ok(!endCrystalFact(tally, { y: 63 }).includes(HIGH_DESCENT_FACTS));
+	assert.ok(!endCrystalFact(tally).includes(HIGH_DESCENT_FACTS));
+	assert.ok(!endCrystalFact(tally, { y: END_HIGH_FEET_Y + 30 }, { MINEAGEN_END_HIGH_DESCENT: 'off' }).includes(HIGH_DESCENT_FACTS), 'the off switch drops the advice');
+	assert.match(HIGH_DESCENT_FACTS, /"pattern":"shaft","y":G,"maxShaftY":G/);
+	assert.match(HIGH_DESCENT_FACTS, /Never pour the water bucket on your own column top/);
+	assert.match(HIGH_DESCENT_FACTS, /water_bucket in hotbar or offhand \(inventory slots 9-35 do not count/, 'the shaft needs a bucket in reach, or it digs two columns wide');
 });
