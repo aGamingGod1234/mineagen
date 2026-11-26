@@ -2248,6 +2248,16 @@
    "reads": "no pass bar: OUT/end-void.json summary (on island / on platform after fireball, sprint, sneak, water clutch); exit 0"
   },
   {
+   "room": "end-knockoff",
+   "fixture": "test-end-knockoff-live.mjs",
+   "stage": "end",
+   "skill": "survival",
+   "line": "ARENA_JAR=$JAR node scripts/quality/test-end-knockoff-live.mjs $OUT",
+   "estMinutes": 3,
+   "tickRate": 20,
+   "reads": "OUT/end-knockoff.json: pass (exit 0) = all 6 throws off a 22-high column (3 under a breath cloud) land with under 2 health lost; fail exit 1; a body never placed on the top or never thrown off is notExercised"
+  },
+  {
    "room": "fire-unarmed",
    "fixture": "test-fire-live.mjs",
    "stage": "portal-lava",

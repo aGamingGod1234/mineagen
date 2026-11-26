@@ -9,6 +9,7 @@ import dev.agaminggod.mineagen.server.perception.LavaSpread;
 import dev.agaminggod.mineagen.server.perception.ObservationVisibility;
 import dev.agaminggod.mineagen.server.perception.ThreatDamage;
 import dev.agaminggod.mineagen.server.perception.ThreatPerception;
+import dev.agaminggod.mineagen.server.perception.VoidColumn;
 import dev.agaminggod.mineagen.server.perception.WaterAirFacts;
 import dev.agaminggod.mineagen.server.runtime.controller.CombatPlanning;
 import dev.agaminggod.mineagen.server.runtime.controller.HazardExits;
@@ -2069,6 +2070,17 @@ final class ReflexActions {
 			this.where = where;
 		}
 
+		/** True when the 3x3 columns around the feet and the column the fall is heading for are empty down past the world's bottom. */
+		static boolean overVoid(Level level, ServerPlayer player, Vec3 motion) {
+			BlockPos feet = player.blockPosition();
+			for (int dx = -1; dx <= 1; dx++) for (int dz = -1; dz <= 1; dz++) {
+				if (!VoidColumn.below(level, feet.getX() + dx, feet.getY(), feet.getZ() + dz)) return false;
+			}
+			int leadX = Mth.floor(player.getX() + motion.x * CLUTCH_LEAD_TICKS * 4.0D);
+			int leadZ = Mth.floor(player.getZ() + motion.z * CLUTCH_LEAD_TICKS * 4.0D);
+			return VoidColumn.below(level, leadX, feet.getY(), leadZ);
+		}
+
 		/** A hold that reaches its rule's time ends done with the water left (its report names the cell), never as a timeout. */
 		@Override
 		public boolean doneAtMaxS() { return heldWater != null; }
@@ -2104,6 +2116,8 @@ final class ReflexActions {
 						ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, player));
 				if (crosshair.getType() != HitResult.Type.BLOCK || crosshair.getDirection() != Direction.UP
 						|| !level.getBlockState(crosshair.getBlockPos().above()).canBeReplaced()) {
+					// Over the void a bucket has nothing to land on: let go, so the model's next move (a pearl back) is not held for maxMs.
+					if (overVoid(level, player, motion)) return Step.failed("falling into the void: nothing below to place water on");
 					return Step.running("falling; ground not in reach yet");
 				}
 			} else {
@@ -3165,9 +3179,9 @@ final class ReflexActions {
 	static boolean runsTowardVoid(ServerPlayer player, float yaw) {
 		double radians = Math.toRadians(yaw);
 		double dx = -Math.sin(radians), dz = Math.cos(radians);
-		int feetY = net.minecraft.util.Mth.floor(player.getY() + 1.0E-4D);
+		int feetY = Mth.floor(player.getY() + 1.0E-4D);
 		for (double distance : VOID_LOOKAHEAD) {
-			int x = net.minecraft.util.Mth.floor(player.getX() + dx * distance), z = net.minecraft.util.Mth.floor(player.getZ() + dz * distance);
+			int x = Mth.floor(player.getX() + dx * distance), z = Mth.floor(player.getZ() + dz * distance);
 			if (dev.agaminggod.mineagen.server.perception.VoidColumn.below(player.level(), x, feetY, z)) return true;
 		}
 		return false;

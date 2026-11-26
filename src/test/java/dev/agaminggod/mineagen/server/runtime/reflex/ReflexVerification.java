@@ -37,6 +37,7 @@ public final class ReflexVerification {
 		triggerEdgeDuringAnotherFiringFiresAfterIt();
 		stanceHoldsWhileTrueAndIsBounded();
 		priorityPreemptsAndHandsBack();
+		fallCatchWinsEqualPriority();
 		settledHoldYieldsAndEndsDone();
 		debounceAndLoopProtection();
 		flappingDisables();
@@ -296,6 +297,26 @@ public final class ReflexVerification {
 		ReflexScheduler.Decision back = scheduler.step(4, sense("work", true, "air", false), ReflexScheduler.ActionStatus.DONE, "surfaced", false);
 		check(back.endOutcome() == ReflexScheduler.Outcome.DONE && back.started() == null, "the preempted rule waits for its cooldown");
 		check("work".equals(scheduler.step(20, sense("work", true, "air", false), RUNNING, "", false).started()), "then fires again");
+	}
+
+	/** A fall catch takes the body from a running rule of its own priority; nothing of that priority takes it back. */
+	private static void fallCatchWinsEqualPriority() {
+		ReflexScheduler scheduler = new ReflexScheduler();
+		scheduler.replace(rules("""
+				[{"id":"breath","priority":9,"when":{"type":"cloud_near","within":4},"do":{"type":"sprint_away"}},
+				 {"id":"fall","priority":9,"when":{"type":"falling","blocks":4},"do":{"type":"place","item":"minecraft:water_bucket","where":"below"}},
+				 {"id":"other","priority":9,"when":{"type":"in_lava"},"do":{"type":"leave_fire"}}]"""), 0);
+		check("breath".equals(scheduler.step(1, sense("breath", true, "fall", false, "other", false), RUNNING, "", false).started()), "the breath run fires");
+		ReflexScheduler.Decision caught = scheduler.step(2, sense("breath", true, "fall", true, "other", false), RUNNING, "", false);
+		check(caught.endOutcome() == ReflexScheduler.Outcome.PREEMPTED && "fall".equals(caught.started()), "a fall catch preempts an equal-priority run");
+		check(scheduler.step(3, sense("breath", true, "fall", true, "other", true), RUNNING, "", false).ended() == null,
+				"no equal-priority rule takes the body back from the catch");
+		ReflexScheduler plain = new ReflexScheduler();
+		plain.replace(rules("""
+				[{"id":"breath","priority":9,"when":{"type":"cloud_near","within":4},"do":{"type":"sprint_away"}},
+				 {"id":"other","priority":9,"when":{"type":"in_lava"},"do":{"type":"leave_fire"}}]"""), 0);
+		plain.step(1, sense("breath", true, "other", false), RUNNING, "", false);
+		check(plain.step(2, sense("breath", true, "other", true), RUNNING, "", false).ended() == null, "other equal-priority rules still wait");
 	}
 
 	/** Decision 13: a lava rule holding on through the afterburn yields to any ready rule and ends done at its maxS. */

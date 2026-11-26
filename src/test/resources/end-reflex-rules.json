@@ -101,5 +101,24 @@
 		"cooldownMs": 1000,
 		"ttlMs": 3600000,
 		"coordinatorDefault": true
+	},
+	{
+		"id": "default-end-fall",
+		"kind": "trigger",
+		"priority": 9,
+		"when": [
+			{
+				"type": "falling",
+				"blocks": 4
+			}
+		],
+		"do": {
+			"type": "place",
+			"item": "minecraft:water_bucket",
+			"where": "below"
+		},
+		"maxMs": 8000,
+		"ttlMs": 3600000,
+		"coordinatorDefault": true
 	}
 ]
