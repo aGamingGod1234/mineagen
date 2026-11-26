@@ -360,7 +360,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 		// fight_until form too: while a wall-in is left, low health walls in and heals (the emergency wall-in) instead of
 		// handing back in the open at the model's fleeAtHealth. Real games (26 Nov): calls asked 12-16, so holds started at
 		// 13-15 health ended in 0-2 s with no cell, and the body was left on the deck by the spawner with nothing running.
-		float floor = wallInLeft(player) || target != null && openFightNext ? -1.0F : fleeAtHealth;
+		float floor = (target != null || SpawnerHold.SPOT) && wallInLeft(player) || target != null && openFightNext ? -1.0F : fleeAtHealth;
 		String code = SpawnerHold.handBack(new SpawnerHold.Sense(ServerFightUntilController.count(player, untilItem), untilCount, player.getHealth(),
 				floor, player.getFoodData().getFoodLevel(), foodSlot(player) >= 0, elapsed, target != null ? Long.MAX_VALUE : timeoutMs, spawnerGone,
 				phase == Phase.HOLD ? elapsed - lastBlazeMs : 0L, phase == Phase.HOLD || emergency != null, sitesFailed, noSiteLeft,

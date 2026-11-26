@@ -20,6 +20,12 @@ public final class SpawnerHold {
 	 * fight kept 39 rods in 9 runs, the cell fight 7; the plain spawner room: the open fight died in 8 of 10, healing nowhere.
 	 */
 	public static final boolean OPEN_FIGHT = dev.agaminggod.mineagen.server.Switches.get("fight.spawnerHoldOpen");
+	/**
+	 * On by default; -Dmineagen.fight.spawnerHoldSpot=false turns off both halves of the spot rule: a fight_until spot by
+	 * the spawner keeps the ordinary fight ({@link #spotAtSpawner}), and the fight_until hold hands back at the model's
+	 * fleeAtHealth again while a wall-in is left.
+	 */
+	public static final boolean SPOT = dev.agaminggod.mineagen.server.Switches.get("fight.spawnerHoldSpot");
 	/** A seen fortress spawner within this many blocks of the body starts a hold. */
 	public static final double SCAN = 24.0D;
 	/** The cell stands this far (horizontal) from the spawner: a vanilla spawner runs only with a player within 16. */
@@ -84,7 +90,7 @@ public final class SpawnerHold {
 	 * within 24 blocks of a spawner the body had seen, 30 on the spawner block itself, and none of those fights got a rod.
 	 */
 	public static boolean spotAtSpawner(BlockPos spawner, Double x, Double y, Double z) {
-		if (spawner == null || x == null || z == null) return false;
+		if (!SPOT || spawner == null || x == null || z == null) return false;
 		double dx = x - (spawner.getX() + 0.5D), dz = z - (spawner.getZ() + 0.5D), dy = y == null ? 0.0D : y - spawner.getY();
 		return dx * dx + dy * dy + dz * dz <= SCAN * SCAN;
 	}
