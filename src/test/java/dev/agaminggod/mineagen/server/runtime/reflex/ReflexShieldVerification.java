@@ -140,6 +140,9 @@ public final class ReflexShieldVerification {
 					"net.minecraft.world.entity.monster.cubemob.MagmaCube", "net.minecraft.world.entity.monster.MagmaCube")))),
 					"one mob near that never swings stops the hold, so the counter is never left waiting for good");
 			check(!ReflexActions.Defend.noSwing(List.of()), "no other attacker near: the hold stands");
+			check(!ReflexActions.Defend.counterable((net.minecraft.world.entity.Mob) unsafe.allocateInstance(mobClass(
+					"net.minecraft.world.entity.monster.skeleton.WitherSkeleton", "net.minecraft.world.entity.monster.WitherSkeleton")), List.of()),
+					"a target the counter cannot see (eyes behind a block) keeps defend's attack instead of a hold that never strikes");
 		} catch (ReflectiveOperationException e) {
 			throw new IllegalStateException(e);
 		}

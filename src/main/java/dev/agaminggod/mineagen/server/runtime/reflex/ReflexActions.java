@@ -570,7 +570,7 @@ final class ReflexActions {
 		static boolean faces(ServerPlayer player, Mob mob, int crowd) {
 			ItemStack offhand = player.getOffhandItem();
 			return FACE_MELEE && mob != null && facesWith(crowd, offhand.is(Items.SHIELD) && !player.getCooldowns().isOnCooldown(offhand),
-					noSwing(List.of(mob)) || noSwing(Shield.attackers(player)),
+					!counterable(mob, Shield.attackers(player)),
 					() -> dev.agaminggod.mineagen.server.perception.ThreatDamage.expectedHit(mob, player).disablesShield());
 		}
 
@@ -578,6 +578,11 @@ final class ReflexActions {
 		 * Whether any of these mobs gives no swing to wait out. The counter waits for every attacker near to swing, so one
 		 * bow skeleton or blaze beside a zombie would hold the shield up for good with no hit back.
 		 */
+		static boolean counterable(Mob target, List<? extends Mob> attackers) {
+			// The counter only strikes mobs on its list; one whose eyes sit behind a block is off it, and would never be hit.
+			return attackers.contains(target) && !noSwing(attackers);
+		}
+
 		static boolean noSwing(List<? extends Mob> mobs) {
 			for (Mob mob : mobs) if (contact(mob) || ThreatPerception.isRanged(mob)) return true;
 			return false;
