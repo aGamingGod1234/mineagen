@@ -139,9 +139,16 @@ function crystalEntry(row, player) {
 	return `${row.x},${row.y},${row.z} caged (beside it feet y=${row.y}${above}${row.open?.length ? `; open bars ${row.open.join(' ')}` : ''})`;
 }
 
+// The End island's surface stays below this; feet above it stand on something built, most often a shooting column.
+export const END_HIGH_FEET_Y = 75;
+// Measured on a 47-block 1x1 cobblestone column (y104 to y57, iron pickaxe, 6 of 6 runs). In End games with the water
+// catch armed, 3 of 4 descents from y105-111 poured the bucket on the column top and all 3 fell to their deaths with it empty.
+export const HIGH_DESCENT_FACTS = 'High above the island on a column you built: come down by mining it under you with dig_to {"pattern":"shaft","y":G,"maxShaftY":G}, where G is the ground feet y at the column foot (a 47-block cobblestone column took 51 s with a pickaxe and no damage). A maxShaftY above y turns the dig sideways into the open air beside the column. Never pour the water bucket on your own column top or at your feet up there: the water pushes you off the edge and leaves the bucket empty, so the fall catch has no water to place (from y105-111, 3 of 3 such pours fell to death).';
+
 export function endCrystalFact(tally, player = null) {
 	if (tally == null) return null;
+	const high = Number.isFinite(player?.y) && player.y >= END_HIGH_FEET_Y ? ` ${HIGH_DESCENT_FACTS}` : '';
 	const standing = tally.standing.map(row => crystalEntry(row, player)).join('; ');
 	const caged = tally.standing.some(row => row.caged) ? ` ${CAGED_CRYSTAL_FACTS}` : '';
-	return `End crystals you have seen: ${tally.standing.length} standing when last seen${standing ? ` (${standing})` : ''}, ${tally.broken} broken by your own hits${tally.external ? `, ${tally.external} destroyed by something else` : ''}. The 10 obsidian pillars each start with one; standing crystals heal the dragon, and each turn of its circling lands it on the fountain with chance 1/(crystals left + 3).${caged}`;
+	return `End crystals you have seen: ${tally.standing.length} standing when last seen${standing ? ` (${standing})` : ''}, ${tally.broken} broken by your own hits${tally.external ? `, ${tally.external} destroyed by something else` : ''}. The 10 obsidian pillars each start with one; standing crystals heal the dragon, and each turn of its circling lands it on the fountain with chance 1/(crystals left + 3).${caged}${high}`;
 }
