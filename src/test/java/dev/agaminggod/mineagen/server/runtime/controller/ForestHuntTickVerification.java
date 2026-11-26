@@ -342,6 +342,26 @@ public final class ForestHuntTickVerification {
 			check(end.message().contains("minecraft:enderman: ") && end.message().contains("minecraft:ender_pearl "),
 					"the receipt names the full ids: " + end.message());
 		}
+		// The ledge fetch, the collect-when-clear list and the lying count all match a remembered drop through wantsDrop.
+		try (Fixture fixture = Fixture.create()) {
+			JsonObject pearls = hunt(60_000L);
+			pearls.addProperty("mob", "enderman");
+			pearls.addProperty("untilItem", "ender_pearl");
+			ServerFightUntilController bare = fixture.hunt(pearls, null);
+			check(bare.wantsDrop("minecraft:ender_pearl") && !bare.wantsDrop("minecraft:ender_eye"), "a bare ender_pearl call takes minecraft:ender_pearl drops");
+			check(fixture.hunt(hunt(60_000L), null).wantsDrop("minecraft:ender_pearl"), "a full-id call still takes its drops");
+			JsonObject rods = hunt(60_000L);
+			rods.addProperty("mob", "blaze");
+			rods.addProperty("untilItem", "blaze_rod");
+			check(fixture.hunt(rods, null).wantsDrop("minecraft:blaze_rod"), "a bare blaze_rod call takes minecraft:blaze_rod drops");
+			String saved = System.getProperty("mineagen.fight.fullIds");
+			System.setProperty("mineagen.fight.fullIds", "false");
+			try {
+				check(!fixture.hunt(pearls, null).wantsDrop("minecraft:ender_pearl"), "fight.fullIds=false keeps the id as written (the old match)");
+			} finally {
+				if (saved == null) System.clearProperty("mineagen.fight.fullIds"); else System.setProperty("mineagen.fight.fullIds", saved);
+			}
+		}
 	}
 
 	private static JsonObject hunt(long timeoutMs) {

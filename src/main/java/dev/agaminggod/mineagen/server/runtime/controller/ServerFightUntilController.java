@@ -163,6 +163,16 @@ public final class ServerFightUntilController implements ServerController {
 	private final String mobId;
 	private final Item untilItem;
 	private final String untilItemId;
+
+	/** A remembered drop of the item this call counts: the ledge fetch, the collect-when-clear list and the lying count. */
+	boolean wantsDrop(String dropItem) {
+		return untilItemId.equals(dropItem);
+	}
+
+	/** The fight.fullIds switch, read per call (on unless -Dmineagen.fight.fullIds=false). */
+	static boolean fullIds() {
+		return dev.agaminggod.mineagen.server.Switches.get("fight.fullIds");
+	}
 	private final int untilCount;
 	private final Weapon weapon;
 	private final boolean collect;
@@ -406,12 +416,13 @@ public final class ServerFightUntilController implements ServerController {
 		this.mob = BuiltInRegistries.ENTITY_TYPE.getOptional(Identifier.parse(mobArg))
 				.orElseThrow(() -> new AgentDomainException("INVALID_FIELD", "mob: no entity type " + mobArg));
 		// Ids are kept in their full namespaced form: the model often writes "ender_pearl", and forest mode, drop
-		// matching and the receipts compare against "minecraft:ender_pearl".
-		this.mobId = BuiltInRegistries.ENTITY_TYPE.getKey(mob).toString();
+		// matching and the receipts compare against "minecraft:ender_pearl". -Dmineagen.fight.fullIds=false keeps them as written.
+		boolean fullIds = fullIds();
+		this.mobId = fullIds ? BuiltInRegistries.ENTITY_TYPE.getKey(mob).toString() : mobArg;
 		String itemArg = arguments.get("untilItem").getAsString();
 		this.untilItem = BuiltInRegistries.ITEM.getOptional(Identifier.parse(itemArg))
 				.orElseThrow(() -> new AgentDomainException("INVALID_FIELD", "untilItem: no item " + itemArg));
-		this.untilItemId = BuiltInRegistries.ITEM.getKey(untilItem).toString();
+		this.untilItemId = fullIds ? BuiltInRegistries.ITEM.getKey(untilItem).toString() : itemArg;
 		this.untilCount = arguments.get("untilCount").getAsInt();
 		this.weapon = arguments.has("weapon") ? Weapon.valueOf(arguments.get("weapon").getAsString().toUpperCase(Locale.ROOT)) : Weapon.AUTO;
 		this.fleeAtHealth = arguments.has("fleeAtHealth") ? arguments.get("fleeAtHealth").getAsFloat() : DEFAULT_FLEE_AT_HEALTH;
@@ -2108,7 +2119,7 @@ public final class ServerFightUntilController implements ServerController {
 		for (UUID id : dev.agaminggod.mineagen.server.perception.ObservedDrops.remembered(player)) {
 			if (ledgeTried.contains(id)) continue;
 			var drop = dev.agaminggod.mineagen.server.perception.ObservedDrops.recall(player, id);
-			if (drop == null || !drop.item().equals(untilItemId)) continue;
+			if (drop == null || !wantsDrop(drop.item())) continue;
 			if (!(((net.minecraft.server.level.ServerLevel) player.level()).getEntity(id) instanceof ItemEntity item) || !item.isAlive()) continue;
 			LedgeFetch trip = LedgeFetch.plan(player, id, untilItem, back, this::mayModify, count(player, untilItem), now);
 			if (trip == null) {
@@ -2204,7 +2215,7 @@ public final class ServerFightUntilController implements ServerController {
 		for (UUID id : dev.agaminggod.mineagen.server.perception.ObservedDrops.remembered(player)) {
 			if (clearTried.contains(id)) continue;
 			var drop = dev.agaminggod.mineagen.server.perception.ObservedDrops.recall(player, id);
-			if (drop == null || !drop.item().equals(untilItemId)) continue;
+			if (drop == null || !wantsDrop(drop.item())) continue;
 			if (!(level.getEntity(id) instanceof ItemEntity item) || !item.isAlive() || item.position().distanceTo(center) > radius) continue;
 			if (item.onGround() && item.getY() > player.getY() + 0.6D) continue;
 			drops.add(id);
@@ -2234,7 +2245,7 @@ public final class ServerFightUntilController implements ServerController {
 		var level = (net.minecraft.server.level.ServerLevel) player.level();
 		for (UUID id : dev.agaminggod.mineagen.server.perception.ObservedDrops.remembered(player)) {
 			var drop = dev.agaminggod.mineagen.server.perception.ObservedDrops.recall(player, id);
-			if (drop != null && drop.item().equals(untilItemId) && level.getEntity(id) instanceof ItemEntity item && item.isAlive()
+			if (drop != null && wantsDrop(drop.item()) && level.getEntity(id) instanceof ItemEntity item && item.isAlive()
 					&& item.position().distanceTo(center) <= radius) lying++;
 		}
 		return String.format(Locale.ROOT, "; collect:false: drops waited %.1f s while a hostile was within %d blocks%s, %d trip%s out once clear%s%s, %d picked up, %d seen %s still lying in the area",
