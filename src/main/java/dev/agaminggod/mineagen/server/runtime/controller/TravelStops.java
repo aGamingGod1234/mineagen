@@ -96,11 +96,12 @@ public final class TravelStops {
 	public static final int SAFE_HITS = 3;
 
 	/** An angry enderman is fought while the body outlasts this many of its hits; it teleports, so it cannot be outrun. */
-	public static final int ENDERMAN_SAFE_HITS = 2;
+	public static final int ENDERMAN_SAFE_HITS = 1;
 
 	/**
 	 * Whether an enderman after the body ({@code targeting}) is fought where it is, as a player turns on one that is
-	 * already hunting it: a sword or axe on the hotbar, health above {@code minHealth} and above two of its hits.
+	 * already hunting it: a sword or axe on the hotbar, health above {@code minHealth} and above one of its hits. It is checked after a hit
+	 * lands and it teleports, so it cannot be outrun: an unarmoured body at 13 health after a 7-point hit still fights.
 	 */
 	public static boolean fightsAngryEnderman(String typeId, boolean targeting, boolean weapon, float health, float minHealth, double hit) {
 		return "minecraft:enderman".equals(typeId) && targeting && weapon && health > minHealth && hit > 0.0D && health > ENDERMAN_SAFE_HITS * hit;
