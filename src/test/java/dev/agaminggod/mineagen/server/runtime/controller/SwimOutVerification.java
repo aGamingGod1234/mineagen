@@ -33,6 +33,9 @@ public final class SwimOutVerification {
 		check(ServerRetraceController.buriedCells(false, true), "a footstep with a block at head height is passed");
 		check(!ServerRetraceController.buriedCells(false, false), "an open footstep is walked to");
 		check(!ServerRetraceController.buriedCells(null, null), "an unseen footstep is walked to and looked at");
+		check(ServerRetraceController.BURIED_LEG_STOPS.contains("NO_ROUTE"), "a leg that got no closer may be a filled-in footstep");
+		for (String safety : new String[] {"TRAVEL_DAMAGED", "LOW_HEALTH", "LOW_FOOD", "HOSTILE_NEAR", "TRAVEL_TIMEOUT"})
+			check(!ServerRetraceController.BURIED_LEG_STOPS.contains(safety), safety + " still stops the retrace");
 		check(ServerTravelController.underWater(300, false, 3.0D, false, 8.0D, false) == ServerTravelController.SwimStep.AIR,
 				"a known route to air comes before a low bank under a roof");
 		check(ServerTravelController.underWater(300, false, 0.0D, false, 2.0D, false) == ServerTravelController.SwimStep.AIR,

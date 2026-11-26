@@ -114,7 +114,8 @@ public final class ServerRetraceController implements ServerController {
     result=null;
    }
    leg.cancel(p);leg=null;
-   if(passBuried && (result==null || result.state()!=State.SUCCEEDED && !result.reasonCode().equals("TRAVEL_TIMEOUT")) && buried(p,next)) {
+   // Only a leg that could not get there is passed on; damage, health, food and hostile stops still go back to the model.
+   if(passBuried && (result==null || result.state()!=State.SUCCEEDED && BURIED_LEG_STOPS.contains(result.reasonCode())) && buried(p,next)) {
     if(ServerTravelController.DEBUG) LOGGER.info("RETRACE_BURIED {}/{} {} is filled in; leg {}",index,path.points().size(),next,result==null?"cut short":"stopped "+result.reasonCode());
     lookedOut=false;index++;continue;
    }
@@ -166,6 +167,8 @@ public final class ServerRetraceController implements ServerController {
   if(state==null) return null;
   return state.getFluidState().isEmpty() && net.minecraft.world.level.block.Block.isShapeFullBlock(state.getCollisionShape(p.level(),cell));
  }
+ /** Leg stops that mean the footstep could not be reached, the only ones a filled-in footstep may explain. */
+ static final java.util.Set<String> BURIED_LEG_STOPS=java.util.Set.of("NO_ROUTE","STALLED_IN_PLACE","PATH_BLOCKED","REACHED_FRONTIER","NO_SEEN_ROUTE","NO_STANDABLE_PATH");
  static boolean skipBuriedEnabled() {return dev.agaminggod.mineagen.server.Switches.get("travel.skipBuried");}
  /** Shortcut leg stops that only mean this column does not work: the walked route is still there to follow. */
  static final java.util.Set<String> SHORTCUT_GIVE_UP=java.util.Set.of("NO_ROUTE","BUILD_FAILED","OUT_OF_BLOCKS","TUNNEL_FLOODED","TUNNEL_LAVA_PLUGGED","ORE_TOOL_REQUIRED","NO_TOOL","TOOL_WORN","PATH_BLOCKED","STALLED_IN_PLACE","SURFACE_NOT_FOUND");
