@@ -794,6 +794,11 @@ export function endermanTrapEdge(state, observation) {
 	return { id, distance: Math.round(target.distance) };
 }
 
+/** Lets an enderman the edge picked wake a later sample: this one woke for something more urgent. */
+export function forgetEndermanTrap(state, id) {
+	state?.endermanTrapSeen?.delete(id);
+}
+
 const SWORD_TIERS = Object.freeze({ wooden: 1, golden: 1, stone: 2, copper: 2, iron: 3, diamond: 4, netherite: 5 });
 // Armour points at which a stone weapon is enough: an enderman's 7 falls to about 4 through iron (AGENTS.md fight facts).
 const ENDERMAN_ARMOR_POINTS = 10;

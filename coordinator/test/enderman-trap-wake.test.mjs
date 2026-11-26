@@ -46,3 +46,12 @@ test('the trap signal is an attention trigger of its own, and the wake filter wa
 	assert.equal(filter.discovery('bot', { attention: classified, observation, goalText: 'beat the game' }), 'calm enderman near with a boat trap ready');
 	assert.equal(filter.decide('bot', { attention: classified, observation, goalText: 'beat the game' }).verdict, 'wake');
 });
+
+test('an enderman forgotten after a sample woke for something else wakes the next sample', async () => {
+	const { forgetEndermanTrap } = await import('../src/need-sources.mjs');
+	const state = {};
+	const first = endermanTrapEdge(state, sample([enderman('a', 10)]));
+	forgetEndermanTrap(state, first.id);
+	assert.deepEqual(endermanTrapEdge(state, sample([enderman('a', 9)])), { id: 'a', distance: 9 });
+	assert.equal(endermanTrapEdge(state, sample([enderman('a', 8)])), null);
+});

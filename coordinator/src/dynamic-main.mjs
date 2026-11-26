@@ -65,7 +65,7 @@ import { BestEffortDiagnosticQueue } from './best-effort-diagnostic-queue.mjs';
 import { RotatingJsonlSink } from './rotating-jsonl-sink.mjs';
 import { sanitizeDiagnosticCode, sanitizeDiagnosticErrorCode, sanitizeDiagnosticErrorMessage, sanitizeDiagnosticText, sanitizeDiagnosticValue } from './diagnostic-sanitizer.mjs';
 import { dragonPerchEdge, noteCombatDispatch, rememberEndCrystals, settleCombatResult } from './dragon-fight-facts.mjs';
-import { ENDERMAN_TRAP_TRIGGER, endermanTrapEdge } from './need-sources.mjs';
+import { ENDERMAN_TRAP_TRIGGER, endermanTrapEdge, forgetEndermanTrap } from './need-sources.mjs';
 import { heldToolBreak } from './held-tool-break.mjs';
 import { SituationChangeTracker } from './situation-changes.mjs';
 import { ContextEntryTracker, uncoveredDangers } from './danger-contexts.mjs';
@@ -1075,6 +1075,8 @@ export class DynamicCoordinator extends EventEmitter {
 				await this.#taskViews.observe(record, observation, wireObservation).catch((error) => this.#writeTrace('task_view_observation_error', { code: error?.code ?? 'PLAN_VIEW_ERROR' }));
 				this.#stepStatus.update(record, connectionEpoch);
 				const classified = classifyObservationTrigger(this.#withoutOwnSightings(record.agentId, this.#withoutSoundOnlyAttention(record.agentId, message.payload, wireObservation), wireObservation), wireObservation, worldSignals);
+				// A trap-ready enderman this sample did not wake for (a more urgent reason won) stays a chance for a later sample.
+				if (worldSignals?.endermanTrap != null && classified.trigger !== ENDERMAN_TRAP_TRIGGER) forgetEndermanTrap(this.#nativeWorldSignals.get(record.agentId), worldSignals.endermanTrap.id);
 				let pendingAttention = this.#pendingAttention.get(record.agentId);
 				if (pendingAttention?.goalRevision === record.goalRevision && pendingAttention.trigger === 'movement_loop') {
 					pendingAttention = this.#settleProvisionalLoopAttention(record, pendingAttention, worldSignals, classified);
