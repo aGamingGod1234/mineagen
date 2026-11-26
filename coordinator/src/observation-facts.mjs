@@ -6,6 +6,7 @@ import { ownSighting } from './search-coverage.mjs';
 import { retainedDangerFooting } from './danger-steer-coalescer.mjs';
 import { carryNativeWakeEvents } from './native-wake-events.mjs';
 import { DRAGON_PERCHED_TRIGGER } from './dragon-fight-facts.mjs';
+import { ENDERMAN_TRAP_TRIGGER } from './need-sources.mjs';
 // Never held for a running action nor waived by a program's reassessWhen (see classifyObservationTrigger).
 export const DIMENSION_CHANGED_TRIGGER = 'dimension_changed';
 // A seen lava flow due at the body within seconds (player.lavaFlow): the last moment a reply can still move it out.
@@ -178,6 +179,8 @@ export function classifyObservationTrigger(payload, observation, signals = null)
 	if (changedFacts.includes('survival.low_health_no_food')) return { attention: true, priority: 'urgent', trigger: 'low_health' };
 	// The dragon landing on the fountain is the melee window: about 5 s with nobody within 20 blocks, so it is not held.
 	if (signals?.dragonPerch != null) return { attention: true, priority: 'urgent', trigger: DRAGON_PERCHED_TRIGGER };
+	// A calm enderman close while a boat trap is held (need-sources.mjs endermanTrapEdge): it wanders off in seconds, so it is not held.
+	if (signals?.endermanTrap != null) return { attention: true, priority: 'ordinary', trigger: ENDERMAN_TRAP_TRIGGER };
 	// An ordinary named observation cannot hide simultaneous survival facts.
 	// A held tool breaking is seen and heard at once; the empty hand changes what every following action does. Its facts
 	// ride on the observation (toolBroke), so a danger wake in the same sample carries them too.
