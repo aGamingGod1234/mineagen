@@ -415,6 +415,8 @@ public final class ServerFightUntilController implements ServerController {
 	private BlockPos trapSite;
 	private float trapHealth = -1.0F;
 	private int trapShots;
+	private Vec3 trapKillAt;
+	private int trapKillLook;
 
 	public ServerFightUntilController(ServerPlayer player, JsonObject arguments, ServerProtectionPolicy protection, long now) {
 		this(player, arguments, protection, now, "fight_until", null, null);
@@ -1544,6 +1546,13 @@ public final class ServerFightUntilController implements ServerController {
 			trap.to(PitTrap.Phase.LOOT);
 			return TickResult.running(progress(player));
 		}
+		// Back in the stance after a kill, it looks where the enderman died first: the pearl lies there, out of sight from the pit.
+		if (trapKillAt != null && trapKillLook++ < 40) {
+			if (look != null) { look.cancel(player); look = null; }
+			ServerLookController.turnToward(player, trapKillAt);
+			return TickResult.running(progress(player));
+		}
+		trapKillAt = null;
 		LivingEntity calm = trapStareTarget(player);
 		if (calm == null) {
 			provoking = null;
@@ -1791,7 +1800,11 @@ public final class ServerFightUntilController implements ServerController {
 		boolean killed = current != null && current.isDeadOrDying();
 		if (killed) {
 			kills++;
-			if (trap != null && (trap.phase == PitTrap.Phase.PIT || trap.phase == PitTrap.Phase.STANCE)) trap.kills++;
+			if (trap != null && (trap.phase == PitTrap.Phase.PIT || trap.phase == PitTrap.Phase.STANCE)) {
+				trap.kills++;
+				trapKillAt = current.position();
+				trapKillLook = 0;
+			}
 			if (leads != null) leads.forget(current.getUUID());
 			lastKillAt = current.position();
 			if (!dropReachable(player, lastKillAt)) killsOverDrop++;
