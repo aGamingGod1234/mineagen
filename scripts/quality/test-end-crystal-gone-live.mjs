@@ -7,14 +7,19 @@ import { randomBytes, createHash } from 'node:crypto';
 import { MultiplexedServerBridge } from '../../coordinator/src/protocol-v2.mjs';
 import { HeadlessRconClient } from '../../coordinator/src/headless-rcon.mjs';
 import { MOD_JAR } from './mod-jar.mjs';
-import { installTickRate, fixtureTickRate } from './watch-replay.mjs';
+import { installTickRate, unshownTickRate } from './watch-replay.mjs';
+import { finishRun, EDIT_LOOP_HELP, FIXTURE_OUTCOME_HELP } from './lib/fixture-run.mjs';
 import { damageCounter, recordDamageEvidence, deathCounter, recordDeathEvidence } from './lib/damage-counter.mjs';
 
 const root=fileURLToPath(new URL('../..',import.meta.url));
 const jarPath=resolve(process.env.ARENA_JAR ?? join(root,MOD_JAR));
-const out=resolve(process.argv[2] ?? 'runtime/bow-crystal-live');
+// Live check that the mod reports End crystals the agent saw destroyed: one killed, one gone without a kill whose spot is
+// in view (moved to another dimension), and one live crystal that keeps its ordinary row. No model call.
+const USAGE='Usage: test-end-crystal-gone-live.mjs OUT_DIR under slot.sh live (ARENA_JAR names the mod jar)';
+if(process.argv.includes('--help')){console.log(USAGE+'\n'+EDIT_LOOP_HELP+'\n'+FIXTURE_OUTCOME_HELP);process.exit(0);}
+if(!process.argv[2]||!process.env.ARENA_HEADLESS_SERVER_TEMPLATE||!process.env.SLOT_PORT_BASE){console.error(USAGE);process.exit(2);}
+const out=resolve(process.argv[2]);
 const template=process.env.ARENA_HEADLESS_SERVER_TEMPLATE;
-if(!template || !process.env.SLOT_PORT_BASE) throw new Error('Set ARENA_HEADLESS_SERVER_TEMPLATE and launch under slot.sh live');
 const port=Number(process.env.SLOT_PORT_BASE), server=join(out,'server');
 await mkdir(out,{recursive:true});
 if((await readdir(out)).length)throw new Error('Use a fresh output directory');
@@ -72,10 +77,10 @@ async function endPlay(){
   recordDeathEvidence(tick, p.deaths0, await p.deaths().catch(() => null));
   return tick;
 }
+const rows=[];const startedAt=Date.now();
 try {
   for(let i=0;i<150;i++){try{rcon=new HeadlessRconClient({host:'127.0.0.1',port:port+1,password:secret,connectTimeoutMs:500,commandTimeoutMs:5000});await rcon.connect();break}catch(e){await rcon?.close();if(i===149)throw e;await sleep(1000)}}
-  // FIXTURE_TICK_RATE: setup runs at 20; the shots (with the crystal placing between them) run at the fixture rate.
-  rate=installTickRate({command:text=>command(text)},fixtureTickRate());
+  rate=installTickRate({command:text=>command(text)},unshownTickRate('its waits are wall clock'));
   bridge=new MultiplexedServerBridge({port,secret},{});inbox=new Inbox(bridge);
   bridge.on('observation',e=>{rate.clock.observe(e.payload?.world?.gameTime);if(e.agentId===record?.agentId&&e.payload.ready){observation=e.payload}});
   bridge.on('goal_spec_request',e=>{bridge.send('goal_spec_proposal',e.agentId,{requestId:e.payload.requestId,summary:'Controlled live mechanics fixture',predicate:{type:'survive_duration',ticks:12000}}).catch(()=>{});});
@@ -121,12 +126,13 @@ try {
   const ok=results.killed.alive===false && Math.abs(results.killed.position.x-210.5)<1 && results.killedLater===1 && results.moved.alive===false
     && live.length===1 && live[0].alive!==false;
   results.pass=ok;
-  await writeFile(join(out,'result.json'),JSON.stringify(results,null,2));
   console.log(ok?'PASS':'FAIL',JSON.stringify(results));
-  process.exitCode=ok?0:1;
-} catch(error){console.error(error);process.exitCode=1;}
+  rows.push({name:'crystal-gone',startedAt,finishedAt:Date.now(),pass:ok,...(ok?{}:{failReason:'a gone crystal was not reported, or a live one was'}),results});
+} catch(error){console.error(error);rows.push({name:'crystal-gone',startedAt,finishedAt:Date.now(),error:String(error?.stack??error)});}
 finally {
   if(rcon)await command('stop').catch(()=>{});
   bridge?.stop();await rcon?.close();
   await Promise.race([new Promise(r=>child.once('exit',r)),sleep(10000)]);if(child.exitCode===null)child.kill('SIGTERM');await log.close();
 }
+const report=await finishRun(rows,{file:join(out,'result.json'),planned:1,hits:false});
+process.exit(report.exitCode);
