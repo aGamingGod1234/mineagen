@@ -144,8 +144,14 @@ test('with ingots reserved, the chestplate\'s raw iron is smelted as its own ste
 		{ kind: 'craft', itemId: 'minecraft:iron_ingot', count: 11, timeoutMs: KIT_CRAFT_TIMEOUT_MS + 8 * KIT_SMELT_MS, smelt: true });
 	// Smelted: the chestplate crafts from ingots alone, with 3 left over.
 	assert.deepEqual(nextKitStep(down([...kit, item('iron_ingot', 9, 11)]), { reserved }), { kind: 'craft', itemId: 'minecraft:iron_chestplate' });
-	// Reserved raw iron is never armour iron.
-	assert.equal(nextKitStep(down([...kit, item('raw_iron', 10, 16)]), { reserved: { ids: ['minecraft:raw_iron'], count: 8 } }), null);
+	// Raw iron beyond the reserved count is armour iron (a raw-iron top-up after obtain raw_iron 8); the craft smelts
+	// only the 8 it lacks, so the reserved 8 stay.
+	assert.deepEqual(nextKitStep(down([...kit, item('raw_iron', 10, 16)]), { reserved: { ids: ['minecraft:raw_iron'], count: 8 } }),
+		{ kind: 'craft', itemId: 'minecraft:iron_chestplate', timeoutMs: KIT_CRAFT_TIMEOUT_MS + 8 * KIT_SMELT_MS });
+	// A shield from raw iron with ingots reserved smelts its one first too.
+	assert.deepEqual(nextKitStep(down([item('iron_pickaxe', 'mainhand'), ...stations, item('iron_ingot', 9, 3), item('raw_iron', 10, 1)]), { reserved }),
+		{ kind: 'craft', itemId: 'minecraft:iron_ingot', count: 4, timeoutMs: KIT_CRAFT_TIMEOUT_MS + KIT_SMELT_MS, smelt: true });
+	assert.deepEqual(nextKitStep(down([item('iron_pickaxe', 'mainhand'), ...stations, item('iron_ingot', 9, 4)]), { reserved }), { kind: 'craft', itemId: 'minecraft:shield' });
 });
 
 test('keepKit with reserved ingots: smelt, then chestplate, then wear it', async () => {
@@ -164,6 +170,6 @@ test('keepKit with reserved ingots: smelt, then chestplate, then wear it', async
 	};
 	const done = await keepKit(body, craft, { reserved: { ids: ['minecraft:iron_ingot'], count: 3 } });
 	assert.deepEqual(calls, [['minecraft:iron_ingot', 11], ['minecraft:iron_chestplate', 1]]);
-	assert.deepEqual(done, ['smelted iron_ingot to 11 for armour', 'crafted iron_chestplate', 'wore iron_chestplate (chest)']);
+	assert.deepEqual(done, ['smelted iron_ingot to 11', 'crafted iron_chestplate', 'wore iron_chestplate (chest)']);
 	assert.equal(items.find(row => row.itemId === 'minecraft:iron_ingot').count, 3, 'the 3 asked for are still held');
 });

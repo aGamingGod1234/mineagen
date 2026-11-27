@@ -136,15 +136,14 @@ export function nextKitStep(o, { reserved = null, topUp = false } = {}) {
 	// ended with 2-7 raw iron unsmelted in 6, and the habit counted only ingots.
 	const tripArmour = ironTripArmourEnabled();
 	const ingotsReserved = reserved !== null && reserved.ids.some(id => bare(id) === 'iron_ingot');
-	// Raw iron the caller asked for is never smelted for armour: obtain's planner would take it from the held stack.
-	const rawReserved = reserved !== null && reserved.ids.some(id => bare(id) === 'raw_iron');
-	const iron = tripArmour && !rawReserved ? /^minecraft:(iron_ingot|raw_iron)$/ : /^minecraft:iron_ingot$/;
+	const iron = tripArmour ? /^minecraft:(iron_ingot|raw_iron)$/ : /^minecraft:iron_ingot$/;
 	const heldIngots = count(/^minecraft:iron_ingot$/);
-	const kept = ingotsReserved ? reserved.count : 0;
+	// Reserved raw iron stays: a craft smelts only what its ingots lack, at most the raw held beyond the reserved count.
+	const kept = reserved !== null && reserved.ids.some(id => bare(id) === 'iron_ingot' || tripArmour && bare(id) === 'raw_iron') ? reserved.count : 0;
 	const ingots = Math.max(0, count(iron) - kept);
 	const craftable = (itemId, count = 1) => craftsFromHeld(o, itemId, { reserved, count });
 	// The raw iron a craft of `need` iron smelts first, and the time that takes on top of the craft's minute.
-	const freeIngots = Math.max(0, heldIngots - kept);
+	const freeIngots = Math.max(0, heldIngots - (ingotsReserved ? reserved.count : 0));
 	const smeltTime = need => KIT_SMELT_MS * Math.max(0, need - freeIngots);
 	// With ingots reserved, a craft that smelts smelts its raw iron as its own step first: obtain's planner spends any
 	// ingot held, so a chestplate from 3 reserved ingots and 8 raw would smelt 5 and spend the 3 the caller asked for.
@@ -153,7 +152,7 @@ export function nextKitStep(o, { reserved = null, topUp = false } = {}) {
 	const wood = count(PLANKS) + 4 * count(LOGS);
 	// The iron pickaxe comes first: its 3 ingots are never spent on the shield (obtain iron_ingot count 3 for it would hand back 2).
 	const pickaxeOwed = soundPickaxe(items) ? 0 : 3;
-	if (shields.length === 0 && ingots >= 1 + pickaxeOwed && wood >= 6 && craftable('minecraft:shield')) return { kind: 'craft', itemId: 'minecraft:shield' };
+	if (shields.length === 0 && ingots >= 1 + pickaxeOwed && wood >= 6 && craftable('minecraft:shield')) return smeltFirst(1, KIT_CRAFT_TIMEOUT_MS + smeltTime(1)) ?? { kind: 'craft', itemId: 'minecraft:shield' };
 	const spare = ingots - ironReserved(items);
 	const chestplate = items.some(item => /_chestplate$/.test(item.itemId));
 	const at = o.position ?? o.player?.position ?? o.player;
@@ -195,7 +194,7 @@ export function nextKitStep(o, { reserved = null, topUp = false } = {}) {
 	const routeArmour = worn('chest') && worn('feet');
 	const usable = heldCounts(o).get('shield') ?? 0;
 	if (shields.length === 1 && usable <= 1 && routeArmour && spare >= 1 && wood >= 6 && (o.world?.dimension ?? 'minecraft:overworld') === 'minecraft:overworld'
-		&& craftable('minecraft:shield', usable + 1)) return { kind: 'craft', itemId: 'minecraft:shield', count: usable + 1 };
+		&& craftable('minecraft:shield', usable + 1)) return smeltFirst(1, KIT_CRAFT_TIMEOUT_MS + smeltTime(1)) ?? { kind: 'craft', itemId: 'minecraft:shield', count: usable + 1 };
 	return null;
 }
 
@@ -239,7 +238,7 @@ export async function keepKit(body, craft, { stopped = () => false, reserved = n
 		}
 		done.push(step.kind === 'equip' ? `wore ${name} (${step.targetSlot})` : step.kind === 'hotbar' ? `${name} to hotbar ${step.hotbarSlot}`
 			: step.topUp && step.itemId === 'minecraft:raw_iron' ? `mined ${step.count} raw_iron for the iron_chestplate`
-				: step.smelt ? `smelted iron_ingot to ${step.count} for armour` : `crafted ${name}`);
+				: step.smelt ? `smelted iron_ingot to ${step.count}` : `crafted ${name}`);
 	}
 	return done;
 }
