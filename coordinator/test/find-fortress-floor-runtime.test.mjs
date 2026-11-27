@@ -117,6 +117,30 @@ test('a seen spawner platform is the first leg, building allowed, stopping when 
 	assert.ok(moves.slice(1).every((move) => move.build !== true || move.x !== moves[0].x));
 });
 
+// The row's cell is the platform block the sight line hit, so it moves as the body does: still one platform.
+test('a platform seen at a different block after the approach is not walked to again', async () => {
+	let views = 0;
+	const { moves } = await replay(1, 'NO_ROUTE', (observation) => {
+		const p = observation.player, base = { x: Math.floor(p.x) + 30, y: Math.floor(p.y) + 3, z: Math.floor(p.z) - 10 };
+		const structures = observation.sighted?.structures ?? [];
+		Object.defineProperty(observation.sighted ??= {}, 'structures', { enumerable: true, get: () => {
+			const shift = views++ % 4;
+			return [...structures, { structure: 'nether fortress spawner platform', x: base.x + shift, y: base.y + (shift % 2), z: base.z - shift, distance: 32, size: 9 }];
+		} });
+	});
+	assert.ok(views > 1);
+	assert.equal(moves.filter((move) => move.tolerance === 3 && move.build === true).length, 1);
+});
+
+test('no platform leg past a seen wither skeleton', async () => {
+	const { moves } = await replay(1, 'NO_ROUTE', (observation) => {
+		const p = observation.player, platform = { x: Math.floor(p.x) + 30, y: Math.floor(p.y) + 3, z: Math.floor(p.z) - 10 };
+		observation.sighted = { ...(observation.sighted ?? {}), structures: [{ structure: 'nether fortress spawner platform', ...platform, distance: 32, size: 9 }] };
+		observation.entities = [...(observation.entities ?? []), { type: 'minecraft:wither_skeleton', x: platform.x - 2, y: platform.y + 1, z: platform.z + 1 }];
+	});
+	assert.ok(moves.every((move) => move.tolerance !== 3));
+});
+
 test('without a platform row the floor walk is unchanged', async () => {
 	const { moves } = await replay(1);
 	assert.deepEqual([moves[0].x, moves[0].y, moves[0].z], [9.5, 67, 113.5]);

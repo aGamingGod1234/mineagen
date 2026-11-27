@@ -12,6 +12,8 @@ export const fortressSpawnerSearch = (profile, observation) => profile.kind === 
 
 /** Far sight's name for a fortress's raised, fence-ringed blaze spawner platform (FarSight.platformRows). */
 export const SPAWNER_PLATFORM = 'nether fortress spawner platform';
+/** The platform piece is 7 x 9 blocks and 8 tall, so two of its blocks are never farther apart than this. */
+export const PLATFORM_SPAN = 14;
 
 /** Spawner platforms in the current view or the last survey, nearest first: the spawner stands on top of one. */
 export function platformsSeen(observation) {
@@ -48,13 +50,18 @@ export async function walkFortressFloor(search) {
 	const farSeen = search.farSeen ?? (() => []), sweepHostiles = search.sweepHostiles ?? (() => []);
 	const attempted = new Set(), visited = [bodyAt(observation())], lookedFrom = [];
 	let travelled = 0;
-	const platformsTried = new Set();
+	const platformsTried = [];
 	while (left() >= minLegMs) {
 		const at = bodyAt(observation());
 		// A seen spawner platform is where a player heads: the spawner on top shows only from the platform's own level.
-		const platform = platformsSeen(observation()).find((row) => !platformsTried.has(`${row.x},${row.y},${row.z}`) && insideBoundary(row));
+		// A platform row's cell is whichever of its blocks the sight line hit, so it moves with the viewpoint: a sighting
+		// within PLATFORM_SPAN of a tried one is the same platform. The floor walk's wither guard holds for it too.
+		const platformWithers = withersSeen(observation());
+		const platform = platformsSeen(observation()).find((row) => insideBoundary(row)
+			&& platformsTried.every((tried) => Math.hypot(row.x - tried.x, row.y - tried.y, row.z - tried.z) > PLATFORM_SPAN)
+			&& witherOnLeg(at, { x: row.x + 0.5, y: row.y + 1, z: row.z + 0.5 }, platformWithers) === null);
 		if (platform !== undefined) {
-			platformsTried.add(`${platform.x},${platform.y},${platform.z}`);
+			platformsTried.push(platform);
 			const trip = await leg('to the seen spawner platform', 'travel_to', { x: platform.x + 0.5, y: platform.y + 1, z: platform.z + 0.5, tolerance: 3, build: true, stopWhenSeen: profile.stopId });
 			const ended = await settle(trip);
 			if (ended !== null) return ended;
