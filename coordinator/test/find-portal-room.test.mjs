@@ -212,19 +212,41 @@ test('a wooden door ahead is a way on past it; an iron door is not', async () =>
 		assert.equal(iron.calls.length, 0);
 	});
 });
-test('at a crossing the search goes straight on before turning or going back', async () => {
+test('at a crossing the search hands back what each heading shows, then goes straight on when resumed there', async () => {
 	await withEnv('MINEAGEN_PORTAL_SIGHT', undefined, async () => {
-		const b = sightBody((x, z) => z === 0 || x === 0);
+		const b = sightBody((x, z) => z === 0 || x === 0, { blocks: { '0,-2': 'minecraft:oak_door' } });
 		b.eyeSearchState.portal = { origin: { x: 0.5, y: 32, z: 0.5 }, visited: [], pending: [], walked: 0, heading: { x: 1, z: 0 } };
-		await searchFor(target, b, { timeoutMs: 3_000 });
+		const fork = await searchFor(target, b, { timeoutMs: 3_000 });
+		assert.equal(fork.reasonCode, 'FIND_BLOCKED');
+		assert.equal(b.calls.length, 0, 'the model picks the branch');
+		const ways = Object.fromEntries(fork.find.portal.ways.map(w => [w.heading, w]));
+		assert.deepEqual([ways.E.kind, ways.E.status], ['corridor', 'new']);
+		assert.deepEqual([ways.W.kind, ways.W.status], ['corridor', 'way back']);
+		assert.deepEqual([ways.N.kind, ways.N.block, ways.N.status], ['door', 'minecraft:oak_door', 'new']);
+		assert.deepEqual([ways.S.kind, ways.S.status], ['corridor', 'new']);
+		assert.match(fork.message, /Fork in the stronghold: .*E corridor new \(travel_to /);
+		const again = await searchFor(target, b, { timeoutMs: 3_000 });
+		assert.notEqual(again.find?.portal?.stoppedBy?.startsWith('Fork'), true, 'the same fork is not handed back twice');
 		assert.ok(b.calls[0].args.x > 3 && Math.floor(b.calls[0].args.z) === 0, 'straight on along +x');
 	});
 });
-test('with only higher floor left the search climbs to it instead of handing back', async () => {
+test('after the model walks a branch from a fork, the way it came is the way back', async () => {
+	await withEnv('MINEAGEN_PORTAL_SIGHT', undefined, async () => {
+		const b = sightBody((x, z) => z === 0 || x === 0);
+		const fork = await searchFor(target, b, { timeoutMs: 3_000 });
+		assert.match(fork.message, /^Fork in the stronghold/, 'no heading yet: every open way is new');
+		b.o.player = { ...b.o.player, z: -3.5 };
+		const r = await searchFor(target, b, { timeoutMs: 3_000 });
+		assert.ok(b.calls[0].args.z < -4, 'walks on north, not back south to the fork');
+		assert.equal(r.find?.portal?.ways?.find(w => w.heading === 'S')?.status ?? 'way back', 'way back');
+	});
+});
+test('with only higher floor left the search hands back instead of climbing to it', async () => {
 	await withEnv('MINEAGEN_PORTAL_SIGHT', undefined, async () => {
 		const high = body(); high.frontier = () => ({ candidates: [{ x: 6, y: 35, z: 0 }] });
-		await searchFor(target, high, { timeoutMs: 5_000 });
-		assert.equal(walkedTo(high, 6), true);
-		assert.equal(high.eyeSearchState.portal.climbWalks, 1);
+		const r = await searchFor(target, high, { timeoutMs: 5_000 });
+		assert.equal(r.reasonCode, 'FIND_BLOCKED');
+		assert.equal(walkedTo(high, 6), false);
+		assert.equal(r.find.portal.climbWalks, undefined);
 	});
 });
