@@ -225,6 +225,235 @@
         "verdictGap": "No stand-in: play with --no-script. Scored from 1 Hz samples: chest armour worn at the first Nether sample (or at the room end when the body never entered), the Nether entry minute, deaths, and kit.armourGate turns (native_armour_gate_turned) with the turned obtain's state; kit.armourGate on vs off. It starts with the portal kit (iron pickaxe, a water bucket and an empty one, flint and steel), a shield in the off hand, 6 iron ingots (2 short of a chestplate, as one 27 Nov fresh game sat for 40 minutes), 40 cooked beef (over the 320-point descent floor, so the food gates stay quiet), coal, a furnace and 15 logs, and no armour, so the frame means going down for lava. PASS (entering the Nether inside 25 minutes) is common in either arm; chest armour at entry is the measure.",
         "setupCheck": "ai-stock-descent-25's natural plains spot (seed 20261009, 134.5 80 488.5, persistent cows and pigs) with no armour, 6 iron ingots and 40 cooked beef added."
       }
+    },
+    {
+      "id": "AI-ARMOUR-PORTAL-25",
+      "name": "ai-armour-portal-25",
+      "phase": "AI",
+      "seed": "20261009",
+      "goal": "Beat the game",
+      "durationBudgetMs": 1500000,
+      "runPolicy": {
+        "clock": "goal-start",
+        "continueAfterDeath": false
+      },
+      "setup": {
+        "dimension": "minecraft:overworld",
+        "position": [
+          134.5,
+          80,
+          488.5
+        ],
+        "surface": true,
+        "groundBelowCanopy": true,
+        "naturalGround": true,
+        "time": 1000,
+        "weather": "clear",
+        "freezeUntilGoalStart": true,
+        "commands": [
+          "execute at {agent} run fill ~-9 ~-1 ~-3 ~-4 ~-1 ~2 minecraft:stone",
+          "execute at {agent} run fill ~-9 ~ ~-3 ~-4 ~5 ~2 minecraft:air",
+          "execute at {agent} run fill ~-6 ~-1 ~-2 ~-6 ~3 ~1 minecraft:obsidian",
+          "execute at {agent} run fill ~-6 ~ ~-1 ~-6 ~2 ~ minecraft:nether_portal[axis=z]"
+        ],
+        "inventory": [
+          {
+            "item": "minecraft:iron_pickaxe",
+            "count": 1
+          },
+          {
+            "item": "minecraft:iron_sword",
+            "count": 1
+          },
+          {
+            "item": "minecraft:water_bucket",
+            "count": 1
+          },
+          {
+            "item": "minecraft:bucket",
+            "count": 1
+          },
+          {
+            "item": "minecraft:flint_and_steel",
+            "count": 1
+          },
+          {
+            "item": "minecraft:cobblestone",
+            "count": 64
+          },
+          {
+            "item": "minecraft:oak_log",
+            "count": 15
+          },
+          {
+            "item": "minecraft:crafting_table",
+            "count": 1
+          },
+          {
+            "item": "minecraft:furnace",
+            "count": 1
+          },
+          {
+            "item": "minecraft:coal",
+            "count": 16
+          },
+          {
+            "item": "minecraft:torch",
+            "count": 16
+          },
+          {
+            "item": "minecraft:iron_ingot",
+            "count": 6
+          },
+          {
+            "item": "minecraft:cooked_beef",
+            "count": 40
+          }
+        ],
+        "effects": [],
+        "mobs": [
+          {
+            "id": "minecraft:cow",
+            "offset": [
+              5,
+              0,
+              4
+            ],
+            "naturalGround": true,
+            "nbt": "{PersistenceRequired:1b}"
+          },
+          {
+            "id": "minecraft:cow",
+            "offset": [
+              7,
+              0,
+              4
+            ],
+            "naturalGround": true,
+            "nbt": "{PersistenceRequired:1b}"
+          },
+          {
+            "id": "minecraft:cow",
+            "offset": [
+              9,
+              0,
+              4
+            ],
+            "naturalGround": true,
+            "nbt": "{PersistenceRequired:1b}"
+          },
+          {
+            "id": "minecraft:cow",
+            "offset": [
+              11,
+              0,
+              4
+            ],
+            "naturalGround": true,
+            "nbt": "{PersistenceRequired:1b}"
+          },
+          {
+            "id": "minecraft:cow",
+            "offset": [
+              5,
+              0,
+              6
+            ],
+            "naturalGround": true,
+            "nbt": "{PersistenceRequired:1b}"
+          },
+          {
+            "id": "minecraft:cow",
+            "offset": [
+              7,
+              0,
+              6
+            ],
+            "naturalGround": true,
+            "nbt": "{PersistenceRequired:1b}"
+          },
+          {
+            "id": "minecraft:cow",
+            "offset": [
+              9,
+              0,
+              6
+            ],
+            "naturalGround": true,
+            "nbt": "{PersistenceRequired:1b}"
+          },
+          {
+            "id": "minecraft:cow",
+            "offset": [
+              11,
+              0,
+              6
+            ],
+            "naturalGround": true,
+            "nbt": "{PersistenceRequired:1b}"
+          },
+          {
+            "id": "minecraft:pig",
+            "offset": [
+              5,
+              0,
+              10
+            ],
+            "naturalGround": true,
+            "nbt": "{PersistenceRequired:1b}"
+          },
+          {
+            "id": "minecraft:pig",
+            "offset": [
+              7,
+              0,
+              10
+            ],
+            "naturalGround": true,
+            "nbt": "{PersistenceRequired:1b}"
+          },
+          {
+            "id": "minecraft:pig",
+            "offset": [
+              9,
+              0,
+              10
+            ],
+            "naturalGround": true,
+            "nbt": "{PersistenceRequired:1b}"
+          },
+          {
+            "id": "minecraft:pig",
+            "offset": [
+              11,
+              0,
+              10
+            ],
+            "naturalGround": true,
+            "nbt": "{PersistenceRequired:1b}"
+          }
+        ],
+        "locate": {
+          "type": "biome",
+          "id": "minecraft:forest",
+          "offset": [
+            0,
+            0
+          ]
+        },
+        "expectedBiome": "minecraft:forest",
+        "finalCommands": [
+          "item replace entity {agent} weapon.offhand with minecraft:shield"
+        ]
+      },
+      "successCheck": "advancement: story/enter_the_nether",
+      "aiRoom": {
+        "pass": {
+          "noDamage": false
+        },
+        "verdictGap": "No stand-in: play with --no-script. Scored from 1 Hz samples: chest armour worn at the first Nether sample (or at the room end when the body never entered), the Nether entry minute, deaths, and kit.armourGate turns (native_armour_gate_turned) with the turned obtain's result; kit.armourGate on vs off. A lit frame ends the route's armour row, so no armour advice is shown: the walk into the portal is what the gate turns, as after a respawn or a frame lit before the chestplate. It starts with the portal kit, a shield in the off hand, 6 iron ingots (2 short of a chestplate), 40 cooked beef (over the 256-point portal floor, so the food gates stay quiet), coal, a furnace, 15 logs and no armour. PASS (entering the Nether inside 25 minutes) is expected in either arm; chest armour at entry is the measure.",
+        "setupCheck": "ai-stock-portal-25's natural plains spot (seed 20261009, 134.5 80 488.5) and lit z-axis frame 6 blocks west, with no armour, 6 iron ingots and 40 cooked beef added."
+      }
     }
   ]
 }
