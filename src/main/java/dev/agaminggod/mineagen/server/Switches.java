@@ -71,6 +71,10 @@ public final class Switches {
 		new Switch("travel.shallowShore", "MINEAGEN_TRAVEL_SHALLOW_SHORE", "mineagen.travel.shallowShore", "server", true, NOT_FALSE_WORD, JAVA_NOT_FALSE_EXACT, "default-on"),
 		// ServerRetraceController.java skipBuriedEnabled(): per call; property only.
 		new Switch("travel.skipBuried", null, "mineagen.travel.skipBuried", "server", true, JAVA_NOT_FALSE_EXACT, null, "default-on"),
+		// ServerTravelController.java GAZE_GUARD: class load.
+		new Switch("travel.gazeGuard", null, "mineagen.travel.gazeGuard", "server", true, JAVA_NOT_FALSE_EXACT, null, "default-on"),
+		// ServerTravelController.java ENDERMAN_FIGHT: class load.
+		new Switch("travel.endermanFight", null, "mineagen.travel.endermanFight", "server", true, JAVA_NOT_FALSE_EXACT, null, "default-on"),
 		// ServerFightUntilController.java CHARGE_GUARD: class load.
 		new Switch("fight.chargeGuard", null, "mineagen.fight.chargeGuard", "server", true, JAVA_NOT_FALSE_EXACT, null, "default-on"),
 		// ServerFightUntilController.java RECOVER: class load.
@@ -87,6 +91,8 @@ public final class Switches {
 		new Switch("fight.forestHunt", null, "mineagen.fight.forestHunt", "server", false, JAVA_GET_BOOLEAN, null, "default-off"),
 		// ServerFightUntilController.java fullIds(): per fight call.
 		new Switch("fight.fullIds", null, "mineagen.fight.fullIds", "server", true, JAVA_NOT_FALSE_EXACT, null, "default-on"),
+		// BoatTrap.java enabled(): per fight call; property or env.
+		new Switch("fight.boatTrap", "MINEAGEN_FIGHT_BOAT_TRAP", "mineagen.fight.boatTrap", "server", true, NOT_FALSE_WORD, JAVA_NOT_FALSE_EXACT, "default-on"),
 		// UnreachableTargets.java fromProperty(): per fight call.
 		new Switch("fight.skipUnreachable", null, "mineagen.fight.skipUnreachable", "server", true, JAVA_NOT_FALSE_EXACT, null, "default-on"),
 		// KillSighting.java enabled(): per call.

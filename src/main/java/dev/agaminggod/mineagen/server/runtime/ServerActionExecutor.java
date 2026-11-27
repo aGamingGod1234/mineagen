@@ -924,6 +924,7 @@ public final class ServerActionExecutor {
 						GameClock.nowMs()).fightThrough(arguments.has("fightThrough") && bool(arguments, "fightThrough"))
 						// Issue 2 Step 2: an explicit fightThrough:false keeps every stop.
 						.fightsBeatable(!arguments.has("fightThrough") && dev.agaminggod.mineagen.server.runtime.reflex.Instincts.enabled())
+						.fightThroughOff(arguments.has("fightThrough") && !bool(arguments, "fightThrough"))
 						.keepsKnockbackMargin()
 						.descend((y, x, z, digTimeoutMs) -> digController(dev.agaminggod.mineagen.server.runtime.controller.ServerTravelController.staircase(
 								arguments, y, x, z, digTimeoutMs, player.blockPosition().getY()))));
@@ -2019,6 +2020,9 @@ public final class ServerActionExecutor {
 				if (slot >= 0) body.getInventory().setSelectedSlot(slot);
 				return shelterEnvironment(parent, "minecraft:cobblestone").clear(body, at, false, timeoutMs);
 			}
+			public dev.agaminggod.mineagen.server.runtime.controller.ServerController craft(ServerPlayer body, String recipeId, int count, BlockPos table, long timeoutMs) {
+				return restEnvironment(parent).craft(body, recipeId, count, table, timeoutMs);
+			}
 		};
 	}
 
@@ -2093,8 +2097,11 @@ public final class ServerActionExecutor {
 				return shelterEnvironment(parent, "minecraft:cobblestone").clear(body, at, false, timeoutMs);
 			}
 			public dev.agaminggod.mineagen.server.runtime.controller.ServerController craft(ServerPlayer body, String recipeId, BlockPos table, long timeoutMs) {
+				return craft(body, recipeId, 1, table, timeoutMs);
+			}
+			public dev.agaminggod.mineagen.server.runtime.controller.ServerController craft(ServerPlayer body, String recipeId, int count, BlockPos table, long timeoutMs) {
 				JsonObject args = new JsonObject();
-				args.addProperty("recipeId", recipeId); args.addProperty("count", 1); args.addProperty("timeoutMs", timeoutMs);
+				args.addProperty("recipeId", recipeId); args.addProperty("count", count); args.addProperty("timeoutMs", timeoutMs);
 				if (table != null) { args.addProperty("x", table.getX()); args.addProperty("y", table.getY()); args.addProperty("z", table.getZ()); }
 				ServerActionRequest internal = new ServerActionRequest(parent.agentId(), parent.goalRevision(), parent.actionId(),
 						table == null ? ActionType.CRAFT_INVENTORY : ActionType.CRAFT_TABLE, args, parent.provenance(), parent.traceId());

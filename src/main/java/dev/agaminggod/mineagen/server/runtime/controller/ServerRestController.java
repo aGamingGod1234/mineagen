@@ -40,6 +40,8 @@ public final class ServerRestController implements ServerController {
 		ServerController clear(ServerPlayer body, BlockPos at, long timeoutMs);
 		/** A crafting transaction: at the table when given, else in the inventory grid. */
 		ServerController craft(ServerPlayer body, String recipeId, BlockPos table, long timeoutMs);
+		/** {@code count} crafts of the recipe (the boat trap's planks and boats). */
+		default ServerController craft(ServerPlayer body, String recipeId, int count, BlockPos table, long timeoutMs) { return craft(body, recipeId, table, timeoutMs); }
 		Vec3 aim(ServerPlayer body, BlockPos at, Direction face, String itemId);
 		/** Null when placed, else why not. */
 		String place(ServerPlayer body, BlockPos at, Direction face, String itemId);

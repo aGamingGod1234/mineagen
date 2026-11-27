@@ -110,6 +110,10 @@ public final class ServerFightUntilController implements ServerController {
 		default ServerController clear(ServerPlayer body, BlockPos at, long timeoutMs) {
 			return null;
 		}
+		/** A crafting transaction ({@code count} crafts): at the table when given, else in the inventory grid; null without hands. */
+		default ServerController craft(ServerPlayer body, String recipeId, int count, BlockPos table, long timeoutMs) {
+			return null;
+		}
 	}
 
 	/** A calm enderman not provoked by a stare within this time is passed over. */
@@ -391,6 +395,10 @@ public final class ServerFightUntilController implements ServerController {
 	private int breakOuts;
 	/** Forest mode (WarpedForestHunt): an enderman count fight started in a warped forest; null otherwise. */
 	private WarpedForestHunt forest;
+	/** The boat trap (BoatTrap): enderman pearl hunts that may move, outside the End; null otherwise. */
+	private BoatTrap trap;
+	/** roof:true was asked and the trap runs instead; the roof comes back if no boat can be had. */
+	private boolean trapOverRoof;
 	/** Forest mode with roof:true: a shelter is built at the next contact with a calm enderman, while blocks last. */
 	private boolean roofWanted;
 	/** Forest mode: the calm enderman in range the body has kept in view (ForestRoof), and the last shelter it left. */
@@ -452,6 +460,14 @@ public final class ServerFightUntilController implements ServerController {
 			if (roof) { forestCenter = spot; spot = null; }
 			roof = false;
 			collectWhenClear = !collect && choices.mayMove();
+		}
+		if (!roofWanted && BoatTrap.applies(BoatTrap.enabled(), mob == McEntityTypes.ENDERMAN, untilItem == net.minecraft.world.item.Items.ENDER_PEARL,
+				choices.mayReposition(), player.level().dimension() == net.minecraft.world.level.Level.END)
+				&& (!roof || BoatTrap.boats(player) > 0 || BoatTrap.boatWood(player) != null)) {
+			// The trap before the roof: a roofed cell waited for endermen that rarely came (forest rounds: 15 of 22 roofs failed).
+			trapOverRoof = roof;
+			roof = false;
+			trap = new BoatTrap(roofing, this::mayModify);
 		}
 		this.elapsedTime = new ElapsedTimeAccumulator(now);
 	}
@@ -643,6 +659,17 @@ public final class ServerFightUntilController implements ServerController {
 				if (fetching != null) return fetching;
 			}
 		}
+		if (trap != null && melee == null && volley == null) {
+			// A boat first, from carried wood, before the first enderman (BoatTrap).
+			TickResult supplying = trap.tickSupply(player, nowEpochMs);
+			if (supplying != null) { lastTargetMs = elapsed; return supplying; }
+			if (trapOverRoof && BoatTrap.boats(player) == 0 && !trap.boatOut(player) && !roof && !roofed && building == null) {
+				// No boat after all: the roof the model asked for.
+				trapOverRoof = false;
+				roof = true;
+				note("no boat for the trap: roof:true as asked");
+			}
+		}
 		LivingEntity target = nextTarget(player, elapsed);
 		if (mob == McEntityTypes.ENDERMAN && forest == null) {
 			// Started only outside a warped forest: there, staring from afar provoked several at once (deaths 9 to 24 of 40
@@ -718,6 +745,14 @@ public final class ServerFightUntilController implements ServerController {
 			// Fights happen from the cell's middle, out of the enderman's melee reach.
 			TickResult walking = walkTo(player, Vec3.atBottomCenterOf(roofCenter), nowEpochMs);
 			if (walking != null) return walking;
+		}
+		if (target != null && !roofed && trap != null) {
+			TickResult trapped = trap.tick(player, target, provoked(player, target), attacking(player, target), elapsed, nowEpochMs);
+			if (trapped != null) {
+				if (look != null) { look.cancel(player); look = null; }
+				lastTargetMs = elapsed;
+				return trapped;
+			}
 		}
 		if (target != null && !roofed && mob == McEntityTypes.ENDERMAN) {
 			TickResult open = tickOpenEnderman(player, target, elapsed);
@@ -1317,6 +1352,7 @@ public final class ServerFightUntilController implements ServerController {
 		boolean killed = current != null && current.isDeadOrDying();
 		if (killed) {
 			kills++;
+			if (trap != null) trap.killed(current);
 			if (leads != null) leads.forget(current.getUUID());
 			lastKillAt = current.position();
 			if (!dropReachable(player, lastKillAt)) killsOverDrop++;
@@ -1487,7 +1523,7 @@ public final class ServerFightUntilController implements ServerController {
 		// never switches by itself (engineTargets: no in-reach, follow-through or policy switch inside the fight).
 		melee = scriptedMelee != null ? scriptedMelee.apply(target)
 				: new ServerFightController(target, choices.desiredRange(), fleeAtHealth, false, CombatPlanning.TargetPolicy.NAMED, choices.includePlayers(),
-				choices.meleePursue(roofed), choices.sneak(), shield, Math.min(segment, left), now)
+				choices.meleePursue(roofed) && !(trap != null && BoatTrap.seated(target)), choices.sneak(), shield, Math.min(segment, left), now)
 				.engineTargets()
 				.collectDrops(collect && !roofed ? protection::mayTakeEntity : null)
 				.makingRoom(protection::mayDropItem);
@@ -2370,6 +2406,8 @@ public final class ServerFightUntilController implements ServerController {
 		if (finished != null) return finished;
 		cancelParts(player);
 		int held = count(player, untilItem);
+		// The eye plan's pearls held: the hunt is over, the boat in reach is broken to take along (BoatTrap).
+		if (trap != null && result.state() == State.SUCCEEDED && held >= BoatTrap.PEARLS_DONE) trap.packUp(player, true);
 		StringBuilder text = new StringBuilder(result.message());
 		if (roofFellBack != null) text.append("; roof: ").append(roofBuilds > 0 && roofCenter != null ? roofBuilds + " build" + (roofBuilds == 1 ? "" : "s") + " at " + roofCenter.toShortString() : "not built")
 				.append(" (").append(roofFellBack.length() > 160 ? roofFellBack.substring(0, 160) + "..." : roofFellBack).append("), fell back to the open-ground fight");
@@ -2386,6 +2424,7 @@ public final class ServerFightUntilController implements ServerController {
 				ledgeTrips, ledgeTrips == 1 ? "" : "s", ledgeRods, ledgeRefusals.isEmpty() ? "" : ", not tried " + ledgeRefusals));
 		if (!ledgeOutcomes.isEmpty()) text.append("; ledge trips ended: ").append(ledgeOutcomes);
 		if (collectWhenClear) text.append(clearReport(player));
+		if (trap != null) text.append(trap.report());
 		if (firePunches > 0) text.append("; punched out fire underfoot with no way off it");
 		if (chargeGuards > 0) text.append(String.format(Locale.ROOT, "; shield up %.1f s toward charged blazes before their volleys", chargeGuards / 20.0D));
 		if (recovers > 0) text.append(String.format(Locale.ROOT, "; backed off to heal %d time%s (%.0f s, %d move%s to cover)", recovers, recovers == 1 ? "" : "s",
@@ -2419,6 +2458,7 @@ public final class ServerFightUntilController implements ServerController {
 	}
 
 	private void cancelParts(ServerPlayer player) {
+		if (trap != null) trap.packUp(player, false);
 		if (bailout != null) bailout.cancel(player);
 		releaseGuard(true);
 		stanceInput.release();

@@ -160,6 +160,37 @@ test('a lit portal suggests entering with optional preparation; the Nether and t
 	assert.match(route([], { dimension: 'minecraft:the_end' }), /kill the ender_dragon/);
 });
 
+test('in a warped forest with pearls short, the route names the hunt there before the fortress', () => {
+	const FIT = [['iron_sword', 1], ['cooked_beef', 4], ['iron_chestplate', 1, 'chest']];
+	const at = (items, biome, extra = {}, player = {}) => { const o = sample([...FIT, ...items], { dimension: 'minecraft:the_nether', ...player }); o.world.biome = biome; Object.assign(o.world, extra); return routeLine({ observation: o, known: emptyKnown(), evaluate: evaluatePlanCheck }); };
+	const forest = at([['blaze_rod', 2]], 'minecraft:warped_forest');
+	assert.match(forest, /^usual next step: hunt here first: fight_until minecraft:enderman untilItem minecraft:ender_pearl untilCount 15; call it again after a hand-back; then find a fortress for 8 blaze_rods/);
+	assert.ok(Buffer.byteLength(forest) <= ROUTE_BYTES);
+	assert.match(at([['blaze_rod', 8], ['ender_pearl', 3]], 'minecraft:warped_forest'), /untilCount 15; call it again after a hand-back \(rods 8\/8/);
+	// Pearls met, another biome, or the biome hidden: the line as before.
+	assert.match(at([['blaze_rod', 2], ['ender_pearl', 15]], 'minecraft:warped_forest'), /find a fortress and fight_until 8 blaze_rods/);
+	assert.match(at([['blaze_rod', 2]], 'minecraft:nether_wastes'), /find a fortress and fight_until 8 blaze_rods/);
+	assert.match(at([['blaze_rod', 2]], 'minecraft:warped_forest', { reducedDebugInfo: true }), /find a fortress and fight_until 8 blaze_rods/);
+	// Not fit to fight: hurt, no sword or axe, no food and hungry, or no armour, blocks or boat: the fortress line as before.
+	const unfit = (items, player = {}) => { const o = sample(items, { dimension: 'minecraft:the_nether', ...player }); o.world.biome = 'minecraft:warped_forest'; return routeLine({ observation: o, known: emptyKnown(), evaluate: evaluatePlanCheck }); };
+	const FORTRESS = /find a fortress and fight_until 8 blaze_rods/;
+	assert.match(unfit([...FIT, ['blaze_rod', 2]], { health: 15 }), FORTRESS);
+	assert.match(unfit([['cooked_beef', 4], ['iron_chestplate', 1, 'chest'], ['blaze_rod', 2]]), FORTRESS);
+	assert.match(unfit([['iron_sword', 1], ['iron_chestplate', 1, 'chest'], ['blaze_rod', 2]], { foodLevel: 17 }), FORTRESS);
+	assert.match(unfit([['iron_sword', 1], ['cooked_beef', 4], ['blaze_rod', 2]]), FORTRESS);
+	// Fit by other means: hunger 18+ instead of food, blocks or a boat instead of armour.
+	assert.match(unfit([['iron_sword', 1], ['iron_chestplate', 1, 'chest'], ['blaze_rod', 2]], { foodLevel: 18 }), /hunt here first/);
+	assert.match(unfit([['stone_axe', 1], ['cooked_beef', 4], ['netherrack', 16], ['blaze_rod', 2]]), /hunt here first/);
+	assert.match(unfit([['iron_sword', 1], ['cooked_beef', 4], ['oak_boat', 1], ['blaze_rod', 2]], { health: 16 }), /hunt here first/);
+	const saved = process.env.MINEAGEN_ROUTE_FOREST_PEARLS;
+	process.env.MINEAGEN_ROUTE_FOREST_PEARLS = 'off';
+	try {
+		assert.equal(at([['blaze_rod', 2]], 'minecraft:warped_forest'), at([['blaze_rod', 2]], 'minecraft:nether_wastes'), 'switch off: byte for byte the old line');
+	} finally {
+		if (saved === undefined) delete process.env.MINEAGEN_ROUTE_FOREST_PEARLS; else process.env.MINEAGEN_ROUTE_FOREST_PEARLS = saved;
+	}
+});
+
 // The Overworld kit after the first Nether visit: an iron pickaxe and food, so the eye steps are reached.
 const KIT = [['iron_pickaxe', 1], ['cooked_beef', 16]];
 const visitedNether = () => { const known = emptyKnown(); known.visitedDimensions.push('minecraft:the_nether'); return known; };
