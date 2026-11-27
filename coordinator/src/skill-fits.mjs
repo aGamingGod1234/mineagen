@@ -418,14 +418,16 @@ function foodSource(o) {
  * stood in the Nether, or after the portal stage was first seen (a lit frame or a visit), so the kit comes back first.
  */
 // route.forestPearls sends the body into enderman fights only when it is fit for one: health 16+, a sword or axe, food
-// carried or hunger 18+, and armour worn or 8+ blocks to put between it and an enderman.
-const FOREST_BLOCKS = 8;
+// carried or hunger 18+, and iron or better armour worn: a chestplate, or two pieces. 27 Nov model games with blocks
+// counted in place of armour hunted with stone swords and no armour and died 12 times to main's 2 (enderman 4 v 1).
+const IRON_ARMOUR = /^minecraft:(iron|diamond|netherite)_(helmet|chestplate|leggings|boots)$/;
 export function forestFit(o, items, count) {
 	const health = o?.player?.health, hunger = o?.player?.foodLevel;
 	if (!Number.isFinite(health) || health < 16) return false;
 	if (!items.some(i => !WORN.has(i.slot) && /^minecraft:[a-z_]+_(sword|axe)$/.test(i.itemId ?? ''))) return false;
 	if (count(EDIBLE) < 1 && !(Number.isFinite(hunger) && hunger >= 18)) return false;
-	return items.some(i => WORN.has(i.slot)) || count(MOULD) + count(/^minecraft:(netherrack|[a-z_]+_planks)$/) >= FOREST_BLOCKS;
+	const worn = items.filter(i => WORN.has(i.slot) && IRON_ARMOUR.test(i.itemId ?? ''));
+	return worn.some(i => i.slot === 'chest') || worn.length >= 2;
 }
 
 export function routeLine({ observation: o = null, known = null, memory = null, foodHandedBack = false, woodHandedBack = false, kitHandedBack = new Set(), diedSincePortal = false, evaluate, instincts = false, environment = process.env } = {}) {

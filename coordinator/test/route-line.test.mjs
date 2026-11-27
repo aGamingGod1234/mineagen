@@ -178,12 +178,16 @@ test('in a warped forest with pearls short, the route names the hunt there befor
 	assert.match(unfit([['cooked_beef', 4], ['iron_chestplate', 1, 'chest'], ['blaze_rod', 2]]), FORTRESS);
 	assert.match(unfit([['iron_sword', 1], ['iron_chestplate', 1, 'chest'], ['blaze_rod', 2]], { foodLevel: 17 }), FORTRESS);
 	assert.match(unfit([['iron_sword', 1], ['cooked_beef', 4], ['blaze_rod', 2]]), FORTRESS);
-	// Fit by other means: hunger 18+ instead of food, blocks instead of armour; a boat alone is not cover.
-	assert.match(unfit([['iron_sword', 1], ['iron_chestplate', 1, 'chest'], ['blaze_rod', 2]], { foodLevel: 18 }), /hunt here first/);
-	assert.match(unfit([['stone_axe', 1], ['cooked_beef', 4], ['netherrack', 16], ['blaze_rod', 2]]), /hunt here first/);
-	assert.match(unfit([['iron_sword', 1], ['cooked_beef', 4], ['cobblestone', 8], ['blaze_rod', 2]], { health: 16 }), /hunt here first/);
-	assert.match(unfit([['iron_sword', 1], ['cooked_beef', 4], ['cobblestone', 7], ['blaze_rod', 2]]), FORTRESS);
+	// Armour must be iron or better and worn: a chestplate, or two pieces. Blocks, a boat, gold or one iron piece are not enough.
+	assert.match(unfit([['stone_axe', 1], ['cooked_beef', 4], ['netherrack', 128], ['blaze_rod', 2]]), FORTRESS);
 	assert.match(unfit([['iron_sword', 1], ['cooked_beef', 4], ['oak_boat', 1], ['blaze_rod', 2]]), FORTRESS);
+	assert.match(unfit([['stone_sword', 1], ['cooked_beef', 4], ['golden_chestplate', 1, 'chest'], ['golden_boots', 1, 'feet'], ['blaze_rod', 2]]), FORTRESS);
+	assert.match(unfit([['stone_sword', 1], ['cooked_beef', 4], ['iron_boots', 1, 'feet'], ['blaze_rod', 2]]), FORTRESS);
+	assert.match(unfit([['stone_sword', 1], ['cooked_beef', 4], ['iron_chestplate', 1], ['blaze_rod', 2]]), FORTRESS, 'carried, not worn');
+	// Fit: hunger 18+ instead of food, a stone sword with an iron chestplate, two iron-or-better pieces.
+	assert.match(unfit([['iron_sword', 1], ['iron_chestplate', 1, 'chest'], ['blaze_rod', 2]], { foodLevel: 18 }), /hunt here first/);
+	assert.match(unfit([['stone_sword', 1], ['cooked_beef', 4], ['iron_chestplate', 1, 'chest'], ['blaze_rod', 2]], { health: 16 }), /hunt here first/);
+	assert.match(unfit([['stone_axe', 1], ['cooked_beef', 4], ['iron_helmet', 1, 'head'], ['diamond_boots', 1, 'feet'], ['blaze_rod', 2]]), /hunt here first/);
 	const saved = process.env.MINEAGEN_ROUTE_FOREST_PEARLS;
 	process.env.MINEAGEN_ROUTE_FOREST_PEARLS = 'off';
 	try {
