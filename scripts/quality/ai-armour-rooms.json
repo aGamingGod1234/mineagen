@@ -217,7 +217,7 @@
           "item replace entity {agent} weapon.offhand with minecraft:shield"
         ]
       },
-      "successCheck": "advancement story/enter_the_nether",
+      "successCheck": "advancement: story/enter_the_nether",
       "aiRoom": {
         "pass": {
           "noDamage": false
