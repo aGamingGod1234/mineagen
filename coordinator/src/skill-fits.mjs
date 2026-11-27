@@ -417,6 +417,19 @@ function foodSource(o) {
  * hand-back this life (woodStockHandback) released the trip's wood step; diedSincePortal: the body died after it last
  * stood in the Nether, or after the portal stage was first seen (a lit frame or a visit), so the kit comes back first.
  */
+// route.forestPearls sends the body into enderman fights only when it is fit for one: health 16+, a sword or axe, food
+// carried or hunger 18+, and iron or better armour worn: a chestplate, or two pieces. 27 Nov model games with blocks
+// counted in place of armour hunted with stone swords and no armour and died 12 times to main's 2 (enderman 4 v 1).
+const IRON_ARMOUR = /^minecraft:(iron|diamond|netherite)_(helmet|chestplate|leggings|boots)$/;
+export function forestFit(o, items, count) {
+	const health = o?.player?.health, hunger = o?.player?.foodLevel;
+	if (!Number.isFinite(health) || health < 16) return false;
+	if (!items.some(i => !WORN.has(i.slot) && /^minecraft:[a-z_]+_(sword|axe)$/.test(i.itemId ?? ''))) return false;
+	if (count(EDIBLE) < 1 && !(Number.isFinite(hunger) && hunger >= 18)) return false;
+	const worn = items.filter(i => WORN.has(i.slot) && IRON_ARMOUR.test(i.itemId ?? ''));
+	return worn.some(i => i.slot === 'chest') || worn.length >= 2;
+}
+
 export function routeLine({ observation: o = null, known = null, memory = null, foodHandedBack = false, woodHandedBack = false, kitHandedBack = new Set(), diedSincePortal = false, evaluate, instincts = false, environment = process.env } = {}) {
 	if (!live(o) || !Array.isArray(o.inventory?.items) || remembered(o, 'inventory') || known === null || typeof evaluate !== 'function') return null;
 	const items = o.inventory.items.filter(i => i?.count > 0);
@@ -532,6 +545,11 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 		return line('kill the ender_dragon: break the end crystals first', 'in the End');
 	}
 	if (dimension === 'minecraft:the_nether') {
+		// Standing in a warped forest with pearls short, the hunt here comes first: 26 Nov games named the fortress on
+		// 954 of 1,038 pearls-short Nether wakes and walked out of forests after short hunts. The fortress follows.
+		// Only when fit to fight (forestFit): the 26 Nov games that hunted hurt, unarmed or hungry died 4 times to 0.
+		if (pearlsShort > 0 && o.world?.biome === 'minecraft:warped_forest' && o.world?.reducedDebugInfo !== true && getSwitch('route.forestPearls').value && forestFit(o, items, count))
+			return line(`hunt here first: fight_until minecraft:enderman untilItem minecraft:ender_pearl untilCount ${eyesPlanned}; call it again after a hand-back${rodsShort > 0 ? `; then find a fortress for ${rodsPlanned} blaze_rods` : ''}`, planFacts);
 		if (rodsShort > 0) {
 			const fortress = `find a fortress and fight_until ${rodsPlanned} blaze_rods`;
 			if (items.some(i => WORN.has(i.slot) && GOLD_ARMOUR.test(i.itemId))) return line(fortress, planFacts);
