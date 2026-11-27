@@ -16,6 +16,8 @@ public final class BoatTrapVerification {
 		check(!BoatTrap.applies(true, true, true, false, false), "a body told to hold still does not walk round a boat");
 		check(!BoatTrap.applies(true, true, true, true, true), "no boats on the End island");
 		check(BoatTrap.PEARLS_DONE >= 12, "the boat comes back only once the frame's pearls are held");
+		check(BoatTrap.TRAP_RANGE <= 13.0D && BoatTrap.TRAP_RANGE >= BoatTrap.MIN_RANGE, "boats go down only for endermen well inside the 16-block teleport range");
+		check(BoatTrap.APPROACH_TO < BoatTrap.TRAP_RANGE && BoatTrap.APPROACH_TO > BoatTrap.MIN_RANGE, "a far enderman is walked in to inside trap range, not past it");
 		check(BoatTrap.STANDOFF_MIN > 1.43D, "the swing stand is outside a seated enderman's reach");
 		return assertions;
 	}

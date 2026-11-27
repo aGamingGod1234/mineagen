@@ -56,6 +56,15 @@ final class BoatTrap {
 	static final int WOOD_RESERVE = 8;
 	static final double MIN_RANGE = 4.5D;
 	static final double MAX_RANGE = 28.0D;
+	/**
+	 * A boat goes down only toward a calm enderman this near: one angered more than 16 blocks off teleports toward the body
+	 * instead of walking the line (26 Nov forest rooms: 4 boats laid 20-23 blocks off, 0 seated). Farther ones are walked
+	 * toward (navigation keeps its eyes off theirs) until {@link #APPROACH_TO} first.
+	 */
+	static final double TRAP_RANGE = 12.0D;
+	static final double APPROACH_TO = 10.0D;
+	/** A walk toward one far enderman that has not brought it into trap range in this long gives it up to the fight. */
+	static final long APPROACH_MS = 20_000L;
 	/** An enderman more than this above or below the feet is across a step or a drop: no straight walk into a boat. */
 	static final double MAX_DY = 2.5D;
 	/** Where the boat goes: this far from the body toward the enderman (S1's room: 3 blocks, seated in 0.9 s, 0 damage). */
@@ -104,6 +113,9 @@ final class BoatTrap {
 	private int roundedNoSeat;
 	private int brokenBack;
 	private int trapKills;
+	private int approaches;
+	private UUID approachFor;
+	private long approachSinceMs;
 	private ServerNavigationController step;
 	/** The block going down under a boat (multi-tick: the body turns to it first), and since when (ticks). */
 	private BlockPos blockAt;
@@ -401,6 +413,21 @@ final class BoatTrap {
 		}
 		double h = flat(target.position().subtract(player.position())).length();
 		if (h < MIN_RANGE || h > MAX_RANGE || Math.abs(target.getY() - player.getY()) > MAX_DY) return null;
+		if (h > TRAP_RANGE) {
+			// Too far to trap: walk in to APPROACH_TO before any stare, or the fight as before with no boat to lay.
+			if (boats(player) == 0 && !boatUsable()) return null;
+			if (!target.getUUID().equals(approachFor)) { approachFor = target.getUUID(); approachSinceMs = elapsed; approaches++; }
+			if (elapsed - approachSinceMs > APPROACH_MS) {
+				note(String.format(Locale.ROOT, "%s stayed %.1f blocks off after %.0f s of walking in: fought as before", target.getUUID(), h, APPROACH_MS / 1000.0D));
+				skipped.add(target.getUUID());
+				cancelStep(player);
+				return null;
+			}
+			Vec3 toward = flat(player.position().subtract(target.position()));
+			Vec3 goal = new Vec3(target.getX(), player.getY(), target.getZ()).add(toward.normalize().scale(APPROACH_TO));
+			walk(player, goal, now);
+			return TickResult.running(0.0D);
+		}
 		// The boat already stands between: let the fight stare it angry from here.
 		if (boatUsable() && between(player, target)) {
 			if (!target.getUUID().equals(armedFor)) { armedFor = target.getUUID(); }
@@ -685,8 +712,8 @@ final class BoatTrap {
 
 	/** The receipt clause. */
 	String report() {
-		return String.format(Locale.ROOT, "; boat trap: %d crafted, %d placed (%d on a block), %d walks round, %d seated, %d trap kill%s, %d came round it, %d broken back%s",
-				crafted, placed, blocksUnder, walksRound, seatedIds.size(), trapKills, trapKills == 1 ? "" : "s", roundedNoSeat, brokenBack,
+		return String.format(Locale.ROOT, "; boat trap: %d crafted, %d walks in, %d placed (%d on a block), %d walks round, %d seated, %d trap kill%s, %d came round it, %d broken back%s",
+				crafted, approaches, placed, blocksUnder, walksRound, seatedIds.size(), trapKills, trapKills == 1 ? "" : "s", roundedNoSeat, brokenBack,
 				notes.isEmpty() ? "" : " (" + String.join("; ", notes) + ")");
 	}
 
