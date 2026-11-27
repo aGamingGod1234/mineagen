@@ -9,6 +9,10 @@ const PORTAL_STOCK_MS = 360_000;
 const DESCENT_STOCK_TURNS = 2;
 // kit.ironTripArmour: the least time between two of an agent's chestplate iron top-ups (each capped at 2.5 min).
 const IRON_TOPUP_SPACING_MS = 300_000;
+// kit.ironTripResume: a top-up that danger, night or its cap stopped may run again this soon, at most this many times
+// before one ends on its own (mined, or no ore found) and the full spacing applies again.
+const IRON_TOPUP_RESUME_MS = 60_000;
+const IRON_TOPUP_RESUMES = 2;
 // Below this a dig_to or a walk is going down a mine (skill-fits.mjs MINE_Y is 50 for "below ground").
 const DESCENT_Y = 48;
 // Obtains that mine underground: the kit's iron, the frame's obsidian and lava, diamonds.
@@ -32,7 +36,7 @@ import { lootLedger, rememberStructures, runObtain } from './obtain-runner.mjs';
 // Slots per menu page obtain's loot step asks for: one chest row.
 const MENU_PAGE = 9;
 import { resolveObtainItem } from './obtain-plan.mjs';
-import { IRON_KIT_ITEMS, KIT_CRAFT_TIMEOUT_MS, keepKit } from './kit-habit.mjs';
+import { IRON_KIT_ITEMS, KIT_CRAFT_TIMEOUT_MS, ironTripResumeEnabled, keepKit } from './kit-habit.mjs';
 import { nightFor, restsFirst } from './night-cover.mjs';
 import { runInventoryRepair } from './inventory-repair.mjs';
 import { PORTAL_ENTRY_NEXT, PORTAL_ENTRY_PREP } from './skill-fits.mjs';
@@ -222,6 +226,8 @@ export class NativeToolRuntime {
 	#kitHabit = false;
 	// kit.ironTripArmour: when each agent's last chestplate iron top-up started (#stepNow clock).
 	#ironTopUps = new Map();
+	// kit.ironTripResume: per agent, {count, armed}: resumes armed in this spacing window, and whether one is armed now.
+	#ironTopUpResumes = new Map();
 	/** Agents that respawned and have not rested or seen day since (night-cover.mjs restsFirst). */
 	#nightRespawns = new Set();
 	/** Per agent: every source the body has seen (seen-resources.mjs), fed by each stored observation. */
@@ -2978,11 +2984,30 @@ export class NativeToolRuntime {
 			// IRON_TOPUP_SPACING_MS, so a seed short of iron loses at most a top-up's cap every few minutes.
 			const lastTopUp = this.#ironTopUps.get(record.agentId);
 			const topUp = IRON_KIT_ITEMS.test(String(tool.arguments?.item ?? '')) && (lastTopUp === undefined || this.#stepNow() - lastTopUp >= IRON_TOPUP_SPACING_MS);
+			// A top-up that starts on the full spacing opens a new window: its resumes count from 0 again.
+			const held = this.#ironTopUpResumes.get(record.agentId);
+			const resumes = held?.armed === true ? held.count : 0;
+			let toppedUp = false;
 			kit = await keepKit(body, (item, count = 1, timeoutMs = KIT_CRAFT_TIMEOUT_MS) => runObtain({ item, count, timeoutMs }, body, { ...stations, loads: kitLoads }),
 				{ stopped: () => interrupted() || !current(), reserved, stop, topUp, onTopUp: () => {
+					toppedUp = true;
+					this.#ironTopUpResumes.set(record.agentId, { count: resumes, armed: false });
 					this.#ironTopUps.set(record.agentId, this.#stepNow());
-					this.#trace('native_iron_topup', { agentId: record.agentId, goalRevision: record.goalRevision, after: String(tool.arguments?.item ?? '') });
+					this.#trace('native_iron_topup', { agentId: record.agentId, goalRevision: record.goalRevision, after: String(tool.arguments?.item ?? ''), resume: resumes });
 				} });
+			// kit.ironTripResume: a top-up stopped by danger, night or its cap is not a seed short of iron. In 12 fresh A/B
+			// games of 27 Nov, 5 of 11 top-ups stopped that way, and the bucket or shield craft a minute later, still at the
+			// ore, could not retry for the 5-minute spacing. It re-arms a minute on, twice at most per spacing window; a
+			// top-up that ends on its own (mined, or no ore found) keeps the full spacing.
+			if (toppedUp && ironTripResumeEnabled()) {
+				const halt = stop.topUp === true ? stop.result ?? null : null;
+				const resumable = halt !== null && (['INTERRUPTED', 'TIMED_OUT'].includes(halt.state) || ['DANGER', 'NIGHT', 'OBTAIN_TIMEOUT'].includes(halt.reasonCode));
+				if (resumable && resumes < IRON_TOPUP_RESUMES) {
+					this.#ironTopUpResumes.set(record.agentId, { count: resumes + 1, armed: true });
+					this.#ironTopUps.set(record.agentId, this.#stepNow() - IRON_TOPUP_SPACING_MS + IRON_TOPUP_RESUME_MS);
+					this.#trace('native_iron_topup_resume_armed', { agentId: record.agentId, goalRevision: record.goalRevision, stoppedBy: halt.reasonCode ?? halt.state, resume: resumes + 1 });
+				}
+			}
 		} catch (error) {
 			if (!current()) throw error;
 			kit = [`stopped (${error?.code ?? 'error'})`];

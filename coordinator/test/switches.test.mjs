@@ -187,6 +187,7 @@ const READS = [
 	['reflex.eatThrough', 'src/main/java/dev/agaminggod/mineagen/server/runtime/reflex/ReflexScheduler.java', 'Switches.get("reflex.eatThrough")'],
 	['kit.rekit', 'coordinator/src/kit-habit.mjs', "getSwitch('kit.rekit', environment)"],
 	['kit.ironTripArmour', 'coordinator/src/kit-habit.mjs', "getSwitch('kit.ironTripArmour', environment)"],
+	['kit.ironTripResume', 'coordinator/src/kit-habit.mjs', "getSwitch('kit.ironTripResume', environment)"],
 	['reflex.unarmouredFloor', 'coordinator/src/reflexes.mjs', "getSwitch('reflex.unarmouredFloor')"],
 	['end.strikeRearm', 'src/main/java/dev/agaminggod/mineagen/server/runtime/reflex/ReflexScheduler.java', 'Switches.get("end.strikeRearm")'],
 	['reflex.defaultRearm', 'src/main/java/dev/agaminggod/mineagen/server/runtime/reflex/ReflexScheduler.java', 'Switches.get("reflex.defaultRearm")'],

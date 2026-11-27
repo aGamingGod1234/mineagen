@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { IRON_KIT_ITEMS, IRON_TOPUP_MS, KIT_CRAFT_TIMEOUT_MS, KIT_SMELT_MS, ironTripArmourEnabled, nextKitStep } from '../src/kit-habit.mjs';
+import { IRON_KIT_ITEMS, IRON_TOPUP_MS, KIT_CRAFT_TIMEOUT_MS, KIT_SMELT_MS, ironTripArmourEnabled, ironTripResumeEnabled, nextKitStep } from '../src/kit-habit.mjs';
 import { checkedObtainBody, keepKit } from './helpers/checked-body.mjs';
 
 // kit.ironTripArmour: in 10 fresh games of 27 Nov the model mined the iron itself and called obtain only to craft, the
@@ -110,11 +110,38 @@ test('v2: the chestplate\'s iron held with no fuel: its obtain gathers the fuel,
 	assert.equal(nextKitStep(down(noFuel, { skyOpen: true }), { topUp: true }), null, 'not on the surface');
 });
 
-test('v2: with no chestplate, leggings wait for it; boots do not', () => {
+test('v2: with no chestplate, leggings wait for it; on the surface boots do not', () => {
 	const kit = [item('iron_pickaxe', 'mainhand'), item('bucket', 3, 2), item('flint_and_steel', 4), item('shield', 'offhand'), ...stations];
 	// A/B game freshrb (fix arm): 7 spare became leggings and the chestplate never came.
-	assert.deepEqual(nextKitStep(down([...kit, item('iron_ingot', 9, 7)])), { kind: 'craft', itemId: 'minecraft:iron_boots' });
+	assert.deepEqual(nextKitStep(down([...kit, item('iron_ingot', 9, 7)], { skyOpen: true, y: 64 })), { kind: 'craft', itemId: 'minecraft:iron_boots' });
 	assert.deepEqual(nextKitStep(down([...kit, item('iron_chestplate', 'chest'), item('iron_ingot', 9, 7)])), { kind: 'craft', itemId: 'minecraft:iron_leggings' });
+});
+
+test('kit.ironTripResume: down a mine with no chestplate, boots and a helmet wait for it too; off, boots come', async () => {
+	// A/B game ab1 freshd19 (fix arm): a top-up stopped for night with 12 iron held, and the next kit run made boots.
+	const kit = [item('iron_pickaxe', 'mainhand'), item('bucket', 3, 2), item('flint_and_steel', 4), item('shield', 'offhand'), ...stations];
+	assert.equal(nextKitStep(down([...kit, item('iron_ingot', 9, 7)])), null);
+	assert.equal(nextKitStep(down([...kit, item('iron_ingot', 9, 7), item('iron_boots', 'feet')])), null, 'no helmet either');
+	assert.deepEqual(nextKitStep(down([...kit, item('iron_ingot', 9, 8)])), { kind: 'craft', itemId: 'minecraft:iron_chestplate' });
+	assert.deepEqual(nextKitStep(down([...kit, item('iron_chestplate', 'chest'), item('iron_ingot', 9, 4)])), { kind: 'craft', itemId: 'minecraft:iron_boots' });
+	process.env.MINEAGEN_IRON_TRIP_RESUME = 'off';
+	try { assert.deepEqual(nextKitStep(down([...kit, item('iron_ingot', 9, 7)])), { kind: 'craft', itemId: 'minecraft:iron_boots' }); }
+	finally { delete process.env.MINEAGEN_IRON_TRIP_RESUME; }
+	await withSwitch('off', () => assert.ok(!ironTripResumeEnabled(), 'needs kit.ironTripArmour'));
+});
+
+test('keepKit marks a stopped top-up so the runtime can re-arm it; a stopped kit craft is not marked', async () => {
+	const items = [...afterPickaxe, item('shield', 'offhand')];
+	const body = checkedObtainBody({ observe: async () => down(items), act: async () => ({ state: 'SUCCEEDED' }) });
+	const stop = {};
+	await keepKit(body, async () => ({ state: 'INTERRUPTED', reasonCode: 'DANGER' }), { topUp: true, stop });
+	assert.equal(stop.topUp, true);
+	assert.equal(stop.result.reasonCode, 'DANGER');
+	const craftStop = {};
+	await keepKit(checkedObtainBody({ observe: async () => down([...items, item('iron_ingot', 9, 16)]), act: async () => ({ state: 'SUCCEEDED' }) }),
+		async () => ({ state: 'INTERRUPTED', reasonCode: 'DANGER' }), { topUp: true, stop: craftStop });
+	assert.equal(craftStop.result.reasonCode, 'DANGER');
+	assert.equal(craftStop.topUp, undefined, 'the chestplate craft from held iron is not a top-up');
 });
 
 test('keepKit v2: a top-up whose raw iron has no fuel to smelt goes on to the chestplate\'s own obtain in the same run', async () => {
