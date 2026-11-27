@@ -317,7 +317,7 @@ export JAVA_HOME=/usr/lib/jvm/temurin-25-jdk-amd64
   exec node scripts/quality/run-ladder.mjs \
     --scenarios L-A2 --runs 1 --parallel 1 \
     --provider codex --model gpt-6.1-sol --effort low --service-tier default \
-    --port-base "$SLOT_PORT_BASE" --jar build/libs/mineagen-0.3.0-test.1.jar \
+    --port-base "$SLOT_PORT_BASE" --jar build/libs/mineagen-0.3.0-test.2.jar \
     --server-template runtime/server-template --out runtime/ladder-L-A2
 '
 ```
@@ -337,7 +337,7 @@ The setup-only check verifies locate receipts, dimension, inventory, each armour
 For unattended measured runs, `launch-scenarios.ps1 -Runner run-ladder.mjs` supports the same arguments-file and on-disk status/log contract as other quality runners.
 
 ```powershell
-node scripts/quality/run-scenarios.mjs --scenarios S1,S5 --provider claude --model claude-opus-5-5 --effort low --runs 2 --jar build/libs/mineagen-0.3.0-test.1.jar --out runtime/quality-baseline
+node scripts/quality/run-scenarios.mjs --scenarios S1,S5 --provider claude --model claude-opus-5-5 --effort low --runs 2 --jar build/libs/mineagen-0.3.0-test.2.jar --out runtime/quality-baseline
 node scripts/quality/compare-scenarios.mjs runtime/quality-baseline/results.json runtime/quality-after/results.json
 ```
 
@@ -471,14 +471,14 @@ Prepare two checkouts, one per arm, each with its own built JAR and installed co
   "A": {
     "commit": "A_CHECKOUT_COMMIT",
     "coordinatorRoot": "../arm-a",
-    "jar": "../arm-a/build/libs/mineagen-0.3.0-test.1.jar",
+    "jar": "../arm-a/build/libs/mineagen-0.3.0-test.2.jar",
     "expectedJarSha256": "A_JAR_SHA256",
     "expectedCoordinatorSha256": "A_COORDINATOR_SHA256"
   },
   "B": {
     "commit": "B_CHECKOUT_COMMIT",
     "coordinatorRoot": "../arm-b",
-    "jar": "../arm-b/build/libs/mineagen-0.3.0-test.1.jar",
+    "jar": "../arm-b/build/libs/mineagen-0.3.0-test.2.jar",
     "expectedJarSha256": "B_JAR_SHA256",
     "expectedCoordinatorSha256": "B_COORDINATOR_SHA256"
   }
