@@ -7,8 +7,12 @@ const PORTAL_STOCK_MS = 360_000;
 // stock.descentGate: calls that leave the surface for the mine turned into the food stock's obtain, per life in a world.
 // Its own count, so a life can see up to 2 turns here and 2 more at a surface portal.
 const DESCENT_STOCK_TURNS = 2;
-// kit.armourGate: portal calls turned into the chestplate's obtain, per life in a world.
+// kit.armourGate: portal calls turned into the chestplate's obtain, per life in a world. One turn is used up per life;
+// an obtain that fails within ARMOUR_GATE_FREE_MS (no ore in reach, or the night refusal to climb at armour 0, about
+// 3 s in room ai-armour-gate) gives it back, up to ARMOUR_GATE_TRIES turned obtains per life.
 const ARMOUR_GATE_TURNS = 1;
+const ARMOUR_GATE_TRIES = 3;
+const ARMOUR_GATE_FREE_MS = 60_000;
 // Below this a dig_to or a walk is going down a mine (skill-fits.mjs MINE_Y is 50 for "below ground").
 const DESCENT_Y = 48;
 // Obtains that mine underground: the kit's iron, the frame's obsidian and lava, diamonds.
@@ -176,6 +180,7 @@ export class NativeToolRuntime {
 	#descentStockTurns = new Map();
 	#armourStock = null;
 	#armourGateTurns = new Map();
+	#armourGateTries = new Map();
 	#programExecutor;
 	#programRuns = new Map();
 	#programResults = new Map();
@@ -993,7 +998,13 @@ export class NativeToolRuntime {
 		try {
 			const turned = this.#portalStockGate(record, request) ?? this.#descentStockGate(record, request) ?? this.#armourGate(record, request);
 			if (turned !== null) request = turned.request;
-			let result = await this.#executeTool(request, record, lifecycleGeneration);
+			let result;
+			try { result = await this.#executeTool(request, record, lifecycleGeneration); } finally {
+				if (turned?.armourLife !== undefined && Date.now() - arrivedAt < ARMOUR_GATE_FREE_MS && result?.state !== 'SUCCEEDED' && result?.state !== 'RUNNING') {
+					this.#armourGateTurns.set(turned.armourLife, Math.max(0, (this.#armourGateTurns.get(turned.armourLife) ?? 1) - 1));
+					this.#trace('native_armour_gate_refunded', { agentId: record.agentId, goalRevision: record.goalRevision, state: result?.state ?? 'THREW', reasonCode: result?.reasonCode ?? null, elapsedMs: Date.now() - arrivedAt });
+				}
+			}
 			if (turned !== null && result !== null && typeof result === 'object' && !Array.isArray(result)) result = { ...result, stockedFirst: turned.note };
 			if (idleSince !== undefined && result !== null && typeof result === 'object' && !Array.isArray(result)) result = { ...result, stoodStillMs: Math.max(0, arrivedAt - idleSince) };
 			// Not shown to the model, and set last so no copy drops it: the food hand-back reads the obtain that ran, not the walk.
@@ -1104,7 +1115,8 @@ export class NativeToolRuntime {
 	 * the Nether) with no chestplate worn or carried runs obtain iron_chestplate first; the kit habit puts it on when the
 	 * obtain ends. In the 10 fresh games of 27 Nov the route said "obtain iron_chestplate" in 93 wakes and the model acted
 	 * on it 0 times: 7 games never wore an iron piece and 15 of 19 deaths were at armour 0. Food comes first (the stock
-	 * gates run before this one). Not while something is attacking, at most ARMOUR_GATE_TURNS per life in a world, and
+	 * gates run before this one). Not while something is attacking, at most ARMOUR_GATE_TURNS per life in a world (a quick
+	 * failure gives it back, up to ARMOUR_GATE_TRIES), and
 	 * capped at PORTAL_STOCK_MS, so a seed short of iron never keeps the bot out of the Nether.
 	 */
 	#armourGate(record, request) {
@@ -1128,16 +1140,18 @@ export class NativeToolRuntime {
 		if (!call) return null;
 		const life = `${record.agentId}|${stock.worldId}|${stock.deaths}`;
 		const turns = this.#armourGateTurns.get(life) ?? 0;
-		if (turns >= ARMOUR_GATE_TURNS) return null;
+		const tries = this.#armourGateTries.get(life) ?? 0;
+		if (turns >= ARMOUR_GATE_TURNS || tries >= ARMOUR_GATE_TRIES) return null;
 		let obtain;
 		try { obtain = normalizeMinecraftToolCall('do_step', { verb: 'obtain', target: { item: stock.item, count: stock.count }, why: 'armour before the Nether' }); } catch { return null; }
 		obtain = { ...obtain, arguments: { ...obtain.arguments, timeoutMs: Math.min(obtain.arguments?.timeoutMs ?? PORTAL_STOCK_MS, PORTAL_STOCK_MS) } };
 		this.#armourGateTurns.set(life, turns + 1);
+		this.#armourGateTries.set(life, tries + 1);
 		const what = call.actionType === 'build' ? 'build nether_portal' : call.actionType;
 		const note = `Armour first: no chestplate worn, so the ${what} call became obtain ${stock.item} (8 iron); it is put on when it ends. Carry on to the portal then.`;
-		this.#trace('native_armour_gate_turned', { agentId: record.agentId, goalRevision: record.goalRevision, actionType: call.actionType, item: stock.item, turn: turns + 1 });
+		this.#trace('native_armour_gate_turned', { agentId: record.agentId, goalRevision: record.goalRevision, actionType: call.actionType, item: stock.item, turn: tries + 1 });
 		try { request.extendLease?.(obtain.arguments.timeoutMs); } catch { /* the lease is the planner's */ }
-		return { request: { ...request, tool: obtain }, note };
+		return { request: { ...request, tool: obtain }, note, armourLife: life };
 	}
 
 	/**

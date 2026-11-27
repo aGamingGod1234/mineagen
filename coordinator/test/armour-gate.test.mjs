@@ -18,11 +18,13 @@ const sample = (extra = {}) => ({ ready: true, observedAtEpochMs: Date.now(), wo
 const STOCK = { item: 'iron_chestplate', count: 1, portals: [{ x: 40, y: 64, z: 12, lit: true, dimension: 'minecraft:overworld' }], worldId: 'w', deaths: 0 };
 const step = (verb, target) => normalizeMinecraftToolCall('do_step', { verb, target, why: 'go to the Nether' });
 
-async function harness(t, { stock = () => STOCK, gate, observation = sample() } = {}) {
+async function harness(t, { stock = () => STOCK, gate, observation = sample(), slow = false } = {}) {
 	const before = process.env.MINEAGEN_ARMOUR_GATE;
 	if (gate === undefined) delete process.env.MINEAGEN_ARMOUR_GATE; else process.env.MINEAGEN_ARMOUR_GATE = gate;
 	const commands = [], traces = [];
 	let runtime, n = 0;
+	// slow: each body step and look takes a minute on the clock, so a turned obtain that fails has run past the free window.
+	if (slow) { try { t.mock.timers.enable({ apis: ['Date'], now: Date.now() }); } catch (error) { if (error?.code !== 'ERR_INVALID_STATE') throw error; } }
 	runtime = new NativeToolRuntime({ registry: { get: () => record }, armourStock: stock,
 		trace: (event, fields) => traces.push({ event, ...fields }),
 		bridge: { send: async (type, agentId, payload) => {
@@ -31,7 +33,7 @@ async function harness(t, { stock = () => STOCK, gate, observation = sample() } 
 			if (type === 'action_command') setTimeout(() => runtime.onActionResult(record, { actionId: payload.actionId, goalRevision: 1,
 				state: 'FAILED', reasonCode: 'NO_ROUTE', executionStarted: true, physicalAttempted: true }), 1);
 		} },
-		requestObservation: async () => ({ observation, eventSequence: ++n + 1 }) });
+		requestObservation: async () => (slow && t.mock.timers.tick(61_000), { observation: { ...observation, observedAtEpochMs: Date.now() }, eventSequence: ++n + 1 }) });
 	runtime.updateObservation(record, observation, { eventSequence: 1 });
 	t.after(async () => {
 		await runtime.dispose(record.agentId, 'test_complete');
@@ -82,14 +84,14 @@ test('build nether_portal and walks into a lit portal or to the Nether are turne
 	assert.equal(free.turned().length, 0, JSON.stringify(free.turned()));
 });
 
-test('one turn per life, then the portal call goes as asked; no stock, an attack and the off arm go as asked', async t => {
-	const h = await harness(t);
+test('one turn per life once its obtain has run, then the portal call goes as asked; no stock, an attack and the off arm go as asked', async t => {
+	const h = await harness(t, { slow: true });
 	for (let i = 0; i < 2; i++) await h.run(step('cast_obsidian', { frame: true, x: 12, y: -52, z: 20, axis: 'x' }));
 	assert.equal(h.turned().length, 1);
 	assert.equal(h.sent('cast_obsidian'), 1);
 	// A new life (a death since) gets one more turn.
 	const lives = [STOCK, STOCK, { ...STOCK, deaths: 1 }];
-	const respawned = await harness(t, { stock: () => lives.shift() ?? { ...STOCK, deaths: 1 } });
+	const respawned = await harness(t, { slow: true, stock: () => lives.shift() ?? { ...STOCK, deaths: 1 } });
 	for (let i = 0; i < 3; i++) await respawned.run(step('build', { structure: 'nether_portal' }));
 	assert.equal(respawned.turned().length, 2);
 	const worn = await harness(t, { stock: () => null });
@@ -102,6 +104,16 @@ test('one turn per life, then the portal call goes as asked; no stock, an attack
 	await off.run(step('cast_obsidian', { frame: true, x: 12, y: -52, z: 20, axis: 'x' }));
 	assert.equal(off.sent('cast_obsidian'), 1);
 	assert.equal(off.turned().length, 0);
+});
+
+test('an obtain that fails within a minute gives the turn back, up to 3 turned obtains per life', async t => {
+	// Room ai-armour-gate g1: the turned obtain found no iron ore and would not climb at night at armour 0 (3 s), the
+	// one turn was spent and the next cast went into the Nether bare.
+	const h = await harness(t);
+	for (let i = 0; i < 4; i++) await h.run(step('cast_obsidian', { frame: true, x: 12, y: -52, z: 20, axis: 'x' }));
+	assert.equal(h.turned().length, 3);
+	assert.equal(h.traces.filter(row => row.event === 'native_armour_gate_refunded').length, 3);
+	assert.equal(h.sent('cast_obsidian'), 1);
 });
 
 test('the view owes a chestplate in the Overworld with a stone pickaxe, never with one worn or carried', async () => {
