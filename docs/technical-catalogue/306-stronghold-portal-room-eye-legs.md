@@ -1,8 +1,8 @@
 # PR 306: Stronghold: skip unreachable portal-room spots, walk longer between eye throws
 
+- **Problem:** Following eyes of ender, the bot threw one every 60 blocks on the same bearing, so a long trip used up most of its twelve eyes before it reached the stronghold.
+  **Solution:** Walk up to 300 blocks between throws while the eye keeps its bearing, or toward the crossing point the throws give, and never throw while standing on water.
+  **Result:** Measured live in one game: legs between throws grew to 240 and 298 blocks against about 64 on `main`, and it reached the stronghold with 10 eyes against 8. Decision tests: 4 legs cover 960 blocks against 312. n=1, low trust.
 - **Problem:** Inside a stronghold, the bot kept trying the same unreachable spots and spent 87 minutes without reaching the portal room.
   **Solution:** The search remembers spots it failed to reach and moves on to new ones.
-  **Result:** In the failing game, 3 to 5 repeat attempts per dead spot before. Live A/B pending.
-- **Problem:** Following eyes of ender across the sea, the bot threw them every 60 blocks and lost 7 of 8 to shattering or the water.
-  **Solution:** Walk up to 300 blocks between throws while the bearing holds, and never throw over water.
-  **Result:** Decision tests: 4 legs cover 960 blocks with the switch on against 312 off, so about a third as many eyes thrown over the same distance (estimated from the leg lengths). Live A/B pending.
+  **Result:** Measured in one A/B pair: 0 repeated spots in both arms, so no difference shown yet; the bot still did not reach the portal room. Not catalogue-ready until a follow-up fixes the wall-top targets.
