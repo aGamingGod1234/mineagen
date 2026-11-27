@@ -778,6 +778,26 @@ export class LiveTaskViews {
   return { line: route, item: search?.item ?? asked[1], count: search?.count ?? Number(asked[2]), y: Number.isFinite(at?.y) ? at.y : null,
    worldId: current.worldId ?? null, deaths: current.deaths ?? 0 };
  }
+ /**
+  * kit.armourGate: the chestplate still owed before the Nether, once a stone or better pickaxe can mine its iron. Null
+  * outside a beat-the-game goal, outside the Overworld, below half health, and when any chestplate is worn or carried (a
+  * carried one is the kit habit's to put on, never a second one to make). In the 10 fresh games of 27 Nov the route said
+  * "obtain iron_chestplate" in 93 wakes and the model acted on it 0 times; 7 games never wore an iron piece and 15 of 19
+  * deaths were at armour 0. The lit portals are the ones a walk is checked against.
+  */
+ armourStock(record) {
+  if (!record.currentGoal || !beatsTheGame(record.currentGoalSpec)) return null;
+  const current = this.#state(record);
+  const o = current.observation;
+  if (o?.world?.dimension !== 'minecraft:overworld') return null;
+  const items = Array.isArray(o?.inventory?.items) ? o.inventory.items.filter(i => i?.count > 0 && typeof i.itemId === 'string') : [];
+  if (items.some(i => i.slot === 'chest' || /_chestplate$/.test(i.itemId))) return null;
+  if (!items.some(i => /^minecraft:(stone|copper|iron|diamond|netherite)_pickaxe$/.test(i.itemId))) return null;
+  const health = o?.player?.health ?? o?.health;
+  if (Number.isFinite(health) && health < 10) return null;
+  const portals = (current.known?.frames ?? []).filter(f => f?.lit === true && f.dimension === 'minecraft:overworld' && [f.x, f.z].every(Number.isFinite));
+  return { item: 'iron_chestplate', count: 1, portals, worldId: current.worldId ?? null, deaths: current.deaths ?? 0 };
+ }
  /** The trigger for a no-progress or repeated-result fact not yet woken for ('no_progress' | 'repeated_result'), once. */
  progressWake(record) {
   if (!record.currentGoal) return null;
