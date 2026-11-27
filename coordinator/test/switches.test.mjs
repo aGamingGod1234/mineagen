@@ -142,6 +142,7 @@ const READS = [
 	['find.dryFlood', 'coordinator/src/find-search.mjs', "getSwitch('find.dryFlood', environment)"],
 	['find.portalSkipFailed', 'coordinator/src/find-portal-room.mjs', "getSwitch('find.portalSkipFailed', environment)"],
 	['find.portalFloorOnly', 'coordinator/src/find-portal-room.mjs', "getSwitch('find.portalFloorOnly', environment)"],
+	['find.portalSight', 'coordinator/src/find-portal-room.mjs', "getSwitch('find.portalSight', environment)"],
 	['find.eyeLongLegs', 'coordinator/src/find-eyes.mjs', "getSwitch('find.eyeLongLegs', environment)"],
 	['route.eyesHold', 'coordinator/src/skill-fits.mjs', "getSwitch('route.eyesHold')"],
 	['route.eyesHold', 'coordinator/src/live-task-view.mjs', "getSwitch('route.eyesHold')"],

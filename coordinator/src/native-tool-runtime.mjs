@@ -2825,7 +2825,7 @@ export class NativeToolRuntime {
 		const search = tool.survey === undefined ? null : this.#occupancy.coverage?.(record.agentId, this.#observations.get(record.agentId)?.observation ?? {});
 		// Successful turns carry no facts beyond completed; the sightings are the result.
 		return { state: 'SUCCEEDED', completed: results.length, ...sweepSightings(views), ...(tool.survey === undefined ? {} : { survey: { ...mergeSurveys(surveys, finalYaw, tool.survey.limit), ...(search == null ? {} : { search }) } }),
-			...(ground ? { ground: views.map(groundOfView) } : {}) };
+			...(ground ? { ground: views.map(groundOfView), sight: views.map(sightOfView) } : {}) };
 	}
 
 	/**
@@ -3167,10 +3167,11 @@ export class NativeToolRuntime {
 				return this.#withResources(agentId, facts.observation ?? {});
 			},
 			resources: (query = {}) => this.resourcesFor(agentId, query, latest()),
-			look: async ({ pitch, survey }) => {
+			look: async ({ pitch, survey, yaw: centerYaw }) => {
 				live();
 				steps += 1;
-				const yaw = Number.isFinite(latest().player?.yaw) ? latest().player.yaw : 0;
+				// A caller may name the sweep's centre (the stronghold search turns along the compass axes its corridors run on).
+				const yaw = Number.isFinite(centerYaw) ? centerYaw : Number.isFinite(latest().player?.yaw) ? latest().player.yaw : 0;
 				const sweep = normalizeMinecraftToolCall('lookAround', { centerYaw: ((yaw + 180) % 360 + 360) % 360 - 180, pitch, steps: 4, ticksPerStep: 2, survey });
 				try { return await this.#executeLookAround(request, record, sweep, executionEpoch, blockingRun, { ground: true }); }
 				catch (error) { if (error?.code === 'INSPECTION_UNAVAILABLE') return null; throw error; }
@@ -4289,8 +4290,17 @@ function sweepView(facts, { yaw, pitch }) {
 			const field = SWEEP_REPRESENTATIVE_FIELDS[section].find((name) => compact[name] !== undefined);
 			return { id: `${dimension}|${section}:${key}`, type: field === undefined ? null : `${section}:${field}:${JSON.stringify(compact[field])}`, compact, baselineBytes, baselineType };
 		}));
+	const ray = observation.interaction?.rayTarget;
+	const at = observation.player;
 	return { yaw, pitch, eventSequence: facts.eventSequence, observedAtEpochMs: observation.observedAtEpochMs ?? null, dimension, sections,
-		sourceCounts: sources.map((entries) => entries.length) };
+		sourceCounts: sources.map((entries) => entries.length),
+		ray: ray !== null && typeof ray === 'object' ? { ...ray } : null,
+		at: [at?.x, at?.y, at?.z].every(Number.isFinite) ? { x: at.x, y: at.y, z: at.z } : null };
+}
+
+/** What the crosshair met at one heading of a sweep (a block within reach, or a miss: open for that reach), and where the body stood. */
+export function sightOfView(view) {
+	return { yaw: view.yaw, pitch: view.pitch, ray: view.ray ?? null, at: view.at ?? null };
 }
 
 // Reproduce the former per-heading admission order and byte accounting before compacting. Keeping its selected

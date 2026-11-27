@@ -10,6 +10,32 @@ export const floorOnly = (environment = process.env) => getSwitch('find.portalFl
 // A full block at the feet is wall; only a stair or slab there is a step up. A higher spot waits until the body has climbed near it.
 const STEP = /^minecraft:stone_brick_(?:stairs|slab)$/;
 const STEP_UP = 1.5;
+export const sightPassages = (environment = process.env) => getSwitch('find.portalSight', environment).value;
+// The body's block rows hold at most 8 of each kind within 6 blocks, nearest first, so inside an all-brick stronghold they end
+// about 2 blocks out and no floor further on is ever seen: 30 of 57 floor-only searches handed back with every corridor open.
+// The crosshair at each compass heading of the look-around shows how far the way is open there, as a player looks down a hall.
+// A miss is open for the hand's 4.5-block reach, so the walk stops short of it; a wooden door or a step is a way on, past it.
+const SIGHT_REACH = 3.5;
+const WAY_ON = /^minecraft:(?:(?!iron_)[a-z_]+_door|[a-z_]+_(?:stairs|slab))$/;
+const DOOR = /_door$/;
+const compass = yaw => Math.round((Number.isFinite(yaw) ? yaw : 0) / 90) * 90;
+// Minecraft yaw 0 faces +z (south), 90 faces -x (west).
+const along = yaw => ({ x: Math.round(-Math.sin(yaw * Math.PI / 180)), z: Math.round(Math.cos(yaw * Math.PI / 180)) });
+export function sightSpots(views) {
+	const spots = [];
+	for (const view of Array.isArray(views) ? views : []) {
+		const at = view?.at, ray = view?.ray;
+		if (!point(at) || !Number.isFinite(view.yaw)) continue;
+		const d = along(compass(view.yaw)), feet = Math.floor(at.y + 1e-3);
+		const cell = (reach, y) => ({ x: Math.floor(at.x + d.x * reach) + 0.5, y, z: Math.floor(at.z + d.z * reach) + 0.5, sight: true });
+		if (ray?.type === 'miss') { spots.push(cell(SIGHT_REACH, feet)); continue; }
+		if (ray?.type !== 'block' || !point(ray)) continue;
+		const reach = Math.abs((ray.x + 0.5 - at.x) * d.x + (ray.z + 0.5 - at.z) * d.z);
+		if (WAY_ON.test(ray.blockId ?? '')) spots.push(cell(reach + (DOOR.test(ray.blockId) ? 2 : 1), DOOR.test(ray.blockId) ? feet : Math.max(feet, ray.y + 1)));
+		else if (reach >= SIGHT_REACH) spots.push(cell(reach - 1, feet));
+	}
+	return spots;
+}
 export const portalTarget = target => /^(minecraft:)?end_portal_frame$/.test(target.block ?? '');
 const FRAME = 'minecraft:end_portal_frame';
 const MASONRY = /^minecraft:(?:(?:mossy_|cracked_)?stone_bricks|stone_brick_stairs|stone_brick_slab)$/;
@@ -34,7 +60,10 @@ export async function findPortalRoom(body, { observation, deadline, within, dang
 	const floor = floorOnly();
 	const feet = () => Math.floor(o.player.y + 1e-3);
 	const floorBlock = r => !floor || r.y < feet() || STEP.test(r.blockId);
-	const reachable = p => !floor || p.frame || p.y <= o.player.y + STEP_UP;
+	const reachable = p => !floor || p.frame || p.sight || p.y <= o.player.y + STEP_UP;
+	const sight = sightPassages();
+	let views = null;
+	s.sightWalks ??= 0; s.climbWalks ??= 0;
 	const left = () => deadline - body.now();
 	const rows = () => [...freshRows(o), ...(survey?.blocks ?? []), ...(survey?.poi ?? [])].filter(point);
 	const safety = () => o.player.health <= 8 ? 'LOW_HEALTH' : o.player.inLava || o.player.hazard === 'lava' ? 'IN_LAVA'
@@ -45,7 +74,7 @@ export async function findPortalRoom(body, { observation, deadline, within, dang
 		message: `${stoppedBy}; portal search walked ${Math.round(s.walked)} blocks, ${s.pending.length} observed destinations left. Resume with find block end_portal_frame after handling the stop; no more eye throws.`,
 		find: { target: 'end_portal_frame', covered: { walked: Math.round(s.walked) },
 			portal: { origin: { ...s.origin }, visited: s.visited.length, pending: structuredClone(s.pending.slice(0, 6)), pendingCount: s.pending.length,
-				...(skip ? { failed: s.failed.length } : {}), stoppedBy, ...(approach ? { approach } : {}) },
+				...(skip ? { failed: s.failed.length } : {}), ...(sight ? { sightWalks: s.sightWalks } : {}), ...(floor ? { climbWalks: s.climbWalks } : {}), stoppedBy, ...(approach ? { approach } : {}) },
 			...(seen ? { seen: { ...seen, id: FRAME, via: 'portal room sight' } } : {}) } });
 	const inside = p => Math.hypot(p.x - s.origin.x, p.z - s.origin.z) <= within;
 	const visited = p => s.visited.some(v => distance(v, p) < 3);
@@ -56,19 +85,23 @@ export async function findPortalRoom(body, { observation, deadline, within, dang
 		const candidates = [...(body.frontier?.(o)?.candidates ?? []).filter(p => !p.blocked).map(p => ({ ...p, x: p.x + 0.5, z: p.z + 0.5 })),
 			...blocks.filter(r => MASONRY.test(r.blockId) && r.y <= o.player.y && r.y >= o.player.y - 8 && floorBlock(r))
 				.map(r => ({ x: r.x + 0.5, y: r.y + 1, z: r.z + 0.5 })),
-			...blocks.filter(r => r.blockId === FRAME).map(r => ({ ...r, frame: true }))];
+			...blocks.filter(r => r.blockId === FRAME).map(r => ({ ...r, frame: true })),
+			...(sight ? sightSpots(views) : [])];
 		for (const p of candidates) {
 			if (!point(p) || !inside(p) || (!p.frame && visited(p)) || failedNear(p)) continue;
 			if (!p.frame && (solid.has(key(p)) || solid.has(key({ ...p, y: p.y + 1 })))) continue;
 			if (!s.pending.some(q => key(q) === key(p))) s.pending.push(p);
 		}
-		s.pending = s.pending.filter(p => p.frame || (!visited(p) && !failedNear(p))).slice(-256);
+		s.pending = s.pending.filter(p => p.frame || (!visited(p) && !failedNear(p)));
+		// Masonry rows can number hundreds; the few sighted ways on and frames are never pushed out behind them.
+		const kept = p => p.frame || p.sight;
+		s.pending = [...s.pending.filter(kept).slice(-128), ...s.pending.filter(p => !kept(p)).slice(-256)];
 	};
 	const act = async args => {
 		if (left() < 1000) return { end: finish('FIND_BUDGET', 'timeoutMs exhausted') };
 		if (safety()) return { end: finish('FIND_DANGER', safety()) };
 		const before = { ...o.player };
-		survey = null;
+		survey = null; views = null;
 		const result = await body.act('travel_to', { ...args, timeoutMs: Math.floor(Math.min(left(), 20_000)) }, { watch: nearFrame });
 		o = await body.observe();
 		s.walked += distance(before, o.player);
@@ -85,21 +118,33 @@ export async function findPortalRoom(body, { observation, deadline, within, dang
 		if (arrival()) return finish('FIND_SEEN', 'Portal room reached', arrival());
 		if (!visited(o.player)) s.visited.push({ x: o.player.x, y: o.player.y, z: o.player.z });
 		if (body.look) {
-			const look = await body.look({ pitch: 15, survey: { include: ['blocks', 'poi', 'blocks:minecraft:end_portal_frame'] } });
+			const look = await body.look({ pitch: 15, ...(sight ? { yaw: compass(o.player.yaw) } : {}), survey: { include: ['blocks', 'poi', 'blocks:minecraft:end_portal_frame'] } });
 			survey = look?.survey ?? null;
+			views = look?.sight ?? null;
 			o = await body.observe();
 		}
 		if (safety()) return finish('FIND_DANGER', safety());
 		if (arrival()) return finish('FIND_SEEN', 'Portal room reached', arrival());
 		collect();
-		const next = s.pending.filter(p => inside(p) && distance(p, o.player) > 2 && reachable(p))
-			.sort((a, b) => Number(!!b.frame) - Number(!!a.frame) || distance(a, o.player) - distance(b, o.player))[0];
+		// Straight on before the sides, the way back last: the spots a look offers all lie about the same distance out.
+		const ahead = p => !sight || !s.heading ? 0 : ((p.x - o.player.x) * s.heading.x + (p.z - o.player.z) * s.heading.z) / Math.max(1, Math.hypot(p.x - o.player.x, p.z - o.player.z));
+		const cost = p => distance(p, o.player) - 2 * ahead(p);
+		const open = s.pending.filter(p => inside(p) && distance(p, o.player) > 2);
+		const order = (a, b) => Number(!!b.frame) - Number(!!a.frame) || cost(a) - cost(b);
+		let next = open.filter(reachable).sort(order)[0];
+		// Only higher floor left (seen on a level above before the body went down): climb to the nearest of it, not hand back.
+		const climb = !next && floor && sight;
+		if (climb) next = open.sort(order)[0];
+		if (next?.sight) s.sightWalks++;
+		else if (next && climb) s.climbWalks++;
 		if (!next) return finish('FIND_BLOCKED', 'No unvisited observed passage; inspect the doorway or stair here, then resume');
 		const dest = next;
 		const { end, result, before } = await act({ x: dest.x, y: dest.y, z: dest.z, build: false, tolerance: dest.frame ? 3 : 1,
 			boundaryX: s.origin.x, boundaryZ: s.origin.z, boundaryRadius: within });
 		if (end) return end;
-		if (result?.state !== 'SUCCEEDED' && !['NO_ROUTE', 'TRAVEL_TIMEOUT', 'TRAVEL_STALLED', 'STALLED_IN_PLACE'].includes(result?.reasonCode)) return finish('FIND_BLOCKED', result?.reasonCode ?? 'Walking stopped');
+		// A sighted way on through a door the walker could not open is one more failed spot, not the end of the search.
+		const tried = ['NO_ROUTE', 'TRAVEL_TIMEOUT', 'TRAVEL_STALLED', 'STALLED_IN_PLACE', ...(sight && skip ? ['PATH_BLOCKED'] : [])];
+		if (result?.state !== 'SUCCEEDED' && !tried.includes(result?.reasonCode)) return finish('FIND_BLOCKED', result?.reasonCode ?? 'Walking stopped');
 		// A spot the walk did not reach is not offered again in this stronghold, whether or not the body moved on the way.
 		if (skip && result?.state !== 'SUCCEEDED' && !dest.frame) {
 			s.failed.push({ x: dest.x, y: dest.y, z: dest.z });
@@ -115,6 +160,8 @@ export async function findPortalRoom(body, { observation, deadline, within, dang
 				{ requested: { x: dest.x, y: dest.y, z: dest.z }, actual, verticalGap: dest.y - actual.y,
 					reasonCode: result.reasonCode, message: result.message });
 		}
+		const moved = { x: o.player.x - before.x, z: o.player.z - before.z }, length = Math.hypot(moved.x, moved.z);
+		if (length >= 1) s.heading = { x: moved.x / length, z: moved.z / length };
 		body.progress?.({ label: `Portal room search: ${Math.round(s.walked)} blocks walked, ${s.pending.length} observed destinations` });
 	}
 	return finish('FIND_BUDGET', 'Portal search work/time budget exhausted');
