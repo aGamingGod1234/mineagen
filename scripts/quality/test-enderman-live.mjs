@@ -357,7 +357,7 @@ try {
 		const outcome = await Promise.race([action.result, watch().then(() => null)]) ?? await action.result;
 		await rate.clock.sleep(1000); o = await observe();
 		const message = String(outcome?.message ?? '');
-		const clause = /boat trap: (\d+) crafted, (\d+) placed \((\d+) on a block\), (\d+) walks round, (\d+) seated, (\d+) trap kills?, (\d+) came round it/.exec(message);
+		const clause = /boat trap: (\d+) crafted, (?:\d+ walks in, )?(\d+) placed \((\d+) on a block\), (\d+) walks round, (\d+) seated, (\d+) trap kills?, (\d+) came round it/.exec(message);
 		const [crafted, placed, onBlock, , seated, trapKills, cameRound] = clause ? clause.slice(1).map(Number) : [];
 		const pearls = (o?.inventory?.items ?? []).filter((item) => item?.itemId === 'minecraft:ender_pearl').reduce((sum, item) => sum + item.count, 0);
 		const tick = await playEnd(play);

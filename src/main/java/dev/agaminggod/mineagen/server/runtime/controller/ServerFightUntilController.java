@@ -461,7 +461,7 @@ public final class ServerFightUntilController implements ServerController {
 			roof = false;
 			collectWhenClear = !collect && choices.mayMove();
 		}
-		if (!roofWanted && BoatTrap.applies(BoatTrap.enabled(), mob == McEntityTypes.ENDERMAN, "minecraft:ender_pearl".equals(untilItemId),
+		if (!roofWanted && BoatTrap.applies(BoatTrap.enabled(), mob == McEntityTypes.ENDERMAN, untilItem == net.minecraft.world.item.Items.ENDER_PEARL,
 				choices.mayMove(), player.level().dimension() == net.minecraft.world.level.Level.END)
 				&& (!roof || BoatTrap.boats(player) > 0 || BoatTrap.boatWood(player) != null)) {
 			// The trap before the roof: a roofed cell waited for endermen that rarely came (forest rounds: 15 of 22 roofs failed).
@@ -663,7 +663,7 @@ public final class ServerFightUntilController implements ServerController {
 			// A boat first, from carried wood, before the first enderman (BoatTrap).
 			TickResult supplying = trap.tickSupply(player, nowEpochMs);
 			if (supplying != null) { lastTargetMs = elapsed; return supplying; }
-			if (trapOverRoof && BoatTrap.boats(player) == 0 && !roof && !roofed && building == null) {
+			if (trapOverRoof && BoatTrap.boats(player) == 0 && !trap.boatOut(player) && !roof && !roofed && building == null) {
 				// No boat after all: the roof the model asked for.
 				trapOverRoof = false;
 				roof = true;

@@ -340,6 +340,14 @@ public final class ServerTravelController implements ServerController {
 		return this;
 	}
 
+	/** The model's explicit fightThrough:false: every stop is kept, an angry enderman too. */
+	private boolean fightThroughOff;
+
+	public ServerTravelController fightThroughOff(boolean off) {
+		this.fightThroughOff = off;
+		return this;
+	}
+
 	/** Instincts arm with fightThrough unset: a lone beatable melee mob ({@link TravelStops#beatable}) is fought, not a stop. */
 	private boolean fightsBeatable;
 
@@ -359,7 +367,7 @@ public final class ServerTravelController implements ServerController {
 	static final boolean ENDERMAN_FIGHT = dev.agaminggod.mineagen.server.Switches.get("travel.endermanFight");
 
 	private boolean fightsEndermanNow(ServerPlayer player, Mob mob) {
-		if (!ENDERMAN_FIGHT || mob.getTarget() != player || !mob.isAlive()) return false;
+		if (!ENDERMAN_FIGHT || fightThroughOff || mob.getTarget() != player || !mob.isAlive()) return false;
 		double hit = dev.agaminggod.mineagen.server.perception.ThreatDamage.expectedHit(mob, player).damage();
 		return TravelStops.fightsAngryEnderman(BuiltInRegistries.ENTITY_TYPE.getKey(mob.getType()).toString(), true, armed(player),
 				player.getHealth() + player.getAbsorptionAmount(), minHealth, hit);

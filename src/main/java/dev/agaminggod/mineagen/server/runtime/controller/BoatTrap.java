@@ -214,13 +214,22 @@ final class BoatTrap {
 			species = boatWood(player);
 			if (species == null) { supply = Supply.DONE; note("no boat and no 5 planks of one boat wood: hunting without a trap"); return null; }
 			int wood = wood(player, species);
+			// A table to craft at costs 4 planks when none is near or carried.
+			int tableCost = tableNear(player) == null && count(player, Items.CRAFTING_TABLE) == 0 ? 4 : 0;
 			// Boats left standing are not taken along: keep two logs' worth for tools and a table later.
-			if (wood < 5 + WOOD_RESERVE) { supply = Supply.DONE; note("only " + wood + " planks of wood, kept for tools: hunting without a trap"); return null; }
-			boatsWanted = wood >= 10 + WOOD_RESERVE ? 2 : 1;
+			if (wood < 5 + tableCost + WOOD_RESERVE) { supply = Supply.DONE; note("only " + wood + " planks of wood, kept for tools: hunting without a trap"); return null; }
+			boatsWanted = wood >= 10 + tableCost + WOOD_RESERVE ? 2 : 1;
 			supply = Supply.PLANKS;
 		}
-		if (++supplyTicks > 20 * 45) return endSupply(player, "boat craft took over 45 s");
-		if (threatened(player)) return endSupply(player, "a mob came at the body while crafting");
+		boolean packing = supply == Supply.CLEAR_TABLE || supply == Supply.PICK_TABLE || supply == Supply.DONE;
+		String stop = ++supplyTicks > 20 * 45 ? "boat craft took over 45 s" : threatened(player) ? "a mob came at the body while crafting" : null;
+		if (stop != null) {
+			// The fight comes first: a table already down is left where it stands, never cleared with a mob coming.
+			if (child != null) { child.cancel(player); child = null; }
+			note((packing ? "table left near " + table.toShortString() + ": " : "no boat crafted: ") + stop);
+			supply = Supply.DONE;
+			return null;
+		}
 		if (child != null) {
 			TickResult result;
 			try { result = child.tick(player, now); }
@@ -368,6 +377,11 @@ final class BoatTrap {
 	/** The enderman sits in a boat (any boat: it cannot get out). */
 	static boolean seated(LivingEntity target) {
 		return target != null && target.getVehicle() instanceof AbstractBoat;
+	}
+
+	/** A boat this trap put down, or one standing near, is still out: the trap is armed without one carried. */
+	boolean boatOut(ServerPlayer player) {
+		return boatUsable() || nearestBoat(player) != null;
 	}
 
 	private boolean boatUsable() {
