@@ -89,3 +89,46 @@ test('route tells the model to explore masonry before replacing eyes lost on the
 	assert.match(line, /resume after handling danger/);
 	assert.ok(Buffer.byteLength(line) <= ROUTE_BYTES);
 });
+// A twelve-eyes game handed back the same unreachable wall-top spots 3-5 times each for 87 min inside a stronghold.
+async function withEnv(name, value, run) {
+	const old = process.env[name];
+	if (value === undefined) delete process.env[name]; else process.env[name] = value;
+	try { return await run(); } finally { if (old === undefined) delete process.env[name]; else process.env[name] = old; }
+}
+function deadSpotBody() {
+	const b = body();
+	// The near spot is a wall top: every walk to it fails where it stands. The far one is a real passage.
+	b.frontier = () => ({ candidates: [{ x: 3, y: 32, z: 0 }, { x: 9, y: 32, z: 0 }] });
+	b.stop = (type, args) => type === 'travel_to' && Math.floor(args.x) === 3 ? { state: 'FAILED', reasonCode: 'NO_ROUTE' } : null;
+	return b;
+}
+const triesAtDeadSpot = b => b.calls.filter(c => c.type === 'travel_to' && Math.floor(c.args.x) === 3).length;
+test('a spot the walk could not reach is not offered again, and the next spot is tried in the same call', async () => {
+	await withEnv('MINEAGEN_PORTAL_SKIP_FAILED', undefined, async () => {
+		const b = deadSpotBody();
+		await searchFor(target, b, { timeoutMs: 30_000 });
+		await searchFor(target, b, { timeoutMs: 30_000 });
+		assert.equal(triesAtDeadSpot(b), 1, 'the dead spot is walked to once across two finds');
+		assert.ok(b.calls.some(c => c.type === 'travel_to' && Math.floor(c.args.x) === 9), 'the passage beyond it is walked in the first find');
+		assert.equal(b.eyeSearchState.portal.failed.length, 1);
+	});
+	await withEnv('MINEAGEN_PORTAL_SKIP_FAILED', 'off', async () => {
+		const b = deadSpotBody();
+		const first = await searchFor(target, b, { timeoutMs: 30_000 });
+		assert.equal(first.reasonCode, 'FIND_BLOCKED');
+		await searchFor(target, b, { timeoutMs: 30_000 });
+		assert.equal(triesAtDeadSpot(b), 2, 'off arm: each find hands back the same dead spot');
+		assert.equal(first.find.portal.failed, undefined);
+	});
+});
+test('a search hands back after a few dead spots in one call', async () => {
+	await withEnv('MINEAGEN_PORTAL_SKIP_FAILED', undefined, async () => {
+		const b = body();
+		b.frontier = () => ({ candidates: [3, 6, 9, 12, 15, 18].map(x => ({ x, y: 32, z: 0 })) });
+		b.stop = type => type === 'travel_to' ? { state: 'FAILED', reasonCode: 'NO_ROUTE' } : null;
+		const r = await searchFor(target, b, { timeoutMs: 60_000 });
+		assert.equal(r.reasonCode, 'FIND_BLOCKED');
+		assert.equal(b.calls.filter(c => c.type === 'travel_to').length, 4);
+		assert.equal(r.find.portal.failed, 4);
+	});
+});

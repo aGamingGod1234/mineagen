@@ -140,6 +140,8 @@ const READS = [
 	['find.lavaStairs', 'coordinator/src/find-search.mjs', "getSwitch('find.lavaStairs')"],
 	['find.dryStart', 'coordinator/src/find-search.mjs', "getSwitch('find.dryStart', environment)"],
 	['find.dryFlood', 'coordinator/src/find-search.mjs', "getSwitch('find.dryFlood', environment)"],
+	['find.portalSkipFailed', 'coordinator/src/find-portal-room.mjs', "getSwitch('find.portalSkipFailed', environment)"],
+	['find.eyeLongLegs', 'coordinator/src/find-eyes.mjs', "getSwitch('find.eyeLongLegs', environment)"],
 	['route.eyesHold', 'coordinator/src/skill-fits.mjs', "getSwitch('route.eyesHold')"],
 	['route.eyesHold', 'coordinator/src/live-task-view.mjs', "getSwitch('route.eyesHold')"],
 	['obtain.costs', 'coordinator/src/obtain-runner.mjs', "const OBTAIN_COSTS = getSwitch('obtain.costs').value;"],

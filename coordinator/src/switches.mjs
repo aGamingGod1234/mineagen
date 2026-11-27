@@ -114,6 +114,14 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'find.dryFlood', env: 'MINEAGEN_FIND_DRY_FLOOD', side: 'coordinator', default: true, parser: OFF_EXACT, status: 'default-on',
 		reason: 'Water that ran into an opened tunnel and stopped short of the body is a shut way the search turns from, not danger that ends it; off is the A/B off arm.',
 		readers: ['coordinator/src/find-search.mjs dryFlood (per call)'] }),
+	// coordinator/src/find-portal-room.mjs skipFailed(): per call.
+	entry({ name: 'find.portalSkipFailed', env: 'MINEAGEN_PORTAL_SKIP_FAILED', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
+		reason: 'The portal-room search remembers a passage spot it could not walk to and tries the next one instead of handing back the same spot: a 27 Nov twelve-eyes game spent 87 min inside a stronghold, handed back the same unreachable spots 3-5 times each and never came within 40 blocks of the portal room; off is the A/B off arm.',
+		readers: ['coordinator/src/find-portal-room.mjs skipFailed (per call)'] }),
+	// coordinator/src/find-eyes.mjs longLegs(): per call.
+	entry({ name: 'find.eyeLongLegs', env: 'MINEAGEN_EYE_LONG_LEGS', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
+		reason: 'The eye search walks up to 300 blocks between throws while the eye keeps its bearing or the throw\'s crossing puts the stronghold far ahead, counts its search circle from the last throw, and walks on instead of throwing over the sea: a 27 Nov twelve-eyes game threw 8 eyes 60 blocks apart on one bearing over an ocean, lost 7 and never reached a stronghold about 1,000 blocks off; off is the A/B off arm.',
+		readers: ['coordinator/src/find-eyes.mjs longLegs (per call)'] }),
 	// coordinator/src/skill-fits.mjs routeLine and coordinator/src/live-task-view.mjs openOrder: per call.
 	entry({ name: 'route.eyesHold', env: 'MINEAGEN_EYES_HOLD', side: 'coordinator', default: true,
 		parser: Object.freeze({ id: 'off-if:0|off', kind: 'boolean', unset: true, parse: (raw) => !['0', 'off'].includes(String(raw)) }), status: 'default-on',
