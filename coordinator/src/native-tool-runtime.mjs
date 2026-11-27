@@ -7,6 +7,8 @@ const PORTAL_STOCK_MS = 360_000;
 // stock.descentGate: calls that leave the surface for the mine turned into the food stock's obtain, per life in a world.
 // Its own count, so a life can see up to 2 turns here and 2 more at a surface portal.
 const DESCENT_STOCK_TURNS = 2;
+// kit.ironTripArmour: the least time between two of an agent's chestplate iron top-ups (each capped at 2.5 min).
+const IRON_TOPUP_SPACING_MS = 300_000;
 // Below this a dig_to or a walk is going down a mine (skill-fits.mjs MINE_Y is 50 for "below ground").
 const DESCENT_Y = 48;
 // Obtains that mine underground: the kit's iron, the frame's obsidian and lava, diamonds.
@@ -30,7 +32,7 @@ import { lootLedger, rememberStructures, runObtain } from './obtain-runner.mjs';
 // Slots per menu page obtain's loot step asks for: one chest row.
 const MENU_PAGE = 9;
 import { resolveObtainItem } from './obtain-plan.mjs';
-import { KIT_CRAFT_TIMEOUT_MS, keepKit } from './kit-habit.mjs';
+import { IRON_KIT_ITEMS, KIT_CRAFT_TIMEOUT_MS, keepKit } from './kit-habit.mjs';
 import { nightFor, restsFirst } from './night-cover.mjs';
 import { runInventoryRepair } from './inventory-repair.mjs';
 import { PORTAL_ENTRY_NEXT, PORTAL_ENTRY_PREP } from './skill-fits.mjs';
@@ -218,6 +220,8 @@ export class NativeToolRuntime {
 	// Workstations obtain placed and has not picked up yet, per agent, across obtain calls.
 	#obtainPlaced = new Map();
 	#kitHabit = false;
+	// kit.ironTripArmour: when each agent's last chestplate iron top-up started (#stepNow clock).
+	#ironTopUps = new Map();
 	/** Agents that respawned and have not rested or seen day since (night-cover.mjs restsFirst). */
 	#nightRespawns = new Set();
 	/** Per agent: every source the body has seen (seen-resources.mjs), fed by each stored observation. */
@@ -2968,8 +2972,15 @@ export class NativeToolRuntime {
 		const stop = {};
 		try {
 			// Furnace loads an earlier obtain left are the next obtain's to collect, not a kit craft's walk.
-			kit = await keepKit(body, (item, count = 1) => runObtain({ item, count, timeoutMs: KIT_CRAFT_TIMEOUT_MS }, body, { ...stations, loads: [] }),
-				{ stopped: () => interrupted() || !current(), reserved, stop });
+			// kit.ironTripArmour: after an iron kit obtain, the chestplate's iron may be mined now; one top-up per agent in
+			// IRON_TOPUP_SPACING_MS, so a seed short of iron loses at most a top-up's cap every few minutes.
+			const lastTopUp = this.#ironTopUps.get(record.agentId);
+			const topUp = IRON_KIT_ITEMS.test(String(tool.arguments?.item ?? '')) && (lastTopUp === undefined || this.#stepNow() - lastTopUp >= IRON_TOPUP_SPACING_MS);
+			kit = await keepKit(body, (item, count = 1, timeoutMs = KIT_CRAFT_TIMEOUT_MS) => runObtain({ item, count, timeoutMs }, body, { ...stations, loads: [] }),
+				{ stopped: () => interrupted() || !current(), reserved, stop, topUp, onTopUp: () => {
+					this.#ironTopUps.set(record.agentId, this.#stepNow());
+					this.#trace('native_iron_topup', { agentId: record.agentId, goalRevision: record.goalRevision, after: String(tool.arguments?.item ?? '') });
+				} });
 		} catch (error) {
 			if (!current()) throw error;
 			kit = [`stopped (${error?.code ?? 'error'})`];

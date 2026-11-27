@@ -13,6 +13,14 @@ export const KIT_MIN_HEALTH = 10;
 export const KIT_MAX_STEPS = 4;
 /** Each kit craft runs from held materials, so it needs no search; a minute covers placing a table and crafting. */
 export const KIT_CRAFT_TIMEOUT_MS = 60_000;
+/** A furnace takes 10 s an item: a craft that smelts held raw iron first gets that much more, with some slack. */
+export const KIT_SMELT_MS = 12_000;
+/** kit.ironTripArmour: the most one top-up of the chestplate's iron at the ore may take, search included. */
+export const IRON_TOPUP_MS = 150_000;
+/** The iron trip is down a mine: under cover and below this height (skill-fits MINE_Y). */
+const MINE_Y = 50;
+/** The obtains that make the route's iron kit: a top-up of the chestplate's iron follows only these. */
+export const IRON_KIT_ITEMS = /^(minecraft:)?(iron_pickaxe|iron_ingot|raw_iron|bucket|water_bucket|lava_bucket|shield|flint_and_steel)$/;
 
 const FOOD = /^minecraft:(cooked_(beef|porkchop|mutton|chicken|rabbit|cod|salmon)|bread|baked_potato|golden_carrot|pumpkin_pie|rabbit_stew|mushroom_stew|beetroot_soup|beef|porkchop|mutton|rabbit|cod|salmon|apple|carrot|potato|sweet_berries|glow_berries|melon_slice|beetroot|cookie|dried_kelp)$/;
 // Iron pieces in the order of armour points per iron (chestplate 6 for 8, leggings 5 for 7, boots 2 for 4, helmet 2 for 5).
@@ -52,6 +60,11 @@ export function rekitEnabled(environment = process.env) {
 	return getSwitch('kit.rekit', environment).value;
 }
 
+/** MINEAGEN_IRON_TRIP_ARMOUR=off turns the iron trip's chestplate top-up off (an A/B round's off arm); it is on otherwise. */
+export function ironTripArmourEnabled(environment = process.env) {
+	return getSwitch('kit.ironTripArmour', environment).value;
+}
+
 /**
  * Whether a kit craft runs from what is held alone: the whole obtain plan for it (a table to make, planks from logs)
  * needs nothing gathered. It plans as obtain does, with the next pickaxe's sticks kept back (keepPickaxeMakings) and,
@@ -82,8 +95,10 @@ export function craftsFromHeld(o, itemId, { reserved = null, count = 1 } = {}) {
  * Equips come first (free), then food in reach, then a shield, then one armour piece from spare iron, then a spare
  * shield in the Overworld once the chestplate and boots are worn.
  * reserved ({ids, count}): what the obtain just handed back; kit crafts never spend it.
+ * topUp: kit.ironTripArmour may mine the chestplate's iron now (an iron kit obtain just ended, no top-up lately):
+ * {kind:'craft', itemId:'minecraft:raw_iron', count, timeoutMs, topUp:true} when the body is down a mine with no chestplate.
  */
-export function nextKitStep(o, { reserved = null } = {}) {
+export function nextKitStep(o, { reserved = null, topUp = false } = {}) {
 	const items = (o?.inventory?.items ?? []).filter(item => item?.count > 0 && typeof item.itemId === 'string');
 	if (!Array.isArray(o?.inventory?.items)) return null;
 	const health = o?.player?.health;
@@ -117,9 +132,16 @@ export function nextKitStep(o, { reserved = null } = {}) {
 		if (stored && free !== undefined) return { kind: 'hotbar', sourceSlot: stored.slot, hotbarSlot: free, itemId: stored.itemId };
 	}
 	const count = re => items.filter(item => re.test(item.itemId)).reduce((n, item) => n + item.count, 0);
-	const kept = reserved !== null && reserved.ids.some(id => bare(id) === 'iron_ingot') ? reserved.count : 0;
-	const ingots = Math.max(0, count(/^minecraft:iron_ingot$/) - kept);
+	// kit.ironTripArmour: raw iron counts as iron too (a craft smelts it first). In 10 fresh games of 27 Nov the trip
+	// ended with 2-7 raw iron unsmelted in 6, and the habit counted only ingots.
+	const tripArmour = ironTripArmourEnabled();
+	const iron = tripArmour ? /^minecraft:(iron_ingot|raw_iron)$/ : /^minecraft:iron_ingot$/;
+	const kept = reserved !== null && reserved.ids.some(id => bare(id) === 'iron_ingot' || tripArmour && bare(id) === 'raw_iron') ? reserved.count : 0;
+	const ingots = Math.max(0, count(iron) - kept);
 	const craftable = (itemId, count = 1) => craftsFromHeld(o, itemId, { reserved, count });
+	// The raw iron a craft of `need` iron smelts first, and the time that takes on top of the craft's minute.
+	const freeIngots = Math.max(0, count(/^minecraft:iron_ingot$/) - (reserved !== null && reserved.ids.some(id => bare(id) === 'iron_ingot') ? reserved.count : 0));
+	const smeltTime = need => KIT_SMELT_MS * Math.max(0, need - freeIngots);
 	const wood = count(PLANKS) + 4 * count(LOGS);
 	// The iron pickaxe comes first: its 3 ingots are never spent on the shield (obtain iron_ingot count 3 for it would hand back 2).
 	const pickaxeOwed = soundPickaxe(items) ? 0 : 3;
@@ -127,7 +149,21 @@ export function nextKitStep(o, { reserved = null } = {}) {
 	const spare = ingots - ironReserved(items);
 	for (const piece of ARMOUR) {
 		if (worn(piece.slot) || items.some(item => piece.part.test(item.itemId))) continue;
-		if (piece.iron <= spare && craftable(piece.itemId)) return { kind: 'craft', itemId: piece.itemId };
+		if (piece.iron > spare || !craftable(piece.itemId)) continue;
+		return tripArmour && smeltTime(piece.iron) > 0 ? { kind: 'craft', itemId: piece.itemId, timeoutMs: KIT_CRAFT_TIMEOUT_MS + smeltTime(piece.iron) }
+			: { kind: 'craft', itemId: piece.itemId };
+	}
+	// kit.ironTripArmour: at the ore for the iron kit with no chestplate, the chestplate's 8 iron (with the kit's own still
+	// owed) is mined now, in the same trip. The route's armour row asked for it 93 times in 10 fresh games of 27 Nov and
+	// the model took it 0 times; a gate at the portal (#304) found no ore there. Down a mine only, with a pickaxe that
+	// mines iron, capped at IRON_TOPUP_MS; the runtime spaces top-ups out, so a seed short of iron never stalls on it.
+	const chestplate = items.some(item => /_chestplate$/.test(item.itemId));
+	const at = o.position ?? o.player?.position ?? o.player;
+	const mineDown = (o.world?.dimension ?? 'minecraft:overworld') === 'minecraft:overworld' && o.player?.skyOpen === false && Number.isFinite(at?.y) && at.y < MINE_Y;
+	const minesIron = [...heldCounts({ inventory: { items } })].some(([id, n]) => /^(stone|iron|diamond|netherite)_pickaxe$/.test(id) && n > 0);
+	if (tripArmour && topUp && !chestplate && mineDown && minesIron) {
+		const short = ironReserved(items) + ARMOUR[0].iron - ingots;
+		if (short > 0) return { kind: 'craft', itemId: 'minecraft:raw_iron', count: count(/^minecraft:raw_iron$/) + short, timeoutMs: IRON_TOPUP_MS, topUp: true };
 	}
 	// COMBAT-2: a spare shield before the Nether, from iron left once the route's own armour is on (chestplate and boots,
 	// skill-fits KIT_ARMOUR), so it never takes that armour's iron. A shield that breaks there ("the shield broke") then
@@ -147,14 +183,18 @@ export function kitHabitEnabled(environment = {}) {
 }
 
 /**
- * Runs kit steps after an obtain: body is obtain's body (observe, act), craft(itemId, count) runs a nested obtain for a held
- * item. Stops at the first step that does not succeed, a repeated craft, or KIT_MAX_STEPS. Returns the steps done;
- * stop.result is set to the result of the step that did not succeed (an interrupted one carries its running action).
+ * Runs kit steps after an obtain: body is obtain's body (observe, act), craft(itemId, count, timeoutMs) runs a nested
+ * obtain (timeoutMs undefined: the kit craft's own). Stops at the first step that does not succeed, a repeated craft, or
+ * the step cap. Returns the steps done; stop.result is set to the result of the step that did not succeed (an
+ * interrupted one carries its running action). topUp: whether kit.ironTripArmour may mine the chestplate's iron in this
+ * run; onTopUp() is called when it starts, so the caller can space the next one out.
  */
-export async function keepKit(body, craft, { stopped = () => false, reserved = null, stop = {} } = {}) {
+export async function keepKit(body, craft, { stopped = () => false, reserved = null, stop = {}, topUp = false, onTopUp = () => {} } = {}) {
 	const done = [], crafted = new Set();
-	for (let index = 0; index < KIT_MAX_STEPS && !stopped(); index += 1) {
-		const step = nextKitStep(await body.observe(), { reserved });
+	// A top-up adds two steps: the mining itself and the chestplate's craft after it (its equip is the usual one).
+	const cap = KIT_MAX_STEPS + (topUp && ironTripArmourEnabled() ? 2 : 0);
+	for (let index = 0; index < cap && !stopped(); index += 1) {
+		const step = nextKitStep(await body.observe(), { reserved, topUp: topUp && !crafted.has('minecraft:raw_iron') });
 		if (step === null) break;
 		let result;
 		const name = step.itemId.replace(/^minecraft:/, '');
@@ -163,15 +203,18 @@ export async function keepKit(body, craft, { stopped = () => false, reserved = n
 		else {
 			if (crafted.has(step.itemId)) break;
 			crafted.add(step.itemId);
+			if (step.topUp) onTopUp();
 			// count: the total to hold (a spare shield is the second one), as obtain counts.
-			result = await craft(step.itemId, step.count ?? 1);
+			result = await craft(step.itemId, step.count ?? 1, step.timeoutMs);
 		}
 		if (result?.state !== 'SUCCEEDED') {
 			stop.result = result ?? null;
-			done.push(`${step.kind} ${name} stopped (${result?.reasonCode ?? result?.state ?? 'no result'})`);
+			done.push(step.topUp ? `mining the iron_chestplate's iron stopped (${result?.reasonCode ?? result?.state ?? 'no result'})`
+				: `${step.kind} ${name} stopped (${result?.reasonCode ?? result?.state ?? 'no result'})`);
 			break;
 		}
-		done.push(step.kind === 'equip' ? `wore ${name} (${step.targetSlot})` : step.kind === 'hotbar' ? `${name} to hotbar ${step.hotbarSlot}` : `crafted ${name}`);
+		done.push(step.kind === 'equip' ? `wore ${name} (${step.targetSlot})` : step.kind === 'hotbar' ? `${name} to hotbar ${step.hotbarSlot}`
+			: step.topUp ? `mined ${step.count} raw_iron for the iron_chestplate` : `crafted ${name}`);
 	}
 	return done;
 }

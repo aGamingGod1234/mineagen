@@ -152,6 +152,10 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'kit.rekit', env: 'MINEAGEN_REKIT', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
 		reason: 'Armour from carried iron before a second bucket, armour put on when hurt, and eating with a mob 4+ blocks off when hurt (cautious stance). 40 of 42 deaths in 8 fresh games on main 069e471 had no armour, one with 13 iron carried; off is the A/B off arm.',
 		readers: ['coordinator/src/kit-habit.mjs rekitEnabled (per call)', 'coordinator/src/reflexes.mjs materializeDefault (per call)'] }),
+	// coordinator/src/kit-habit.mjs ironTripArmourEnabled(environment): per call.
+	entry({ name: 'kit.ironTripArmour', env: 'MINEAGEN_IRON_TRIP_ARMOUR', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
+		reason: 'After an iron kit obtain down a mine with no chestplate, the kit habit mines the chestplate\'s 8 iron with the kit\'s own (2.5 min cap, at most one top-up per 5 min) and counts raw iron for armour; in 10 fresh games of 27 Nov, 7 never wore iron and the route\'s chestplate advice was taken 0 of 93 times. off is the A/B off arm.',
+		readers: ['coordinator/src/kit-habit.mjs ironTripArmourEnabled (per call)'] }),
 	// coordinator/src/reflexes.mjs materializeDefault: per call.
 	entry({ name: 'reflex.unarmouredFloor', env: 'MINEAGEN_UNARMOURED_FLOOR', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
 		reason: 'A fight with under 6 armour keeps the steady retreat (7) and cover (6) floors instead of the fight 4; in 8 fresh games on main 069e471, 40 of 42 deaths had no armour on. off is the A/B off arm.',

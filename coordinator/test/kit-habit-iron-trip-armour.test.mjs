@@ -1,0 +1,102 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { IRON_KIT_ITEMS, IRON_TOPUP_MS, KIT_CRAFT_TIMEOUT_MS, KIT_SMELT_MS, ironTripArmourEnabled, nextKitStep } from '../src/kit-habit.mjs';
+import { checkedObtainBody, keepKit } from './helpers/checked-body.mjs';
+
+// kit.ironTripArmour: in 10 fresh games of 27 Nov the model mined the iron itself and called obtain only to craft, the
+// trip ended with 0-7 iron left (raw, unsmelted, in 6), and 7 games never wore an iron piece.
+const item = (itemId, slot, count = 1, extra = {}) => ({ itemId: `minecraft:${itemId}`, slot, count, ...extra });
+const down = (items, { y = 20, skyOpen = false, dimension = 'minecraft:overworld', health = 20 } = {}) =>
+	({ player: { health, skyOpen, y }, position: { x: 0, y, z: 0 }, world: { dimension }, inventory: { items, selectedSlot: 0 } });
+const stations = [item('crafting_table', 5), item('furnace', 6), item('coal', 7, 8), item('oak_planks', 8, 16)];
+const afterPickaxe = [item('iron_pickaxe', 'mainhand'), ...stations];
+
+const withSwitch = async (value, run) => {
+	const before = process.env.MINEAGEN_IRON_TRIP_ARMOUR;
+	if (value === undefined) delete process.env.MINEAGEN_IRON_TRIP_ARMOUR; else process.env.MINEAGEN_IRON_TRIP_ARMOUR = value;
+	try { return await run(); } finally { if (before === undefined) delete process.env.MINEAGEN_IRON_TRIP_ARMOUR; else process.env.MINEAGEN_IRON_TRIP_ARMOUR = before; }
+};
+
+test('down a mine after an iron kit obtain with no chestplate, the habit mines the chestplate\'s iron with the kit\'s own', () => {
+	// Iron pickaxe and shield made, 1 raw iron left: one bucket (3) and flint and steel (1) are still owed, plus 8.
+	const step = nextKitStep(down([...afterPickaxe, item('shield', 'offhand'), item('raw_iron', 9, 1)]), { topUp: true });
+	assert.deepEqual(step, { kind: 'craft', itemId: 'minecraft:raw_iron', count: 1 + (3 + 1 + 8 - 1), timeoutMs: IRON_TOPUP_MS, topUp: true });
+	// With 1 raw iron and no shield, the shield comes first (its iron is the kit's).
+	assert.deepEqual(nextKitStep(down([...afterPickaxe, item('raw_iron', 9, 1)]), { topUp: true }), { kind: 'craft', itemId: 'minecraft:shield' });
+	// A stone pickaxe mines iron ore too; the iron pickaxe's 3 are then owed as well.
+	const stone = nextKitStep(down([item('stone_pickaxe', 'mainhand'), ...stations]), { topUp: true });
+	assert.equal(stone.count, 3 + 1 + 3 + 1 + 8);
+});
+
+test('no top-up without the runtime\'s go-ahead, on the surface, in the Nether, with a chestplate, without a pickaxe, or hurt', () => {
+	const held = [...afterPickaxe, item('shield', 'offhand'), item('raw_iron', 9, 1)];
+	assert.equal(nextKitStep(down(held)), null, 'topUp is the runtime\'s (an iron kit obtain, spaced out)');
+	assert.equal(nextKitStep(down(held, { skyOpen: true }), { topUp: true }), null, 'under the sky');
+	assert.equal(nextKitStep(down(held, { y: 64 }), { topUp: true }), null, 'not down a mine');
+	assert.equal(nextKitStep(down(held, { dimension: 'minecraft:the_nether' }), { topUp: true }), null);
+	assert.equal(nextKitStep(down([...held, item('copper_chestplate', 'chest')]), { topUp: true }), null, 'any chestplate worn');
+	assert.equal(nextKitStep(down([...held, item('iron_chestplate', 12)]), { topUp: true })?.kind, 'equip', 'a carried one is put on instead');
+	assert.equal(nextKitStep(down([item('wooden_pickaxe', 'mainhand'), ...stations]), { topUp: true }), null, 'a wooden pickaxe cannot mine iron');
+	assert.equal(nextKitStep(down(held, { health: 9 }), { topUp: true }), null);
+});
+
+test('raw iron counts for the chestplate, and its craft gets the furnace time it smelts', () => {
+	const kit = [item('iron_pickaxe', 'mainhand'), item('bucket', 3), item('flint_and_steel', 4), item('shield', 'offhand'), ...stations];
+	// The kit made: 8 raw iron beyond the second bucket's 3 make a chestplate, all 8 smelted first.
+	assert.deepEqual(nextKitStep(down([...kit, item('raw_iron', 9, 8)])), { kind: 'craft', itemId: 'minecraft:iron_chestplate', timeoutMs: KIT_CRAFT_TIMEOUT_MS + 8 * KIT_SMELT_MS });
+	// 5 ingots and 3 raw: 3 smelts.
+	assert.deepEqual(nextKitStep(down([...kit, item('iron_ingot', 9, 5), item('raw_iron', 10, 3)])), { kind: 'craft', itemId: 'minecraft:iron_chestplate', timeoutMs: KIT_CRAFT_TIMEOUT_MS + 3 * KIT_SMELT_MS });
+	// Ingots alone craft as before.
+	assert.deepEqual(nextKitStep(down([...kit, item('iron_ingot', 9, 8)])), { kind: 'craft', itemId: 'minecraft:iron_chestplate' });
+	// obtain raw_iron 8 hands back its 8: they are kept.
+	assert.equal(nextKitStep(down([...kit, item('raw_iron', 9, 8)]), { reserved: { ids: ['raw_iron'], count: 8 } }), null);
+});
+
+test('MINEAGEN_IRON_TRIP_ARMOUR=off: no top-up, raw iron is not counted, the step cap is the old one', async () => {
+	assert.equal(ironTripArmourEnabled({}), true);
+	assert.equal(ironTripArmourEnabled({ MINEAGEN_IRON_TRIP_ARMOUR: 'off' }), false);
+	await withSwitch('off', () => {
+		assert.equal(nextKitStep(down([...afterPickaxe, item('raw_iron', 9, 1)]), { topUp: true }), null);
+		const kit = [item('iron_pickaxe', 'mainhand'), item('bucket', 3), item('flint_and_steel', 4), item('shield', 'offhand'), ...stations];
+		assert.equal(nextKitStep(down([...kit, item('raw_iron', 9, 8)])), null);
+	});
+});
+
+test('keepKit: top-up, chestplate, wear it; the top-up runs once and tells the runtime', async () => {
+	let items = [...afterPickaxe, item('shield', 'offhand'), item('raw_iron', 9, 1)];
+	const crafts = [];
+	let topUps = 0;
+	const body = checkedObtainBody({
+		observe: async () => down(items),
+		act: async (type, args) => { items = items.map(row => row.slot === args.sourceSlot ? { ...row, slot: args.targetSlot } : row); return { state: 'SUCCEEDED' }; },
+	});
+	const craft = async (itemId, count, timeoutMs) => {
+		crafts.push([itemId.replace('minecraft:', ''), count, timeoutMs]);
+		if (itemId === 'minecraft:raw_iron') items = items.map(row => row.itemId === 'minecraft:raw_iron' ? { ...row, count } : row);
+		else { items = items.map(row => row.itemId === 'minecraft:raw_iron' ? { ...row, count: row.count - 8 } : row); items.push(item('iron_chestplate', 20)); }
+		return { state: 'SUCCEEDED' };
+	};
+	const done = await keepKit(body, craft, { topUp: true, onTopUp: () => { topUps += 1; } });
+	// The shield is held, so 3 (a bucket) + 1 (flint and steel) + 8 - 1 held = 11 more: 12 raw iron in all.
+	assert.deepEqual(done, ['mined 12 raw_iron for the iron_chestplate', 'crafted iron_chestplate', 'wore iron_chestplate (chest)']);
+	assert.deepEqual(crafts, [['raw_iron', 12, IRON_TOPUP_MS], ['iron_chestplate', 1, KIT_CRAFT_TIMEOUT_MS + 8 * KIT_SMELT_MS]]);
+	assert.equal(topUps, 1);
+	assert.ok(items.some(row => row.itemId === 'minecraft:iron_chestplate' && row.slot === 'chest'));
+	assert.equal(items.find(row => row.itemId === 'minecraft:raw_iron').count, 4, 'the kit\'s 4 are left for the bucket and the lighter');
+});
+
+test('a top-up that runs dry ends the kit run and hands its code back; it is not retried in the same run', async () => {
+	const items = [...afterPickaxe, item('shield', 'offhand')];
+	let calls = 0;
+	const stop = {};
+	const done = await keepKit(checkedObtainBody({ observe: async () => down(items), act: async () => ({ state: 'SUCCEEDED' }) }),
+		async () => { calls += 1; return { state: 'TIMED_OUT', reasonCode: 'OBTAIN_TIMEOUT' }; }, { topUp: true, stop });
+	assert.deepEqual(done, ['mining the iron_chestplate\'s iron stopped (OBTAIN_TIMEOUT)']);
+	assert.equal(calls, 1);
+	assert.equal(stop.result.reasonCode, 'OBTAIN_TIMEOUT');
+});
+
+test('only the iron kit\'s obtains open a top-up', () => {
+	for (const id of ['iron_pickaxe', 'minecraft:iron_ingot', 'raw_iron', 'bucket', 'water_bucket', 'shield', 'flint_and_steel']) assert.ok(IRON_KIT_ITEMS.test(id), id);
+	for (const id of ['cooked_beef', 'stone_pickaxe', 'obsidian', 'iron_chestplate', 'coal']) assert.ok(!IRON_KIT_ITEMS.test(id), id);
+});
