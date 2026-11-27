@@ -15,7 +15,7 @@ import { armorMaterialNeed, chainText, howtoChain, howtoHeldRecipe, howtoHolding
 import { fortressSearchOption } from './nether-regions.mjs';
 import { NETHER_OPTIONS_BYTES, SOURCE_BLOCKS, bedSpawnOption, descentRespawnFact, knownLine, needOptions, netherReadiness, netherRouteOption, pearlHuntLine, pearlOptions, pearlSourceInView, pearlTarget, pearlsWanted, pickaxeTier, portalAtHand, progressionGoal, textResources } from './need-sources.mjs';
 import { VILLAGE_POI, headingOf, sightingKind } from './search-coverage.mjs';
-import { foodStockHandback, portalDeathMark, portalSearchStock, routeLine, skillFitsLine, woodStockHandback } from './skill-fits.mjs';
+import { FOOD_FLOOR_DESCENT, foodStockHandback, portalDeathMark, portalSearchStock, routeLine, skillFitsLine, woodStockHandback } from './skill-fits.mjs';
 import { KIT_ITEMS } from './end-readiness.mjs';
 import { beatsTheGame } from './goal-spec-translator.mjs';
 import { dropLoss, recoveryRoute } from './respawn-recovery.mjs';
@@ -754,6 +754,29 @@ export class LiveTaskViews {
   if (step === null && search === null) return null;
   const portals = (current.known?.frames ?? []).filter(f => f?.lit === true && f.dimension === 'minecraft:overworld' && [f.x, f.z].every(Number.isFinite));
   return { line: route, item: search?.item ?? step[1], count: search?.count ?? Number(step[2]), portals, worldId: current.worldId ?? null, deaths: current.deaths ?? 0 };
+ }
+ /**
+  * The surface food minimum the route still asks for before going down (stock.descentGate), once a stone or better
+  * pickaxe is held (wood and the first stone tools are never held up). Null otherwise, and for the wood row's "before
+  * going down". In 6 of 7 fresh games of 27 Nov the bot walked past that line on the surface and went down: one game
+  * with its whole kit held (63 of 320 points, obtain iron_pickaxe), another for the kit's iron (3 points, obtain
+  * iron_ingot), and built its portal underground, where stock.portalGate is off.
+  */
+ descentStock(record) {
+  if (!record.currentGoal) return null;
+  const current = this.#state(record);
+  const o = current.observation;
+  if (o?.world?.dimension !== 'minecraft:overworld') return null;
+  const items = Array.isArray(o?.inventory?.items) ? o.inventory.items.filter(i => i?.count > 0).map(i => i.itemId) : [];
+  if (!items.some(id => /^minecraft:(stone|copper|iron|golden|diamond|netherite)_pickaxe$/.test(id ?? ''))) return null;
+  const route = this.#routeNow(record, current, current) ?? '';
+  const asked = /^usual next step: obtain (cooked_[a-z_]+) count (\d+)\b[^(]*before going down/.exec(route);
+  const search = asked === null && /^usual next step: look for [a-z/]+ nearby, then obtain cooked meat with a furnace before going down/.test(route)
+   ? portalSearchStock(o, FOOD_FLOOR_DESCENT) : null;
+  if (asked === null && search === null) return null;
+  const at = o.position ?? o.player;
+  return { line: route, item: search?.item ?? asked[1], count: search?.count ?? Number(asked[2]), y: Number.isFinite(at?.y) ? at.y : null,
+   worldId: current.worldId ?? null, deaths: current.deaths ?? 0 };
  }
  /** The trigger for a no-progress or repeated-result fact not yet woken for ('no_progress' | 'repeated_result'), once. */
  progressWake(record) {

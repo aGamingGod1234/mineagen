@@ -455,6 +455,228 @@
         "verdictGap": "No stand-in: play with --no-script. PASS means the body went through the lit portal 6 blocks west holding at least 17 cooked beef or porkchop (256 floor points at 15.8 each), the stock.foodFloor portal minimum. It starts with no food, full hunger, 8 cows and 4 pigs within 15 blocks, coal, a furnace and 15 logs, so the stock costs one short hunt and no search.",
         "setupCheck": "L-A4's natural plains spot (seed 20261009, 134.5 80 488.5, persistent cows) with 4 of its cows turned into pigs 6 blocks further south, full iron armour, a shield in the off hand, and a lit z-axis portal frame on a stone pad 6 blocks west of the body."
       }
+    },
+    {
+      "id": "AI-STOCK-DESCENT-25",
+      "name": "ai-stock-descent-25",
+      "phase": "AI",
+      "seed": "20261009",
+      "goal": "Beat the game",
+      "durationBudgetMs": 1500000,
+      "runPolicy": {
+        "clock": "goal-start",
+        "continueAfterDeath": false
+      },
+      "setup": {
+        "dimension": "minecraft:overworld",
+        "position": [
+          134.5,
+          80,
+          488.5
+        ],
+        "surface": true,
+        "groundBelowCanopy": true,
+        "naturalGround": true,
+        "time": 1000,
+        "weather": "clear",
+        "freezeUntilGoalStart": true,
+        "commands": [],
+        "inventory": [
+          {
+            "item": "minecraft:iron_pickaxe",
+            "count": 1
+          },
+          {
+            "item": "minecraft:iron_sword",
+            "count": 1
+          },
+          {
+            "item": "minecraft:water_bucket",
+            "count": 1
+          },
+          {
+            "item": "minecraft:bucket",
+            "count": 1
+          },
+          {
+            "item": "minecraft:flint_and_steel",
+            "count": 1
+          },
+          {
+            "item": "minecraft:cobblestone",
+            "count": 64
+          },
+          {
+            "item": "minecraft:oak_log",
+            "count": 15
+          },
+          {
+            "item": "minecraft:crafting_table",
+            "count": 1
+          },
+          {
+            "item": "minecraft:furnace",
+            "count": 1
+          },
+          {
+            "item": "minecraft:coal",
+            "count": 16
+          },
+          {
+            "item": "minecraft:torch",
+            "count": 16
+          }
+        ],
+        "armour": {
+          "head": "minecraft:iron_helmet",
+          "chest": "minecraft:iron_chestplate",
+          "legs": "minecraft:iron_leggings",
+          "feet": "minecraft:iron_boots"
+        },
+        "effects": [],
+        "mobs": [
+          {
+            "id": "minecraft:cow",
+            "offset": [
+              5,
+              0,
+              4
+            ],
+            "naturalGround": true,
+            "nbt": "{PersistenceRequired:1b}"
+          },
+          {
+            "id": "minecraft:cow",
+            "offset": [
+              7,
+              0,
+              4
+            ],
+            "naturalGround": true,
+            "nbt": "{PersistenceRequired:1b}"
+          },
+          {
+            "id": "minecraft:cow",
+            "offset": [
+              9,
+              0,
+              4
+            ],
+            "naturalGround": true,
+            "nbt": "{PersistenceRequired:1b}"
+          },
+          {
+            "id": "minecraft:cow",
+            "offset": [
+              11,
+              0,
+              4
+            ],
+            "naturalGround": true,
+            "nbt": "{PersistenceRequired:1b}"
+          },
+          {
+            "id": "minecraft:cow",
+            "offset": [
+              5,
+              0,
+              6
+            ],
+            "naturalGround": true,
+            "nbt": "{PersistenceRequired:1b}"
+          },
+          {
+            "id": "minecraft:cow",
+            "offset": [
+              7,
+              0,
+              6
+            ],
+            "naturalGround": true,
+            "nbt": "{PersistenceRequired:1b}"
+          },
+          {
+            "id": "minecraft:cow",
+            "offset": [
+              9,
+              0,
+              6
+            ],
+            "naturalGround": true,
+            "nbt": "{PersistenceRequired:1b}"
+          },
+          {
+            "id": "minecraft:cow",
+            "offset": [
+              11,
+              0,
+              6
+            ],
+            "naturalGround": true,
+            "nbt": "{PersistenceRequired:1b}"
+          },
+          {
+            "id": "minecraft:pig",
+            "offset": [
+              5,
+              0,
+              10
+            ],
+            "naturalGround": true,
+            "nbt": "{PersistenceRequired:1b}"
+          },
+          {
+            "id": "minecraft:pig",
+            "offset": [
+              7,
+              0,
+              10
+            ],
+            "naturalGround": true,
+            "nbt": "{PersistenceRequired:1b}"
+          },
+          {
+            "id": "minecraft:pig",
+            "offset": [
+              9,
+              0,
+              10
+            ],
+            "naturalGround": true,
+            "nbt": "{PersistenceRequired:1b}"
+          },
+          {
+            "id": "minecraft:pig",
+            "offset": [
+              11,
+              0,
+              10
+            ],
+            "naturalGround": true,
+            "nbt": "{PersistenceRequired:1b}"
+          }
+        ],
+        "locate": {
+          "type": "biome",
+          "id": "minecraft:forest",
+          "offset": [
+            0,
+            0
+          ]
+        },
+        "expectedBiome": "minecraft:forest",
+        "finalCommands": [
+          "item replace entity {agent} weapon.offhand with minecraft:shield"
+        ]
+      },
+      "successCheck": "all: advancement story/enter_the_nether AND inventory_contains_any: cooked_beef|cooked_porkchop >= 20",
+      "aiRoom": {
+        "pass": {
+          "noDamage": false
+        },
+        "verdictGap": "No stand-in: play with --no-script. Scored from 1 Hz samples: food points carried at the first sample below ground (y under 50, no open sky), or at the room end when the body never went down; stock.descentGate on vs off. It starts with the portal kit (iron pickaxe, a water bucket and an empty one, flint and steel), no obsidian and no food, full hunger, 8 cows and 4 pigs within 15 blocks, coal, a furnace and 15 logs, so the frame means going down for lava and the stock costs one short hunt. PASS (entering the Nether with 20 cooked meat inside 25 minutes) is rare in either arm; the food points at the descent are the measure.",
+        "setupCheck": "L-A4's natural plains spot (seed 20261009, 134.5 80 488.5, persistent cows) with 4 of its cows turned into pigs, full iron armour and a shield in the off hand, as ai-stock-portal-25 but with no portal frame."
+      }
     }
   ]
 }
