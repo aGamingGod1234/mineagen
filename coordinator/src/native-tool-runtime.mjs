@@ -4,6 +4,14 @@ const KNOWN_ORE_MS = 5_000;
 // stock.portalGate: walks into the portal turned into the stock's obtain, per life in a world.
 const PORTAL_STOCK_TURNS = 2;
 const PORTAL_STOCK_MS = 360_000;
+// stock.descentGate: calls that leave the surface for the mine turned into the food stock's obtain, per life in a world.
+// Its own count, so a life can see up to 2 turns here and 2 more at a surface portal.
+const DESCENT_STOCK_TURNS = 2;
+// Below this a dig_to or a walk is going down a mine (skill-fits.mjs MINE_Y is 50 for "below ground").
+const DESCENT_Y = 48;
+// Obtains that mine underground: the kit's iron, the frame's obsidian and lava, diamonds.
+const DESCENT_ITEMS = /^(?:minecraft:)?(?:obsidian|crying_obsidian|lava_bucket|raw_iron|iron_ingot|iron_pickaxe|diamond|diamond_pickaxe)$/;
+const DESCENT_FINDS = /^(?:minecraft:)?(?:lava|obsidian|[a-z_]*_ore)$/;
 const SKY_TOP_NEAR = 8;
 const SKY_TOP_SPOTS = 32;
 import { createHash, randomUUID } from 'node:crypto';
@@ -162,6 +170,8 @@ export class NativeToolRuntime {
 	#planNeeds;
 	#portalStock = null;
 	#portalStockTurns = new Map();
+	#descentStock = null;
+	#descentStockTurns = new Map();
 	#programExecutor;
 	#programRuns = new Map();
 	#programResults = new Map();
@@ -258,6 +268,8 @@ export class NativeToolRuntime {
 		planNeeds = null,
 		// The surface stock still asked for at a lit portal (live-task-view.mjs portalStock): {item, count, line, portals, worldId, deaths}.
 		portalStock = null,
+		// The surface food stock still asked for before going down (live-task-view.mjs descentStock): {item, count, line, y, worldId, deaths}.
+		descentStock = null,
 		memoryObservation = null,
 		programExecutor = null,
 		onProgramEvent = () => {},
@@ -322,6 +334,7 @@ export class NativeToolRuntime {
 		if (planNeeds !== null && typeof planNeeds !== 'function') throw new TypeError('planNeeds must be a function');
 		this.#planNeeds = planNeeds;
 		this.#portalStock = typeof portalStock === 'function' ? portalStock : null;
+		this.#descentStock = typeof descentStock === 'function' ? descentStock : null;
 		this.#memoryObservation = memoryObservation;
 		this.#programExecutor = programExecutor ?? (this.#clock === WALL_CLOCK ? new NativeProgramExecutor({ sessionId })
 			// The cancel acknowledgement is a bridge round trip, not body time, so it keeps wall-time timers.
@@ -971,7 +984,7 @@ export class NativeToolRuntime {
 			&& !this.#actions.has(record.agentId) && !this.#programRuns.has(record.agentId) ? this.#bodyIdleSince.get(record.agentId) : undefined;
 		const arrivedAt = Date.now();
 		try {
-			const turned = this.#portalStockGate(record, request);
+			const turned = this.#portalStockGate(record, request) ?? this.#descentStockGate(record, request);
 			if (turned !== null) request = turned.request;
 			let result = await this.#executeTool(request, record, lifecycleGeneration);
 			if (turned !== null && result !== null && typeof result === 'object' && !Array.isArray(result)) result = { ...result, stockedFirst: turned.note };
@@ -1032,6 +1045,49 @@ export class NativeToolRuntime {
 		this.#trace('native_portal_stock_turned', { agentId: record.agentId, goalRevision: record.goalRevision, actionType: move.actionType, item: stock.item, count: stock.count, turn: turns + 1 });
 		// The planner sized this call's lease from the walk (about 20 s), and in room ai-stock-portal its expiry cancelled
 		// both turned obtains about 20 s into the hunt (PLANNING_LEASE_EXPIRED): the lease now covers the obtain.
+		try { request.extendLease?.(obtain.arguments.timeoutMs); } catch { /* the lease is the planner's */ }
+		return { request: { ...request, tool: obtain }, note };
+	}
+
+	/**
+	 * stock.descentGate: a call that leaves the Overworld surface for the mine (a dig_to or walk below DESCENT_Y, an
+	 * obtain of the kit's iron or the frame's obsidian or lava, a find for lava, obsidian or ore) while the route still
+	 * asks for the surface food minimum "before going down" runs that obtain first. In 6 of 7 fresh games of 27 Nov the
+	 * model walked past that line, went down with 1 to 8 food and built its portal underground, where stock.portalGate
+	 * is off. Same release and caps as the portal gate: the route lets go (minimum met, underground, a hunt that found
+	 * nothing with no animal in view), each obtain is capped at PORTAL_STOCK_MS, and at most DESCENT_STOCK_TURNS calls
+	 * are turned per life in a world, so a seed with no animals never keeps the bot on the surface.
+	 */
+	#descentStockGate(record, request) {
+		if (this.#descentStock === null || !getSwitch('stock.descentGate').value) return null;
+		const tool = request.tool;
+		const latest = this.#observations.get(record.agentId)?.observation;
+		// Not while something is attacking: a turned call would send the bot hunting under fire.
+		const threats = [latest?.player?.threats, latest?.threats?.entries, latest?.threats].flatMap(rows => Array.isArray(rows) ? rows : []);
+		if (threats.some(threat => threat?.targeting === true)) return null;
+		const actions = tool?.kind === 'sequence' && Array.isArray(tool.actions) ? tool.actions
+			: ['action', 'start_action', 'replace_action'].includes(tool?.kind) ? [tool] : [];
+		const here = latest?.position?.y ?? latest?.player?.y;
+		const down = actions.find(({ actionType, arguments: target = {} }) => Number.isFinite(target.y) && target.y < DESCENT_Y
+			&& (!Number.isFinite(here) || target.y < here - 2)
+			&& (actionType === 'dig_to' || (['travel_to', 'move_to', 'navigate_to', 'cast_obsidian'].includes(actionType)
+				&& (target.dimension === undefined || target.dimension === 'minecraft:overworld'))));
+		const mines = tool?.kind === 'obtain' && DESCENT_ITEMS.test(String(tool.arguments?.item ?? ''));
+		const seeks = tool?.kind === 'find' && DESCENT_FINDS.test(String(tool.arguments?.block ?? ''));
+		if (!down && !mines && !seeks) return null;
+		let stock = null;
+		try { stock = this.#descentStock(record); } catch { return null; }
+		if (stock === null || typeof stock?.item !== 'string' || !Number.isSafeInteger(stock.count)) return null;
+		const life = `${record.agentId}|${stock.worldId}|${stock.deaths}`;
+		const turns = this.#descentStockTurns.get(life) ?? 0;
+		if (turns >= DESCENT_STOCK_TURNS) return null;
+		let obtain;
+		try { obtain = normalizeMinecraftToolCall('do_step', { verb: 'obtain', target: { item: stock.item, count: stock.count }, why: 'surface food stock before going down' }); } catch { return null; }
+		obtain = { ...obtain, arguments: { ...obtain.arguments, timeoutMs: Math.min(obtain.arguments?.timeoutMs ?? PORTAL_STOCK_MS, PORTAL_STOCK_MS) } };
+		this.#descentStockTurns.set(life, turns + 1);
+		const what = down ? down.actionType : tool.kind;
+		const note = `Stock food first on the surface: ${stock.line.replace(/^usual next step: /, '')}. The ${what} call that went down became this obtain; go down again when it ends.`;
+		this.#trace('native_descent_stock_turned', { agentId: record.agentId, goalRevision: record.goalRevision, kind: what, item: stock.item, count: stock.count, turn: turns + 1 });
 		try { request.extendLease?.(obtain.arguments.timeoutMs); } catch { /* the lease is the planner's */ }
 		return { request: { ...request, tool: obtain }, note };
 	}
