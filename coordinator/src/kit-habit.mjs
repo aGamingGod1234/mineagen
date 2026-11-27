@@ -65,6 +65,11 @@ export function ironTripArmourEnabled(environment = process.env) {
 	return getSwitch('kit.ironTripArmour', environment).value;
 }
 
+/** MINEAGEN_IRON_TRIP_RESUME=off: a stopped top-up waits the full spacing again and boots or a helmet may take the chestplate's iron. */
+export function ironTripResumeEnabled(environment = process.env) {
+	return ironTripArmourEnabled(environment) && getSwitch('kit.ironTripResume', environment).value;
+}
+
 /**
  * Whether a kit craft runs from what is held alone: the whole obtain plan for it (a table to make, planks from logs)
  * needs nothing gathered. It plans as obtain does, with the next pickaxe's sticks kept back (keepPickaxeMakings) and,
@@ -165,6 +170,10 @@ export function nextKitStep(o, { reserved = null, topUp = false } = {}) {
 		// kit.ironTripArmour: leggings take 7 of the chestplate's 8 for fewer points, so they wait for it (A/B game
 		// freshrb: 7 spare became leggings and the chestplate never came).
 		if (tripArmour && !chestplate && piece.slot === 'legs') continue;
+		// kit.ironTripResume: down a mine, boots and a helmet wait for the chestplate too: a top-up may still come, and
+		// boots alone neither stop much nor count for the warped forest's pearls (A/B game ab1 freshd19: a top-up stopped
+		// for night with 12 iron held, and the next kit run spent 4 of them on boots; the chestplate never came).
+		if (tripArmour && !chestplate && mineDown && (piece.slot === 'feet' || piece.slot === 'head') && ironTripResumeEnabled()) continue;
 		if (piece.iron > spare) continue;
 		if (!craftable(piece.itemId)) {
 			// kit.ironTripArmour: the chestplate's iron held but nothing to smelt it with (A/B game freshd1 ended with 10
@@ -239,6 +248,8 @@ export async function keepKit(body, craft, { stopped = () => false, reserved = n
 		}
 		if (result?.state !== 'SUCCEEDED') {
 			stop.result = result ?? null;
+			// kit.ironTripResume: the caller re-arms a top-up that danger, night or its cap stopped.
+			if (step.topUp) stop.topUp = true;
 			done.push(step.topUp ? `${step.itemId === 'minecraft:raw_iron' ? 'mining the iron_chestplate\'s iron' : `${name} with its fuel`} stopped (${result?.reasonCode ?? result?.state ?? 'no result'})`
 				: `${step.kind} ${name} stopped (${result?.reasonCode ?? result?.state ?? 'no result'})`);
 			break;
