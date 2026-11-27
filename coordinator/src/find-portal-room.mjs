@@ -6,6 +6,10 @@ export const skipFailed = (environment = process.env) => getSwitch('find.portalS
 // tops of walls and ceilings the masonry rows offer as floor. One call tries this many before it hands back.
 const FAILED_NEAR = 1.5;
 const FAILS_PER_CALL = 4;
+export const floorOnly = (environment = process.env) => getSwitch('find.portalFloorOnly', environment).value;
+// A full block at the feet is wall; only a stair or slab there is a step up. A higher spot waits until the body has climbed near it.
+const STEP = /^minecraft:stone_brick_(?:stairs|slab)$/;
+const STEP_UP = 1.5;
 export const portalTarget = target => /^(minecraft:)?end_portal_frame$/.test(target.block ?? '');
 const FRAME = 'minecraft:end_portal_frame';
 const MASONRY = /^minecraft:(?:(?:mossy_|cracked_)?stone_bricks|stone_brick_stairs|stone_brick_slab)$/;
@@ -26,6 +30,11 @@ export async function findPortalRoom(body, { observation, deadline, within, dang
 	s.failed ??= [];
 	let failsHere = 0;
 	const failedNear = p => skip && !p.frame && s.failed.some(f => distance(f, p) < FAILED_NEAR);
+	// Two twelve-eyes games failed 51 and 127 walks 1-3 blocks short of wall and ceiling tops 1-4 blocks above the body.
+	const floor = floorOnly();
+	const feet = () => Math.floor(o.player.y + 1e-3);
+	const floorBlock = r => !floor || r.y < feet() || STEP.test(r.blockId);
+	const reachable = p => !floor || p.frame || p.y <= o.player.y + STEP_UP;
 	const left = () => deadline - body.now();
 	const rows = () => [...freshRows(o), ...(survey?.blocks ?? []), ...(survey?.poi ?? [])].filter(point);
 	const safety = () => o.player.health <= 8 ? 'LOW_HEALTH' : o.player.inLava || o.player.hazard === 'lava' ? 'IN_LAVA'
@@ -45,7 +54,7 @@ export async function findPortalRoom(body, { observation, deadline, within, dang
 		const blocks = [...rows(), ...known].filter(point);
 		const solid = new Set(blocks.filter(r => !/^minecraft:(?:air|cave_air|void_air|[a-z_]+_door)$/.test(r.blockId)).map(key));
 		const candidates = [...(body.frontier?.(o)?.candidates ?? []).filter(p => !p.blocked).map(p => ({ ...p, x: p.x + 0.5, z: p.z + 0.5 })),
-			...blocks.filter(r => MASONRY.test(r.blockId) && r.y <= o.player.y && r.y >= o.player.y - 8)
+			...blocks.filter(r => MASONRY.test(r.blockId) && r.y <= o.player.y && r.y >= o.player.y - 8 && floorBlock(r))
 				.map(r => ({ x: r.x + 0.5, y: r.y + 1, z: r.z + 0.5 })),
 			...blocks.filter(r => r.blockId === FRAME).map(r => ({ ...r, frame: true }))];
 		for (const p of candidates) {
@@ -83,7 +92,7 @@ export async function findPortalRoom(body, { observation, deadline, within, dang
 		if (safety()) return finish('FIND_DANGER', safety());
 		if (arrival()) return finish('FIND_SEEN', 'Portal room reached', arrival());
 		collect();
-		const next = s.pending.filter(p => inside(p) && distance(p, o.player) > 2)
+		const next = s.pending.filter(p => inside(p) && distance(p, o.player) > 2 && reachable(p))
 			.sort((a, b) => Number(!!b.frame) - Number(!!a.frame) || distance(a, o.player) - distance(b, o.player))[0];
 		if (!next) return finish('FIND_BLOCKED', 'No unvisited observed passage; inspect the doorway or stair here, then resume');
 		const dest = next;
