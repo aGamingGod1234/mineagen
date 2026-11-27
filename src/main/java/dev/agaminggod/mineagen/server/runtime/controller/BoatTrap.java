@@ -119,6 +119,9 @@ final class BoatTrap {
 	/** The walk-in goal and where its enderman stood when it was set: kept until the enderman moves, so the walk is not restarted each tick. */
 	private Vec3 approachGoal;
 	private Vec3 approachSeen;
+	/** The standoff spot from a seated enderman and where it sat when the spot was set. */
+	private Vec3 standGoal;
+	private Vec3 standSeen;
 	private ServerNavigationController step;
 	/** The block going down under a boat (multi-tick: the body turns to it first), and since when (ticks). */
 	private BlockPos blockAt;
@@ -401,16 +404,20 @@ final class BoatTrap {
 		if (!boatUsable()) boat = nearestBoat(player);
 		if (blockAt != null && !target.getUUID().equals(blockFor)) blockAt = null;
 		if (seated(target)) {
-			cancelStep(player);
 			if (seatedIds.add(target.getUUID())) note(String.format(Locale.ROOT, "%s sat in the boat %.1f blocks away", target.getUUID(), player.distanceTo(target)));
 			// Out of its reach, in the body's: the swing from where it stands (pursue:false).
 			double h = flat(target.position().subtract(player.position())).length();
 			boolean inReach = player.getAttackRangeWith(player.getMainHandItem()).isInRange(player, target.getBoundingBox(), 0.0D);
-			if (h >= STANDOFF_MIN && inReach) return null;
-			Vec3 away = flat(player.position().subtract(target.position()));
-			if (away.lengthSqr() < 1.0E-4D) away = new Vec3(1.0D, 0.0D, 0.0D);
-			Vec3 goal = new Vec3(target.getX(), player.getY(), target.getZ()).add(away.normalize().scale(STANDOFF));
-			return walk(player, goal, now) ? null : TickResult.running(0.0D);
+			if (h >= STANDOFF_MIN && inReach) { cancelStep(player); standGoal = null; return null; }
+			// The standoff goal is kept while the seated enderman stays put, so its walk is not restarted each tick.
+			if (standGoal == null || standSeen.distanceTo(target.position()) > 0.5D) {
+				Vec3 away = flat(player.position().subtract(target.position()));
+				if (away.lengthSqr() < 1.0E-4D) away = new Vec3(1.0D, 0.0D, 0.0D);
+				standGoal = new Vec3(target.getX(), player.getY(), target.getZ()).add(away.normalize().scale(STANDOFF));
+				standSeen = target.position();
+			}
+			if (walk(player, standGoal, now)) { standGoal = null; return null; }
+			return TickResult.running(0.0D);
 		}
 		if (skipped.contains(target.getUUID())) return null;
 		if (provoked) {

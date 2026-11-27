@@ -462,7 +462,7 @@ public final class ServerFightUntilController implements ServerController {
 			collectWhenClear = !collect && choices.mayMove();
 		}
 		if (!roofWanted && BoatTrap.applies(BoatTrap.enabled(), mob == McEntityTypes.ENDERMAN, untilItem == net.minecraft.world.item.Items.ENDER_PEARL,
-				choices.mayMove(), player.level().dimension() == net.minecraft.world.level.Level.END)
+				choices.mayReposition(), player.level().dimension() == net.minecraft.world.level.Level.END)
 				&& (!roof || BoatTrap.boats(player) > 0 || BoatTrap.boatWood(player) != null)) {
 			// The trap before the roof: a roofed cell waited for endermen that rarely came (forest rounds: 15 of 22 roofs failed).
 			trapOverRoof = roof;
@@ -1523,7 +1523,7 @@ public final class ServerFightUntilController implements ServerController {
 		// never switches by itself (engineTargets: no in-reach, follow-through or policy switch inside the fight).
 		melee = scriptedMelee != null ? scriptedMelee.apply(target)
 				: new ServerFightController(target, choices.desiredRange(), fleeAtHealth, false, CombatPlanning.TargetPolicy.NAMED, choices.includePlayers(),
-				choices.meleePursue(roofed) && !BoatTrap.seated(target), choices.sneak(), shield, Math.min(segment, left), now)
+				choices.meleePursue(roofed) && !(trap != null && BoatTrap.seated(target)), choices.sneak(), shield, Math.min(segment, left), now)
 				.engineTargets()
 				.collectDrops(collect && !roofed ? protection::mayTakeEntity : null)
 				.makingRoom(protection::mayDropItem);
