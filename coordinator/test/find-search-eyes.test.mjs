@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { eyeBracket, eyeLeg, intersectEyes } from '../src/find-eyes.mjs';
+import { CROSS_SHORT_BLOCKS, LONG_LEG_BLOCKS, SEA_SKIPS, eyeBracket, eyeLeg, eyeLegLong, intersectEyes, seaBiome } from '../src/find-eyes.mjs';
 import { normalizeMinecraftToolCall } from '../src/native-minecraft-tools.mjs';
 import { checkedSearchBody, searchFor } from './helpers/checked-body.mjs';
 const flight = (extra = {}) => ({ type: 'eye_of_ender_flight', flightId: 17, from: { x: 0, y: 70, z: 0 }, to: { x: -12, y: 75, z: 0 }, yaw: 90, vertical: 'rose', flewBlocks: 12, outcome: 'shattered', ...extra });
@@ -241,4 +241,85 @@ test('a leg that covered ground before water it cannot bridge still counts as a 
 test('opposed bearings bracket the dig area and later rising legs shorten', () => {
  assert.equal(eyeLeg({ vertical: 'rose' }, 2), 64);
  assert.deepEqual(eyeBracket(null, { from: { x: 0, z: 0 }, yaw: 90 }, { from: { x: -32, z: 0 }, yaw: -90 }), { a: { x: 0, z: 0 }, b: { x: -32, z: 0 } });
+});
+// A twelve-eyes game threw 8 eyes 60 blocks apart on one bearing over an ocean toward a stronghold ~1,000 blocks off.
+async function withEnv(name, value, run) {
+	const old = process.env[name];
+	if (value === undefined) delete process.env[name]; else process.env[name] = value;
+	try { return await run(); } finally { if (old === undefined) delete process.env[name]; else process.env[name] = old; }
+}
+// Every throw flies on the same bearing (yaw 90, toward -x) from where the body stands, and breaks.
+function bearingBody(extra = () => ({})) {
+	const b = fake();
+	let id = 100;
+	const original = b.act;
+	b.act = async (type, args, options) => {
+		if (type === 'wait') { b.calls.push({ type, args }); b.o.perception.events.push(flight({ flightId: ++id, from: { ...b.o.player }, ...extra(b) })); return { state: 'SUCCEEDED', reasonCode: 'DONE' }; }
+		return original(type, args, options);
+	};
+	return b;
+}
+const legsOf = b => {
+	const out = [];
+	let from = null;
+	for (const c of b.calls) {
+		if (c.type === 'use_item') from = c.at;
+		if (c.type === 'travel_to' && from) { out.push(Math.round(Math.hypot(c.args.x - from.x, c.args.z - from.z))); from = null; }
+	}
+	return out;
+};
+function recordThrowSpots(b) {
+	const inner = b.act;
+	b.act = async (type, args, options) => {
+		const r = await inner(type, args, options);
+		if (type === 'use_item') b.calls.at(-1).at = { x: b.o.player.x, z: b.o.player.z };
+		return r;
+	};
+}
+test('throws that keep one bearing double the leg up to 300 blocks; off keeps 120 then 64', async () => {
+	await withEnv('MINEAGEN_EYE_LONG_LEGS', undefined, async () => {
+		const b = bearingBody(); recordThrowSpots(b);
+		await searchFor({ structure: 'stronghold', throwCap: 4 }, b, { timeoutMs: 120_000, within: 2000 });
+		assert.deepEqual(legsOf(b), [120, 240, 300, 300]);
+	});
+	await withEnv('MINEAGEN_EYE_LONG_LEGS', 'off', async () => {
+		const b = bearingBody(); recordThrowSpots(b);
+		await searchFor({ structure: 'stronghold', throwCap: 4 }, b, { timeoutMs: 120_000, within: 2000 });
+		assert.deepEqual(legsOf(b), [120, 64, 64, 64]);
+	});
+});
+test('a crossing along the heading sizes the leg; one off to the side does not', async () => {
+	await withEnv('MINEAGEN_EYE_LONG_LEGS', undefined, async () => {
+		assert.equal(eyeLegLong(flight({ cross: { x: -800, z: 10 }, crossBlocks: 800 }), 1), LONG_LEG_BLOCKS);
+		assert.equal(eyeLegLong(flight({ cross: { x: -100, z: 0 }, crossBlocks: 100 }), 2), 100 - CROSS_SHORT_BLOCKS);
+		assert.equal(eyeLegLong(flight({ cross: { x: -100, z: 400 }, crossBlocks: 412 }), 1), 120);
+		assert.equal(eyeLegLong(flight({ vertical: 'sank', cross: { x: -800, z: 0 }, crossBlocks: 800 }), 1), 0);
+	});
+});
+test('the search circle counts from the newest throw with long legs, from the first without', async () => {
+	for (const [value, expected] of [[undefined, 512 + 120], ['off', 512]]) {
+		await withEnv('MINEAGEN_EYE_LONG_LEGS', value, async () => {
+			const b = bearingBody();
+			await searchFor({ structure: 'stronghold', throwCap: 2 }, b, { timeoutMs: 120_000 });
+			const second = b.calls.filter(c => c.type === 'travel_to')[1];
+			assert.equal(Math.round(second.args.boundaryRadius), expected);
+		});
+	}
+});
+test('over the sea it walks on along the heading instead of throwing, at most three times in a row', async () => {
+	await withEnv('MINEAGEN_EYE_LONG_LEGS', undefined, async () => {
+		const b = bearingBody(); b.o.world.biome = 'minecraft:deep_ocean';
+		await searchFor({ structure: 'stronghold', throwCap: 2 }, b, { timeoutMs: 120_000, within: 2000 });
+		const throws = b.calls.map((c, i) => c.type === 'use_item' ? i : -1).filter(i => i >= 0);
+		assert.equal(throws.length, 2);
+		const between = b.calls.slice(throws[0], throws[1]).filter(c => c.type === 'travel_to');
+		assert.equal(between.length, 1 + SEA_SKIPS, 'the bearing leg, then three sea legs before the next throw');
+	});
+	await withEnv('MINEAGEN_EYE_LONG_LEGS', 'off', async () => {
+		const b = bearingBody(); b.o.world.biome = 'minecraft:deep_ocean';
+		await searchFor({ structure: 'stronghold', throwCap: 2 }, b, { timeoutMs: 120_000, within: 2000 });
+		const throws = b.calls.map((c, i) => c.type === 'use_item' ? i : -1).filter(i => i >= 0);
+		assert.equal(b.calls.slice(throws[0], throws[1]).filter(c => c.type === 'travel_to').length, 1);
+	});
+	assert.equal(seaBiome('minecraft:river'), true); assert.equal(seaBiome('minecraft:beach'), false); assert.equal(seaBiome('minecraft:lukewarm_ocean'), true);
 });

@@ -1,4 +1,11 @@
 // Walk observed stronghold passages. Coordinates come only from sight, memory and footing, never structure lookup.
+import { getSwitch } from './switches.mjs';
+
+export const skipFailed = (environment = process.env) => getSwitch('find.portalSkipFailed', environment).value;
+// Spots a walk failed to reach stay failed for the whole stronghold, and so does footing this close to one: they are the
+// tops of walls and ceilings the masonry rows offer as floor. One call tries this many before it hands back.
+const FAILED_NEAR = 1.5;
+const FAILS_PER_CALL = 4;
 export const portalTarget = target => /^(minecraft:)?end_portal_frame$/.test(target.block ?? '');
 const FRAME = 'minecraft:end_portal_frame';
 const MASONRY = /^minecraft:(?:(?:mossy_|cracked_)?stone_bricks|stone_brick_stairs|stone_brick_slab)$/;
@@ -14,6 +21,11 @@ export async function findPortalRoom(body, { observation, deadline, within, dang
 	let o = observation, survey = null;
 	const eyes = body.eyeSearchState ??= {};
 	const s = eyes.portal ??= { origin: { x: o.player.x, y: o.player.y, z: o.player.z }, visited: [], pending: [], walked: 0 };
+	// A twelve-eyes game handed back the same few unreachable spots 3-5 times each for 87 min, 40 blocks short of the room.
+	const skip = skipFailed();
+	s.failed ??= [];
+	let failsHere = 0;
+	const failedNear = p => skip && !p.frame && s.failed.some(f => distance(f, p) < FAILED_NEAR);
 	const left = () => deadline - body.now();
 	const rows = () => [...freshRows(o), ...(survey?.blocks ?? []), ...(survey?.poi ?? [])].filter(point);
 	const safety = () => o.player.health <= 8 ? 'LOW_HEALTH' : o.player.inLava || o.player.hazard === 'lava' ? 'IN_LAVA'
@@ -24,7 +36,7 @@ export async function findPortalRoom(body, { observation, deadline, within, dang
 		message: `${stoppedBy}; portal search walked ${Math.round(s.walked)} blocks, ${s.pending.length} observed destinations left. Resume with find block end_portal_frame after handling the stop; no more eye throws.`,
 		find: { target: 'end_portal_frame', covered: { walked: Math.round(s.walked) },
 			portal: { origin: { ...s.origin }, visited: s.visited.length, pending: structuredClone(s.pending.slice(0, 6)), pendingCount: s.pending.length,
-				stoppedBy, ...(approach ? { approach } : {}) },
+				...(skip ? { failed: s.failed.length } : {}), stoppedBy, ...(approach ? { approach } : {}) },
 			...(seen ? { seen: { ...seen, id: FRAME, via: 'portal room sight' } } : {}) } });
 	const inside = p => Math.hypot(p.x - s.origin.x, p.z - s.origin.z) <= within;
 	const visited = p => s.visited.some(v => distance(v, p) < 3);
@@ -37,11 +49,11 @@ export async function findPortalRoom(body, { observation, deadline, within, dang
 				.map(r => ({ x: r.x + 0.5, y: r.y + 1, z: r.z + 0.5 })),
 			...blocks.filter(r => r.blockId === FRAME).map(r => ({ ...r, frame: true }))];
 		for (const p of candidates) {
-			if (!point(p) || !inside(p) || (!p.frame && visited(p))) continue;
+			if (!point(p) || !inside(p) || (!p.frame && visited(p)) || failedNear(p)) continue;
 			if (!p.frame && (solid.has(key(p)) || solid.has(key({ ...p, y: p.y + 1 })))) continue;
 			if (!s.pending.some(q => key(q) === key(p))) s.pending.push(p);
 		}
-		s.pending = s.pending.filter(p => p.frame || !visited(p)).slice(-256);
+		s.pending = s.pending.filter(p => p.frame || (!visited(p) && !failedNear(p))).slice(-256);
 	};
 	const act = async args => {
 		if (left() < 1000) return { end: finish('FIND_BUDGET', 'timeoutMs exhausted') };
@@ -79,8 +91,15 @@ export async function findPortalRoom(body, { observation, deadline, within, dang
 			boundaryX: s.origin.x, boundaryZ: s.origin.z, boundaryRadius: within });
 		if (end) return end;
 		if (result?.state !== 'SUCCEEDED' && !['NO_ROUTE', 'TRAVEL_TIMEOUT', 'TRAVEL_STALLED', 'STALLED_IN_PLACE'].includes(result?.reasonCode)) return finish('FIND_BLOCKED', result?.reasonCode ?? 'Walking stopped');
+		// A spot the walk did not reach is not offered again in this stronghold, whether or not the body moved on the way.
+		if (skip && result?.state !== 'SUCCEEDED' && !dest.frame) {
+			s.failed.push({ x: dest.x, y: dest.y, z: dest.z });
+			s.pending = s.pending.filter(p => !failedNear(p));
+		}
 		// Another nearby target does not resolve a missing passage from this same standing spot.
 		const noProgress = ['NO_ROUTE', 'STALLED_IN_PLACE'].includes(result?.reasonCode) && distance(before, o.player) < 0.5;
+		// With failed spots remembered, the next spot is tried from here before the search hands back.
+		if (noProgress && skip && ++failsHere < FAILS_PER_CALL) continue;
 		if (noProgress) {
 			const actual = { x: o.player.x, y: o.player.y, z: o.player.z };
 			return finish('FIND_BLOCKED', `Walking made no progress from this standing spot. Requested floor feet y${dest.y}, stopped at y${actual.y}; inspect the observed doorway, stairs or obstruction before resuming`, null,

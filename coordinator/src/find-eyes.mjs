@@ -1,5 +1,8 @@
 // Eye guidance uses only the thrower's visible-flight receipts, never a server structure lookup.
+import { getSwitch } from './switches.mjs';
+
 const EYE = 'minecraft:ender_eye';
+export const longLegs = (environment = process.env) => getSwitch('find.eyeLongLegs', environment).value;
 export const STRONGHOLD_BLOCKS = ['stone_bricks', 'mossy_stone_bricks', 'cracked_stone_bricks', 'iron_bars', 'end_portal_frame'].map(id => `minecraft:${id}`);
 export const eyesHeld = o => (o.inventory?.items ?? []).filter(r => r.itemId === EYE).reduce((n, r) => n + r.count, 0);
 export const eyeTarget = target => /^(minecraft:)?stronghold$/.test(target.structure ?? '');
@@ -47,6 +50,38 @@ export function eyeLeg(flight, throwNumber = 1) {
 	// (staged scout 4f75f: the second 120-block leg began 76 blocks short of the stronghold and went 44 past it).
 	return flight.vertical === 'level' ? 24 : throwNumber <= 1 ? 120 : 64;
 }
+// A twelve-eyes game threw 8 eyes 60 blocks apart on one bearing toward a stronghold about 1,000 blocks off and lost 7:
+// while the eye keeps its bearing a player walks much further before the next throw. A leg is at most this long.
+export const LONG_LEG_BLOCKS = 300;
+// Two throws within this many degrees point the same way: the stronghold is still well ahead.
+export const SAME_BEARING_DEGREES = 2;
+// A flight receipt's crossing with an earlier bearing counts for the leg when it lies this close to the flight's heading.
+export const CROSS_AHEAD_DEGREES = 10;
+// The leg stops this short of a crossing, so the next throw is made before the stronghold, not past it.
+export const CROSS_SHORT_BLOCKS = 16;
+// Throws held back over the sea in a row before one is thrown anyway (an ocean stronghold still gets its bearing).
+export const SEA_SKIPS = 3;
+// The extra leg walked on along the last heading instead of a throw over the sea.
+export const SEA_LEG_BLOCKS = 64;
+export const seaBiome = biome => /(?:^|:)(?:deep_)?(?:warm_|lukewarm_|cold_|frozen_)?ocean$|(?:^|:)(?:frozen_)?river$/.test(String(biome ?? ''));
+const angleBetween = (a, b) => Math.abs(((a - b) % 360 + 540) % 360 - 180);
+const yawToward = (from, to) => Math.atan2(-(to.x - from.x), to.z - from.z) * 180 / Math.PI;
+/**
+ * The leg after a rising throw with long legs on: up to the receipt's crossing when it lies along the heading, else double
+ * the last leg while the bearing holds, else the plain eyeLeg. Never longer than LONG_LEG_BLOCKS.
+ */
+export function eyeLegLong(flight, throwNumber, previous = null, previousLeg = null) {
+	const base = eyeLeg(flight, throwNumber);
+	if (base === 0 || flight.vertical === 'level' || !Number.isFinite(flight.yaw)) return base;
+	if (point({ ...flight.cross, y: 0 }) && Number.isFinite(flight.crossBlocks) && point(flight.from)
+		&& angleBetween(yawToward(flight.from, flight.cross), flight.yaw) <= CROSS_AHEAD_DEGREES) {
+		return Math.min(LONG_LEG_BLOCKS, Math.max(24, flight.crossBlocks - CROSS_SHORT_BLOCKS));
+	}
+	if (Number.isFinite(previous?.yaw) && angleBetween(previous.yaw, flight.yaw) <= SAME_BEARING_DEGREES && Number.isFinite(previousLeg)) {
+		return Math.min(LONG_LEG_BLOCKS, Math.max(base, previousLeg * 2));
+	}
+	return base;
+}
 /** Two throws whose headings oppose have the stronghold between them: the next throw goes from the middle of that span. */
 export function eyeBracket(bracket, previous, last) {
 	if (!Number.isFinite(last?.yaw)) return bracket;
@@ -70,6 +105,7 @@ export async function followEyes(target, body, { observation: initial, deadline,
 	state.filled ??= [];
 	state.phase ??= 'throw';
 	const left = () => deadline - body.now();
+	const long = longLegs();
 	let blocked = 0, steppedFor = 0;
 	const refresh = async () => {
 		o = await body.observe();
@@ -139,10 +175,16 @@ export async function followEyes(target, body, { observation: initial, deadline,
 		if (result?.state !== 'SUCCEEDED') return finish('FIND_BLOCKED', result?.reasonCode ?? 'action did not complete');
 		return null;
 	};
-	const bounded = args => ({ ...args, boundaryX: state.origin.x, boundaryZ: state.origin.z, boundaryRadius: within });
+	// With long legs the circle reaches `within` past the newest throw, not the first: each throw says "on that way" (a
+	// twelve-eyes game stopped at the 512-block edge twice with a crossing 1,100 blocks further on).
+	const radius = () => {
+		const from = state.throws.findLast(t => point(t.from))?.from;
+		return long && from ? within + Math.hypot(from.x - state.origin.x, from.z - state.origin.z) : within;
+	};
+	const bounded = args => ({ ...args, boundaryX: state.origin.x, boundaryZ: state.origin.z, boundaryRadius: radius() });
 	// How far along unit heading d from `from` stays inside the search circle with 2 blocks to brake.
 	const hopRoom = (from, d) => {
-		const r = within - 2, fx = from.x - state.origin.x, fz = from.z - state.origin.z;
+		const r = radius() - 2, fx = from.x - state.origin.x, fz = from.z - state.origin.z;
 		const b = fx * d.x + fz * d.z, c = fx * fx + fz * fz - r * r, disc = b * b - c;
 		return disc < 0 ? 0 : Math.max(0, -b + Math.sqrt(disc));
 	};
@@ -366,7 +408,7 @@ export async function followEyes(target, body, { observation: initial, deadline,
 				if (state.phase === 'dig') state.digCentre = middle;
 				continue;
 			}
-			const distance = eyeLeg(last, state.throws.length);
+			const distance = long ? eyeLegLong(last, state.throws.length, state.throws.at(-2), state.lastLeg) : eyeLeg(last, state.throws.length);
 			if (distance === 0) {
 				if (point(last.to)) {
 					const end = await act('travel_to', bounded({ x: last.to.x, z: last.to.z, tolerance: 2, build: true }));
@@ -377,6 +419,7 @@ export async function followEyes(target, body, { observation: initial, deadline,
 			}
 			if (!Number.isFinite(last.yaw)) return finish('FIND_BLOCKED', 'Eye heading not observed');
 			const d = direction(last.yaw);
+			if (!state.destination) state.lastLeg = distance;
 			state.destination ??= { x: last.from.x + d.x * distance, z: last.from.z + d.z * distance };
 			let end = await act('travel_to', bounded({ ...state.destination, build: true, tolerance: 3 }), { soft: true });
 			// Stopped at the edge of water it could not bridge (out of blocks, or travel will not build there): swim the rest, as a
@@ -457,6 +500,17 @@ export async function followEyes(target, body, { observation: initial, deadline,
 			continue;
 		}
 		if (state.throws.length >= (target.throwCap ?? 8)) return finish('FIND_BUDGET', 'Throw cap reached');
+		// Over the sea a thrown eye drops into the water and is lost (a twelve-eyes game lost 4 of 8 so): walk on along the
+		// last heading and throw from land, up to SEA_SKIPS times in a row.
+		const lastHeading = state.throws.findLast(t => Number.isFinite(t.yaw));
+		if (long && lastHeading && seaBiome(o.world?.biome) && (state.seaSkips ?? 0) < SEA_SKIPS) {
+			state.seaSkips = (state.seaSkips ?? 0) + 1;
+			const d = direction(lastHeading.yaw);
+			state.destination = { x: o.player.x + d.x * SEA_LEG_BLOCKS, z: o.player.z + d.z * SEA_LEG_BLOCKS };
+			state.phase = 'leg';
+			body.progress?.({ label: `Over the sea: walking on ${SEA_LEG_BLOCKS} blocks before the next eye` });
+			continue;
+		}
 		if (eyesHeld(o) < 1 || (target.allowEyeReserveUse !== true && eyesHeld(o) - 1 < reserve())) return finish('FIND_BLOCKED', 'Eye reserve reached');
 		const eye = (o.inventory?.items ?? []).find(r => r.itemId === EYE && r.count > 0);
 		const end = await act(Number.isInteger(eye.slot) && eye.slot >= 9 ? 'select_tool' : 'select_item', Number.isInteger(eye.slot) && eye.slot >= 9
@@ -487,6 +541,7 @@ export async function followEyes(target, body, { observation: initial, deadline,
 		state.scanTurns = 0;
 		state.eyeWaits = 0;
 		state.beforeFlights = flights(o).map(e => e.flightId ?? e.sequence);
+		state.seaSkips = 0;
 		state.throws.push({ from: { x: o.player.x, y: o.player.y, z: o.player.z }, eyesBefore: eyesHeld(o) });
 		state.phase = 'flight';
 		state.waited = false;
