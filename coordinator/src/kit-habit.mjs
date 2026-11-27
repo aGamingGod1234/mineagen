@@ -135,13 +135,21 @@ export function nextKitStep(o, { reserved = null, topUp = false } = {}) {
 	// kit.ironTripArmour: raw iron counts as iron too (a craft smelts it first). In 10 fresh games of 27 Nov the trip
 	// ended with 2-7 raw iron unsmelted in 6, and the habit counted only ingots.
 	const tripArmour = ironTripArmourEnabled();
-	const iron = tripArmour ? /^minecraft:(iron_ingot|raw_iron)$/ : /^minecraft:iron_ingot$/;
-	const kept = reserved !== null && reserved.ids.some(id => bare(id) === 'iron_ingot' || tripArmour && bare(id) === 'raw_iron') ? reserved.count : 0;
+	const ingotsReserved = reserved !== null && reserved.ids.some(id => bare(id) === 'iron_ingot');
+	// Raw iron the caller asked for is never smelted for armour: obtain's planner would take it from the held stack.
+	const rawReserved = reserved !== null && reserved.ids.some(id => bare(id) === 'raw_iron');
+	const iron = tripArmour && !rawReserved ? /^minecraft:(iron_ingot|raw_iron)$/ : /^minecraft:iron_ingot$/;
+	const heldIngots = count(/^minecraft:iron_ingot$/);
+	const kept = ingotsReserved ? reserved.count : 0;
 	const ingots = Math.max(0, count(iron) - kept);
 	const craftable = (itemId, count = 1) => craftsFromHeld(o, itemId, { reserved, count });
 	// The raw iron a craft of `need` iron smelts first, and the time that takes on top of the craft's minute.
-	const freeIngots = Math.max(0, count(/^minecraft:iron_ingot$/) - (reserved !== null && reserved.ids.some(id => bare(id) === 'iron_ingot') ? reserved.count : 0));
+	const freeIngots = Math.max(0, heldIngots - kept);
 	const smeltTime = need => KIT_SMELT_MS * Math.max(0, need - freeIngots);
+	// With ingots reserved, a craft that smelts smelts its raw iron as its own step first: obtain's planner spends any
+	// ingot held, so a chestplate from 3 reserved ingots and 8 raw would smelt 5 and spend the 3 the caller asked for.
+	const smeltFirst = (need, timeoutMs, topUp = false) => tripArmour && ingotsReserved && smeltTime(need) > 0
+		? { kind: 'craft', itemId: 'minecraft:iron_ingot', count: heldIngots + need - freeIngots, timeoutMs, smelt: true, ...(topUp ? { topUp } : {}) } : null;
 	const wood = count(PLANKS) + 4 * count(LOGS);
 	// The iron pickaxe comes first: its 3 ingots are never spent on the shield (obtain iron_ingot count 3 for it would hand back 2).
 	const pickaxeOwed = soundPickaxe(items) ? 0 : 3;
@@ -159,9 +167,14 @@ export function nextKitStep(o, { reserved = null, topUp = false } = {}) {
 		if (!craftable(piece.itemId)) {
 			// kit.ironTripArmour: the chestplate's iron held but nothing to smelt it with (A/B game freshd1 ended with 10
 			// raw iron, a furnace and no fuel): its obtain gathers the fuel too, as a top-up, down a mine only.
-			if (tripArmour && topUp && piece.slot === 'chest' && mineDown) return { kind: 'craft', itemId: piece.itemId, timeoutMs: IRON_TOPUP_MS + smeltTime(piece.iron), topUp: true };
+			if (tripArmour && topUp && piece.slot === 'chest' && mineDown) {
+				return smeltFirst(piece.iron, IRON_TOPUP_MS + smeltTime(piece.iron), true)
+					?? { kind: 'craft', itemId: piece.itemId, timeoutMs: IRON_TOPUP_MS + smeltTime(piece.iron), topUp: true };
+			}
 			continue;
 		}
+		const smelt = smeltFirst(piece.iron, KIT_CRAFT_TIMEOUT_MS + smeltTime(piece.iron));
+		if (smelt !== null) return smelt;
 		return tripArmour && smeltTime(piece.iron) > 0 ? { kind: 'craft', itemId: piece.itemId, timeoutMs: KIT_CRAFT_TIMEOUT_MS + smeltTime(piece.iron) }
 			: { kind: 'craft', itemId: piece.itemId };
 	}
@@ -225,7 +238,8 @@ export async function keepKit(body, craft, { stopped = () => false, reserved = n
 			break;
 		}
 		done.push(step.kind === 'equip' ? `wore ${name} (${step.targetSlot})` : step.kind === 'hotbar' ? `${name} to hotbar ${step.hotbarSlot}`
-			: step.topUp && step.itemId === 'minecraft:raw_iron' ? `mined ${step.count} raw_iron for the iron_chestplate` : `crafted ${name}`);
+			: step.topUp && step.itemId === 'minecraft:raw_iron' ? `mined ${step.count} raw_iron for the iron_chestplate`
+				: step.smelt ? `smelted iron_ingot to ${step.count} for armour` : `crafted ${name}`);
 	}
 	return done;
 }

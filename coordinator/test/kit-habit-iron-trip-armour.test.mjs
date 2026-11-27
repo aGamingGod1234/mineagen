@@ -135,3 +135,35 @@ test('keepKit v2: a top-up whose raw iron has no fuel to smelt goes on to the ch
 	assert.equal(crafts[1][2], IRON_TOPUP_MS + 8 * KIT_SMELT_MS, 'the chestplate\'s obtain has the time to find fuel');
 	assert.equal(topUps, 1, 'one top-up for the spacing');
 });
+
+test('with ingots reserved, the chestplate\'s raw iron is smelted as its own step first, so the reserved ingots stay', () => {
+	const kit = [item('iron_pickaxe', 'mainhand'), item('bucket', 3), item('flint_and_steel', 4), item('shield', 'offhand'), ...stations];
+	const reserved = { ids: ['minecraft:iron_ingot'], count: 3 };
+	// obtain iron_ingot 3 handed back its 3, and 8 raw make the chestplate: smelt to 3 + 8 first.
+	assert.deepEqual(nextKitStep(down([...kit, item('iron_ingot', 9, 3), item('raw_iron', 10, 8)]), { reserved }),
+		{ kind: 'craft', itemId: 'minecraft:iron_ingot', count: 11, timeoutMs: KIT_CRAFT_TIMEOUT_MS + 8 * KIT_SMELT_MS, smelt: true });
+	// Smelted: the chestplate crafts from ingots alone, with 3 left over.
+	assert.deepEqual(nextKitStep(down([...kit, item('iron_ingot', 9, 11)]), { reserved }), { kind: 'craft', itemId: 'minecraft:iron_chestplate' });
+	// Reserved raw iron is never armour iron.
+	assert.equal(nextKitStep(down([...kit, item('raw_iron', 10, 16)]), { reserved: { ids: ['minecraft:raw_iron'], count: 8 } }), null);
+});
+
+test('keepKit with reserved ingots: smelt, then chestplate, then wear it', async () => {
+	const kit = [item('iron_pickaxe', 'mainhand'), item('bucket', 3), item('flint_and_steel', 4), item('shield', 'offhand'), ...stations];
+	let items = [...kit, item('iron_ingot', 9, 3), item('raw_iron', 10, 8)];
+	const calls = [];
+	const body = { observe: async () => down(items), act: async (_type, a) => {
+		items = items.map(row => row.slot === a.sourceSlot ? { ...row, slot: a.targetSlot } : row);
+		return { state: 'SUCCEEDED' };
+	} };
+	const craft = async (itemId, count) => {
+		calls.push([itemId, count]);
+		if (itemId === 'minecraft:iron_ingot') items = [...items.filter(row => !/iron_ingot|raw_iron/.test(row.itemId)), item('iron_ingot', 9, count)];
+		if (itemId === 'minecraft:iron_chestplate') items = [...items.map(row => row.itemId === 'minecraft:iron_ingot' ? { ...row, count: row.count - 8 } : row), item('iron_chestplate', 12)];
+		return { state: 'SUCCEEDED' };
+	};
+	const done = await keepKit(body, craft, { reserved: { ids: ['minecraft:iron_ingot'], count: 3 } });
+	assert.deepEqual(calls, [['minecraft:iron_ingot', 11], ['minecraft:iron_chestplate', 1]]);
+	assert.deepEqual(done, ['smelted iron_ingot to 11 for armour', 'crafted iron_chestplate', 'wore iron_chestplate (chest)']);
+	assert.equal(items.find(row => row.itemId === 'minecraft:iron_ingot').count, 3, 'the 3 asked for are still held');
+});

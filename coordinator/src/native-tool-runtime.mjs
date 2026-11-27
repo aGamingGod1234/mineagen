@@ -2970,13 +2970,15 @@ export class NativeToolRuntime {
 		const reserved = asked.ids.length > 0 ? { ids: asked.ids, count: Number.isSafeInteger(tool.arguments?.count) && tool.arguments.count > 0 ? tool.arguments.count : 1 } : null;
 		let kit;
 		const stop = {};
+		const kitLoads = [];
 		try {
-			// Furnace loads an earlier obtain left are the next obtain's to collect, not a kit craft's walk.
+			// Furnace loads an earlier obtain left are the next obtain's to collect, not a kit craft's walk; loads a kit
+			// craft's smelt leaves (danger stopped it) join the agent's ledger after, so the next obtain collects them.
 			// kit.ironTripArmour: after an iron kit obtain, the chestplate's iron may be mined now; one top-up per agent in
 			// IRON_TOPUP_SPACING_MS, so a seed short of iron loses at most a top-up's cap every few minutes.
 			const lastTopUp = this.#ironTopUps.get(record.agentId);
 			const topUp = IRON_KIT_ITEMS.test(String(tool.arguments?.item ?? '')) && (lastTopUp === undefined || this.#stepNow() - lastTopUp >= IRON_TOPUP_SPACING_MS);
-			kit = await keepKit(body, (item, count = 1, timeoutMs = KIT_CRAFT_TIMEOUT_MS) => runObtain({ item, count, timeoutMs }, body, { ...stations, loads: [] }),
+			kit = await keepKit(body, (item, count = 1, timeoutMs = KIT_CRAFT_TIMEOUT_MS) => runObtain({ item, count, timeoutMs }, body, { ...stations, loads: kitLoads }),
 				{ stopped: () => interrupted() || !current(), reserved, stop, topUp, onTopUp: () => {
 					this.#ironTopUps.set(record.agentId, this.#stepNow());
 					this.#trace('native_iron_topup', { agentId: record.agentId, goalRevision: record.goalRevision, after: String(tool.arguments?.item ?? '') });
@@ -2984,6 +2986,8 @@ export class NativeToolRuntime {
 		} catch (error) {
 			if (!current()) throw error;
 			kit = [`stopped (${error?.code ?? 'error'})`];
+		} finally {
+			stations.loads.push(...kitLoads);
 		}
 		const halt = stop.result ?? null;
 		const cut = interrupted() || ['INTERRUPTED', 'RUNNING', 'PREPARING'].includes(halt?.state);
