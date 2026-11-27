@@ -389,8 +389,10 @@ export async function followEyes(target, body, { observation: initial, deadline,
 			continue;
 		}
 		if (state.phase === 'leg') {
+			// A sea walk goes on along its own heading first: a crossing or bracket behind it would lead back over the water.
+			const sea = Number.isFinite(state.seaYaw) && state.destination;
 			// Two throws that cross well place the stronghold: stop throwing, walk to the crossing and dig down there.
-			if (state.estimateTrusted && !state.estimateRejected && point({ ...state.estimate, y: 0 }) && eyeLeg(last, state.throws.length) !== 0) {
+			if (!sea && state.estimateTrusted && !state.estimateRejected && point({ ...state.estimate, y: 0 }) && eyeLeg(last, state.throws.length) !== 0) {
 				const near = () => Math.hypot(state.estimate.x - o.player.x, state.estimate.z - o.player.z) <= ESTIMATE_DIG_BLOCKS;
 				if (!near()) {
 					const end = await act('travel_to', bounded({ x: state.estimate.x, z: state.estimate.z, build: true, tolerance: 3 }), { soft: true });
@@ -400,7 +402,7 @@ export async function followEyes(target, body, { observation: initial, deadline,
 				continue;
 			}
 			state.bracket = eyeBracket(state.bracket, state.throws.at(-2), last) ?? state.bracket;
-			if (state.bracket && eyeLeg(last, state.throws.length) !== 0) {
+			if (!sea && state.bracket && eyeLeg(last, state.throws.length) !== 0) {
 				const { a, b } = state.bracket, middle = { x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 };
 				const end = await act('travel_to', bounded({ ...middle, build: true, tolerance: 2 }), { soft: true });
 				if (end) return end;
@@ -408,7 +410,7 @@ export async function followEyes(target, body, { observation: initial, deadline,
 				if (state.phase === 'dig') state.digCentre = middle;
 				continue;
 			}
-			const distance = long ? eyeLegLong(last, state.throws.length, state.throws.at(-2), state.lastLeg) : eyeLeg(last, state.throws.length);
+			const distance = sea ? SEA_LEG_BLOCKS : long ? eyeLegLong(last, state.throws.length, state.throws.at(-2), state.lastLeg) : eyeLeg(last, state.throws.length);
 			if (distance === 0) {
 				if (point(last.to)) {
 					const end = await act('travel_to', bounded({ x: last.to.x, z: last.to.z, tolerance: 2, build: true }));
@@ -417,8 +419,8 @@ export async function followEyes(target, body, { observation: initial, deadline,
 				}
 				state.phase = 'dig'; continue;
 			}
-			if (!Number.isFinite(last.yaw)) return finish('FIND_BLOCKED', 'Eye heading not observed');
-			const d = direction(last.yaw);
+			if (!sea && !Number.isFinite(last.yaw)) return finish('FIND_BLOCKED', 'Eye heading not observed');
+			const d = direction(sea ? state.seaYaw : last.yaw);
 			if (!state.destination) state.lastLeg = distance;
 			state.destination ??= { x: last.from.x + d.x * distance, z: last.from.z + d.z * distance };
 			let end = await act('travel_to', bounded({ ...state.destination, build: true, tolerance: 3 }), { soft: true });
@@ -447,7 +449,7 @@ export async function followEyes(target, body, { observation: initial, deadline,
 				end = await act('travel_to', bounded({ ...state.destination, build: true, tolerance: 3 }), { soft: true });
 			}
 			if (end) return end;
-			delete state.destination;
+			delete state.destination; delete state.seaYaw;
 			state.phase = 'throw';
 			continue;
 		}
@@ -507,6 +509,7 @@ export async function followEyes(target, body, { observation: initial, deadline,
 			state.seaSkips = (state.seaSkips ?? 0) + 1;
 			const d = direction(lastHeading.yaw);
 			state.destination = { x: o.player.x + d.x * SEA_LEG_BLOCKS, z: o.player.z + d.z * SEA_LEG_BLOCKS };
+			state.seaYaw = lastHeading.yaw;
 			state.phase = 'leg';
 			body.progress?.({ label: `Over the sea: walking on ${SEA_LEG_BLOCKS} blocks before the next eye` });
 			continue;

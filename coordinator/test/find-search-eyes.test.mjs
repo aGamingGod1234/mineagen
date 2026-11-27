@@ -323,3 +323,21 @@ test('over the sea it walks on along the heading instead of throwing, at most th
 	});
 	assert.equal(seaBiome('minecraft:river'), true); assert.equal(seaBiome('minecraft:beach'), false); assert.equal(seaBiome('minecraft:lukewarm_ocean'), true);
 });
+test('a sea walk goes on along the heading even when opposed throws have bracketed the area', async () => {
+	await withEnv('MINEAGEN_EYE_LONG_LEGS', undefined, async () => {
+		// Throws alternate bearing (toward -x, then +x), so the second one brackets the area; then the body is over the sea.
+		let n = 0;
+		const b = bearingBody(() => ({ yaw: n++ % 2 ? -90 : 90 }));
+		const inner = b.act;
+		b.act = async (type, args, options) => {
+			const r = await inner(type, args, options);
+			if (type === 'use_item' && b.calls.filter(c => c.type === 'use_item').length === 2) b.o.world.biome = 'minecraft:ocean';
+			return r;
+		};
+		await searchFor({ structure: 'stronghold', throwCap: 3 }, b, { timeoutMs: 120_000, within: 2000 });
+		const throws = b.calls.map((c, i) => c.type === 'use_item' ? i : -1).filter(i => i >= 0);
+		assert.equal(throws.length, 3);
+		const walks = b.calls.slice(throws[1], throws[2]).filter(c => c.type === 'travel_to').map(c => Math.round(c.args.x));
+		assert.deepEqual(walks, [-60, 4, 68, 132], 'to the bracket middle once, then three 64-block sea legs along the newest heading');
+	});
+});
