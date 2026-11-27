@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { NativeToolRuntime } from '../src/native-tool-runtime.mjs';
 import { normalizeMinecraftToolCall } from '../src/native-minecraft-tools.mjs';
+import { CROSS_SHORT_BLOCKS, LONG_LEG_BLOCKS, eyeLegLong, longLegs } from '../src/find-eyes.mjs';
 const { flight } = JSON.parse(readFileSync(new URL('./fixtures/stronghold-eyes/4145a-flight.json', import.meta.url)));
 
 // Recorded visible flight only; bridge sequencing, inventory and stationary NO_ROUTE are injected.
@@ -37,7 +38,10 @@ test('production stronghold find throws, follows recorded eye and resumes only i
   const moves = calls.filter(c => c.actionType === 'travel_to').map(c => c.arguments);
   assert.ok(moves.some(m => Math.abs(Math.hypot(m.x - flight.from.x, m.z - flight.from.z) - 12) < .001), 'searched where the unseen eye drops');
   const move = moves.at(-1);
-  assert.ok(Math.abs(move.x - (flight.from.x - Math.sin(flight.yaw * Math.PI / 180) * 120)) < .001);
+  // The recorded flight carries a crossing far ahead along its heading: with long legs on, the leg runs toward it.
+  const leg = longLegs() ? eyeLegLong(flight, 1) : 120;
+  if (longLegs()) assert.equal(leg, Math.min(LONG_LEG_BLOCKS, flight.crossBlocks - CROSS_SHORT_BLOCKS));
+  assert.ok(Math.abs(move.x - (flight.from.x - Math.sin(flight.yaw * Math.PI / 180) * leg)) < .001);
   assert.equal(move.build, true); assert.equal(move.boundaryX, flight.from.x);
   await find(); assert.equal(calls.filter(c => c.actionType === 'use_item').length, 1, 'same goal resumes the leg');
   for (const reset of [() => record.goalRevision++, () => o.world.worldId = 'other-world', () => o.world.dimension = 'minecraft:the_end', () => o.world.dimension = 'minecraft:overworld']) {

@@ -37,7 +37,14 @@ async function probe(run, { position = saved.before.position, frame = null, heal
  finally { await runtime.dispose(record.agentId, 'test_complete'); clearInterval(keepAlive); }
 }
 
-test('recorded stationary NO_ROUTE hands entry decision back after one walking leg', { timeout: 15000 }, () => probe(async ({ find, moves }) => {
+// The off arm of find.portalSkipFailed keeps the old one-leg handback; on, the next spot is tried in the same call.
+async function skipFailedOff(run) {
+ const old = process.env.MINEAGEN_PORTAL_SKIP_FAILED;
+ process.env.MINEAGEN_PORTAL_SKIP_FAILED = 'off';
+ try { return await run(); } finally { if (old === undefined) delete process.env.MINEAGEN_PORTAL_SKIP_FAILED; else process.env.MINEAGEN_PORTAL_SKIP_FAILED = old; }
+}
+
+test('recorded stationary NO_ROUTE hands entry decision back after one walking leg', { timeout: 15000 }, () => skipFailedOff(() => probe(async ({ find, moves }) => {
  const result = await find();
  assert.equal(result.reasonCode, 'FIND_BLOCKED');
  assert.equal(moves.length, 1);
@@ -49,9 +56,20 @@ test('recorded stationary NO_ROUTE hands entry decision back after one walking l
  assert.equal(result.find.portal.approach.reasonCode, 'NO_ROUTE');
  assert.equal(result.find.portal.approach.message, saved.receipt.message);
  assert.match(result.message, /standing spot/);
+})));
+
+test('with failed spots remembered, the recorded stationary NO_ROUTE walks the next passage in the same find', { timeout: 15000 }, () => probe(async ({ find, moves }) => {
+ const result = await find();
+ assert.equal(moves.length, 2);
+ assert.deepEqual({ x: moves[0].x, y: moves[0].y, z: moves[0].z }, { x: -312.5, y: 34, z: 1852.5 });
+ assert.equal(moves[1].x, -304.5);
+ assert.equal(result.reasonCode, 'FIND_BLOCKED');
+ assert.equal(result.find.portal.failed, 1, 'the second walk stopped for a missing tool, not at the spot');
+ await find();
+ assert.equal(moves.filter(m => m.x === -312.5).length, 1, 'the dead spot is not walked to again');
 }));
 
-test('model descent resumes observed passages with the original room boundary; new goal resets origin', { timeout: 15000 }, () => probe(async ({ find, moves, record, o }) => {
+test('model descent resumes observed passages with the original room boundary; new goal resets origin', { timeout: 15000 }, () => skipFailedOff(() => probe(async ({ find, moves, record, o }) => {
  await find();
  Object.assign(o.player, { y: 34 });
  const resumed = await find();
@@ -61,7 +79,7 @@ test('model descent resumes observed passages with the original room boundary; n
  record.goalRevision++; o.player.x -= 10;
  const reset = await find();
  assert.deepEqual(reset.find.portal.origin, { x: o.player.x, y: o.player.y, z: o.player.z });
-}));
+})));
 
 test('nearby actual frame can certify sight, masonry cannot', { timeout: 15000 }, () => probe(async ({ find, moves }) => {
  const result = await find();
