@@ -193,6 +193,7 @@ const READS = [
 	['kit.habit', 'scripts/quality/test-iron-kit-live.mjs', "getSwitch('kit.habit')"],
 	['night.cover', 'scripts/quality/test-obtain-live.mjs', "getSwitch('night.cover')"],
 	['respawn.restFirst', 'coordinator/src/night-cover.mjs', "getSwitch('respawn.restFirst', environment)"],
+	['perception.spawnerPlatform', 'src/main/java/dev/agaminggod/mineagen/server/perception/FarSight.java', 'Switches.get("perception.spawnerPlatform")'],
 ];
 
 test('every reader reads its switch through the registry, and no switch variable is parsed anywhere else', () => {
@@ -225,6 +226,7 @@ test('every reader reads its switch through the registry, and no switch variable
 		'fight.recover': { property: 'mineagen.fight.recover', properties: [[undefined, true], ['false', false], ['False', true]] },
 		'dig.floorLavaGuard': { property: 'mineagen.dig.floorLavaGuard', properties: [[undefined, true], ['false', false], ['FALSE', true]] },
 		'reflex.plugInflow': { property: 'mineagen.reflex.plugInflow', properties: [[undefined, true], ['false', false], ['FALSE', true]] },
+		'perception.spawnerPlatform': { property: 'mineagen.perception.spawnerPlatform', properties: [[undefined, true], ['false', false], [' false', true]] },
 		'fight.spawnerHold': { property: 'mineagen.fight.spawnerHold', properties: [[undefined, true], ['false', false], [' false', true]] },
 		'fight.spawnerHoldOpen': { property: 'mineagen.fight.spawnerHoldOpen', properties: [[undefined, true], ['false', false], ['0', true]] },
 		'fight.forestHunt': { property: 'mineagen.fight.forestHunt', properties: [[undefined, false], ['true', true], ['TRUE', true], [' true', false]] },
@@ -358,6 +360,7 @@ public class SwitchesParity {
 				!"false".equals(p.get("mineagen.fight.recover")),
 				!"false".equals(p.get("mineagen.dig.floorLavaGuard")),
 				!"false".equals(p.get("mineagen.reflex.plugInflow")),
+				!"false".equals(p.get("mineagen.perception.spawnerPlatform")),
 				!"false".equals(p.get("mineagen.fight.spawnerHold")),
 				!"false".equals(p.get("mineagen.fight.spawnerHoldOpen")),
 				"true".equalsIgnoreCase(p.get("mineagen.fight.forestHunt")),
@@ -370,7 +373,7 @@ public class SwitchesParity {
 				!"off".equalsIgnoreCase(String.valueOf(env.get("MINEAGEN_REFLEX_HOLD_RUN")).trim()),
 				!"off".equalsIgnoreCase(String.valueOf(env.get("MINEAGEN_EAT_THROUGH")).trim()),
 				"true".equalsIgnoreCase(p.getOrDefault("mineagen.watch", "false").trim()), strikeRearm, defaultRearm };
-		String[] names = { "instincts", "travel.walkAround", "travel.shallowShore", "travel.skipBuried", "travel.gazeGuard", "travel.endermanFight", "fight.chargeGuard", "fight.recover", "dig.floorLavaGuard", "reflex.plugInflow", "fight.spawnerHold", "fight.spawnerHoldOpen",
+		String[] names = { "instincts", "travel.walkAround", "travel.shallowShore", "travel.skipBuried", "travel.gazeGuard", "travel.endermanFight", "fight.chargeGuard", "fight.recover", "dig.floorLavaGuard", "reflex.plugInflow", "perception.spawnerPlatform", "fight.spawnerHold", "fight.spawnerHoldOpen",
 				"fight.forestHunt", "fight.fullIds", "fight.skipUnreachable", "killPosition", "fight.holdBailRetreat", "rest.softGround", "creeper.guard", "reflex.holdRun", "reflex.eatThrough", "watch", "end.strikeRearm", "reflex.defaultRearm" };
 		StringBuilder line = new StringBuilder("switches");
 		for (int i = 0; i < names.length; i++) line.append(' ').append(names[i]).append('=').append(values[i] ? "on" : "off");

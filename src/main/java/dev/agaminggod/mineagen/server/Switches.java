@@ -83,6 +83,8 @@ public final class Switches {
 		new Switch("dig.floorLavaGuard", null, "mineagen.dig.floorLavaGuard", "server", true, JAVA_NOT_FALSE_EXACT, null, "default-on"),
 		// ReflexActions.java LeaveFire.PLUG_INFLOW: class load (tests reassign it).
 		new Switch("reflex.plugInflow", null, "mineagen.reflex.plugInflow", "server", true, JAVA_NOT_FALSE_EXACT, null, "default-on"),
+		// FarSight.java SPAWNER_PLATFORM: class load.
+		new Switch("perception.spawnerPlatform", null, "mineagen.perception.spawnerPlatform", "server", true, JAVA_NOT_FALSE_EXACT, null, "default-on"),
 		// SpawnerHold.java ENABLED: class load.
 		new Switch("fight.spawnerHold", null, "mineagen.fight.spawnerHold", "server", true, JAVA_NOT_FALSE_EXACT, null, "default-on"),
 		// SpawnerHold.java OPEN_FIGHT: class load.

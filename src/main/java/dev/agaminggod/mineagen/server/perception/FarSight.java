@@ -51,6 +51,7 @@ import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.levelgen.structure.BoundingBox;
 import net.minecraft.world.level.levelgen.structure.StructurePiece;
 import net.minecraft.world.level.levelgen.structure.StructureStart;
+import net.minecraft.world.level.levelgen.structure.pieces.StructurePieceType;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
@@ -1478,12 +1479,51 @@ public final class FarSight {
 					break;
 				}
 			}
+			if (SPAWNER_PLATFORM && "nether fortress".equals(view.label())) rows.addAll(platformRows(level, sight, view));
 			if (nearest == null) continue;
 			double distance = sight.distance(nearest);
 			boolean named = distance <= NAMED_STRUCTURE_DISTANCE || knownByMaterial(view.label(), seenBlocks);
 			int size = seenSpan(seen);
 			rows.add(new Row(Section.STRUCTURES, view.key(), named ? view.label() : null,
 					named ? List.of() : seenBlocks.stream().limit(3).toList(), 0, size, Cell.of(nearest), distance));
+		}
+		return rows;
+	}
+
+	/** Server switch perception.spawnerPlatform: false drops the platform rows (A/B off arm). */
+	static final boolean SPAWNER_PLATFORM = dev.agaminggod.mineagen.server.Switches.get("perception.spawnerPlatform");
+	static final String SPAWNER_PLATFORM_LABEL = "nether fortress spawner platform";
+
+	/**
+	 * A fortress's blaze spawner stands on a raised, fence-ringed platform with stairs up to it (the monster throne piece).
+	 * The spawner itself is one block on top and hides behind the platform's floor from the bridges below (fortress-entry
+	 * games 26 Nov: 13 of 26 never saw it, closest 9.5-34 m; the rest saw it only at 3-7 m), but a player recognises the
+	 * platform's shape across the fortress. A platform row needs a clear line from the eye that ends on a generated block
+	 * of that piece within naming distance; its cell is that seen block, never the hidden spawner.
+	 */
+	private static List<Row> platformRows(ServerLevel level, Sight sight, StartView view) {
+		List<Row> rows = new ArrayList<>();
+		for (StructurePiece piece : view.start().getPieces()) {
+			if (piece.getType() != StructurePieceType.NETHER_FORTRESS_MONSTER_THRONE) continue;
+			BoundingBox box = piece.getBoundingBox();
+			if (boxDistance(sight.eye, box) > Math.min(sight.range, NAMED_STRUCTURE_DISTANCE)) continue;
+			List<Vec3> base = aimPoints(sight.eye, box);
+			List<Vec3> aims = new ArrayList<>(base);
+			// The sides facing the eye at deck and platform height too: the box's middle is mostly air over the deck.
+			for (Vec3 side : base.subList(2, base.size())) {
+				aims.add(new Vec3(side.x, box.minY() + 2.5D, side.z));
+				aims.add(new Vec3(side.x, box.minY() + 4.5D, side.z));
+			}
+			for (Vec3 aim : aims) {
+				if (!sight.inView(aim)) continue;
+				BlockPos end = sight.lineEnd(aim);
+				if (end == null || !sight.withinRange(end) || !box.isInside(end)) continue;
+				BlockState state = sight.loadedState(end);
+				if (state == null || !SightedFeatures.built(state, view.label()) || changedSinceLoad(level, end)) continue;
+				rows.add(new Row(Section.STRUCTURES, view.key() + "#throne@" + BlockPos.asLong(box.minX(), box.minY(), box.minZ()), SPAWNER_PLATFORM_LABEL,
+						List.of(), 0, Math.max(box.getXSpan(), box.getZSpan()), Cell.of(end), sight.distance(end)));
+				break;
+			}
 		}
 		return rows;
 	}

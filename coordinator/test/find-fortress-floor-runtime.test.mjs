@@ -97,3 +97,27 @@ test('rods (b): a wither skeleton far from the floor and its line does not stop 
 	assert.equal(moves.length, 1);
 	assert.equal(result.reasonCode, 'FIND_BLOCKED');
 });
+
+// Far sight's spawner platform row (FarSight.platformRows): the spawner stands on top, hidden from the bridges below,
+// so a seen platform is walked to before any floor leg.
+test('a seen spawner platform is the first leg, building allowed, stopping when the spawner is seen', async () => {
+	const { moves } = await replay(1, 'NO_ROUTE', (observation) => {
+		const p = observation.player;
+		observation.sighted = { ...(observation.sighted ?? {}), structures: [
+			{ structure: 'nether fortress', x: Math.floor(p.x) + 5, y: Math.floor(p.y), z: Math.floor(p.z) + 5, distance: 7, size: 20 },
+			{ structure: 'nether fortress spawner platform', x: Math.floor(p.x) + 30, y: Math.floor(p.y) + 3, z: Math.floor(p.z) - 10, distance: 32, size: 9 }] };
+	});
+	assert.ok(moves.length >= 1);
+	assert.equal(moves[0].actionType, 'travel_to');
+	assert.equal(moves[0].build, true);
+	assert.equal(moves[0].stopWhenSeen, 'minecraft:spawner');
+	const p = saved.windows[1].observation.player;
+	assert.deepEqual([moves[0].x, moves[0].y, moves[0].z], [Math.floor(p.x) + 30.5, Math.floor(p.y) + 4, Math.floor(p.z) - 9.5]);
+	// The platform is tried once; later legs are the ordinary floor walk.
+	assert.ok(moves.slice(1).every((move) => move.build !== true || move.x !== moves[0].x));
+});
+
+test('without a platform row the floor walk is unchanged', async () => {
+	const { moves } = await replay(1);
+	assert.deepEqual([moves[0].x, moves[0].y, moves[0].z], [9.5, 67, 113.5]);
+});

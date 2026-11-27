@@ -7,8 +7,18 @@ import { corridorFloor, witherOnLeg, withersSeen } from './fortress-approach.mjs
 // A visible top face is a destination to try, not proof of reachable floor; walking navigation owns that check.
 export const fortressSpawnerSearch = (profile, observation) => profile.kind === 'block' && profile.ids.has('minecraft:spawner')
 	&& observation?.world?.dimension === 'minecraft:the_nether'
-	&& !observation?.continuity?.rememberedSections?.includes('blocks')
-	&& (observation?.blocks ?? []).some((row) => row.blockId === 'minecraft:nether_bricks');
+	&& (!observation?.continuity?.rememberedSections?.includes('blocks')
+		&& (observation?.blocks ?? []).some((row) => row.blockId === 'minecraft:nether_bricks') || platformsSeen(observation).length > 0);
+
+/** Far sight's name for a fortress's raised, fence-ringed blaze spawner platform (FarSight.platformRows). */
+export const SPAWNER_PLATFORM = 'nether fortress spawner platform';
+
+/** Spawner platforms in the current view or the last survey, nearest first: the spawner stands on top of one. */
+export function platformsSeen(observation) {
+	const rows = [...(observation?.sighted?.structures ?? []), ...(observation?.survey?.structures ?? [])];
+	return rows.filter((row) => row?.structure === SPAWNER_PLATFORM && [row.x, row.y, row.z].every(Number.isFinite))
+		.sort((a, b) => (a.distance ?? Infinity) - (b.distance ?? Infinity));
+}
 
 // Spawner exploration has its own fortress-floor policy; leave its generic fallback unchanged too.
 export const netherCrossing = (profile, observation) => observation?.world?.dimension === 'minecraft:the_nether'
@@ -38,8 +48,23 @@ export async function walkFortressFloor(search) {
 	const farSeen = search.farSeen ?? (() => []), sweepHostiles = search.sweepHostiles ?? (() => []);
 	const attempted = new Set(), visited = [bodyAt(observation())], lookedFrom = [];
 	let travelled = 0;
+	const platformsTried = new Set();
 	while (left() >= minLegMs) {
 		const at = bodyAt(observation());
+		// A seen spawner platform is where a player heads: the spawner on top shows only from the platform's own level.
+		const platform = platformsSeen(observation()).find((row) => !platformsTried.has(`${row.x},${row.y},${row.z}`) && insideBoundary(row));
+		if (platform !== undefined) {
+			platformsTried.add(`${platform.x},${platform.y},${platform.z}`);
+			const trip = await leg('to the seen spawner platform', 'travel_to', { x: platform.x + 0.5, y: platform.y + 1, z: platform.z + 0.5, tolerance: 3, build: true, stopWhenSeen: profile.stopId });
+			const ended = await settle(trip);
+			if (ended !== null) return ended;
+			const after = bodyAt(observation());
+			visited.push(after);
+			lookedFrom.push(after);
+			const view = await look(0);
+			if (view.interrupted || view.seen || view.ended) return settle(view);
+			continue;
+		}
 		const remembered = observation()?.continuity?.rememberedSections?.includes('blocks');
 		const seenBlocks = remembered ? [] : (observation()?.blocks ?? []);
 		const top = (row, far) => { const cell = cellOf(row); return cell === null ? null : { x: cell.x + 0.5, y: cell.y + 1, z: cell.z + 0.5, far }; };

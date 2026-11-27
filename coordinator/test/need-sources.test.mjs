@@ -965,3 +965,15 @@ test('pearl lines count toward the 15-pearl eye plan even when the step names th
 	assert.equal(pearlTarget('has:minecraft:ender_eye*12', { MINEAGEN_ROUTE_PEARL_PLAN: 'off' }), 12);
 	assert.equal(pearlTarget('', { MINEAGEN_ROUTE_PEARL_PLAN: 'off' }), 12);
 });
+
+test('a seen spawner platform is listed for blaze rods with its coordinates, before the fortress itself', () => {
+	const search = createSearch();
+	recordSightings(search, { structures: [
+		{ structure: 'nether fortress', size: 40, ...place(10, 64, 0) },
+		{ structure: 'nether fortress spawner platform', size: 9, ...place(-30, 70, 40) },
+	] }, 1, () => undefined, { dimension: 'minecraft:the_nether' });
+	const known = { sightings: [...search.sightings.values()], blocks: [] };
+	const line = needOptions({ ids: ['minecraft:blaze_rod'], known, position: { x: 0, y: 64, z: 0 } });
+	assert.match(line, /spawner platform \(blaze spawner on top\) 50m SW dy\+6 y70 @-30,70,40/);
+	assert.ok(line.indexOf('spawner platform') < line.indexOf('nether fortress'), line);
+});

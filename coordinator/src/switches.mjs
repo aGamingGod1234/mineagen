@@ -259,6 +259,10 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'reflex.plugInflow', property: 'mineagen.reflex.plugInflow', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
 		reason: 'Before stepping back from lava seen coming, the lava reflex puts one block in the cell it flows in through; 1 of 7 lava deaths in 8 fresh games backed off a dug-into flow that then followed it.',
 		readers: ['ReflexActions.java LeaveFire.PLUG_INFLOW (class load)'] }),
+	// FarSight.java SPAWNER_PLATFORM: static final, class load.
+	entry({ name: 'perception.spawnerPlatform', property: 'mineagen.perception.spawnerPlatform', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
+		reason: 'Far sight names a fortress\'s raised spawner platform (structure "nether fortress spawner platform") when a clear line reaches one of its generated blocks within 64 blocks, and the spawner search walks to it. In 26 fortress-entry games 13 never saw the spawner (closest 9.5-34 m) and the rest saw it only at 3-7 m: the platform floor hides it from the bridges below. false drops the rows.',
+		readers: ['FarSight.java SPAWNER_PLATFORM (class load)'] }),
 	// SpawnerHold.java ENABLED: static final, class load.
 	entry({ name: 'fight.spawnerHold', property: 'mineagen.fight.spawnerHold', side: 'server', default: true, parser: JAVA_NOT_FALSE_EXACT, status: 'default-on',
 		reason: 'Holds a blaze spawner from a roofed cell; staged fortress runs lost 12 of 28 deaths to wither skeletons on open decks (#89).',
