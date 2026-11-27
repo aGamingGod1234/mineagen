@@ -503,9 +503,10 @@ export async function followEyes(target, body, { observation: initial, deadline,
 		}
 		if (state.throws.length >= (target.throwCap ?? 8)) return finish('FIND_BUDGET', 'Throw cap reached');
 		// Over the sea a thrown eye drops into the water and is lost (a twelve-eyes game lost 4 of 8 so): walk on along the
-		// last heading and throw from land, up to SEA_SKIPS times in a row.
+		// last heading and throw from land, up to SEA_SKIPS times in a row. Not once opposed throws bracket the area: walking on
+		// would leave the bracket, and the stronghold may lie under the water there.
 		const lastHeading = state.throws.findLast(t => Number.isFinite(t.yaw));
-		if (long && lastHeading && seaBiome(o.world?.biome) && (state.seaSkips ?? 0) < SEA_SKIPS) {
+		if (long && lastHeading && !state.bracket && seaBiome(o.world?.biome) && (state.seaSkips ?? 0) < SEA_SKIPS) {
 			state.seaSkips = (state.seaSkips ?? 0) + 1;
 			const d = direction(lastHeading.yaw);
 			state.destination = { x: o.player.x + d.x * SEA_LEG_BLOCKS, z: o.player.z + d.z * SEA_LEG_BLOCKS };
