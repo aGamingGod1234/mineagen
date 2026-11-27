@@ -116,6 +116,9 @@ final class BoatTrap {
 	private int approaches;
 	private UUID approachFor;
 	private long approachSinceMs;
+	/** The walk-in goal and where its enderman stood when it was set: kept until the enderman moves, so the walk is not restarted each tick. */
+	private Vec3 approachGoal;
+	private Vec3 approachSeen;
 	private ServerNavigationController step;
 	/** The block going down under a boat (multi-tick: the body turns to it first), and since when (ticks). */
 	private BlockPos blockAt;
@@ -416,16 +419,20 @@ final class BoatTrap {
 		if (h > TRAP_RANGE) {
 			// Too far to trap: walk in to APPROACH_TO before any stare, or the fight as before with no boat to lay.
 			if (boats(player) == 0 && !boatUsable()) return null;
-			if (!target.getUUID().equals(approachFor)) { approachFor = target.getUUID(); approachSinceMs = elapsed; approaches++; }
+			if (!target.getUUID().equals(approachFor)) { approachFor = target.getUUID(); approachSinceMs = elapsed; approaches++; approachGoal = null; }
 			if (elapsed - approachSinceMs > APPROACH_MS) {
 				note(String.format(Locale.ROOT, "%s stayed %.1f blocks off after %.0f s of walking in: fought as before", target.getUUID(), h, APPROACH_MS / 1000.0D));
 				skipped.add(target.getUUID());
 				cancelStep(player);
 				return null;
 			}
-			Vec3 toward = flat(player.position().subtract(target.position()));
-			Vec3 goal = new Vec3(target.getX(), player.getY(), target.getZ()).add(toward.normalize().scale(APPROACH_TO));
-			walk(player, goal, now);
+			if (approachGoal == null || approachSeen.distanceTo(target.position()) > 1.5D) {
+				Vec3 toward = flat(player.position().subtract(target.position()));
+				approachGoal = new Vec3(target.getX(), player.getY(), target.getZ()).add(toward.normalize().scale(APPROACH_TO));
+				approachSeen = target.position();
+			}
+			// Arrived (or no route) while still out of range: aim again from here next tick.
+			if (walk(player, approachGoal, now)) approachGoal = null;
 			return TickResult.running(0.0D);
 		}
 		// The boat already stands between: let the fight stare it angry from here.

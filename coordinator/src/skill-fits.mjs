@@ -426,7 +426,7 @@ export function forestFit(o, items, count) {
 	if (!items.some(i => !WORN.has(i.slot) && /^minecraft:[a-z_]+_(sword|axe)$/.test(i.itemId ?? ''))) return false;
 	if (count(EDIBLE) < 1 && !(Number.isFinite(hunger) && hunger >= 18)) return false;
 	return items.some(i => WORN.has(i.slot)) || count(/^minecraft:[a-z_]*boat$/) > 0
-		|| count(MOULD) + count(/^minecraft:(netherrack|cobblestone|[a-z_]+_planks)$/) >= FOREST_BLOCKS;
+		|| count(MOULD) + count(/^minecraft:(netherrack|[a-z_]+_planks)$/) >= FOREST_BLOCKS;
 }
 
 export function routeLine({ observation: o = null, known = null, memory = null, foodHandedBack = false, woodHandedBack = false, kitHandedBack = new Set(), diedSincePortal = false, evaluate, instincts = false, environment = process.env } = {}) {
