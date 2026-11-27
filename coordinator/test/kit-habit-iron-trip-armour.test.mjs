@@ -183,3 +183,24 @@ test('keepKit with reserved ingots: smelt, then chestplate, then wear it', async
 	assert.deepEqual(done, ['smelted iron_ingot to 11', 'crafted iron_chestplate', 'wore iron_chestplate (chest)']);
 	assert.equal(items.find(row => row.itemId === 'minecraft:iron_ingot').count, 3, 'the 3 asked for are still held');
 });
+
+test('keepKit with reserved ingots smelts twice in one run: the shield\'s ingot, then the chestplate\'s', async () => {
+	let items = [item('iron_pickaxe', 'mainhand'), item('bucket', 3), item('flint_and_steel', 4), ...stations, item('iron_ingot', 9, 3), item('raw_iron', 10, 12)];
+	const calls = [];
+	const take = (id, n) => { items = items.map(row => row.itemId === id ? { ...row, count: row.count - n } : row).filter(row => row.count > 0); };
+	const body = { observe: async () => down(items), act: async (_type, a) => {
+		items = items.map(row => row.slot === a.sourceSlot ? { ...row, slot: a.targetSlot } : row);
+		return { state: 'SUCCEEDED' };
+	} };
+	const craft = async (itemId, count) => {
+		calls.push([itemId, count]);
+		if (itemId === 'minecraft:iron_ingot') { const have = items.find(row => row.itemId === 'minecraft:iron_ingot').count; take('minecraft:raw_iron', count - have); take('minecraft:iron_ingot', -(count - have)); }
+		if (itemId === 'minecraft:shield') { take('minecraft:iron_ingot', 1); items.push(item('shield', 13)); }
+		if (itemId === 'minecraft:iron_chestplate') { take('minecraft:iron_ingot', 8); items.push(item('iron_chestplate', 12)); }
+		return { state: 'SUCCEEDED' };
+	};
+	const done = await keepKit(body, craft, { reserved: { ids: ['minecraft:iron_ingot'], count: 3 } });
+	assert.deepEqual(calls.map(([id]) => id.replace('minecraft:', '')), ['iron_ingot', 'shield', 'iron_ingot', 'iron_chestplate']);
+	assert.ok(done.includes('wore iron_chestplate (chest)'), done.join(', '));
+	assert.equal(items.find(row => row.itemId === 'minecraft:iron_ingot').count, 3, 'the 3 asked for are still held');
+});

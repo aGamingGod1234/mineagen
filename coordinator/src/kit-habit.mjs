@@ -217,7 +217,8 @@ export async function keepKit(body, craft, { stopped = () => false, reserved = n
 	const done = [], crafted = new Set();
 	let toppedUp = false;
 	// A top-up adds two steps: the mining itself and the chestplate's craft after it (its equip is the usual one).
-	const cap = KIT_MAX_STEPS + (topUp && ironTripArmourEnabled() ? 2 : 0);
+	// A smelt step (reserved ingots) adds one too: it is the craft after it split in two.
+	let cap = KIT_MAX_STEPS + (topUp && ironTripArmourEnabled() ? 2 : 0);
 	for (let index = 0; index < cap && !stopped(); index += 1) {
 		// A top-up's chestplate may follow its raw iron in the same run (its fuel gathered then); a repeat of either ends the run.
 		const step = nextKitStep(await body.observe(), { reserved, topUp });
@@ -227,8 +228,11 @@ export async function keepKit(body, craft, { stopped = () => false, reserved = n
 		if (step.kind === 'equip') result = await body.act('equip_item', { sourceSlot: step.sourceSlot, targetSlot: step.targetSlot, expectedItemId: step.itemId });
 		else if (step.kind === 'hotbar') result = await body.act('select_tool', { sourceSlot: step.sourceSlot, hotbarSlot: step.hotbarSlot, expectedItemId: step.itemId, minRemainingDurability: 0 });
 		else {
-			if (crafted.has(step.itemId)) break;
-			crafted.add(step.itemId);
+			// A smelt to a higher count is a new step (the shield's ingot, then the chestplate's); a repeat of either ends the run.
+			const key = step.smelt ? `${step.itemId}:${step.count}` : step.itemId;
+			if (crafted.has(key)) break;
+			crafted.add(key);
+			if (step.smelt) cap += 1;
 			if (step.topUp && !toppedUp) { toppedUp = true; onTopUp(); }
 			// count: the total to hold (a spare shield is the second one), as obtain counts.
 			result = await craft(step.itemId, step.count ?? 1, step.timeoutMs);
