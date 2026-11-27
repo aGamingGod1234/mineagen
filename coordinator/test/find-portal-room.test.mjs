@@ -132,3 +132,29 @@ test('a search hands back after a few dead spots in one call', async () => {
 		assert.equal(r.find.portal.failed, 4);
 	});
 });
+// Two twelve-eyes games failed 51 and 127 walks 1-3 blocks short of wall and ceiling tops 1-4 blocks above the body.
+const walkedTo = (b, x) => b.calls.some(c => c.type === 'travel_to' && Math.floor(c.args.x) === x);
+test('a full brick at the feet is wall, a stair there is a step up, and a spot well above waits', async () => {
+	await withEnv('MINEAGEN_PORTAL_FLOOR_ONLY', undefined, async () => {
+		const wall = body(); wall.o.blocks.push(brick(6, 32, 0));
+		assert.equal((await searchFor(target, wall)).reasonCode, 'FIND_BLOCKED');
+		assert.equal(walkedTo(wall, 6), false, 'the top of a wall brick at the feet is not floor');
+		const stair = body(); stair.o.blocks.push({ blockId: 'minecraft:stone_brick_stairs', x: 6, y: 32, z: 0 });
+		await searchFor(target, stair, { timeoutMs: 5_000 });
+		assert.equal(walkedTo(stair, 6), true, 'a stair at the feet is a step up');
+		const high = body(); high.frontier = () => ({ candidates: [{ x: 6, y: 35, z: 0 }] });
+		assert.equal((await searchFor(target, high)).reasonCode, 'FIND_BLOCKED');
+		assert.equal(walkedTo(high, 6), false, 'a spot three above two strides away is a wall or ceiling top');
+		assert.equal(high.eyeSearchState.portal.pending.length, 1, 'kept for when the body has climbed near it');
+		const frameUp = body(); frameUp.o.blocks.push(frame(6, 35));
+		assert.equal((await searchFor(target, frameUp)).reasonCode, 'FIND_SEEN', 'a seen frame is still approached');
+	});
+	await withEnv('MINEAGEN_PORTAL_FLOOR_ONLY', 'off', async () => {
+		const wall = body(); wall.o.blocks.push(brick(6, 32, 0));
+		await searchFor(target, wall, { timeoutMs: 5_000 });
+		assert.equal(walkedTo(wall, 6), true, 'off arm: the wall top is a destination');
+		const high = body(); high.frontier = () => ({ candidates: [{ x: 6, y: 35, z: 0 }] });
+		await searchFor(target, high, { timeoutMs: 5_000 });
+		assert.equal(walkedTo(high, 6), true, 'off arm: the high spot is walked to');
+	});
+});
