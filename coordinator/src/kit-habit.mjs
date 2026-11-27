@@ -136,10 +136,13 @@ export function nextKitStep(o, { reserved = null, topUp = false } = {}) {
 	// ended with 2-7 raw iron unsmelted in 6, and the habit counted only ingots.
 	const tripArmour = ironTripArmourEnabled();
 	const ingotsReserved = reserved !== null && reserved.ids.some(id => bare(id) === 'iron_ingot');
-	const iron = tripArmour ? /^minecraft:(iron_ingot|raw_iron)$/ : /^minecraft:iron_ingot$/;
+	// A kit craft's nested obtain plans against everything held, and its smelt burns the best fuel held: raw iron is armour
+	// iron only after an iron kit obtain (none of those burns), so coal or planks just asked for are never the fuel.
+	const smelts = tripArmour && (reserved === null || reserved.ids.every(id => IRON_KIT_ITEMS.test(id)));
+	const iron = smelts ? /^minecraft:(iron_ingot|raw_iron)$/ : /^minecraft:iron_ingot$/;
 	const heldIngots = count(/^minecraft:iron_ingot$/);
 	// Reserved raw iron stays: a craft smelts only what its ingots lack, at most the raw held beyond the reserved count.
-	const kept = reserved !== null && reserved.ids.some(id => bare(id) === 'iron_ingot' || tripArmour && bare(id) === 'raw_iron') ? reserved.count : 0;
+	const kept = reserved !== null && reserved.ids.some(id => bare(id) === 'iron_ingot' || smelts && bare(id) === 'raw_iron') ? reserved.count : 0;
 	const ingots = Math.max(0, count(iron) - kept);
 	const craftable = (itemId, count = 1) => craftsFromHeld(o, itemId, { reserved, count });
 	// The raw iron a craft of `need` iron smelts first, and the time that takes on top of the craft's minute.
@@ -166,7 +169,7 @@ export function nextKitStep(o, { reserved = null, topUp = false } = {}) {
 		if (!craftable(piece.itemId)) {
 			// kit.ironTripArmour: the chestplate's iron held but nothing to smelt it with (A/B game freshd1 ended with 10
 			// raw iron, a furnace and no fuel): its obtain gathers the fuel too, as a top-up, down a mine only.
-			if (tripArmour && topUp && piece.slot === 'chest' && mineDown) {
+			if (smelts && topUp && piece.slot === 'chest' && mineDown) {
 				return smeltFirst(piece.iron, IRON_TOPUP_MS + smeltTime(piece.iron), true)
 					?? { kind: 'craft', itemId: piece.itemId, timeoutMs: IRON_TOPUP_MS + smeltTime(piece.iron), topUp: true };
 			}
@@ -182,7 +185,7 @@ export function nextKitStep(o, { reserved = null, topUp = false } = {}) {
 	// the model took it 0 times; a gate at the portal (#304) found no ore there. Down a mine only, with a pickaxe that
 	// mines iron, capped at IRON_TOPUP_MS; the runtime spaces top-ups out, so a seed short of iron never stalls on it.
 	const minesIron = [...heldCounts({ inventory: { items } })].some(([id, n]) => /^(stone|iron|diamond|netherite)_pickaxe$/.test(id) && n > 0);
-	if (tripArmour && topUp && !chestplate && mineDown && minesIron) {
+	if (smelts && topUp && !chestplate && mineDown && minesIron) {
 		const short = ironReserved(items) + ARMOUR[0].iron - ingots;
 		if (short > 0) return { kind: 'craft', itemId: 'minecraft:raw_iron', count: count(/^minecraft:raw_iron$/) + short, timeoutMs: IRON_TOPUP_MS, topUp: true };
 	}

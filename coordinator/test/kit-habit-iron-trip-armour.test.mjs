@@ -154,6 +154,16 @@ test('with ingots reserved, the chestplate\'s raw iron is smelted as its own ste
 	assert.deepEqual(nextKitStep(down([item('iron_pickaxe', 'mainhand'), ...stations, item('iron_ingot', 9, 4)]), { reserved }), { kind: 'craft', itemId: 'minecraft:shield' });
 });
 
+test('after an obtain of something a smelt could burn (coal, planks), raw iron is not armour iron, so that fuel stays', () => {
+	const kit = [item('iron_pickaxe', 'mainhand'), item('bucket', 3), item('flint_and_steel', 4), item('shield', 'offhand'), ...stations];
+	assert.equal(nextKitStep(down([...kit, item('raw_iron', 9, 8)]), { reserved: { ids: ['minecraft:coal'], count: 8 } }), null);
+	assert.equal(nextKitStep(down([...kit, item('raw_iron', 9, 8)]), { reserved: { ids: ['minecraft:oak_planks'], count: 16 } }), null);
+	// Ingots alone still craft, as before the switch.
+	assert.deepEqual(nextKitStep(down([...kit, item('iron_ingot', 9, 8)]), { reserved: { ids: ['minecraft:coal'], count: 8 } }), { kind: 'craft', itemId: 'minecraft:iron_chestplate' });
+	// And no top-up or fuel gather opens after one.
+	assert.equal(nextKitStep(down([...afterPickaxe, item('shield', 'offhand'), item('raw_iron', 9, 1)]), { topUp: true, reserved: { ids: ['minecraft:coal'], count: 8 } }), null);
+});
+
 test('keepKit with reserved ingots: smelt, then chestplate, then wear it', async () => {
 	const kit = [item('iron_pickaxe', 'mainhand'), item('bucket', 3), item('flint_and_steel', 4), item('shield', 'offhand'), ...stations];
 	let items = [...kit, item('iron_ingot', 9, 3), item('raw_iron', 10, 8)];
