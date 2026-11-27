@@ -157,6 +157,7 @@ const READS = [
 	['stock.foodFloor', 'coordinator/src/obtain-runner.mjs', "getSwitch('stock.foodFloor').value"],
 	['stock.portalGate', 'coordinator/src/native-tool-runtime.mjs', "getSwitch('stock.portalGate').value"],
 	['stock.descentGate', 'coordinator/src/native-tool-runtime.mjs', "getSwitch('stock.descentGate').value"],
+	['kit.armourGate', 'coordinator/src/native-tool-runtime.mjs', "getSwitch('kit.armourGate').value"],
 	['end.crystalGone', 'coordinator/src/dragon-fight-facts.mjs', "getSwitch('end.crystalGone', environment)"],
 	['end.closeWait', 'coordinator/src/dragon-fight-facts.mjs', "getSwitch('end.closeWait', environment)"],
 	['route.pearlPlan', 'coordinator/src/need-sources.mjs', "getSwitch('route.pearlPlan', environment)"],
