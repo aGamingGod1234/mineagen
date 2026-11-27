@@ -147,9 +147,21 @@ export function nextKitStep(o, { reserved = null, topUp = false } = {}) {
 	const pickaxeOwed = soundPickaxe(items) ? 0 : 3;
 	if (shields.length === 0 && ingots >= 1 + pickaxeOwed && wood >= 6 && craftable('minecraft:shield')) return { kind: 'craft', itemId: 'minecraft:shield' };
 	const spare = ingots - ironReserved(items);
+	const chestplate = items.some(item => /_chestplate$/.test(item.itemId));
+	const at = o.position ?? o.player?.position ?? o.player;
+	const mineDown = (o.world?.dimension ?? 'minecraft:overworld') === 'minecraft:overworld' && o.player?.skyOpen === false && Number.isFinite(at?.y) && at.y < MINE_Y;
 	for (const piece of ARMOUR) {
 		if (worn(piece.slot) || items.some(item => piece.part.test(item.itemId))) continue;
-		if (piece.iron > spare || !craftable(piece.itemId)) continue;
+		// kit.ironTripArmour: leggings take 7 of the chestplate's 8 for fewer points, so they wait for it (A/B game
+		// freshrb: 7 spare became leggings and the chestplate never came).
+		if (tripArmour && !chestplate && piece.slot === 'legs') continue;
+		if (piece.iron > spare) continue;
+		if (!craftable(piece.itemId)) {
+			// kit.ironTripArmour: the chestplate's iron held but nothing to smelt it with (A/B game freshd1 ended with 10
+			// raw iron, a furnace and no fuel): its obtain gathers the fuel too, as a top-up, down a mine only.
+			if (tripArmour && topUp && piece.slot === 'chest' && mineDown) return { kind: 'craft', itemId: piece.itemId, timeoutMs: IRON_TOPUP_MS + smeltTime(piece.iron), topUp: true };
+			continue;
+		}
 		return tripArmour && smeltTime(piece.iron) > 0 ? { kind: 'craft', itemId: piece.itemId, timeoutMs: KIT_CRAFT_TIMEOUT_MS + smeltTime(piece.iron) }
 			: { kind: 'craft', itemId: piece.itemId };
 	}
@@ -157,9 +169,6 @@ export function nextKitStep(o, { reserved = null, topUp = false } = {}) {
 	// owed) is mined now, in the same trip. The route's armour row asked for it 93 times in 10 fresh games of 27 Nov and
 	// the model took it 0 times; a gate at the portal (#304) found no ore there. Down a mine only, with a pickaxe that
 	// mines iron, capped at IRON_TOPUP_MS; the runtime spaces top-ups out, so a seed short of iron never stalls on it.
-	const chestplate = items.some(item => /_chestplate$/.test(item.itemId));
-	const at = o.position ?? o.player?.position ?? o.player;
-	const mineDown = (o.world?.dimension ?? 'minecraft:overworld') === 'minecraft:overworld' && o.player?.skyOpen === false && Number.isFinite(at?.y) && at.y < MINE_Y;
 	const minesIron = [...heldCounts({ inventory: { items } })].some(([id, n]) => /^(stone|iron|diamond|netherite)_pickaxe$/.test(id) && n > 0);
 	if (tripArmour && topUp && !chestplate && mineDown && minesIron) {
 		const short = ironReserved(items) + ARMOUR[0].iron - ingots;
@@ -191,10 +200,12 @@ export function kitHabitEnabled(environment = {}) {
  */
 export async function keepKit(body, craft, { stopped = () => false, reserved = null, stop = {}, topUp = false, onTopUp = () => {} } = {}) {
 	const done = [], crafted = new Set();
+	let toppedUp = false;
 	// A top-up adds two steps: the mining itself and the chestplate's craft after it (its equip is the usual one).
 	const cap = KIT_MAX_STEPS + (topUp && ironTripArmourEnabled() ? 2 : 0);
 	for (let index = 0; index < cap && !stopped(); index += 1) {
-		const step = nextKitStep(await body.observe(), { reserved, topUp: topUp && !crafted.has('minecraft:raw_iron') });
+		// A top-up's chestplate may follow its raw iron in the same run (its fuel gathered then); a repeat of either ends the run.
+		const step = nextKitStep(await body.observe(), { reserved, topUp });
 		if (step === null) break;
 		let result;
 		const name = step.itemId.replace(/^minecraft:/, '');
@@ -203,18 +214,18 @@ export async function keepKit(body, craft, { stopped = () => false, reserved = n
 		else {
 			if (crafted.has(step.itemId)) break;
 			crafted.add(step.itemId);
-			if (step.topUp) onTopUp();
+			if (step.topUp && !toppedUp) { toppedUp = true; onTopUp(); }
 			// count: the total to hold (a spare shield is the second one), as obtain counts.
 			result = await craft(step.itemId, step.count ?? 1, step.timeoutMs);
 		}
 		if (result?.state !== 'SUCCEEDED') {
 			stop.result = result ?? null;
-			done.push(step.topUp ? `mining the iron_chestplate's iron stopped (${result?.reasonCode ?? result?.state ?? 'no result'})`
+			done.push(step.topUp ? `${step.itemId === 'minecraft:raw_iron' ? 'mining the iron_chestplate\'s iron' : `${name} with its fuel`} stopped (${result?.reasonCode ?? result?.state ?? 'no result'})`
 				: `${step.kind} ${name} stopped (${result?.reasonCode ?? result?.state ?? 'no result'})`);
 			break;
 		}
 		done.push(step.kind === 'equip' ? `wore ${name} (${step.targetSlot})` : step.kind === 'hotbar' ? `${name} to hotbar ${step.hotbarSlot}`
-			: step.topUp ? `mined ${step.count} raw_iron for the iron_chestplate` : `crafted ${name}`);
+			: step.topUp && step.itemId === 'minecraft:raw_iron' ? `mined ${step.count} raw_iron for the iron_chestplate` : `crafted ${name}`);
 	}
 	return done;
 }

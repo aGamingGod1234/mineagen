@@ -100,3 +100,38 @@ test('only the iron kit\'s obtains open a top-up', () => {
 	for (const id of ['iron_pickaxe', 'minecraft:iron_ingot', 'raw_iron', 'bucket', 'water_bucket', 'shield', 'flint_and_steel']) assert.ok(IRON_KIT_ITEMS.test(id), id);
 	for (const id of ['cooked_beef', 'stone_pickaxe', 'obsidian', 'iron_chestplate', 'coal']) assert.ok(!IRON_KIT_ITEMS.test(id), id);
 });
+
+test('v2: the chestplate\'s iron held with no fuel: its obtain gathers the fuel, as a top-up, down a mine only', () => {
+	// A/B game freshd1 (fix arm) ended with 10 raw iron, a table and a furnace and nothing to burn.
+	const noFuel = [item('iron_pickaxe', 'mainhand'), item('bucket', 3, 2), item('flint_and_steel', 4), item('shield', 'offhand'),
+		item('crafting_table', 5), item('furnace', 6), item('raw_iron', 9, 10)];
+	assert.deepEqual(nextKitStep(down(noFuel), { topUp: true }), { kind: 'craft', itemId: 'minecraft:iron_chestplate', timeoutMs: IRON_TOPUP_MS + 8 * KIT_SMELT_MS, topUp: true });
+	assert.equal(nextKitStep(down(noFuel)), null, 'not without the runtime\'s go-ahead');
+	assert.equal(nextKitStep(down(noFuel, { skyOpen: true }), { topUp: true }), null, 'not on the surface');
+});
+
+test('v2: with no chestplate, leggings wait for it; boots do not', () => {
+	const kit = [item('iron_pickaxe', 'mainhand'), item('bucket', 3, 2), item('flint_and_steel', 4), item('shield', 'offhand'), ...stations];
+	// A/B game freshrb (fix arm): 7 spare became leggings and the chestplate never came.
+	assert.deepEqual(nextKitStep(down([...kit, item('iron_ingot', 9, 7)])), { kind: 'craft', itemId: 'minecraft:iron_boots' });
+	assert.deepEqual(nextKitStep(down([...kit, item('iron_chestplate', 'chest'), item('iron_ingot', 9, 7)])), { kind: 'craft', itemId: 'minecraft:iron_leggings' });
+});
+
+test('keepKit v2: a top-up whose raw iron has no fuel to smelt goes on to the chestplate\'s own obtain in the same run', async () => {
+	let items = [item('iron_pickaxe', 'mainhand'), item('bucket', 3, 2), item('flint_and_steel', 4), item('shield', 'offhand'), item('crafting_table', 5), item('furnace', 6), item('raw_iron', 9, 3)];
+	const crafts = [];
+	let topUps = 0;
+	const body = checkedObtainBody({ observe: async () => down(items),
+		act: async (type, args) => { items = items.map(row => row.slot === args.sourceSlot ? { ...row, slot: args.targetSlot } : row); return { state: 'SUCCEEDED' }; } });
+	const craft = async (itemId, count, timeoutMs) => {
+		crafts.push([itemId.replace('minecraft:', ''), count, timeoutMs]);
+		if (itemId === 'minecraft:raw_iron') items = items.map(row => row.itemId === 'minecraft:raw_iron' ? { ...row, count } : row);
+		else { items = items.map(row => row.itemId === 'minecraft:raw_iron' ? { ...row, count: row.count - 8 } : row); items.push(item('iron_chestplate', 20)); }
+		return { state: 'SUCCEEDED' };
+	};
+	const done = await keepKit(body, craft, { topUp: true, onTopUp: () => { topUps += 1; } });
+	assert.deepEqual(done, ['mined 8 raw_iron for the iron_chestplate', 'crafted iron_chestplate', 'wore iron_chestplate (chest)']);
+	assert.deepEqual(crafts.map(row => row[0]), ['raw_iron', 'iron_chestplate']);
+	assert.equal(crafts[1][2], IRON_TOPUP_MS + 8 * KIT_SMELT_MS, 'the chestplate\'s obtain has the time to find fuel');
+	assert.equal(topUps, 1, 'one top-up for the spacing');
+});
