@@ -213,6 +213,9 @@ function villages(sightings, placed) {
 	});
 }
 
+/** Far sight's name for a fortress's raised blaze spawner platform (FarSight.java SPAWNER_PLATFORM_LABEL; find-fortress.mjs). */
+const SPAWNER_PLATFORM = 'nether fortress spawner platform';
+
 /** One remembered source as text: what, how much when known, horizontal distance, 8-point heading and depth. */
 function sourceText(row, position, blocks = []) {
 	const distance = Math.round(Math.hypot(row.x - position.x, row.z - position.z));
@@ -240,6 +243,9 @@ function sourceText(row, position, blocks = []) {
 		case 'portal': return `${short(row.what)} ${where}`;
 		case 'spawner': return `spawner${row.mob ? `(${short(row.mob)})` : ''} ${where}${depth}${coordinates}`;
 		case 'mob': return `${short(row.what)} ${where}${coordinates}`;
+		// The spawner stands on top, out of sight from below: the platform is where to walk.
+		case 'structure': if (row.what === SPAWNER_PLATFORM) return `spawner platform (blaze spawner on top) ${where}${depth}${coordinates}`;
+		// falls through
 		default: return `${row.what === 'village' ? 'village' : row.what.includes(':') ? 'structure' : row.what} ${where}`;
 	}
 }
@@ -269,7 +275,8 @@ function knownRows(resource, known, position, placed) {
 	}
 	// The resource itself seen (its ore vein or block, a source mob or spawner) comes before places that may hold it
 	// (a spawner of unseen mob, then caves and structures).
-	const direct = (row) => ['vein', 'block', 'mob'].includes(row.kind) || row.kind === 'spawner' && row.mob !== undefined ? 0 : row.kind === 'spawner' ? 1 : 2;
+	const direct = (row) => ['vein', 'block', 'mob'].includes(row.kind) || row.kind === 'spawner' && row.mob !== undefined ? 0
+		: row.kind === 'spawner' || row.kind === 'structure' && row.what === SPAWNER_PLATFORM ? 1 : 2;
 	const sorted = rows.map((row) => ({ row, distance: Math.hypot(row.x - position.x, row.y - position.y, row.z - position.z) }))
 		.sort((left, right) => direct(left.row) - direct(right.row) || left.distance - right.distance);
 	return distinctOpenings(sorted.map(({ row }) => row)).map(row => ({ direct: direct(row) === 0, row, text: sourceText(row, position, known?.blocks) }));
