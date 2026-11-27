@@ -350,14 +350,27 @@ public final class ServerTravelController implements ServerController {
 
 	private boolean beatableNow(ServerPlayer player, Mob mob, List<Mob> seen) {
 		int others = (int) seen.stream().filter(other -> other != mob && other.distanceTo(player) <= TravelStops.LONE_RANGE).count();
-		boolean weapon = false;
-		for (int slot = 0; slot < 9 && !weapon; slot++) {
-			String id = BuiltInRegistries.ITEM.getKey(player.getInventory().getItem(slot).getItem()).getPath();
-			weapon = id.endsWith("_sword") || id.endsWith("_axe");
-		}
 		double hit = dev.agaminggod.mineagen.server.perception.ThreatDamage.expectedHit(mob, player).damage();
-		return TravelStops.beatable(BuiltInRegistries.ENTITY_TYPE.getKey(mob.getType()).toString(), others, weapon,
+		return TravelStops.beatable(BuiltInRegistries.ENTITY_TYPE.getKey(mob.getType()).toString(), others, armed(player),
 				player.getHealth() + player.getAbsorptionAmount(), minHealth, hit);
+	}
+
+	/** travel.endermanFight: an angry enderman that hits or closes on the body is fought, not a stop to stand through. */
+	static final boolean ENDERMAN_FIGHT = dev.agaminggod.mineagen.server.Switches.get("travel.endermanFight");
+
+	private boolean fightsEndermanNow(ServerPlayer player, Mob mob) {
+		if (!ENDERMAN_FIGHT || mob.getTarget() != player || !mob.isAlive()) return false;
+		double hit = dev.agaminggod.mineagen.server.perception.ThreatDamage.expectedHit(mob, player).damage();
+		return TravelStops.fightsAngryEnderman(BuiltInRegistries.ENTITY_TYPE.getKey(mob.getType()).toString(), true, armed(player),
+				player.getHealth() + player.getAbsorptionAmount(), minHealth, hit);
+	}
+
+	private static boolean armed(ServerPlayer player) {
+		for (int slot = 0; slot < 9; slot++) {
+			String id = BuiltInRegistries.ITEM.getKey(player.getInventory().getItem(slot).getItem()).getPath();
+			if (id.endsWith("_sword") || id.endsWith("_axe")) return true;
+		}
+		return false;
 	}
  private double heightTolerance() {return heightTolerance(routeLeg, tolerance);}
 
@@ -577,6 +590,8 @@ public final class ServerTravelController implements ServerController {
 					&& attacker.distanceTo(player) <= HOSTILE_RANGE) {
 				return engage(player, attacker, String.format(Locale.ROOT, "hit you for %.1f (%s)", lastHealth - health, cause), nowEpochMs);
 			}
+			if (source != null && source.getEntity() instanceof Mob attacker && attacker.distanceTo(player) <= HOSTILE_RANGE && fightsEndermanNow(player, attacker))
+				return engage(player, attacker, String.format(Locale.ROOT, "an angry enderman hit you for %.1f; it teleports, so it is fought, not outrun", lastHealth - health), nowEpochMs);
 			float lost = lastHealth - health;
 			if (!TravelStops.shrugsOff(source == null ? null : source.getMsgId(), source != null && source.getEntity() != null, lost, shrugged, health, minHealth))
 				return fail(player, "TRAVEL_DAMAGED", String.format(Locale.ROOT, "Took %.1f damage (%s); health %.1f", lost, cause, health));
@@ -609,7 +624,7 @@ public final class ServerTravelController implements ServerController {
 					passedHostiles.add(mob.getUUID());
 					continue;
 				}
-				if (fightThrough || fightsBeatable && beatableNow(player, mob, seen)) {
+				if (fightThrough || fightsBeatable && beatableNow(player, mob, seen) || fightsEndermanNow(player, mob)) {
 					// Fought once it closes in or hits; until then it is only in view, as for one seen at the start. One that
 					// is only beatable is judged again each sample, so it still stops the trip once it is not (a pack).
 					if (distance > HOSTILE_CLOSE) { if (fightThrough) knownHostiles.add(mob.getUUID()); continue; }
@@ -2119,6 +2134,9 @@ public final class ServerTravelController implements ServerController {
 		return slot;
 	}
 
+	/** travel.gazeGuard: travel's own looks (scans, peeks, bridging) keep the view off calm endermen's eyes, as its walking legs do. */
+	static final boolean GAZE_GUARD = dev.agaminggod.mineagen.server.Switches.get("travel.gazeGuard");
+
 	private void apply(ServerPlayer player, AgentInputStates.MotorTarget target, boolean sneak, boolean attack, boolean use, long nowEpochMs) {
 		if (lease == null) {
 			input = AgentInputRuntime.controller(player);
@@ -2136,7 +2154,8 @@ public final class ServerTravelController implements ServerController {
 						player.getDeltaMovement(), step.forward(), step.strafe(), step.state().yaw(), player.onGround()));
 		float[] braking = brake ? ServerNavigationController.brakeInput(player.getDeltaMovement(), step.state().yaw()) : null;
 		input.apply(lease, new AgentInputState(brake ? braking[0] : step.forward(), brake ? braking[1] : step.strafe(),
-				step.jump(), sneak || onMagma, step.sprint() && !sneak && !onMagma && !brake, attack, use, step.state().yaw(), step.state().pitch(), slot, InteractionHand.MAIN_HAND));
+				step.jump(), sneak || onMagma, step.sprint() && !sneak && !onMagma && !brake, attack, use, step.state().yaw(),
+				GAZE_GUARD ? EndermanGaze.clearPitch(player, step.state().yaw(), step.state().pitch()) : step.state().pitch(), slot, InteractionHand.MAIN_HAND));
 	}
 
 	private static boolean onMagma(ServerPlayer player) {
