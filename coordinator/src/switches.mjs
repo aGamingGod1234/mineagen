@@ -152,6 +152,9 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'stock.portalGate', env: 'MINEAGEN_PORTAL_STOCK_GATE', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
 		reason: 'A walk into a lit Overworld portal while the route still asks for the surface food or wood minimum runs that obtain instead (twice per life at most); a refusal the model could repeat was walked past 16 of 17 times (#268); off leaves the minimum as route advice.',
 		readers: ['coordinator/src/native-tool-runtime.mjs #portalStockGate (per call)'] }),
+	entry({ name: 'kit.netherEntry', env: 'MINEAGEN_NETHER_KIT', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
+		reason: 'Mine the full armour set on the iron trip and stock or equip the required shield, armour and cooked food before each Overworld portal crossing.',
+		readers: ['coordinator/src/kit-habit.mjs netherKitEnabled (per call)', 'coordinator/src/native-tool-runtime.mjs #netherKitGate (per call)', 'coordinator/src/skill-fits.mjs routeLine (per call)'] }),
 	// coordinator/src/native-tool-runtime.mjs #descentStockGate: per call.
 	entry({ name: 'stock.descentGate', env: 'MINEAGEN_DESCENT_STOCK_GATE', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
 		reason: 'A call that leaves the Overworld surface for the mine (dig or walk below y 48, an obtain of kit iron, obsidian or lava, a find for lava or ore) while the route still asks for the food minimum before going down runs that obtain instead (twice per life at most, with a stone pickaxe held); 6 of 7 fresh games of 27 Nov went down with 1-8 food and built the portal underground, where stock.portalGate is off; off leaves the minimum as route advice.',

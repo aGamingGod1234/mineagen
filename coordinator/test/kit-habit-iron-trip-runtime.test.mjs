@@ -3,6 +3,8 @@ import test from 'node:test';
 import { NativeToolRuntime } from '../src/native-tool-runtime.mjs';
 import { normalizeMinecraftToolCall } from '../src/native-minecraft-tools.mjs';
 
+process.env.MINEAGEN_NETHER_KIT = 'off';
+
 const keepAlive = setInterval(() => {}, 1000);
 test.after(() => clearInterval(keepAlive));
 

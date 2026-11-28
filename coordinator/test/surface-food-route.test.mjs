@@ -45,7 +45,7 @@ test('food choice rejects hidden, dead, baby, distant and remembered animals', (
 
 test('lit portal entry and post-Nether rebuild never acquire a new food quota', () => {
 	const known = emptyKnown(); known.frames.push({ dimension: 'minecraft:overworld', x: 0, y: 60, z: 0, obsidian: 10, lit: true });
-	assert.equal(line(observation(), known), `usual next step: ${PORTAL_ENTRY_NEXT} (no bed, 3 matching wool or sheep in reach: no portal bed; food stocks are optional unless health or hunger is low)`);
+	assert.equal(line(observation(), known), `usual next step: ${PORTAL_ENTRY_NEXT} (no bed, 3 matching wool or sheep in reach: no portal bed; offhand shield, full iron or better, and 16 cooked food or 128 food points before crossing)`);
 	for (const advanced of [false, true]) {
 	 const k = emptyKnown(), o = observation();
 	 if (advanced) o.advancements = ['minecraft:story/enter_the_nether']; else k.visitedDimensions.push('minecraft:the_nether');

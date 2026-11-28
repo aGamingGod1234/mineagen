@@ -4,6 +4,9 @@ const KNOWN_ORE_MS = 5_000;
 // stock.portalGate: walks into the portal turned into the stock's obtain, per life in a world.
 const PORTAL_STOCK_TURNS = 2;
 const PORTAL_STOCK_MS = 360_000;
+const NETHER_KIT_ATTEMPTS = 2;
+const NETHER_KIT_OBTAIN_MS = 360_000;
+const FULL_IRON_TRIP_MS = 900_000;
 // stock.descentGate: calls that leave the surface for the mine turned into the food stock's obtain, per life in a world.
 // Its own count, so a life can see up to 2 turns here and 2 more at a surface portal.
 const DESCENT_STOCK_TURNS = 2;
@@ -32,10 +35,10 @@ import { lootLedger, rememberStructures, runObtain } from './obtain-runner.mjs';
 // Slots per menu page obtain's loot step asks for: one chest row.
 const MENU_PAGE = 9;
 import { resolveObtainItem } from './obtain-plan.mjs';
-import { IRON_KIT_ITEMS, KIT_CRAFT_TIMEOUT_MS, keepKit } from './kit-habit.mjs';
+import { IRON_KIT_ITEMS, KIT_CRAFT_TIMEOUT_MS, keepKit, missingNetherEquipment, netherKitEnabled } from './kit-habit.mjs';
 import { nightFor, restsFirst } from './night-cover.mjs';
 import { runInventoryRepair } from './inventory-repair.mjs';
-import { PORTAL_ENTRY_NEXT, PORTAL_ENTRY_PREP } from './skill-fits.mjs';
+import { netherFoodNeed, PORTAL_ENTRY_NEXT, portalEntryPrep } from './skill-fits.mjs';
 import { NativeProgramExecutor } from './native-program-executor.mjs';
 import { nativeOperationRejection } from './native-operation-contract.mjs';
 import { parseArenaScript } from './arena-script/parser.mjs';
@@ -172,6 +175,7 @@ export class NativeToolRuntime {
 	#planNeeds;
 	#portalStock = null;
 	#portalStockTurns = new Map();
+	#netherKitAttempts = new Map();
 	#descentStock = null;
 	#descentStockTurns = new Map();
 	#programExecutor;
@@ -471,6 +475,9 @@ export class NativeToolRuntime {
 		// methods still clone at their boundaries, so sharing here does not expose
 		// mutable coordinator state while avoiding a duplicate deep copy per update.
 		const storedObservation = structuredClone(raw);
+		const dead = storedObservation.death != null || storedObservation.status === 'PLAYER_DEAD' || storedObservation.player?.dead === true;
+		if (dead || storedObservation.world?.dimension === 'minecraft:the_nether') this.#netherKitAttempts.delete(record.agentId);
+		if (dead && netherKitEnabled()) this.#ironTopUps.delete(record.agentId);
 		const program = this.#programRuns.get(record.agentId);
 		// Remember invalidation even if the player returns before storage resolves.
 		const lookupWorld = program?.noteLookupWorld;
@@ -988,9 +995,12 @@ export class NativeToolRuntime {
 			&& !this.#actions.has(record.agentId) && !this.#programRuns.has(record.agentId) ? this.#bodyIdleSince.get(record.agentId) : undefined;
 		const arrivedAt = Date.now();
 		try {
-			const turned = this.#portalStockGate(record, request) ?? this.#descentStockGate(record, request);
+			const checkingKit = this.#netherKitGate(record, request);
+			const netherKit = checkingKit === null ? null : await checkingKit;
+			const turned = request.tool.after === undefined ? netherKit ?? this.#portalStockGate(record, request) ?? this.#descentStockGate(record, request) : null;
 			if (turned !== null) request = turned.request;
-			let result = await this.#executeTool(request, record, lifecycleGeneration);
+			let result = turned?.result ?? await this.#executeTool(request, record, lifecycleGeneration);
+			turned?.onResult?.(result);
 			if (turned !== null && result !== null && typeof result === 'object' && !Array.isArray(result)) result = { ...result, stockedFirst: turned.note };
 			if (idleSince !== undefined && result !== null && typeof result === 'object' && !Array.isArray(result)) result = { ...result, stoodStillMs: Math.max(0, arrivedAt - idleSince) };
 			// Not shown to the model, and set last so no copy drops it: the food hand-back reads the obtain that ran, not the walk.
@@ -1013,6 +1023,111 @@ export class NativeToolRuntime {
 			}
 			throw error;
 		}
+	}
+
+	#netherKitGate(record, request) {
+		if (!netherKitEnabled() || request.tool.after !== undefined) return null;
+		const latest = this.#observations.get(record.agentId);
+		const o = latest?.goalRevision === record.goalRevision ? latest.observation : null;
+		const dimension = o?.world?.dimension;
+		if (dimension && dimension !== 'minecraft:overworld') return null;
+		const tool = request.tool;
+		const moves = (tool.kind === 'sequence' ? tool.actions : ['action', 'start_action', 'replace_action'].includes(tool.kind) ? [tool] : [])
+			.filter(action => TRAVEL_ACTIONS.has(action.actionType));
+		if (moves.length === 0) return null;
+		const explicit = moves.find(action => action.arguments?.dimension === 'minecraft:the_nether');
+		if (explicit) return this.#prepareNetherKit(record, request, explicit);
+		if (!o) return null;
+		const known = this.#occupancy.knownSources?.(record.agentId, o, /^minecraft:nether_portal$/);
+		const portals = [...(o.sighted?.portalFrames ?? []).filter(frame => frame.lit === true),
+			...[...(o.blocks ?? []), ...(o.landmarks ?? []), ...(known?.blocks ?? [])].filter(row => row.blockId === 'minecraft:nether_portal'),
+			...(known?.sightings ?? []).filter(row => /^(minecraft:)?nether_portal$/.test(row.what))];
+		const crossing = moves.find(({ arguments: target = {} }) => [target.x, target.z].every(Number.isFinite)
+			&& portals.some(p => Math.abs(p.x - target.x) <= 3 && Math.abs(p.z - target.z) <= 3
+				&& (!Number.isFinite(target.y) || !Number.isFinite(p.y) || Math.abs(p.y - target.y) <= 4)));
+		if (!crossing) return null;
+		return this.#prepareNetherKit(record, request, crossing);
+	}
+
+	async #prepareNetherKit(record, request, crossing) {
+		const tool = request.tool;
+		const epoch = this.#executionEpoch(record.agentId);
+		const facts = await this.#observe(record, { includeMetadata: false, lean: true });
+		if (this.#executionEpoch(record.agentId) !== epoch) throw codedError('STALE_NATIVE_TOOL', 'Nether kit check outlived its lifecycle');
+		const sample = facts.observation;
+		const blocked = (reasonCode, note) => ({ request, note, result: { state: 'FAILED', reasonCode, message: note } });
+		if (sample?.ready !== true || facts.freshness?.fresh !== true || !Array.isArray(sample.inventory?.items)
+			|| sample.continuity?.rememberedSections?.includes('inventory'))
+			return blocked('NETHER_KIT_UNVERIFIED', 'Observe the live inventory before crossing into the Nether.');
+		if (sample.world?.dimension !== 'minecraft:overworld') return null;
+		const scope = `${record.goalRevision}|${observationWorldId(sample)}`;
+		let life = this.#netherKitAttempts.get(record.agentId);
+		if (life?.scope !== scope) this.#netherKitAttempts.set(record.agentId, life = { scope, failures: new Map() });
+		const missing = missingNetherEquipment(sample.inventory);
+		const iron = sample.inventory.items.filter(item => /^minecraft:(raw_iron|iron_ingot)$/.test(item.itemId)).reduce((sum, item) => sum + item.count, 0);
+		const food = netherFoodNeed(sample);
+		const equip = missing.find(piece => piece.carried);
+		const ironWork = missing.find(piece => !piece.carried);
+		const deficit = (key, progress) => {
+			const previous = life.failures.get(key);
+			if (previous && progress <= previous.progress) return previous.count;
+			life.failures.delete(key);
+			return 0;
+		};
+		const ironProgress = iron - missing.reduce((n, piece) => n + (piece.carried ? 0 : piece.iron), 0);
+		const foodProgress = food?.points ?? Infinity;
+		const ironTries = deficit('iron', ironProgress);
+		const foodTries = deficit('food', foodProgress);
+		if (!equip && (!ironWork || ironTries >= NETHER_KIT_ATTEMPTS) && (!food || foodTries >= NETHER_KIT_ATTEMPTS)) {
+			if (missing.length > 0 || food) this.#trace('native_nether_kit_shortage_release', { agentId: record.agentId,
+				goalRevision: record.goalRevision, missing: missing.map(piece => piece.slot), food: food?.portions ?? null });
+			return null;
+		}
+		if (tool.kind === 'replace_action' && this.#actions.has(record.agentId))
+			return blocked('NETHER_KIT_REQUIRED', 'Cancel the running action and prepare the Nether kit before entering.');
+		let next, target, onResult;
+		if (equip) {
+			const { sourceSlot, slot: targetSlot, carried: { itemId: expectedItemId } } = equip;
+			target = `equip ${expectedItemId.slice(10)} in ${targetSlot}`;
+			if (!equip.worn) {
+				next = normalizeMinecraftToolCall('act', { actionType: 'equip_item', arguments: { sourceSlot, targetSlot, expectedItemId } });
+			} else if (sourceSlot > 8) {
+				next = normalizeMinecraftToolCall('act', { actionType: 'select_tool', arguments: {
+					sourceSlot, hotbarSlot: sample.inventory.selectedSlot ?? 0, expectedItemId, minRemainingDurability: 0,
+				} });
+				target = `move ${expectedItemId.slice(10)} to the hotbar for equipping`;
+			} else {
+				const slot = { head: 5, chest: 6, legs: 7, feet: 8, offhand: 45 }[targetSlot];
+				const { menu } = await this.#inspect({ kind: 'inspect', section: 'menu', offset: slot, limit: 1 }, record, { withSearch: false });
+				if (this.#executionEpoch(record.agentId) !== epoch) throw codedError('STALE_NATIVE_TOOL', 'Nether kit check outlived its lifecycle');
+				const menuId = menu?.menuId ?? menu?.type;
+				if (menuId !== 'minecraft:inventory' || menu.cursor?.count > 0)
+					return blocked('NETHER_KIT_REQUIRED', `Close the open menu and ${target} before entering the Nether.`);
+				next = normalizeMinecraftToolCall('act', { actionType: 'menu_click', arguments: {
+					menuId, containerId: menu.containerId, stateId: menu.stateId, slot, button: sourceSlot, clickType: 'SWAP',
+					expectedItemId: equip.worn.itemId, expectedCount: equip.worn.count,
+				} });
+			}
+		} else {
+			const gettingIron = ironWork && ironTries < NETHER_KIT_ATTEMPTS;
+			const { item, count } = gettingIron ? { item: ironWork.itemId, count: 1 } : netherFoodNeed(sample, foodTries);
+			target = `obtain ${count} ${item.replace(/^minecraft:/, '')}`;
+			const obtain = normalizeMinecraftToolCall('do_step', { verb: 'obtain', target: { item, count }, why: 'Nether kit before crossing' });
+			next = { ...obtain, arguments: { ...obtain.arguments, timeoutMs: NETHER_KIT_OBTAIN_MS } };
+			const key = gettingIron ? 'iron' : 'food';
+			const progress = gettingIron ? ironProgress : foodProgress;
+			const tries = gettingIron ? ironTries : foodTries;
+			onResult = result => {
+				if (['NO_SOURCE', 'OBTAIN_TIMEOUT'].includes(result?.reasonCode))
+					life.failures.set(key, { progress, count: tries + 1 });
+			};
+		}
+		const note = `Nether kit first: ${target}. Retry the portal walk after the kit is ready.`;
+		this.#trace('native_nether_kit_turned', { agentId: record.agentId, goalRevision: record.goalRevision, actionType: crossing.actionType, target });
+		if (next.kind === 'obtain') {
+			try { request.extendLease?.(NETHER_KIT_OBTAIN_MS); } catch { /* the lease is the planner's */ }
+		}
+		return { request: { ...request, tool: { ...next, ...(tool.reflexes === undefined ? {} : { reflexes: tool.reflexes }) } }, note, onResult };
 	}
 
 	/**
@@ -1523,10 +1638,7 @@ export class NativeToolRuntime {
 		}
 		if (predecessor.state === 'SUCCEEDED') {
 			if (this.#executionEpoch(record.agentId) !== expectedEpoch) throw codedError('STALE_NATIVE_TOOL', 'Lifecycle changed while waiting for the predecessor');
-			const result = await this.#executeTool({ ...request, tool }, record, lifecycleGeneration);
-			const summary = { actionId: predecessor.actionId, actionType: predecessor.actionType, state: predecessor.state, reasonCode: predecessor.reasonCode,
-				...(predecessor.durationMs === undefined ? {} : { durationMs: predecessor.durationMs }) };
-			return result !== null && typeof result === 'object' ? { ...result, predecessor: summary } : result;
+			return this.#executeAfterSuccess({ ...request, tool }, record, lifecycleGeneration, predecessor);
 		}
 		// The failure reaches the model here, with fresh facts, instead of as a later event.
 		if (isFailureResult(predecessor)) this.#markFailureDelivered(record, after);
@@ -1535,6 +1647,21 @@ export class NativeToolRuntime {
 		return this.#withPostAction(record, { state: 'NOT_STARTED', reasonCode: 'PREDECESSOR_NOT_SUCCEEDED', predecessor: receipt,
 			message: `${tool.actionType} was not started because ${after} ended ${predecessor.state}${predecessor.reasonCode ? ` ${predecessor.reasonCode}` : ''}; decide from these facts.` },
 		this.#executionEpoch(record.agentId), resolved);
+	}
+
+	async #executeAfterSuccess(request, record, lifecycleGeneration, predecessor) {
+		const checkingKit = this.#netherKitGate(record, request);
+		const turned = (checkingKit === null ? null : await checkingKit) ?? this.#portalStockGate(record, request) ?? this.#descentStockGate(record, request);
+		const result = turned?.result ?? await this.#executeTool(turned?.request ?? request, record, lifecycleGeneration);
+		turned?.onResult?.(result);
+		if (result === null || typeof result !== 'object') return result;
+		const reply = { ...result, predecessor: { actionId: predecessor.actionId, actionType: predecessor.actionType, state: predecessor.state,
+			reasonCode: predecessor.reasonCode, ...(predecessor.durationMs === undefined ? {} : { durationMs: predecessor.durationMs }) } };
+		if (turned !== null) {
+			reply.stockedFirst = turned.note;
+			Object.defineProperty(reply, 'stockedTool', { value: turned.request.tool, enumerable: false });
+		}
+		return reply;
 	}
 
 	/** The predecessor's terminal result, or a danger interruption of this wait (as a blocking body tool sees one). */
@@ -2977,7 +3104,12 @@ export class NativeToolRuntime {
 			// kit.ironTripArmour: after an iron kit obtain, the chestplate's iron may be mined now; one top-up per agent in
 			// IRON_TOPUP_SPACING_MS, so a seed short of iron loses at most a top-up's cap every few minutes.
 			const lastTopUp = this.#ironTopUps.get(record.agentId);
-			const topUp = IRON_KIT_ITEMS.test(String(tool.arguments?.item ?? '')) && (lastTopUp === undefined || this.#stepNow() - lastTopUp >= IRON_TOPUP_SPACING_MS);
+			const item = String(tool.arguments?.item ?? '');
+			const fullTrip = netherKitEnabled() && /^(?:minecraft:)?iron_(?:chestplate|leggings|boots|helmet)$/.test(item);
+			const topUp = (IRON_KIT_ITEMS.test(item) || fullTrip) && (lastTopUp === undefined || this.#stepNow() - lastTopUp >= IRON_TOPUP_SPACING_MS);
+			if (topUp && netherKitEnabled()) {
+				try { request.extendLease?.((tool.arguments?.timeoutMs ?? 0) + FULL_IRON_TRIP_MS); } catch { /* the lease is the planner's */ }
+			}
 			kit = await keepKit(body, (item, count = 1, timeoutMs = KIT_CRAFT_TIMEOUT_MS) => runObtain({ item, count, timeoutMs }, body, { ...stations, loads: kitLoads }),
 				{ stopped: () => interrupted() || !current(), reserved, stop, topUp, onTopUp: () => {
 					this.#ironTopUps.set(record.agentId, this.#stepNow());
@@ -3639,7 +3771,7 @@ export class NativeToolRuntime {
 		const rawMessage = payload.message === undefined ? undefined : String(payload.message).slice(0, 2_048);
 		let message = state === 'SUCCEEDED' && reasonCode === 'PORTAL_LIT' && active.actionType === 'build'
 			&& active.arguments?.structure === 'nether_portal' && active.dimension === 'minecraft:overworld'
-			? `Next stage: ${PORTAL_ENTRY_NEXT}; ${PORTAL_ENTRY_PREP}.${rawMessage ? ` ${rawMessage}` : ''}`.slice(0, 2_048) : rawMessage;
+			? `Next stage: ${PORTAL_ENTRY_NEXT}; ${portalEntryPrep()}.${rawMessage ? ` ${rawMessage}` : ''}`.slice(0, 2_048) : rawMessage;
 		const currentBody = this.#observations.get(record.agentId)?.observation;
 		const partialFrame = /; frame at (-?\d+),(-?\d+),(-?\d+) axis ([xz]): [1-9]\/10 cells seen cast\b/.exec(rawMessage ?? '');
 		if (state === 'FAILED' && ['NO_STAND_SPOT', 'FRAME_CELL_UNSEEN', 'FRAME_CELL_BLOCKED', 'NO_LAVA_IN_REACH'].includes(reasonCode)
@@ -3780,6 +3912,8 @@ export class NativeToolRuntime {
 		if (['goal_dead', 'goal_respawn', 'dead_registration_replaced'].includes(reason)) {
 			this.#receipts.delete(agentId);
 			this.#failedRequests.delete(agentId);
+			this.#netherKitAttempts.delete(agentId);
+			if (netherKitEnabled()) this.#ironTopUps.delete(agentId);
 		}
 		// A new goal revision retires authored intent; death/respawn keep the same goal and its policies.
 		if (/^goal_(?!dead$|respawn$)/.test(String(reason))) this.#standing.clearGuards(agentId);
@@ -3853,6 +3987,8 @@ export class NativeToolRuntime {
 		// persistence; that spatial state now belongs to it and must not be forgotten with the retiring one.
 		if (FORGET_REASONS.test(String(reason)) && (this.#spatialWrites.get(agentId) ?? 0) === spatialWrites) {
 			this.#portalSearches.delete(agentId);
+			this.#netherKitAttempts.delete(agentId);
+			this.#ironTopUps.delete(agentId);
 			this.#occupancy.clear(agentId);
 			this.#memoryReady.delete(agentId);
 			this.#pendingSpatial.delete(agentId);

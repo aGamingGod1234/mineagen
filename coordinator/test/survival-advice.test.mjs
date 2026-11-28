@@ -12,21 +12,20 @@ const sample = (items = [], extra = {}) => ({ ready: true, observedAtEpochMs: 1,
  inventory: { items: items.map(([id, count = 1]) => ({ itemId: `minecraft:${id}`, count })) }, blocks: [], entities: [], ...extra });
 const kit = [['iron_pickaxe'], ['shield'], ['bucket', 2], ['flint_and_steel'], ['cobblestone', 64]];
 
-test('round1 lit-portal detour: healthy player has an entry suggestion, not food stocks or a bed hunt', () => {
+test('a lit portal names the entry kit and offers a bed only when one is in reach', () => {
  const known = emptyKnown(); known.frames.push({ dimension: 'minecraft:overworld', x: 0, y: 64, z: 0, lit: true, obsidian: 10 });
  const portalView = { sighted: { portalFrames: [{ lit: true }] }, blocks: [{ blockId: 'minecraft:nether_portal', x: 0, y: 64, z: 0 }] };
  // Three matching wool held is the one preparation the route asks for at a lit portal (C33): a bed from them, no hunt.
  assert.match(routeLine({ observation: sample([...kit, ['white_wool', 3]], portalView), known, evaluate: evaluatePlanCheck }), /^usual next step: obtain white_bed, then place_block it by the portal at 0,64,0/);
  const o = sample([...kit, ['white_wool', 2]], portalView);
- assert.equal(routeLine({ observation: o, known, evaluate: evaluatePlanCheck }), 'usual next step: enter the Nether through the lit portal now (no bed, 3 matching wool or sheep in reach: no portal bed; food stocks are optional unless health or hunger is low)');
+ assert.equal(routeLine({ observation: o, known, evaluate: evaluatePlanCheck }), 'usual next step: enter the Nether through the lit portal now (no bed, 3 matching wool or sheep in reach: no portal bed; offhand shield, full iron or better, and 16 cooked food or 128 food points before crossing)');
  assert.equal(bedSpawnOption(o, 'nether'), null);
  assert.equal(spawnLine(o), null);
  assert.equal(sleepLine(o), null);
  assert.doesNotMatch(netherReadiness(o), /food is scarce|food there early/);
  for (const player of [{ health: 20, foodLevel: 14 }, { health: 14, foodLevel: 20 }]) {
   const hurt = { ...o, player };
-  // Round 2 composition: #351's entry line carries the low-health/hunger exception; netherReadiness gives the food fact.
-  assert.match(routeLine({ observation: hurt, known, evaluate: evaluatePlanCheck }), /unless health or hunger is low/);
+  assert.match(routeLine({ observation: hurt, known, evaluate: evaluatePlanCheck }), /16 cooked food or 128 food points/);
   assert.match(netherReadiness(hurt), /food is scarce/);
  }
 });
