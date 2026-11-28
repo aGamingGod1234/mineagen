@@ -90,9 +90,14 @@ public final class ServerSpawnerHoldController implements ServerController {
 	private ServerController openPart;
 	/** fight_target form: the call's end held back until the walled-up doorway is open again (the next call must see out). */
 	private TickResult pendingEnd;
+	private ServerFightUntilController.BlazeWithdrawal rodWithdrawal;
+	private Vec3 spawnerApproach;
+	private boolean startedShielded;
 	/** fight_target form: the tick the named blaze died with the hold fighting (not the open fight), for the rod's pickup. */
 	private long killTick = -1L, openKillTick = -1L;
 	private static final long KILL_COLLECT_TICKS = 60L, KILL_COLLECT_MAX_TICKS = 200L;
+	private static final long ROD_EXIT_MS = 60_000L;
+	private long rodExitStarted = -1L;
 	private int emergencyFails;
 	private static final int EMERGENCY_TRIES = 3;
 	private final long startedAt;
@@ -327,7 +332,13 @@ public final class ServerSpawnerHoldController implements ServerController {
 		if (fallback != null) return fallback.tick(player, now);
 		long elapsed = elapsedTime.advance(now);
 		lastElapsed = elapsed;
-		if (startHeld < 0) { startHeld = ServerFightUntilController.count(player, untilItem); lastBlazeMs = elapsed; lastHurtTime = player.hurtTime; }
+		if (startHeld < 0) {
+			startHeld = ServerFightUntilController.count(player, untilItem);
+			lastBlazeMs = elapsed;
+			lastHurtTime = player.hurtTime;
+			spawnerApproach = player.position();
+			startedShielded = player.getOffhandItem().is(net.minecraft.world.item.Items.SHIELD);
+		}
 		if (!player.isAlive()) return stop(player, TickResult.failed("AGENT_DEAD", "Agent player died during the spawner hold", progress(player)));
 		if (!HazardExits.fireResistant(player) && HazardExits.contact(player) == HazardExits.Contact.LAVA)
 			return stop(player, TickResult.failed("IN_LAVA", "Lava contact during the spawner hold", progress(player)));
@@ -358,10 +369,53 @@ public final class ServerSpawnerHoldController implements ServerController {
 		// back), so the hold does not hand back first. Its timeout is the check above.
 		boolean openFightNext = SpawnerHold.OPEN_FIGHT && phase != Phase.HOLD && emergency == null;
 		float floor = target != null && (wallInLeft(player) || openFightNext) ? -1.0F : fleeAtHealth;
-		String code = SpawnerHold.handBack(new SpawnerHold.Sense(ServerFightUntilController.count(player, untilItem), untilCount, player.getHealth(),
+		int held = ServerFightUntilController.count(player, untilItem);
+		String code = SpawnerHold.handBack(new SpawnerHold.Sense(held, untilCount, player.getHealth(),
 				floor, player.getFoodData().getFoodLevel(), foodSlot(player) >= 0, elapsed, target != null ? Long.MAX_VALUE : timeoutMs, spawnerGone,
 				phase == Phase.HOLD ? elapsed - lastBlazeMs : 0L, phase == Phase.HOLD || emergency != null, sitesFailed, noSiteLeft,
 				phase == Phase.HOLD && SpawnerHold.breached(witherHits, player.level().getGameTime())));
+		if (ServerFightUntilController.BLAZE_SURVIVAL && target == null) {
+			if ("UNTIL_COUNT_REACHED".equals(code) && held > startHeld && spawner != null) {
+				if (rodExitStarted < 0L) rodExitStarted = elapsed;
+				if (elapsed - rodExitStarted >= ROD_EXIT_MS) {
+					note("held the rods; retreat ran out of time while getting to safety");
+					return stop(player, handBackResult(player, code, elapsed));
+				}
+				if (rodWithdrawal == null && phase == Phase.HOLD && !inCell) {
+					TickResult covering = coverOnReturn(player, now, elapsed);
+					if (covering != null) return covering;
+					return backToCell(player, now, "rod count reached; returning to the covered cell before leaving");
+				}
+				if (inCell && (player.isOnFire() || player.getHealth() < SpawnerHold.TURTLE_HEALTH)) {
+					coverWanted = true;
+					return hold(player, now, elapsed, true);
+				}
+				if (sealed || partlySealed || reopening || sealWork != null) return hold(player, now, elapsed, inCell);
+				if (rodWithdrawal == null) {
+					cancelParts(player);
+					Vec3 doorwayExit = inCell ? Vec3.atBottomCenterOf(cell.relative(opening, 2)) : null;
+					rodWithdrawal = new ServerFightUntilController.BlazeWithdrawal(Vec3.atCenterOf(spawner), spawnerApproach, doorwayExit);
+				}
+				TickResult walked = rodWithdrawal.tick(player, now);
+				if (walked.state() == State.RUNNING) return walked;
+				note(walked.message());
+			}
+			if (phase == Phase.HOLD && !inCell && shieldLost(player)) {
+				TickResult covering = coverOnReturn(player, now, elapsed);
+				if (covering != null) return covering;
+				return backToCell(player, now, "shield broke during the fight; back to cover to replace it");
+			}
+			if ("LOW_HEALTH_BAILOUT".equals(code) && phase == Phase.SCAN) {
+				HOLDING.remove(player.getUUID());
+				shieldInput.release();
+				fallback = ordinaryFight(player, now, elapsed);
+				return fallback.tick(player, now);
+			}
+			if ("LOW_HEALTH_BAILOUT".equals(code) && !BrinkGuard.needsFooting(player) && !blazeInMelee(player)) {
+				TickResult walling = emergency(player, now, elapsed);
+				if (walling != null) return walling;
+			}
+		}
 		// The open fight_target reports its own kill (and collects the drop first).
 		if (target != null && code == null && openPart == null) {
 			long tick = player.level().getGameTime();
@@ -446,7 +500,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 		if (target != null && SpawnerHold.OPEN_FIGHT && phase != Phase.HOLD) return TickResult.running(progress(player));
 		// A melee attacker in reach is fought first, also while looking round for a spawner.
 		if (!inCell || defend != null) {
-			TickResult defending = defend(player, now);
+			TickResult defending = defend(player, now, false);
 			if (defending != null) return defending;
 		}
 		if (phase == Phase.SCAN) {
@@ -498,15 +552,20 @@ public final class ServerSpawnerHoldController implements ServerController {
 	 * body from within 3.5 blocks (a wither skeleton on the walkway, a blaze come close) is fought with the sword and the
 	 * shield for up to 20 s; the interrupted walk, build or trip starts again after. Null when nothing needs fighting.
 	 */
-	private TickResult defend(ServerPlayer player, long now) {
+	private TickResult defend(ServerPlayer player, long now, boolean healing) {
 		if (defend == null) {
 			LivingEntity attacker = null;
-			double best = SpawnerHold.DEFEND_RANGE * SpawnerHold.DEFEND_RANGE;
-			for (LivingEntity mob : player.level().getEntitiesOfClass(LivingEntity.class, player.getBoundingBox().inflate(SpawnerHold.DEFEND_RANGE),
+			double reach = healing ? SpawnerHold.MELEE_BLAZE : SpawnerHold.DEFEND_RANGE;
+			double best = reach * reach;
+			for (LivingEntity mob : player.level().getEntitiesOfClass(LivingEntity.class, player.getBoundingBox().inflate(reach),
 					e -> e instanceof net.minecraft.world.entity.Mob m && m.getTarget() == player && e.isAlive() && !e.isDeadOrDying()
-							&& SpawnerHold.defendAgainst(e.getType() == McEntityTypes.BLAZE))) {
+							&& (healing ? e.getType() == McEntityTypes.BLAZE : SpawnerHold.defendAgainst(e.getType() == McEntityTypes.BLAZE)))) {
 				double distance = mob.distanceToSqr(player);
-				if (distance <= best && ObservationVisibility.canSeeEntity(player, mob) && protection.mayInteractWithEntity(player, mob)) { best = distance; attacker = mob; }
+				if (distance > best || !protection.mayInteractWithEntity(player, mob)) continue;
+				if (ObservationVisibility.canSeeEntity(player, mob) || healing && mob == player.getLastHurtByMob() && mob.hasLineOfSight(player)) {
+					best = distance;
+					attacker = mob;
+				}
 			}
 			if (attacker == null) return null;
 			cancelWalk(player);
@@ -517,7 +576,21 @@ public final class ServerSpawnerHoldController implements ServerController {
 			if (work != null) { work.cancel(player); work = null; }
 			if (collector != null) { collector.cancel(player); collector = null; returning = true; }
 			if (ledge != null) { ledge.cancel(player); ledge = null; returning = true; }
-			defend = new ServerFightController(attacker, null, fleeAtHealth, true, CombatPlanning.TargetPolicy.NAMED, false, true, false,
+			if (healing) {
+				if (reopenWork != null) {
+					reopenWork.cancel(player);
+					reopenWork = null;
+				}
+				if (sealWork != null) {
+					sealWork.cancel(player);
+					sealWork = null;
+					sealTried = false;
+					partlySealed = doorwayClosed(player, cell, opening, false);
+				}
+				if (eatTicks >= 0) { eatTicks = -1; eatInput.release(); bitesStopped++; }
+				note("blaze reached the healing cell; clearing it before trying to heal again");
+			}
+			defend = new ServerFightController(attacker, null, healing ? 0.0F : fleeAtHealth, true, CombatPlanning.TargetPolicy.NAMED, false, !healing, false,
 					player.getOffhandItem().getItem() instanceof net.minecraft.world.item.ShieldItem, SpawnerHold.DEFEND_MS, now).keepFleeLine().holdDeck();
 			defends++;
 			note("defend against " + BuiltInRegistries.ENTITY_TYPE.getKey(attacker.getType()));
@@ -712,6 +785,11 @@ public final class ServerSpawnerHoldController implements ServerController {
 	}
 
 	private TickResult hold(ServerPlayer player, long now, long elapsed, boolean inCell) {
+		// A blaze in the doorway can stop the blocks being placed and keep hitting throughout a meal.
+		if (ServerFightUntilController.BLAZE_SURVIVAL && inCell && (turtleSinceMs >= 0L || eatTicks >= 0 || marginGone(player, 0.0D))) {
+			TickResult guardingCell = defend(player, now, true);
+			if (guardingCell != null) return guardingCell;
+		}
 		if (collector != null && collectHeldBack(player)) {
 			collector.cancel(player);
 			collector = null;
@@ -749,6 +827,22 @@ public final class ServerSpawnerHoldController implements ServerController {
 			TickResult punching = punchOutFire(player);
 			if (punching != null) return punching;
 		}
+		// A shield can break while the window is being opened. Close it again before eating or handing back.
+		boolean missingShield = ServerFightUntilController.BLAZE_SURVIVAL && inCell && shieldLost(player);
+		if (missingShield && sealed && doorwayClosed(player, cell, opening, true)) {
+			if (replaceShield(player)) note("equipped a spare shield while in cover");
+			else if (!player.isOnFire() && !SpawnerHold.sealedHeal(player.getHealth(), turtleSinceMs, elapsed)) {
+				return stop(player, TickResult.failed("BLAZE_SHIELD_NEEDED",
+						"The shield broke. Equip another behind the closed doorway before opening it; " + summary(player, elapsed), progress(player)));
+			}
+		} else if (missingShield && reopening) {
+			if (reopenWork != null) { reopenWork.cancel(player); reopenWork = null; }
+			reopening = false;
+			sealed = false;
+			partlySealed = doorwayClosed(player, cell, opening, false);
+			coverWanted = true;
+			sealTried = false;
+		}
 		if (eatTicks >= 0) return eat(player);
 		if (reopening) {
 			TickResult opening = reopen(player, now);
@@ -757,8 +851,9 @@ public final class ServerSpawnerHoldController implements ServerController {
 			if (target != null && phase != Phase.HOLD) return TickResult.running(progress(player));
 		}
 		boolean shot = ReflexSensors.blockableShot(player, 1.5D) != null;
-		boolean turtling = sealed ? SpawnerHold.sealedHeal(player.getHealth(), turtleSinceMs, elapsed)
-				: SpawnerHold.turtle(inCell, player.getHealth(), coverWanted || inCell && marginGone(player, 0.0D), turtleSinceMs, elapsed);
+		boolean burningInCover = ServerFightUntilController.BLAZE_SURVIVAL && player.isOnFire() && !HazardExits.fireResistant(player);
+		boolean turtling = sealed ? burningInCover || SpawnerHold.sealedHeal(player.getHealth(), turtleSinceMs, elapsed)
+				: missingShield || SpawnerHold.turtle(inCell, player.getHealth(), coverWanted || inCell && marginGone(player, 0.0D), turtleSinceMs, elapsed);
 		if (inCell && !turtling) coverWanted = false;
 		if (turtling) {
 			turtleTicks++;
@@ -839,6 +934,8 @@ public final class ServerSpawnerHoldController implements ServerController {
 				if (target != null && phase != Phase.HOLD) return TickResult.running(progress(player));
 			}
 		}
+		// Once the seventh rod is held, opening cover hands control back to the withdrawal on the next tick.
+		if (rodExitStarted >= 0L) return TickResult.running(progress(player));
 		boolean blazeInReach = blazeNear(player);
 		int slot = foodSlot(player);
 		if (inCell && SpawnerHold.shouldEat(player.getFoodData().getFoodLevel(), player.getHealth(), !shot && biteSafe(player), blazeInReach, slot >= 0)) {
@@ -881,7 +978,8 @@ public final class ServerSpawnerHoldController implements ServerController {
 			return collect(player, now);
 		}
 		if (engine == null) {
-			engine = new ServerFightUntilController(player, engineArguments(elapsed), protection, now, "fight_until", null, null);
+			engine = new ServerFightUntilController(player, engineArguments(elapsed), protection, now, "fight_until", null, null)
+					.spawnerHandlesRecovery();
 			engineRuns++;
 		}
 		TickResult result = engine.tick(player, now);
@@ -917,6 +1015,19 @@ public final class ServerSpawnerHoldController implements ServerController {
 		if (!args.has("radius") || args.get("radius").getAsDouble() < SpawnerHold.SITE_MAX + 8.0D) args.addProperty("radius", SpawnerHold.SITE_MAX + 8.0D);
 		args.addProperty("timeoutMs", Math.max(1_000L, timeoutMs - elapsed));
 		return args;
+	}
+
+	private boolean shieldLost(ServerPlayer player) {
+		return startedShielded && player.getOffhandItem().isEmpty();
+	}
+
+	private TickResult backToCell(ServerPlayer player, long now, String why) {
+		if (!returning || collector != null || ledge != null) {
+			cancelParts(player);
+			returning = true;
+			note(why);
+		}
+		return collect(player, now);
 	}
 
 	private TickResult collect(ServerPlayer player, long now) {
@@ -966,6 +1077,10 @@ public final class ServerSpawnerHoldController implements ServerController {
 		}
 		if (fireTicks == 0) {
 			stopEngine(player);
+			if (reopenWork != null) {
+				reopenWork.cancel(player);
+				reopenWork = null;
+			}
 			shieldInput.release();
 			eatTicks = -1;
 			eatInput.release();
@@ -1033,15 +1148,25 @@ public final class ServerSpawnerHoldController implements ServerController {
 		return item != null && ServerFightUntilController.count(player, BuiltInRegistries.ITEM.getValue(Identifier.parse(item))) >= 10;
 	}
 
+	private TickResult coverOnReturn(ServerPlayer player, long now, long elapsed) {
+		if (emergency == null && (!marginGone(player, toCell(player)) || BrinkGuard.needsFooting(player) || blazeInMelee(player))) return null;
+		return emergency(player, now, elapsed, true);
+	}
+
 	private TickResult emergency(ServerPlayer player, long now, long elapsed) {
+		return emergency(player, now, elapsed, false);
+	}
+
+	private TickResult emergency(ServerPlayer player, long now, long elapsed, boolean returningForCover) {
 		if (emergency == null) {
 			// fight_target form (no cell walk): the same margin rule as the hold's turn-back, with the cell where the body
 			// stands (round 2220d78: a fixed "below 12" began heals at 2.4-8.3 under blaze volleys and fire; the margin began
 			// them at a median 16.1). fight_until form, walking to or building its planned cell: only below TURTLE_HEALTH,
 			// since the margin there fired at 14-19 health on the spawner deck and the wall-in at a brink killed it (real
 			// fortress room, 9fd4736: deaths 3 -> 6 of 10).
-			boolean wallInNow = target != null ? marginGone(player, 0.0D) : player.getHealth() < SpawnerHold.TURTLE_HEALTH;
-			if (phase == Phase.HOLD || phase == Phase.SCAN || !wallInNow || !canWallIn(player)) return null;
+			boolean wallInNow = target != null ? marginGone(player, 0.0D)
+					: player.getHealth() < SpawnerHold.TURTLE_HEALTH || ServerFightUntilController.BLAZE_SURVIVAL && player.getHealth() <= fleeAtHealth;
+			if (phase == Phase.SCAN || !returningForCover && (phase == Phase.HOLD || !wallInNow) || !canWallIn(player)) return null;
 			String item = roofing.blockItem(player);
 			cancelParts(player);
 			blockItem = item;
@@ -1219,7 +1344,8 @@ public final class ServerSpawnerHoldController implements ServerController {
 	private TickResult eat(ServerPlayer player) {
 		ItemStack now = player.getInventory().getItem(eatSlot);
 		boolean ate = now.isEmpty() || !eatItem.equals(BuiltInRegistries.ITEM.getKey(now.getItem()).toString()) || now.getCount() < eatCount;
-		boolean stop = !ate && SpawnerHold.stopBite(oldestCharge(player), ReflexSensors.blockableShot(player, 1.0D) != null);
+		boolean covered = ServerFightUntilController.BLAZE_SURVIVAL && sealed && doorwayClosed(player, cell, opening, true);
+		boolean stop = !ate && !covered && SpawnerHold.stopBite(oldestCharge(player), ReflexSensors.blockableShot(player, 1.0D) != null);
 		if (ate || ++eatTicks > EAT_TICKS || stop) {
 			if (ate) { meals++; if (lullBite) lullMeals++; }
 			if (stop) bitesStopped++;
@@ -1239,7 +1365,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 	}
 
 	/** The hotbar slot of the most filling ordinary food the body can eat now, or -1. */
-	private static int foodSlot(ServerPlayer player) {
+	static int foodSlot(ServerPlayer player) {
 		int best = -1;
 		int bestNutrition = 0;
 		for (int slot = 0; slot < 9; slot++) {
@@ -1249,6 +1375,18 @@ public final class ServerSpawnerHoldController implements ServerController {
 			if (food.nutrition() > bestNutrition) { bestNutrition = food.nutrition(); best = slot; }
 		}
 		return best;
+	}
+
+	private static boolean replaceShield(ServerPlayer player) {
+		if (player.containerMenu != player.inventoryMenu) return false;
+		for (int slot = 0; slot < 36; slot++) {
+			if (!player.getInventory().getItem(slot).is(net.minecraft.world.item.Items.SHIELD)) continue;
+			// Vanilla SWAP button 40 exchanges the observed inventory slot with the off hand.
+			int menuSlot = slot < 9 ? slot + 36 : slot;
+			dev.agaminggod.mineagen.server.runtime.AdvancedInteractionService.swapIntoHotbar(player, menuSlot, 40);
+			return player.getOffhandItem().is(net.minecraft.world.item.Items.SHIELD);
+		}
+		return false;
 	}
 
 	/** Seen rods on walkable ground near the cell that {@link SpawnerHold#mayCollect} allows a trip to now. */
@@ -1555,6 +1693,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 	}
 
 	private void cancelParts(ServerPlayer player) {
+		if (rodWithdrawal != null) { rodWithdrawal.cancel(player); rodWithdrawal = null; }
 		if (defend != null) { defend.cancel(player); defend = null; }
 		stopEngine(player);
 		cancelWalk(player);

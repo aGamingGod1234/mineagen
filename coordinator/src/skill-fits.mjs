@@ -479,10 +479,11 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 	const eyeFacts = `rods ${rods}/${rodsNeeded}, pearls ${pearls}/${eyesNeeded}, eyes ${eyesHeld} held + ${filled} set of ${EYES}`;
 	// The Nether gathers to the eye plan (eye-plan.mjs): throws and lost drops cost eyes before the frame.
 	// Eyes already made to fill the frame are enough: the margin is for raw rods and pearls, never a trip back.
-	const eyesPlanned = portalOpen || eyesHeld + filled >= EYES ? 0 : Math.max(0, EYE_PLAN - eyesHeld - filled);
+	const eyeTarget = getSwitch('fight.blazeSurvival', environment).value ? 14 : EYE_PLAN;
+	const eyesPlanned = portalOpen || eyesHeld + filled >= EYES ? 0 : Math.max(0, eyeTarget - eyesHeld - filled);
 	const rodsPlanned = Math.ceil(Math.max(0, eyesPlanned - count(/^minecraft:blaze_powder$/)) / 2);
 	const rodsShort = Math.max(0, rodsPlanned - rods), pearlsShort = Math.max(0, eyesPlanned - pearls);
-	const planFacts = `rods ${rods}/${rodsPlanned}, pearls ${pearls}/${eyesPlanned}, eyes ${eyesHeld} held + ${filled} set; plan ${EYE_PLAN} eyes, ${EYES} fill the frame`;
+	const planFacts = `rods ${rods}/${rodsPlanned}, pearls ${pearls}/${eyesPlanned}, eyes ${eyesHeld} held + ${filled} set; plan ${eyeTarget} eyes, ${EYES} fill the frame`;
 	const facts = { count, foodNeeded: foodAdviceNeeded(o), foodHandedBack: foodHandedBack === true, food: count(EDIBLE), cookedMeat: count(COOKED_MEAT), rawMeat: count(RAW_FOOD), nearbyMeat: nearbyMeat(o), blocks: count(MOULD), wood: count(/^minecraft:([a-z_]+_(log|planks|stem))$/), iron: count(/^minecraft:(iron_ingot|raw_iron)$/),
 		buckets: count(/^minecraft:(bucket|water_bucket|lava_bucket)$/), pools: (known.lavaPools ?? []).filter(p => p?.dimension === dimension).length,
 		below: belowGround(o), woodHandedBack: woodHandedBack === true, logs: count(/^minecraft:[a-z_]+_log$/), ingots: count(/^minecraft:iron_ingot$/),
