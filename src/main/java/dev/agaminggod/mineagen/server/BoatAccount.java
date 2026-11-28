@@ -54,7 +54,7 @@ public final class BoatAccount {
 	static final String TOKEN_URL = "https://boat.dev/api/boat/oauth2/token";
 	static final String REVOKE_URL = "https://boat.dev/api/boat/oauth2/revoke";
 	/** The least the runner needs: make, use, extend and delete its own machine, and publish the relay's port. Never billing. */
-	static final String SCOPES = "account.read sandbox.read sandbox.create sandbox.stop sandbox.delete-own exec file.read file.write host";
+	static final String SCOPES = "account.read sandbox.read sandbox.create sandbox.update sandbox.stop sandbox.delete-own exec file.read file.write host";
 	private static final long REFRESH_MARGIN_MS = 10 * 60_000L;
 	private static final long SIGN_IN_TIMEOUT_MS = 5 * 60_000L;
 	public static final double DOLLARS_PER_HOUR = 0.018;

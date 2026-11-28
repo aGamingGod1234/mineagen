@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { coordinatorSession, dialRelay, serveRelay } from '../src/boat-relay.mjs';
-import { parseCliJson, remoteConfig, remoteEnvironment, runBoatCoordinator, writeBackSignIns } from '../src/boat-runner.mjs';
+import { parseCliJson, remoteConfig, remoteEnvironment, restBackend, runBoatCoordinator, writeBackSignIns } from '../src/boat-runner.mjs';
 
 // The relay's coordinator session runs on the Linux boat machine; it ends the coordinator by process group, which
 // Windows does not have.
@@ -203,4 +203,24 @@ test('a bridge connection reset while waiting for the PC does not end the relay'
 		await relay.close();
 		rmSync(root, { recursive: true, force: true });
 	}
+});
+
+test('the REST backend names the machine again when deleting it, and a missing machine counts as deleted', async () => {
+	const root = mkdtempSync(path.join(os.tmpdir(), 'boat-rest-'));
+	try {
+		const tokenFile = path.join(root, 'token');
+		await writeFile(tokenFile, 'tok\n');
+		const calls = [];
+		const fetchImpl = async (url, init) => {
+			calls.push({ url, method: init.method, headers: init.headers });
+			const status = calls.length === 1 ? 200 : 404;
+			return { ok: status === 200, status, text: async () => (status === 200 ? '{}' : '{"error":{"code":"not_found"}}') };
+		};
+		const backend = restBackend({ tokenFile, apiBase: 'https://boat.test/api/v1', fetchImpl });
+		await backend.remove('bx_1');
+		await backend.remove('bx_1');
+		assert.equal(calls[0].method, 'DELETE');
+		assert.equal(calls[0].headers['x-ascii-confirm-delete'], 'bx_1');
+		assert.equal(calls[0].headers.authorization, 'Bearer tok');
+	} finally { rmSync(root, { recursive: true, force: true }); }
 });

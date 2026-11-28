@@ -63,11 +63,11 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 /** REST backend. The token file is re-read on every call: the mod is the one process that refreshes the token. */
 export function restBackend({ tokenFile, apiBase = 'https://boat.dev/api/v1', fetchImpl = globalThis.fetch }) {
-	const call = async (method, route, body, { idempotencyKey } = {}) => {
+	const call = async (method, route, body, { idempotencyKey, headers = {} } = {}) => {
 		const token = (await readFile(tokenFile, 'utf8')).trim();
 		const response = await fetchImpl(`${apiBase}${route}`, {
 			method,
-			headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', ...(idempotencyKey ? { 'idempotency-key': idempotencyKey } : {}) },
+			headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', ...(idempotencyKey ? { 'idempotency-key': idempotencyKey } : {}), ...headers },
 			body: body === undefined ? undefined : JSON.stringify(body),
 			signal: AbortSignal.timeout(60_000),
 		});
@@ -97,7 +97,8 @@ export function restBackend({ tokenFile, apiBase = 'https://boat.dev/api/v1', fe
 			return data.url ?? data.hostedPort?.url;
 		},
 		extend: (id, ttlSeconds) => call('PATCH', `/sandboxes/${id}`, { ttlSeconds }),
-		remove: async id => { try { await call('DELETE', `/sandboxes/${id}`); } catch (error) { if (error.status !== 404) throw error; } },
+		// Boat asks a delete to name its target again in a header, so a stray request cannot remove the wrong machine.
+		remove: async id => { try { await call('DELETE', `/sandboxes/${id}`, undefined, { headers: { 'x-ascii-confirm-delete': id } }); } catch (error) { if (error.status !== 404) throw error; } },
 		async list() {
 			const data = await call('GET', '/sandboxes?limit=200');
 			return (data.sandboxes ?? []).map(entry => ({ id: entry.id, name: entry.name, state: entry.state }));
