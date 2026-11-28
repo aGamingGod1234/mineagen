@@ -258,6 +258,9 @@ public final class ServerFightController implements ServerController {
 	private float approachYaw;
 	private Vec3 fireExit;
 	private int blazeWaitTicks;
+	/** Cornered: the low-health retreat found no way out while an attacker could be hit, so the fight went on. */
+	private boolean cornered;
+	private int corneredStands;
 	private long lastVisibleTargetTick = Long.MIN_VALUE / 2L;
 	/** The last tick this fight saw its target alive; a reflex pause can hide the death tick (1b diagnosis). */
 	private long targetAliveTick = Long.MIN_VALUE / 2L;
@@ -339,7 +342,8 @@ public final class ServerFightController implements ServerController {
 		}
 		if (bailout != null) {
 			TickResult result = bailout.tick(player, nowEpochMs);
-			return result.state() == State.RUNNING ? result : finish(player, bailoutReport(player, result));
+			if (result.state() == State.RUNNING) return result;
+			if (!standCornered(player)) return finish(player, bailoutReport(player, result));
 		}
 		if (collector != null) {
 			String hazardStop = hazard.observe(player);
@@ -445,12 +449,25 @@ public final class ServerFightController implements ServerController {
 			}
 		}
 		Float flee = lootFlee(player);
-		if (CombatPlanning.shouldBailOut(player.getHealth(), flee)) {
+		// Cornered with an attacker in reach: keep swinging. Once none can be hit, the retreat is tried again.
+		if (cornered) {
+			LivingEntity attacker = cornerTarget(player);
+			if (attacker == null) cornered = false;
+			else if (attacker != target) {
+				// The one it was fighting went out of reach while another can be hit: swing at that one, not at the wall.
+				switchTo(attacker, "cornered in-reach attacker");
+				clock.switched(player.distanceTo(strike));
+				return TickResult.running(progress(player));
+			}
+		}
+		if (!cornered && CombatPlanning.shouldBailOut(player.getHealth(), flee)) {
 			BrinkGuard.keepLevel(player, this, false);
 			input.release();
 			bailout = CombatBailout.start(player, target, flee, pursue, modelFight, timeoutMs - elapsed, nowEpochMs);
 			TickResult result = bailout.tick(player, nowEpochMs);
-			return result.state() == State.RUNNING ? result : finish(player, bailoutReport(player, result));
+			if (result.state() == State.RUNNING) return result;
+			if (!standCornered(player)) return finish(player, bailoutReport(player, result));
+			if (strike != target) return TickResult.running(progress(player));
 		}
 		if (pursue && !blazeWait && !repeatChecked) {
 			repeatChecked = true;
@@ -1144,19 +1161,66 @@ public final class ServerFightController implements ServerController {
 	 */
 	private void strikeAttackerInReach(ServerPlayer player) {
 		if (strike != target) return;
-		var range = player.getAttackRangeWith(player.getMainHandItem());
-		if (range.isInRange(player, target.getBoundingBox(), 0.0D)) return;
+		// In range is not a hit: a target behind the spawner or a wall within 3 blocks cannot be swung at, while the
+		// blaze touching the body can (gap0 c323: 14.7 s held for the walled-off target, 20 health lost to the other).
+		if (clearHit(player, strike)) return;
+		LivingEntity best = attackerInReach(player);
+		if (best == null || best == target) return;
+		switchTo(best, "in-reach attacker");
+		clock.switched(player.distanceTo(strike));
+	}
+
+	/**
+	 * The nearest attacker (the target first) this body can swing at now: within the held weapon's reach with a clear
+	 * line to its hitbox. Seen, or felt: one that just hit the body counts even from behind, as a player turns to it.
+	 */
+	private LivingEntity attackerInReach(ServerPlayer player) {
+		if (target.isAlive() && !target.isRemoved() && clearHit(player, strike)) return target;
 		LivingEntity best = null;
 		double bestDistance = Double.MAX_VALUE;
 		for (LivingEntity hostile : nearbyHostiles(player)) {
-			if (!attacking(player, hostile) || !range.isInRange(player, hostile.getBoundingBox(), 0.0D)) continue;
-			if (!dev.agaminggod.mineagen.server.perception.ObservationVisibility.canSeeEntity(player, hostile)) continue;
+			// A swelling creeper is never the one to stand and swing at.
+			if (hostile instanceof Creeper || !attacking(player, hostile) || !clearHit(player, hostile)) continue;
+			if (player.getLastHurtByMob() != hostile
+					&& !dev.agaminggod.mineagen.server.perception.ObservationVisibility.canSeeEntity(player, hostile)) continue;
 			double distance = player.distanceToSqr(hostile);
 			if (distance < bestDistance) { bestDistance = distance; best = hostile; }
 		}
-		if (best == null) return;
-		switchTo(best, "in-reach attacker");
-		clock.switched(player.distanceTo(strike));
+		return best;
+	}
+
+	/**
+	 * Who a cornered body swings at: the attacker in reach, or under the count engine (which owns retargeting and kill
+	 * counting) only its own target.
+	 */
+	private LivingEntity cornerTarget(ServerPlayer player) {
+		if (!engineTargets) return attackerInReach(player);
+		return target.isAlive() && !target.isRemoved() && clearHit(player, strike) ? target : null;
+	}
+
+	private static boolean clearHit(ServerPlayer player, net.minecraft.world.entity.Entity entity) {
+		var range = player.getAttackRangeWith(player.getMainHandItem());
+		AABB box = entity.getBoundingBox();
+		return range.isInRange(player, box, 0.0D) && attackPoint(player, player.getEyePosition(), box, range.effectiveMaxRange(player)) != null;
+	}
+
+	/**
+	 * A low-health retreat that found no way out (FLEE_BLOCKED) leaves the body idle beside its attackers. With one in
+	 * reach a player keeps swinging at it: the fight goes on against that attacker. False: the bailout result stands.
+	 */
+	private boolean standCornered(ServerPlayer player) {
+		if (bailout == null || !bailout.blocked()) return false;
+		LivingEntity attacker = cornerTarget(player);
+		if (attacker == null) return false;
+		bailout.cancel(player);
+		bailout = null;
+		cornered = true;
+		corneredStands++;
+		if (attacker != target) {
+			switchTo(attacker, "cornered in-reach attacker");
+			clock.switched(player.distanceTo(strike));
+		}
+		return true;
 	}
 
 	/**
@@ -1286,7 +1350,8 @@ public final class ServerFightController implements ServerController {
 	}
 
 	private String kills() {
-		String extra = (blazeWaitTicks == 0 ? "" : String.format(Locale.ROOT, "; held deck awaiting blaze reach %.1f s", blazeWaitTicks / 20.0D)) + footworkFacts() + (shieldMissing ? "; no shield in the offhand (shield:true), fought unshielded" : shieldBroke ? "; offhand shield broke mid-fight, fought on unshielded" : "")
+		String extra = (blazeWaitTicks == 0 ? "" : String.format(Locale.ROOT, "; held deck awaiting blaze reach %.1f s", blazeWaitTicks / 20.0D))
+				+ (corneredStands == 0 ? "" : String.format(Locale.ROOT, "; cornered at low health with no way out %d time(s), fought the attacker in reach", corneredStands)) + footworkFacts() + (shieldMissing ? "; no shield in the offhand (shield:true), fought unshielded" : shieldBroke ? "; offhand shield broke mid-fight, fought on unshielded" : "")
 				+ (sweepHolds == 0 ? "" : String.format(Locale.ROOT, "; held the sword on %d ready swings while a calm neutral stood in its sweep", sweepHolds))
 				+ (neutralHits.isEmpty() ? "" : "; your sword sweep also hit calm " + String.join(", ", neutralHits)
 						+ " (now hostile; a hurt zombified piglin angers all within 35 blocks)");
