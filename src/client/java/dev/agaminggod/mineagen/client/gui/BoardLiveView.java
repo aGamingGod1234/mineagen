@@ -17,29 +17,31 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.world.item.ItemStack;
 
 /**
- * The mission board's centre for the selected agent: a hero card with its body in 3D, its vitals and hotbar, then
- * its mission (goal and live plan steps) and its activity (next decision and recent events). Every value comes from
- * the agent's body as this client sees it ({@link AgentBody}) or the coordinator's live view; a part with no data
- * is left out rather than filled.
+ * The mission board's centre for the selected agent: its body standing in the world's light with its name, state,
+ * vitals and hotbar beside it, then two plain columns, Mission (goal and live plan) and Activity (what it is doing,
+ * in words). Nothing here sits in a box: type, tone and one hairline carry the structure. Every value comes from the
+ * agent's body as this client sees it ({@link AgentBody}) or the coordinator's live view; a part with no data is left
+ * out rather than filled.
  */
 final class BoardLiveView {
-	static final int HERO = 92;
-	static final int GAP = 6;
-	static final int BUTTONS = 20;
+	static final int HERO = 100;
+	static final int GAP = 14;
 	/** Centres at least this wide put Mission and Activity side by side. */
 	static final int SIDE_BY_SIDE = 360;
 	static final int SIDE_PANELS = 118;
 	static final int STACK_MISSION = 96;
 	static final int STACK_ACTIVITY = 112;
-	/** Tallest the hero card grows when the column has room to spare: a bigger body instead of blank panels. */
+	/** Tallest the hero grows when the column has room to spare: a bigger body instead of blank panels. */
 	static final int HERO_MAX = 150;
-	/** An agent with no task and no activity gets one strip under the hero instead of two empty panels. */
-	static final int IDLE_STRIP = 40;
-	static final int CARD = 0x8C141A23;
-	static final int CARD_EDGE = 0x1CFFFFFF;
-	static final int HIGHLIGHT = 0x24FFFFFF;
+	/** An idle agent's hero is taller still: it has nothing else to show. */
+	static final int IDLE_HERO_MAX = 190;
+	/** An agent with no task and no activity gets one line and task ideas under the hero instead of two empty panels. */
+	static final int IDLE_STRIP = 44;
+	/** The info block beside the body, with and without a loaded body. */
+	static final int INFO_HEIGHT = 92;
+	static final int INFO_HEIGHT_NO_BODY = 64;
 	private static final int STEP_ROW = 12;
-	private static final int EVENT_ROW = 11;
+	private static final int EVENT_ROW = 12;
 
 	private static final Identifier HEART_CONTAINER = Identifier.withDefaultNamespace("hud/heart/container");
 	private static final Identifier HEART_FULL = Identifier.withDefaultNamespace("hud/heart/full");
@@ -57,9 +59,12 @@ final class BoardLiveView {
 	record Parts(AgentControlLayout.Bounds hero, AgentControlLayout.Bounds mission, AgentControlLayout.Bounds activity) {
 	}
 
-	/** What the screen hands over each frame: everything already read, so drawing reads no game state of its own. */
-	record Frame(AgentControlAgent agent, AgentBody body, JsonObject live, int accent, String inState, String attention,
-			int attentionColor, float mouseX, float mouseY) {
+	/**
+	 * What the screen hands over each frame: everything already read, so drawing reads no game state of its own.
+	 * {@code actionsWidth} is the room the screen's Pause, Respawn and Manage buttons take at the hero's top right.
+	 */
+	record Frame(AgentControlAgent agent, AgentBody body, JsonObject live, String inState, String attention,
+			int attentionColor, int actionsWidth, float mouseX, float mouseY) {
 	}
 
 	private final Font font;
@@ -68,26 +73,31 @@ final class BoardLiveView {
 		this.font = font;
 	}
 
-	/** Height the view wants when it is not given a column to fill (folded under the rail at high GUI scales). */
+	/** Height the view needs for every part at its smallest; a shorter column scrolls. */
 	static int naturalHeight(int width) {
 		int panels = width >= SIDE_BY_SIDE ? SIDE_PANELS : STACK_MISSION + GAP + STACK_ACTIVITY;
-		return HERO + GAP + panels + GAP + BUTTONS;
+		return HERO + GAP + panels;
 	}
 
 	static Parts parts(AgentControlLayout.Bounds live, boolean idle) {
 		int left = live.left(), right = live.right();
-		int room = live.height() - BUTTONS - GAP * 2;
-		int heroHeight = idle ? Math.max(HERO, room - IDLE_STRIP - GAP)
-				: Math.clamp(room * 38 / 100, HERO, HERO_MAX);
+		int room = live.height() - GAP;
+		if (idle) {
+			// Hero and its one strip sit as one block a little above the middle, so a quiet agent reads as a scene, not a void.
+			int heroHeight = Math.clamp(room - IDLE_STRIP, HERO, IDLE_HERO_MAX);
+			int block = heroHeight + GAP + IDLE_STRIP;
+			int top = live.top() + Math.max(0, (live.height() - block) * 2 / 5);
+			AgentControlLayout.Bounds hero = new AgentControlLayout.Bounds(left, top, right, top + heroHeight);
+			int stripTop = hero.bottom() + GAP;
+			return new Parts(hero, new AgentControlLayout.Bounds(left, stripTop, right, stripTop + IDLE_STRIP),
+					new AgentControlLayout.Bounds(left, live.bottom(), right, live.bottom()));
+		}
+		int heroHeight = Math.clamp(room * 40 / 100, HERO, HERO_MAX);
 		AgentControlLayout.Bounds hero = new AgentControlLayout.Bounds(left, live.top(), right, live.top() + heroHeight);
 		int top = hero.bottom() + GAP;
-		int bottom = Math.max(top, live.bottom() - BUTTONS - GAP);
-		if (idle) {
-			return new Parts(hero, new AgentControlLayout.Bounds(left, top, right, Math.min(bottom, top + IDLE_STRIP)),
-					new AgentControlLayout.Bounds(left, bottom, right, bottom));
-		}
+		int bottom = Math.max(top, live.bottom());
 		if (live.width() >= SIDE_BY_SIDE) {
-			int split = left + (live.width() - GAP) * 40 / 100;
+			int split = left + (live.width() - GAP) * 42 / 100;
 			return new Parts(hero, new AgentControlLayout.Bounds(left, top, split, bottom),
 					new AgentControlLayout.Bounds(split + GAP, top, right, bottom));
 		}
@@ -96,13 +106,43 @@ final class BoardLiveView {
 				new AgentControlLayout.Bounds(left, Math.min(bottom, missionBottom + GAP), right, bottom));
 	}
 
+	/** Width of the body's stand at the hero's left. */
+	static int stageWidth(AgentControlLayout.Bounds hero) {
+		return Math.clamp(hero.height() * 6 / 10, 56, Math.max(56, hero.width() / 4));
+	}
+
+	/** Left edge of the name and vitals beside the body. */
+	static int infoLeft(AgentControlLayout.Bounds hero) {
+		return hero.left() + stageWidth(hero) + 14;
+	}
+
+	/** Top of the name line, the info block centred on the body; the screen lines its buttons up with it. */
+	static int infoTop(AgentControlLayout.Bounds hero, boolean body) {
+		int height = body ? INFO_HEIGHT : INFO_HEIGHT_NO_BODY;
+		return hero.top() + Math.max(2, (hero.height() - height) / 2);
+	}
+
 	void render(GuiGraphicsExtractor graphics, AgentControlLayout.Bounds view, AgentControlLayout.Bounds live, Frame frame) {
-		Parts parts = parts(live, idle(frame));
+		boolean idle = idle(frame);
+		Parts parts = parts(live, idle);
 		graphics.enableScissor(view.left(), view.top(), view.right(), view.bottom());
 		try {
 			hero(graphics, parts.hero(), frame);
+			if (idle) {
+				ready(graphics, parts.mission(), frame);
+				return;
+			}
+			int divider = parts.hero().bottom() + GAP / 2;
+			ConsoleDraw.hairline(graphics, live.left(), live.right(), divider, ConsoleTheme.HAIRLINE);
 			mission(graphics, parts.mission(), frame);
 			activity(graphics, parts.activity(), frame);
+			if (parts.activity().left() > parts.mission().right()) {
+				int x = (parts.mission().right() + parts.activity().left()) / 2;
+				ConsoleDraw.vhairline(graphics, x, parts.mission().top() + 2, parts.mission().bottom() - 4, ConsoleTheme.HAIRLINE);
+			} else if (parts.activity().top() > parts.mission().bottom()) {
+				int y = (parts.mission().bottom() + parts.activity().top()) / 2;
+				ConsoleDraw.hairline(graphics, live.left(), live.right(), y, ConsoleTheme.HAIRLINE);
+			}
 		} finally {
 			graphics.disableScissor();
 		}
@@ -114,84 +154,64 @@ final class BoardLiveView {
 				&& steps(frame.live()).isEmpty() && events(frame.live()).isEmpty() && decision(frame.live()).isEmpty();
 	}
 
-	/** Translucent glass: a dark fill, a faint edge and a one-pixel highlight along the top. */
-	static void glass(GuiGraphicsExtractor graphics, AgentControlLayout.Bounds bounds, int fill) {
-		int x = bounds.left(), y = bounds.top(), w = bounds.width(), h = bounds.height();
-		if (w <= 0 || h <= 0) return;
-		ConsoleDraw.surface(graphics, x, y, w, h, ConsoleDraw.RADIUS_CARD, fill);
-		ConsoleDraw.ring(graphics, x, y, w, h, ConsoleDraw.RADIUS_CARD, CARD_EDGE);
-		graphics.fill(x + ConsoleDraw.RADIUS_CARD, y, x + w - ConsoleDraw.RADIUS_CARD, y + 1, HIGHLIGHT);
+	/** The idle strip's line; the screen puts task ideas under it as buttons. */
+	private void ready(GuiGraphicsExtractor graphics, AgentControlLayout.Bounds strip, Frame frame) {
+		String line = tr("screen.mineagen.board.ready", frame.agent().displayName());
+		graphics.text(font, ConsoleText.component(fit(line, strip.width(), false)), strip.left(), strip.top() + 2, ConsoleTheme.MUTED, false);
 	}
 
-	/** A soft glow in {@code color}: rings fading outward from the card's edge. */
-	static void glow(GuiGraphicsExtractor graphics, AgentControlLayout.Bounds bounds, int color) {
-		float[] alphas = {0.42F, 0.16F, 0.07F};
-		for (int ring = 0; ring < alphas.length; ring++) {
-			int grow = ring;
-			ConsoleDraw.ring(graphics, bounds.left() - grow, bounds.top() - grow, bounds.width() + grow * 2, bounds.height() + grow * 2,
-					ConsoleDraw.RADIUS_CARD + grow, ConsoleDraw.withAlpha(color, alphas[ring]));
-		}
+	/** Where the idle strip's task ideas go: under its line. */
+	static int ideasTop(AgentControlLayout.Bounds strip) {
+		return strip.top() + 16;
 	}
 
 	private void hero(GuiGraphicsExtractor graphics, AgentControlLayout.Bounds hero, Frame frame) {
 		AgentControlAgent agent = frame.agent();
 		AgentBody body = frame.body();
-		glow(graphics, hero, frame.accent());
-		glass(graphics, hero, CARD);
-		// The stage: a spotlight in the accent colour rising from the floor, with the body or its face on it.
-		int sh = hero.height() - 10;
-		int stageWidth = Math.max(hero.width() < 300 ? 60 : 74, Math.min(sh * 7 / 10, hero.width() / 4));
-		int sx = hero.left() + 5, sy = hero.top() + 5, sw = stageWidth;
-		ConsoleDraw.surface(graphics, sx, sy, sw, sh, ConsoleDraw.RADIUS_CONTROL, 0x66070A0F);
-		graphics.fillGradient(sx + 2, sy + sh / 4, sx + sw - 2, sy + sh - 2, ConsoleDraw.withAlpha(frame.accent(), 0F),
-				ConsoleDraw.withAlpha(frame.accent(), 0.30F));
-		graphics.fill(sx + 8, sy + sh - 2, sx + sw - 8, sy + sh - 1, ConsoleDraw.withAlpha(frame.accent(), 0.55F));
-		ConsoleDraw.surface(graphics, sx + sw / 2 - 15, sy + sh - 9, 30, 5, ConsoleDraw.RADIUS_SMALL, 0x80000000);
+		int sw = stageWidth(hero);
+		int sx = hero.left(), sy = hero.top(), sh = hero.height();
+		// The body stands on a soft floor shadow, lit by nothing but the world behind the panel.
+		int floorY = sy + sh - 6;
+		ConsoleDraw.surface(graphics, sx + sw / 2 - sw * 3 / 10, floorY - 2, sw * 6 / 10, 6, ConsoleDraw.RADIUS_SMALL, 0x2E000000);
+		ConsoleDraw.surface(graphics, sx + sw / 2 - sw / 5, floorY - 1, sw * 2 / 5, 4, ConsoleDraw.RADIUS_SMALL, 0x4C000000);
 		if (body != null && body.entity() != null) {
-			int boxTop = sy + 4, boxBottom = sy + sh - 5;
-			int size = (boxBottom - boxTop) * 30 / 70;
+			int boxTop = sy + 2, boxBottom = floorY + 1;
+			int size = (boxBottom - boxTop) * 30 / 66;
 			McClientCompat.entityPreview(graphics, sx, boxTop, sx + sw, boxBottom, size, 0.0625F, frame.mouseX(), frame.mouseY(), body.entity());
 		} else {
-			int face = 32;
-			int fx = sx + (sw - face) / 2, fy = sy + (sh - face) / 2 - 8;
-			ConsoleDraw.surface(graphics, fx - 2, fy - 2, face + 4, face + 4, ConsoleDraw.RADIUS_SMALL, 0x90000000);
-			if (!AgentFaces.draw(graphics, agent, fx, fy, face)) {
-				ConsoleDraw.surface(graphics, fx, fy, face, face, ConsoleDraw.RADIUS_SMALL, ConsoleTheme.SURFACE_RAISED);
-			}
+			int tile = Math.min(40, sw - 12);
+			int fx = sx + (sw - tile) / 2, fy = sy + (sh - tile) / 2 - 8;
+			AgentFaces.tile(graphics, agent, fx, fy, tile);
 			String away = tr("screen.mineagen.board.out_of_view");
-			ConsoleDraw.label(graphics, font, away, sx + (sw - ConsoleDraw.labelWidth(font, away)) / 2, fy + face + 7, ConsoleTheme.MUTED);
+			ConsoleDraw.label(graphics, font, away, sx + (sw - ConsoleDraw.labelWidth(font, away)) / 2, fy + tile + 7, ConsoleTheme.SUBTLE);
 		}
 
-		int ix = sx + sw + 10;
-		int right = hero.right() - 8;
-		// The info block is about 80 tall; a taller card centres it beside the body.
-		int y = hero.top() + 8 + Math.max(0, (hero.height() - 16 - (body == null ? 51 : 80)) / 2);
-		// Name in the provider's colour, big; the state as a chip on the right.
-		String state = AgentControlPresentation.stateLabel(agent.state());
+		int ix = infoLeft(hero);
+		int right = hero.right();
+		int y = infoTop(hero, body != null);
+		// The name, plain and large.
+		int nameRoom = (int) ((right - frame.actionsWidth() - 10 - ix) / ConsoleDraw.TITLE_SIZE);
+		ConsoleDraw.title(graphics, font, fitStrong(agent.displayName(), nameRoom), ix, y, ConsoleTheme.TEXT);
+		y += 19;
+		// What it is doing, in its state colour, and for how long.
 		AgentControlPresentation.StateCue cue = AgentControlPresentation.stateCue(agent.state());
 		int stateColor = ConsoleTheme.stateColor(cue.tone());
-		int chipWidth = ConsoleDraw.labelWidth(font, state) + 21;
-		int chipX = right - chipWidth;
-		ConsoleDraw.surface(graphics, chipX, y, chipWidth, 14, ConsoleDraw.RADIUS_SMALL, ConsoleDraw.withAlpha(stateColor, 0.16F));
-		ConsoleDraw.ring(graphics, chipX, y, chipWidth, 14, ConsoleDraw.RADIUS_SMALL, ConsoleDraw.withAlpha(stateColor, 0.35F));
-		ConsoleDraw.stateMark(graphics, ConsoleDraw.stateMark(cue), chipX + 4, y + 2, 10);
-		ConsoleDraw.label(graphics, font, state, chipX + 17, y + 4, stateColor);
-		int nameRoom = (int) ((chipX - 8 - ix) / ConsoleDraw.TITLE_SIZE);
-		String name = fitStrong(agent.displayName(), nameRoom);
-		ConsoleDraw.title(graphics, font, name, ix, y, ConsoleTheme.rosterProviderColor(agent.provider()));
-		y += 18;
-		// The model it runs, under the provider's mark, and how long it has been in this state.
+		ConsoleDraw.surface(graphics, ix, y + 2, 5, 5, ConsoleDraw.RADIUS_SMALL, stateColor);
+		String state = AgentControlPresentation.stateLabel(agent.state());
+		graphics.text(font, ConsoleText.strong(state), ix + 9, y, stateColor, false);
+		if (!frame.inState().isEmpty()) {
+			int after = ix + 9 + ConsoleText.strongWidth(font, state) + 8;
+			ConsoleDraw.label(graphics, font, fitLabel(frame.inState(), right - after), after, y + 1, ConsoleTheme.SUBTLE);
+		}
+		y += 13;
 		int x = ix;
 		int brand = BrandMarks.draw(graphics, BrandMarks.forProvider(agent.provider()), x, y - 1, BrandMarks.SMALL);
-		if (brand > 0) x += brand + 4;
-		String profile = AgentControlPresentation.profileLabel(agent);
-		if (!frame.inState().isEmpty()) profile = profile + "   " + frame.inState();
-		ConsoleDraw.label(graphics, font, fitLabel(profile, right - x), x, y + 1, ConsoleTheme.MUTED);
-		y += 13;
+		if (brand > 0) x += brand + 5;
+		ConsoleDraw.label(graphics, font, fitLabel(AgentControlPresentation.profileLabel(agent), right - x), x, y + 1, ConsoleTheme.MUTED);
+		y += 15;
 		if (body == null) {
-			String none = tr("screen.mineagen.board.no_body");
-			for (String line : wrap(none, right - ix, 2)) {
-				graphics.text(font, ConsoleText.component(line), ix, y + 2, ConsoleTheme.SUBTLE, false);
+			for (String line : wrap(tr("screen.mineagen.board.no_body"), right - ix, 2)) {
+				graphics.text(font, ConsoleText.component(line), ix, y, ConsoleTheme.SUBTLE, false);
 				y += 10;
 			}
 			return;
@@ -201,25 +221,24 @@ final class BoardLiveView {
 		x = hearts(graphics, x, y, body.health(), body.maxHealth()) + 6;
 		if (body.knowsFood() && x + 81 <= right) x = food(graphics, x, y, body.food()) + 6;
 		if (body.armor() > 0 && x + 81 <= right) armor(graphics, x, y, body.armor());
-		y += 12;
+		y += 13;
 		String place = tr("screen.mineagen.board.coords", body.x(), body.y(), body.z());
-		graphics.text(font, ConsoleText.component(place), ix, y, ConsoleTheme.TEXT, false);
+		ConsoleDraw.label(graphics, font, place, ix, y, ConsoleTheme.MUTED);
+		int px = ix + ConsoleDraw.labelWidth(font, place);
 		String dimension = body.dimensionLabel();
-		if (!dimension.isEmpty()) {
-			int dx = ix + ConsoleText.width(font, place) + 8;
-			int dimColor = dimensionColor(body.dimension());
-			int dw = ConsoleDraw.labelWidth(font, dimension) + 10;
-			if (dx + dw <= right) {
-				ConsoleDraw.surface(graphics, dx, y - 2, dw, 12, ConsoleDraw.RADIUS_SMALL, ConsoleDraw.withAlpha(dimColor, 0.18F));
-				ConsoleDraw.label(graphics, font, dimension, dx + 5, y + 1, dimColor);
-			}
+		if (!dimension.isEmpty() && px + 14 + ConsoleDraw.labelWidth(font, dimension) <= right) {
+			ConsoleDraw.label(graphics, font, "·", px + 4, y, ConsoleTheme.SUBTLE);
+			ConsoleDraw.label(graphics, font, dimension, px + 10, y, dimensionColor(body.dimension()));
+			px += 10 + ConsoleDraw.labelWidth(font, dimension);
 		}
 		if (body.level() > 0) {
 			String level = tr("screen.mineagen.board.level", body.level());
-			int lw = ConsoleDraw.labelWidth(font, level);
-			if (right - lw > ix + ConsoleText.width(font, place) + 80) ConsoleDraw.label(graphics, font, level, right - lw, y + 1, 0xFF80FF20);
+			if (px + 14 + ConsoleDraw.labelWidth(font, level) <= right) {
+				ConsoleDraw.label(graphics, font, "·", px + 4, y, ConsoleTheme.SUBTLE);
+				ConsoleDraw.label(graphics, font, level, px + 10, y, 0xFF80FF20);
+			}
 		}
-		y += 13;
+		y += 12;
 		// The hotbar on this PC's own world, else what the client is sent: armour and both hands.
 		if (body.knowsHotbar() && right - ix >= 182) {
 			graphics.blitSprite(RenderPipelines.GUI_TEXTURED, HOTBAR, ix, y, 182, 22);
@@ -236,7 +255,6 @@ final class BoardLiveView {
 			}
 		}
 	}
-
 	private void item(GuiGraphicsExtractor graphics, ItemStack stack, int x, int y) {
 		if (stack == null || stack.isEmpty()) return;
 		graphics.item(stack, x, y);
@@ -283,19 +301,20 @@ final class BoardLiveView {
 		};
 	}
 
+	private void heading(GuiGraphicsExtractor graphics, String text, String aside, int left, int right, int y) {
+		ConsoleDraw.label(graphics, font, text, left, y, ConsoleTheme.SUBTLE);
+		if (!aside.isEmpty()) ConsoleDraw.label(graphics, font, aside, right - ConsoleDraw.labelWidth(font, aside), y, ConsoleTheme.SUBTLE);
+	}
+
 	private void mission(GuiGraphicsExtractor graphics, AgentControlLayout.Bounds panel, Frame frame) {
 		if (panel.height() < 24) return;
-		glass(graphics, panel, CARD);
-		int left = panel.left() + 8, right = panel.right() - 8, width = right - left;
-		int y = panel.top() + 7;
+		int left = panel.left(), right = panel.right(), width = right - left;
+		int y = panel.top();
 		List<Step> steps = steps(frame.live());
 		int done = (int) steps.stream().filter(step -> step.status().equals("complete")).count();
-		ConsoleDraw.label(graphics, font, tr("screen.mineagen.board.mission").toUpperCase(Locale.ROOT), left, y, ConsoleTheme.SUBTLE);
-		if (!steps.isEmpty()) {
-			String count = tr("screen.mineagen.board.plan_progress", done, steps.size());
-			ConsoleDraw.label(graphics, font, count, right - ConsoleDraw.labelWidth(font, count), y, ConsoleTheme.MUTED);
-		}
-		y += 12;
+		heading(graphics, tr("screen.mineagen.board.mission"), steps.isEmpty() ? "" : tr("screen.mineagen.board.plan_progress", done, steps.size()),
+				left, right, y);
+		y += 13;
 		AgentControlAgent agent = frame.agent();
 		boolean noTask = agent.currentGoal().isBlank();
 		List<String> goal = wrap(noTask ? tr("screen.mineagen.board.no_task") : agent.currentGoal(), width, 2);
@@ -303,21 +322,15 @@ final class BoardLiveView {
 			graphics.text(font, noTask ? ConsoleText.component(line) : ConsoleText.strong(line), left, y, noTask ? ConsoleTheme.MUTED : ConsoleTheme.TEXT, false);
 			y += 10;
 		}
-		if (noTask && steps.isEmpty()) {
-			String hint = tr("screen.mineagen.board.no_task_hint", frame.agent().displayName());
-			int hx = Math.max(left + ConsoleText.width(font, goal.getFirst()) + 12, right - ConsoleText.width(font, hint));
-			if (hx + ConsoleText.width(font, hint) <= right) graphics.text(font, ConsoleText.component(hint), hx, y - 10, ConsoleTheme.SUBTLE, false);
-			return;
-		}
-		y += 3;
+		y += 4;
 		if (steps.isEmpty()) {
 			if (!noTask) graphics.text(font, ConsoleText.component(tr("screen.mineagen.board.no_plan")), left, y, ConsoleTheme.SUBTLE, false);
 			return;
 		}
-		ConsoleDraw.surface(graphics, left, y, width, 4, 2, 0xFF0A0E13);
-		if (done > 0) ConsoleDraw.surface(graphics, left, y, Math.max(4, width * done / steps.size()), 4, 2, ConsoleTheme.SUCCESS);
+		graphics.fill(left, y, right, y + 2, 0x14FFFFFF);
+		if (done > 0) graphics.fill(left, y, left + Math.max(2, width * done / steps.size()), y + 2, ConsoleTheme.ACCENT);
 		y += 9;
-		int capacity = Math.max(0, (panel.bottom() - 6 - y) / STEP_ROW);
+		int capacity = Math.max(0, (panel.bottom() - 2 - y) / STEP_ROW);
 		if (capacity == 0) return;
 		int active = 0;
 		for (int index = 0; index < steps.size(); index++) {
@@ -333,20 +346,17 @@ final class BoardLiveView {
 		for (int index = start; index < start + shown; index++) {
 			Step step = steps.get(index);
 			boolean current = step.status().equals("active");
-			if (current) {
-				ConsoleDraw.surface(graphics, left - 4, y - 2, width + 8, STEP_ROW, ConsoleDraw.RADIUS_SMALL, ConsoleDraw.withAlpha(frame.accent(), 0.14F));
-			}
 			int color = switch (step.status()) {
-				case "complete" -> ConsoleTheme.MUTED;
+				case "complete" -> ConsoleTheme.SUBTLE;
 				case "active" -> ConsoleTheme.TEXT;
 				case "lost" -> ConsoleTheme.ERROR;
-				default -> ConsoleTheme.SUBTLE;
+				default -> ConsoleTheme.MUTED;
 			};
 			switch (step.status()) {
-				case "complete" -> ConsoleDraw.icon(graphics, ConsoleDraw.Icon.CHECK, left, y - 1, 9, ConsoleTheme.SUCCESS);
-				case "active" -> ConsoleDraw.icon(graphics, ConsoleDraw.Icon.PLAY, left, y - 1, 9, frame.accent());
+				case "complete" -> ConsoleDraw.icon(graphics, ConsoleDraw.Icon.CHECK, left, y - 1, 9, ConsoleTheme.SUBTLE);
+				case "active" -> ConsoleDraw.surface(graphics, left + 2, y + 1, 5, 5, ConsoleDraw.RADIUS_SMALL, ConsoleTheme.ACCENT);
 				case "lost" -> ConsoleDraw.surface(graphics, left + 2, y + 1, 5, 5, ConsoleDraw.RADIUS_SMALL, ConsoleTheme.ERROR);
-				default -> ConsoleDraw.ring(graphics, left + 1, y, 7, 7, ConsoleDraw.RADIUS_SMALL, ConsoleTheme.SUBTLE);
+				default -> ConsoleDraw.ring(graphics, left + 2, y + 1, 5, 5, ConsoleDraw.RADIUS_SMALL, ConsoleDraw.withAlpha(ConsoleTheme.SUBTLE, 0.8F));
 			}
 			String label = fit(step.label(), width - 14, current);
 			graphics.text(font, current ? ConsoleText.strong(label) : ConsoleText.component(label), left + 14, y, color, false);
@@ -360,40 +370,32 @@ final class BoardLiveView {
 
 	private void activity(GuiGraphicsExtractor graphics, AgentControlLayout.Bounds panel, Frame frame) {
 		if (panel.height() < 24) return;
-		glass(graphics, panel, CARD);
-		int left = panel.left() + 8, right = panel.right() - 8, width = right - left;
-		int bottom = panel.bottom() - 6;
-		int y = panel.top() + 7;
+		int left = panel.left(), right = panel.right(), width = right - left;
+		int bottom = panel.bottom();
+		int y = panel.top();
 		JsonObject live = frame.live();
-		ConsoleDraw.label(graphics, font, tr("screen.mineagen.board.activity").toUpperCase(Locale.ROOT), left, y, ConsoleTheme.SUBTLE);
-		String usage = usage(live);
-		if (!usage.isEmpty()) ConsoleDraw.label(graphics, font, usage, right - ConsoleDraw.labelWidth(font, usage), y, ConsoleTheme.MUTED);
-		y += 12;
+		heading(graphics, tr("screen.mineagen.board.activity"), usage(live), left, right, y);
+		y += 13;
 		if (!frame.attention().isEmpty()) {
 			List<String> lines = wrap(frame.attention(), width - 8, 2);
-			int h = lines.size() * 10 + 5;
-			ConsoleDraw.surface(graphics, left - 2, y - 2, width + 4, h, ConsoleDraw.RADIUS_SMALL, ConsoleDraw.withAlpha(frame.attentionColor(), 0.14F));
-			graphics.fill(left - 2, y - 1, left - 1, y - 3 + h, frame.attentionColor());
+			graphics.fill(left, y - 1, left + 2, y - 3 + lines.size() * 10 + 2, frame.attentionColor());
 			for (String line : lines) {
-				graphics.text(font, ConsoleText.component(line), left + 3, y, frame.attentionColor(), false);
+				graphics.text(font, ConsoleText.component(line), left + 8, y, frame.attentionColor(), false);
 				y += 10;
 			}
-			y += 5;
+			y += 6;
 		}
+		long now = System.currentTimeMillis();
+		int timeColumn = ConsoleDraw.labelWidth(font, "59m") + 8;
 		String next = decision(live);
 		if (!next.isEmpty() && y + 20 <= bottom) {
-			String tag = tr("screen.mineagen.board.next").toUpperCase(Locale.ROOT);
-			int tagWidth = ConsoleDraw.labelWidth(font, tag) + 8;
-			ConsoleDraw.surface(graphics, left, y - 1, tagWidth, 10, ConsoleDraw.RADIUS_SMALL, ConsoleDraw.withAlpha(ConsoleTheme.WARNING, 0.2F));
-			ConsoleDraw.label(graphics, font, tag, left + 4, y + 1, ConsoleTheme.WARNING);
-			List<String> lines = wrap(next, width - tagWidth - 5, 2);
+			ConsoleDraw.label(graphics, font, tr("screen.mineagen.board.next"), left, y + 1, ConsoleTheme.ACCENT);
+			List<String> lines = wrap(next, width - timeColumn, 2);
 			for (String line : lines) {
-				graphics.text(font, ConsoleText.component(line), left + tagWidth + 5, y, ConsoleTheme.TEXT, false);
+				graphics.text(font, ConsoleText.component(line), left + timeColumn, y, ConsoleTheme.TEXT, false);
 				y += 10;
 			}
 			y += 4;
-			graphics.fill(left, y - 2, right, y - 1, 0x14FFFFFF);
-			y += 2;
 		}
 		List<Event> events = events(live);
 		if (events.isEmpty()) {
@@ -407,22 +409,20 @@ final class BoardLiveView {
 			}
 			return;
 		}
-		int tagColumn = 0;
-		for (Event event : events) tagColumn = Math.max(tagColumn, ConsoleDraw.labelWidth(font, event.tag()));
-		tagColumn = Math.min(tagColumn + 6, Math.min(56, width / 4));
-		long now = System.currentTimeMillis();
 		for (Event event : events) {
 			if (y + EVENT_ROW > bottom + 2) break;
-			ConsoleDraw.label(graphics, font, fitLabel(event.tag(), tagColumn - 4), left, y + 1, event.color());
 			String when = event.at() > 0 ? since(now - event.at()) : "";
-			int whenWidth = when.isEmpty() ? 0 : ConsoleDraw.labelWidth(font, when) + 6;
-			if (!when.isEmpty()) ConsoleDraw.label(graphics, font, when, right - whenWidth + 6, y + 1, ConsoleTheme.SUBTLE);
-			String message = fit(event.message(), width - tagColumn - whenWidth, false);
-			graphics.text(font, ConsoleText.component(message), left + tagColumn, y, event.thought() ? ConsoleTheme.MUTED : ConsoleTheme.TEXT, false);
+			if (!when.isEmpty()) ConsoleDraw.label(graphics, font, when, left, y + 1, ConsoleTheme.SUBTLE);
+			String repeats = event.repeats() > 1 ? "  x" + event.repeats() : "";
+			int repeatsWidth = repeats.isEmpty() ? 0 : ConsoleDraw.labelWidth(font, repeats);
+			String message = fit(event.message(), width - timeColumn - repeatsWidth, false);
+			graphics.text(font, ConsoleText.component(message), left + timeColumn, y, event.color(), false);
+			if (!repeats.isEmpty()) {
+				ConsoleDraw.label(graphics, font, repeats, left + timeColumn + ConsoleText.width(font, message), y + 1, ConsoleTheme.SUBTLE);
+			}
 			y += EVENT_ROW;
 		}
 	}
-
 	record Step(String label, String status) {
 	}
 
@@ -442,43 +442,43 @@ final class BoardLiveView {
 		return steps;
 	}
 
-	record Event(String tag, String message, int color, long at, boolean thought) {
+	record Event(ActivityText.Kind kind, String message, int color, long at, int repeats) {
+		boolean thought() {
+			return kind == ActivityText.Kind.THOUGHT;
+		}
 	}
 
-	/** Recent events, newest first, with the stage shown as a short coloured tag. */
+	/**
+	 * Recent events, newest first, in words ({@link ActivityText}): plumbing is dropped, and the same line repeated
+	 * back to back ("Mining iron ore" five times) shows once with its count.
+	 */
 	static List<Event> events(JsonObject live) {
 		List<Event> events = new ArrayList<>();
 		if (live == null || !live.has("events") || !live.get("events").isJsonArray()) return events;
 		for (JsonElement element : live.getAsJsonArray("events")) {
 			if (!(element instanceof JsonObject event)) continue;
-			String message = string(event, "message").replace('\n', ' ').replace('\r', ' ').trim();
-			if (message.isEmpty()) continue;
-			String stage = string(event, "stage").replace("live_", "");
-			if (stage.isEmpty()) stage = "event";
-			boolean thought = stage.equals("delta") || stage.equals("summary") || stage.equals("reasoning");
-			String tag = switch (stage) {
-				case "delta", "reasoning" -> "thinking";
-				case "agent_message", "say", "chat" -> "said";
-				default -> stage.replace('_', ' ');
-			};
+			ActivityText.Line line = ActivityText.of(string(event, "stage"), string(event, "message"));
+			if (line == null) continue;
 			long at = event.has("at") && event.get("at").isJsonPrimitive() && event.get("at").getAsJsonPrimitive().isNumber()
 					? event.get("at").getAsLong() : 0L;
-			events.add(new Event(tag, message, stageColor(stage), at, thought));
+			if (!events.isEmpty() && events.getLast().message().equals(line.text())) {
+				Event last = events.removeLast();
+				events.add(new Event(last.kind(), last.message(), last.color(), Math.max(at, last.at()), last.repeats() + 1));
+				continue;
+			}
+			events.add(new Event(line.kind(), line.text(), kindColor(line.kind()), at, 1));
 		}
 		java.util.Collections.reverse(events);
 		return events;
 	}
 
-	static int stageColor(String stage) {
-		return switch (stage) {
-			case "lifecycle" -> ConsoleTheme.ACCENT;
-			case "planner", "decision" -> 0xFFFFC857;
-			case "provider" -> 0xFFC79BFF;
-			case "agent_message", "say", "chat" -> ConsoleTheme.SUCCESS;
-			case "retry" -> ConsoleTheme.WARNING;
-			case "error", "failure" -> ConsoleTheme.ERROR;
-			case "tool", "action" -> 0xFF7FB2FF;
-			default -> ConsoleTheme.SUBTLE;
+	static int kindColor(ActivityText.Kind kind) {
+		return switch (kind) {
+			case ACTION -> ConsoleTheme.TEXT;
+			case THOUGHT, LIFE -> ConsoleTheme.MUTED;
+			case SAID -> 0xFFB9E6C6;
+			case WARNING -> ConsoleTheme.WARNING;
+			case ERROR -> ConsoleTheme.ERROR;
 		};
 	}
 

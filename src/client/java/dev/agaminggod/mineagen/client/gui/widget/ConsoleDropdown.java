@@ -65,7 +65,7 @@ public final class ConsoleDropdown<T> extends AbstractWidget implements ConsoleF
 		ConsoleDraw.surface(graphics, getX(), getY(), getWidth(), getHeight(), ConsoleDraw.RADIUS_CONTROL,
 				active ? ConsoleDraw.mix(ConsoleTheme.SURFACE, ConsoleTheme.SURFACE_HOVER, lift) : ConsoleTheme.ROSTER_UNAVAILABLE_SURFACE);
 		if (isFocused() || open) ConsoleDraw.ring(graphics, getX(), getY(), getWidth(), getHeight(), ConsoleDraw.RADIUS_CONTROL,
-				open ? ConsoleTheme.ACCENT : ConsoleTheme.FOCUS);
+				open ? ConsoleDraw.withAlpha(ConsoleTheme.FOCUS, 0.5F) : ConsoleTheme.FOCUS);
 		String value = formatter.apply(values.get(selected));
 		int textY = getY() + (height - 8) / 2;
 		graphics.text(font, ConsoleText.strong(fit(value, getWidth() - 30)), getX() + 9, textY, active ? ConsoleTheme.TEXT : ConsoleTheme.SUBTLE, false);

@@ -50,7 +50,7 @@ public final class ConsoleSegmented<T> extends AbstractWidget implements Console
 
 	@Override
 	protected void extractWidgetRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
-		ConsoleDraw.surface(graphics, getX(), getY(), getWidth(), getHeight(), ConsoleDraw.RADIUS_CONTROL, ConsoleTheme.TRACK);
+		ConsoleDraw.surface(graphics, getX(), getY(), getWidth(), getHeight(), ConsoleDraw.RADIUS_CONTROL, 0x66000000);
 		int count = values.size();
 		float segment = (getWidth() - 4) / (float) count;
 		float progress = ConsoleMotion.smooth(slide.toward(1F, 160));
@@ -61,7 +61,7 @@ public final class ConsoleSegmented<T> extends AbstractWidget implements Console
 		float lift = ConsoleMotion.smooth(hover.toward(active && isFocused() ? 1F : 0F, 120));
 		if (active) {
 			ConsoleDraw.surface(graphics, highlightX, getY() + 2, highlightWidth, getHeight() - 4, ConsoleDraw.RADIUS_SMALL,
-					ConsoleDraw.mix(ConsoleTheme.SURFACE_RAISED, 0xFF33404F, lift));
+					ConsoleDraw.mix(ConsoleTheme.SURFACE_RAISED, 0xFF383B41, lift));
 		}
 		if (isFocused() && active) ConsoleDraw.ring(graphics, getX(), getY(), getWidth(), getHeight(), ConsoleDraw.RADIUS_CONTROL, ConsoleTheme.FOCUS);
 		int hovered = active && isHovered() ? segmentAt(mouseX) : -1;
@@ -70,7 +70,7 @@ public final class ConsoleSegmented<T> extends AbstractWidget implements Console
 			int left = Math.round(getX() + 2 + segment * option);
 			int center = left + Math.round(segment) / 2;
 			boolean chosen = option == index;
-			int color = !active ? ConsoleTheme.SUBTLE : chosen ? ConsoleTheme.TEXT : option == hovered ? 0xFFC9D0DA : ConsoleTheme.MUTED;
+			int color = !active ? ConsoleTheme.SUBTLE : chosen ? ConsoleTheme.TEXT : option == hovered ? 0xFFD0D1D4 : ConsoleTheme.MUTED;
 			Component styled = chosen ? ConsoleText.strong(text) : ConsoleText.component(text);
 			int width = font.width(styled);
 			graphics.text(font, styled, center - width / 2, getY() + (getHeight() - 8) / 2, color, false);

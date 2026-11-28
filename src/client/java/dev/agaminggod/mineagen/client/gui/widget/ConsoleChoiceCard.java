@@ -68,9 +68,9 @@ public final class ConsoleChoiceCard extends AbstractWidget implements ConsoleFo
 		int fill = ConsoleDraw.mix(base, ConsoleTheme.SURFACE_SELECTED, selected ? chosen : 0F);
 		ConsoleDraw.surface(graphics, getX(), getY(), getWidth(), getHeight(), ConsoleDraw.RADIUS_CARD, fill);
 		if (selected) {
-			ConsoleDraw.ring(graphics, getX(), getY(), getWidth(), getHeight(), ConsoleDraw.RADIUS_CARD,
-					ConsoleDraw.withAlpha(ConsoleTheme.ACCENT, chosen));
-		} else if (isFocused() && active) {
+			graphics.fill(getX(), getY() + 6, getX() + 2, getBottom() - 6, ConsoleDraw.withAlpha(ConsoleTheme.ACCENT, chosen));
+		}
+		if (isFocused() && active) {
 			ConsoleDraw.ring(graphics, getX(), getY(), getWidth(), getHeight(), ConsoleDraw.RADIUS_CARD, ConsoleTheme.FOCUS);
 		}
 		int markSize = Math.min(20, getHeight() - 12);

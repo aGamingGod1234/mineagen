@@ -93,17 +93,20 @@ public final class AgentRosterTile extends AbstractWidget implements ConsoleFocu
 			dev.agaminggod.mineagen.client.gui.ConsoleDraw.ring(graphics, getX(), getY(), getWidth(), getHeight(),
 					dev.agaminggod.mineagen.client.gui.ConsoleDraw.RADIUS_CARD, ConsoleTheme.FOCUS);
 		} else if (selected) {
-			dev.agaminggod.mineagen.client.gui.ConsoleDraw.ring(graphics, getX(), getY(), getWidth(), getHeight(),
-					dev.agaminggod.mineagen.client.gui.ConsoleDraw.RADIUS_CARD, ConsoleTheme.ACCENT);
+			graphics.fill(getX(), getY() + 6, getX() + 2, getBottom() - 6, ConsoleTheme.ACCENT);
 		}
 
 		Bounds portrait = metrics.portraitBounds();
+		// The same per-agent colour tile as the board's list, so two agents on one model still look different.
+		int pad = portrait.width() >= 28 ? 3 : 2;
+		dev.agaminggod.mineagen.client.gui.ConsoleDraw.surface(graphics, portrait.left(), portrait.top(), portrait.width(), portrait.width(),
+				dev.agaminggod.mineagen.client.gui.ConsoleDraw.RADIUS_SMALL, dev.agaminggod.mineagen.client.gui.AgentFaces.tint(entry.id()));
 		PlayerFaceExtractor.extractRenderState(
 				graphics,
 				texture,
-				portrait.left(),
-				portrait.top(),
-				portrait.width(),
+				portrait.left() + pad,
+				portrait.top() + pad,
+				portrait.width() - pad * 2,
 				true,
 				false,
 				0xFFFFFFFF

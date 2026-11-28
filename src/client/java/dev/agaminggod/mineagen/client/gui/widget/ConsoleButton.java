@@ -125,17 +125,17 @@ public final class ConsoleButton extends AbstractWidget implements ConsoleFocusT
 	) {
 		Objects.requireNonNull(tone, "tone must not be null");
 		if (!active) {
-			return new Presentation(0, tone == Tone.GHOST ? 0 : ConsoleTheme.ROSTER_UNAVAILABLE_SURFACE, ConsoleTheme.SUBTLE, 0);
+			return new Presentation(0, tone == Tone.GHOST ? 0 : ConsoleTheme.BUTTON_INACTIVE, ConsoleTheme.SUBTLE, 0);
 		}
 		boolean lit = hovered || focused;
 		int border = focused ? ConsoleTheme.FOCUS : 0;
 		return switch (tone) {
-			case PRIMARY -> new Presentation(border, lit ? ConsoleTheme.ACCENT_HOVER : ConsoleTheme.ACCENT, ConsoleTheme.ACCENT_INK, 0);
+			case PRIMARY -> new Presentation(border, lit ? ConsoleTheme.PRIMARY_HOVER : ConsoleTheme.PRIMARY, ConsoleTheme.PRIMARY_INK, 0);
 			case DANGER -> new Presentation(border, lit ? ConsoleTheme.DANGER_HOVER : ConsoleTheme.DANGER_SURFACE, ConsoleTheme.ERROR, 0);
-			case GHOST -> new Presentation(border, lit ? ConsoleTheme.SURFACE : 0x001A2029, lit ? ConsoleTheme.TEXT : ConsoleTheme.MUTED, 0);
+			case GHOST -> new Presentation(border, lit ? 0x14FFFFFF : 0x00FFFFFF, lit ? ConsoleTheme.TEXT : ConsoleTheme.MUTED, 0);
 			case SECONDARY -> selected
-					? new Presentation(border, lit ? 0xFF1B3B47 : ConsoleTheme.SURFACE_SELECTED, ConsoleTheme.ACCENT, 0)
-					: new Presentation(border, lit ? ConsoleTheme.SURFACE_RAISED : ConsoleTheme.SURFACE_HOVER, ConsoleTheme.TEXT, 0);
+					? new Presentation(border, lit ? 0xFF2D3A30 : ConsoleTheme.SURFACE_SELECTED, ConsoleTheme.ACCENT, 0)
+					: new Presentation(border, lit ? ConsoleTheme.BUTTON_HOVER : ConsoleTheme.BUTTON, ConsoleTheme.TEXT, 0);
 		};
 	}
 

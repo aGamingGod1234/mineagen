@@ -1,7 +1,6 @@
 package dev.agaminggod.mineagen.client.gui.widget;
 
 import dev.agaminggod.mineagen.client.gui.AgentFaces;
-import dev.agaminggod.mineagen.client.gui.BrandMarks;
 import dev.agaminggod.mineagen.client.gui.ConsoleDraw;
 import dev.agaminggod.mineagen.client.gui.ConsoleFocusTarget;
 import dev.agaminggod.mineagen.client.gui.ConsoleMotion;
@@ -22,8 +21,7 @@ import net.minecraft.network.chat.Component;
 import com.mojang.blaze3d.platform.InputConstants;
 
 /**
- * One agent in the mission board's list: its face, its name in its provider's colour over its model, and a state
- * mark. Narrow lists show the face alone, with the state as a dot on its corner and the name as a tooltip. Click
+ * One agent in the mission board's list: its face on its own colour tile, its name, and its state over its model. Narrow lists show the face alone, with the state as a dot on its corner and the name as a tooltip. Click
  * selects; a double click opens Manage.
  */
 public final class AgentListRow extends AbstractWidget implements ConsoleFocusTarget {
@@ -52,48 +50,41 @@ public final class AgentListRow extends AbstractWidget implements ConsoleFocusTa
 	@Override
 	protected void extractWidgetRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
 		float lift = ConsoleMotion.smooth(hover.toward(active && (isHovered() || isFocused()) ? 1F : 0F, 120));
-		int rest = selected ? 0xB0173440 : 0x661A2029;
-		int lit = selected ? 0xD01B3B47 : 0xA0232B36;
 		int x = getX(), y = getY(), w = getWidth(), h = getHeight();
+		// No outline: the selected row is a lighter tone with a short accent bar, a hovered row only lifts a little.
+		int rest = selected ? 0x1CFFFFFF : 0x00FFFFFF;
+		int lit = selected ? 0x24FFFFFF : 0x0EFFFFFF;
 		ConsoleDraw.surface(graphics, x, y, w, h, ConsoleDraw.RADIUS_CONTROL, ConsoleDraw.mix(rest, lit, lift));
-		if (selected) ConsoleDraw.ring(graphics, x, y, w, h, ConsoleDraw.RADIUS_CONTROL, ConsoleDraw.withAlpha(ConsoleTheme.ACCENT, 0.55F));
+		if (selected) graphics.fill(x, y + 5, x + 2, y + h - 5, ConsoleTheme.ACCENT);
 		if (isFocused()) ConsoleDraw.ring(graphics, x, y, w, h, ConsoleDraw.RADIUS_CONTROL, ConsoleTheme.FOCUS);
-		ConsoleDraw.StateMark mark = ConsoleDraw.stateMark(AgentControlPresentation.stateCue(agent.state()));
-		int face = Math.min(16, h - 8);
+		AgentControlPresentation.StateCue cue = AgentControlPresentation.stateCue(agent.state());
+		int stateColor = ConsoleTheme.stateColor(cue.tone());
+		int tile = Math.min(20, h - 6);
 		if (w < COMPACT_WIDTH) {
-			int faceX = x + (w - face) / 2, faceY = y + (h - face) / 2;
-			face(graphics, faceX, faceY, face);
-			// The state as a dot on the face's corner, ringed in the row colour so it reads over any skin.
-			int dot = 6;
-			ConsoleDraw.surface(graphics, faceX + face - dot + 2, faceY + face - dot + 2, dot + 2, dot + 2, ConsoleDraw.RADIUS_SMALL,
-					selected ? 0xFF173440 : 0xFF161C24);
-			ConsoleDraw.surface(graphics, faceX + face - dot + 3, faceY + face - dot + 3, dot, dot, ConsoleDraw.RADIUS_SMALL, mark.color());
+			int tileX = x + (w - tile) / 2, tileY = y + (h - tile) / 2;
+			AgentFaces.tile(graphics, agent, tileX, tileY, tile);
+			// The state as a dot on the tile's corner, cut out of the panel colour so it reads over any skin.
+			ConsoleDraw.surface(graphics, tileX + tile - 5, tileY + tile - 5, 8, 8, ConsoleDraw.RADIUS_SMALL, ConsoleTheme.NAVIGATION);
+			ConsoleDraw.surface(graphics, tileX + tile - 4, tileY + tile - 4, 6, 6, ConsoleDraw.RADIUS_SMALL, stateColor);
 			return;
 		}
-		int faceX = x + 6, faceY = y + (h - face) / 2;
-		face(graphics, faceX, faceY, face);
-		int markSize = 10;
-		int markX = x + w - markSize - 6;
-		ConsoleDraw.stateMark(graphics, mark, markX, y + (h - markSize) / 2, markSize);
-		int textLeft = faceX + face + 6;
-		int room = markX - 4 - textLeft;
-		String name = fit(agent.displayName(), room, true);
+		int tileX = x + 6, tileY = y + (h - tile) / 2;
+		AgentFaces.tile(graphics, agent, tileX, tileY, tile);
+		int textLeft = tileX + tile + 6;
+		int room = x + w - 6 - textLeft;
 		boolean twoLines = h >= 24;
 		int nameY = twoLines ? y + h / 2 - 9 : y + (h - 8) / 2;
-		graphics.text(font, ConsoleText.strong(name), textLeft, nameY, ConsoleTheme.rosterProviderColor(agent.provider()), false);
+		graphics.text(font, ConsoleText.strong(fit(agent.displayName(), room, true)), textLeft, nameY, ConsoleTheme.TEXT, false);
 		if (twoLines) {
-			int modelX = textLeft;
-			int brand = BrandMarks.draw(graphics, BrandMarks.forProvider(agent.provider()), modelX, nameY + 11, 7);
-			if (brand > 0) modelX += brand + 3;
-			String model = fitLabel(AgentControlPresentation.profileLabel(agent), markX - 4 - modelX);
-			ConsoleDraw.label(graphics, font, model, modelX, nameY + 11, ConsoleTheme.MUTED);
-		}
-	}
-
-	private void face(GuiGraphicsExtractor graphics, int x, int y, int size) {
-		ConsoleDraw.surface(graphics, x - 1, y - 1, size + 2, size + 2, ConsoleDraw.RADIUS_SMALL, 0x66000000);
-		if (!AgentFaces.draw(graphics, agent, x, y, size)) {
-			ConsoleDraw.surface(graphics, x, y, size, size, ConsoleDraw.RADIUS_SMALL, ConsoleTheme.SURFACE_RAISED);
+			// What it is doing, in its state colour, then the model it runs: "Working · gpt-5.5".
+			String state = AgentControlPresentation.stateLabel(agent.state());
+			String line = fitLabel(state, room);
+			ConsoleDraw.label(graphics, font, line, textLeft, nameY + 11, stateColor);
+			int after = textLeft + ConsoleDraw.labelWidth(font, line);
+			String model = "  " + AgentControlPresentation.profileLabel(agent);
+			if (line.equals(state) && after + 16 < x + w - 6) {
+				ConsoleDraw.label(graphics, font, fitLabel(model, x + w - 6 - after), after, nameY + 11, ConsoleTheme.SUBTLE);
+			}
 		}
 	}
 

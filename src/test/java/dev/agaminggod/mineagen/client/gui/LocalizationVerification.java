@@ -128,16 +128,16 @@ public final class LocalizationVerification {
 			Object disabled = buttonPresentation.invoke(null, ConsoleButton.Tone.PRIMARY,
 					false, false, true, true, ConsoleTheme.ACCENT);
 			assertInt(quiet, "border", 0, "secondary button has no outline at rest");
-			assertInt(quiet, "fill", ConsoleTheme.SURFACE_HOVER, "secondary button rests on a raised surface");
+			assertInt(quiet, "fill", ConsoleTheme.BUTTON, "secondary button rests on a faint lift, not a box");
 			assertInt(selected, "fill", ConsoleTheme.SURFACE_SELECTED, "a selected toggle uses the quiet selected surface");
 			assertInt(selected, "text", ConsoleTheme.ACCENT, "a selected toggle names its state in the accent");
 			assertInt(selectedCustomAccent, "text", ConsoleTheme.ACCENT,
 					"selection stays in the product accent instead of inheriting decorative identity color");
 			assertInt(focused, "border", ConsoleTheme.FOCUS, "keyboard focus draws the dedicated focus ring");
-			assertInt(primary, "fill", ConsoleTheme.ACCENT, "the primary action is the one accent-filled control");
-			assertInt(primary, "text", ConsoleTheme.ACCENT_INK, "primary text is dark ink on the accent");
+			assertInt(primary, "fill", ConsoleTheme.PRIMARY, "the primary action is the one solid light control");
+			assertInt(primary, "text", ConsoleTheme.PRIMARY_INK, "primary text is dark ink on the light fill");
 			assertInt(disabled, "border", 0, "disabled button draws no focus ring");
-			assertInt(disabled, "fill", ConsoleTheme.ROSTER_UNAVAILABLE_SURFACE, "disabled button sinks to the unavailable surface");
+			assertInt(disabled, "fill", ConsoleTheme.BUTTON_INACTIVE, "disabled button sinks to the faintest lift");
 			assertInt(disabled, "text", ConsoleTheme.SUBTLE, "disabled button uses subtle text");
 			Method selectionKey = ConsoleButton.class.getDeclaredMethod("selectionNarrationKey", boolean.class);
 			assertTrue(selectionKey.invoke(null, true).equals("screen.mineagen.control.selected"),

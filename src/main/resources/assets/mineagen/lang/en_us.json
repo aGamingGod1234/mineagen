@@ -112,7 +112,7 @@
   "screen.mineagen.boat.cost": "%s so far this session",
   "screen.mineagen.boat.error": "Boat: %s",
   "screen.mineagen.boat.pill": "boat  %s",
-  "screen.mineagen.boat.pill_local": "Runs on this PC",
+  "screen.mineagen.boat.pill_local": "This PC",
   "screen.mineagen.boat.sign_in": "Sign in with boat",
   "screen.mineagen.boat.sign_out": "Sign out",
   "screen.mineagen.boat.stop_machine": "Stop machine",
@@ -136,5 +136,16 @@
   "screen.mineagen.provider.status.ready": "Ready",
   "screen.mineagen.provider.status.unavailable": "Not available here",
   "screen.mineagen.provider.status.boat_cli": "Signed in by command line",
-  "screen.mineagen.provider.status.signed_in": "Signed in"
+  "screen.mineagen.provider.status.signed_in": "Signed in",
+  "screen.mineagen.boat.pill_ready": "boat",
+  "screen.mineagen.boat.pill_starting": "boat starting",
+  "screen.mineagen.boat.pill_stopping": "boat stopping",
+  "screen.mineagen.boat.pill_error": "boat error",
+  "screen.mineagen.board.compute": "Compute & accounts",
+  "screen.mineagen.board.compute_hint": "Where agents run and how they sign in",
+  "screen.mineagen.board.ready": "%s is ready for a task. Try one of these, or type your own below.",
+  "screen.mineagen.board.idea.wood": "Gather wood and make tools",
+  "screen.mineagen.board.idea.iron": "Mine iron and craft armour",
+  "screen.mineagen.board.idea.beat": "Beat the game",
+  "screen.mineagen.board.create_first": "Create an agent"
 }

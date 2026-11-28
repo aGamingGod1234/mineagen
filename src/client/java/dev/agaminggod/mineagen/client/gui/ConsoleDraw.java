@@ -55,6 +55,29 @@ public final class ConsoleDraw {
 		shape(graphics, "ring", nearestRadius(fitted), x, y, width, height, color);
 	}
 
+	/**
+	 * A one-screen-pixel horizontal line. A GUI-pixel line is 3 or 4 screen pixels thick at GUI scale 3 or 4, which is
+	 * what made dividers read as heavy boxes.
+	 */
+	public static void hairline(GuiGraphicsExtractor graphics, int x1, int x2, int y, int color) {
+		if (x2 <= x1 || (color >>> 24) == 0) return;
+		int scale = guiScale();
+		graphics.pose().pushMatrix();
+		graphics.pose().scale(1F / scale, 1F / scale);
+		graphics.fill(x1 * scale, y * scale, x2 * scale, y * scale + 1, color);
+		graphics.pose().popMatrix();
+	}
+
+	/** A one-screen-pixel vertical line; see {@link #hairline}. */
+	public static void vhairline(GuiGraphicsExtractor graphics, int x, int y1, int y2, int color) {
+		if (y2 <= y1 || (color >>> 24) == 0) return;
+		int scale = guiScale();
+		graphics.pose().pushMatrix();
+		graphics.pose().scale(1F / scale, 1F / scale);
+		graphics.fill(x * scale, y1 * scale, x * scale + 1, y2 * scale, color);
+		graphics.pose().popMatrix();
+	}
+
 	/** Soft shadow that spreads {@link #SHADOW_SPREAD} GUI px beyond the given panel bounds. */
 	public static void shadow(GuiGraphicsExtractor graphics, int x, int y, int width, int height, int alpha) {
 		int scale = guiScale();
