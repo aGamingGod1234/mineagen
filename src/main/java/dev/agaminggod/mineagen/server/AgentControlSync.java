@@ -79,6 +79,11 @@ public final class AgentControlSync {
 					}
 					sendSnapshot(context.player());
 				}));
+		PayloadTypeRegistry.serverboundPlay().register(dev.agaminggod.mineagen.control.BoatControlPayload.TYPE,
+				dev.agaminggod.mineagen.control.BoatControlPayload.CODEC);
+		ServerPlayNetworking.registerGlobalReceiver(dev.agaminggod.mineagen.control.BoatControlPayload.TYPE,
+				(payload, context) -> context.server().execute(() -> BoatControl.handle(context.server(), context.player(), payload.action(),
+						GoalControl.mayControl(context.player().createCommandSourceStack()) && isLocalKeyHost(context.server(), context.player()))));
 		PayloadTypeRegistry.serverboundPlay().register(AgentControlRequestPayload.TYPE, AgentControlRequestPayload.CODEC);
 		PayloadTypeRegistry.serverboundPlay().register(dev.agaminggod.mineagen.control.ProviderRescanPayload.TYPE, dev.agaminggod.mineagen.control.ProviderRescanPayload.CODEC);
 		ServerPlayNetworking.registerGlobalReceiver(dev.agaminggod.mineagen.control.ProviderRescanPayload.TYPE,

@@ -98,7 +98,7 @@ public final class ConsoleButton extends AbstractWidget implements ConsoleFocusT
 		}
 		String label = fittedMessage().getString();
 		int iconSize = small ? 10 : 12;
-		int iconSpace = icon == null ? 0 : iconSize + 4;
+		int iconSpace = icon == null ? 0 : label.isEmpty() ? iconSize : iconSize + 4;
 		int textWidth = small ? ConsoleDraw.labelWidth(font, label) : ConsoleText.strongWidth(font, label);
 		// Ghost actions read as text, so they start at their padding and line up with the content edge.
 		int startX = tone == Tone.GHOST ? getX() + 8 : getX() + (getWidth() - textWidth - iconSpace) / 2;

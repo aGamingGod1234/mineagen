@@ -5154,7 +5154,11 @@ function planningTraceId(agentId, goalRevision, lifecycleGeneration, kind) {
 
 if (process.argv[1] !== undefined && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
 	const reporter = new RuntimeErrorReporter();
-	runCli(reporter).catch((error) => {
+	// Runs on boat: this process becomes the PC end of a coordinator on a boat.dev machine (see boat-runner.mjs).
+	const entry = process.env.MINEAGEN_RUNS_ON === 'boat'
+		? import('./boat-runner.mjs').then((runner) => runner.maybeRunOnBoat())
+		: runCli(reporter);
+	entry.catch((error) => {
 		reporter.report(error, { phase: 'startup' });
 		process.exitCode = 1;
 	});

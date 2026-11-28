@@ -39,6 +39,9 @@ final class CoordinatorProcessSupervisor implements AutoCloseable {
 	private static final long DEPENDENCY_RECHECK_MS = 5_000L;
 	private static final long DEPENDENCY_MONITOR_INTERVAL_MS = 1_000L;
 	private static final long AUTHENTICATION_TIMEOUT_MS = 15_000L;
+	/** On boat the first bridge connection waits for a machine to start and the coordinator to be installed on it. */
+	private static final long BOAT_AUTHENTICATION_TIMEOUT_MS = 300_000L;
+	private volatile boolean launchedOnBoat;
 	private static final long RECONNECT_TIMEOUT_MS = 10_000L;
 	// Status arrives every second and production already allows 2.5 seconds of age.
 	// Once stale, allow the same recovery grace as a disconnected bridge.
@@ -1180,7 +1183,8 @@ final class CoordinatorProcessSupervisor implements AutoCloseable {
 				}
 				child = launch.child();
 				processStartedEpochMs = launch.startedAtEpochMs();
-				authenticationDeadlineEpochMs = launch.startedAtEpochMs() + AUTHENTICATION_TIMEOUT_MS;
+				authenticationDeadlineEpochMs = launch.startedAtEpochMs()
+						+ (launchedOnBoat ? BOAT_AUTHENTICATION_TIMEOUT_MS : AUTHENTICATION_TIMEOUT_MS);
 				reconnectDeadlineEpochMs = 0L;
 				statusRecoveryDeadlineEpochMs = 0L;
 				authenticatedSinceEpochMs = 0L;
@@ -1331,6 +1335,7 @@ final class CoordinatorProcessSupervisor implements AutoCloseable {
 		environment.put("ARENA_AGENT_VOICE_SECRET", prepared.voiceSecret());
 		environment.put("ARENA_AGENT_COORDINATOR_LAUNCH_ID", ownedLaunchId);
 		environment.put("ARENA_AGENT_COORDINATOR_RUNTIME_GENERATION", prepared.generationId());
+		launchedOnBoat = BoatAccount.configureEnvironment(prepared.root(), environment);
 		Path logs = gameDirectory.resolve("logs");
 		return new LaunchRequest(
 				List.of(

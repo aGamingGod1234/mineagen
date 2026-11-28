@@ -43,6 +43,9 @@ public final class ConsoleTheme {
 	public static final int DANGER_HOVER = 0xFF4B2630;
 	public static final int CODEX = 0xFF42D39B;
 	public static final int CLAUDE = 0xFFD97757;
+	/** Boat is where agents run, not a model: its pill, machine block and sign-in row share this blue. */
+	public static final int BOAT = 0xFF5AB4FF;
+	public static final int BOAT_SURFACE = 0xFF14263A;
 	// Slightly lighter Claude orange so roster text clears 4.5:1 on the selected surface.
 	public static final int ROSTER_CLAUDE = 0xFFE08A6D;
 

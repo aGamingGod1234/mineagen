@@ -106,4 +106,19 @@ public final class McClientCompat {
 			reader.accept(mapped.data());
 		}
 	}
+
+	/** Draws {@code entity} inside the box, turned toward the mouse, the way the inventory screen draws the player, without its name tag. */
+	public static void entityPreview(net.minecraft.client.gui.GuiGraphicsExtractor graphics, int left, int top, int right, int bottom,
+			int size, float yOffset, float mouseX, float mouseY, net.minecraft.world.entity.LivingEntity entity) {
+		// Another player's name tag is skipped while the HUD is hidden; hide it only for this draw.
+		net.minecraft.client.Options options = net.minecraft.client.Minecraft.getInstance().options;
+		boolean hidden = options.hideGui;
+		options.hideGui = true;
+		try {
+			net.minecraft.client.gui.screens.inventory.InventoryScreen.extractEntityInInventoryFollowsMouse(graphics, left, top, right, bottom,
+					size, yOffset, mouseX, mouseY, entity);
+		} finally {
+			options.hideGui = hidden;
+		}
+	}
 }
