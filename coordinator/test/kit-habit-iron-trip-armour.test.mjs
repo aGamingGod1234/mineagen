@@ -3,6 +3,8 @@ import test from 'node:test';
 import { IRON_KIT_ITEMS, IRON_TOPUP_MS, KIT_CRAFT_TIMEOUT_MS, KIT_SMELT_MS, ironTripArmourEnabled, nextKitStep } from '../src/kit-habit.mjs';
 import { checkedObtainBody, keepKit } from './helpers/checked-body.mjs';
 
+process.env.MINEAGEN_NETHER_KIT = 'off';
+
 // kit.ironTripArmour: in 10 fresh games of 27 Nov the model mined the iron itself and called obtain only to craft, the
 // trip ended with 0-7 iron left (raw, unsmelted, in 6), and 7 games never wore an iron piece.
 const item = (itemId, slot, count = 1, extra = {}) => ({ itemId: `minecraft:${itemId}`, slot, count, ...extra });
@@ -16,6 +18,20 @@ const withSwitch = async (value, run) => {
 	if (value === undefined) delete process.env.MINEAGEN_IRON_TRIP_ARMOUR; else process.env.MINEAGEN_IRON_TRIP_ARMOUR = value;
 	try { return await run(); } finally { if (before === undefined) delete process.env.MINEAGEN_IRON_TRIP_ARMOUR; else process.env.MINEAGEN_IRON_TRIP_ARMOUR = before; }
 };
+
+test('the Nether trip mines all four pieces and climbs from dry deepslate toward y16', (t) => {
+	const prior = process.env.MINEAGEN_NETHER_KIT;
+	delete process.env.MINEAGEN_NETHER_KIT;
+	t.after(() => { process.env.MINEAGEN_NETHER_KIT = prior; });
+	const items = [...afterPickaxe, item('shield', 'offhand'), item('raw_iron', 9, 1)];
+	const deep = down(items, { y: -4 });
+	assert.equal(nextKitStep(deep, { topUp: true }).kind, 'dig');
+	assert.equal(nextKitStep(deep, { topUp: true, triedIronLevel: true }).count, 31);
+	deep.blocks = [{ blockId: 'minecraft:deepslate_iron_ore', visible: true }];
+	assert.equal(nextKitStep(deep, { topUp: true }).count, 31);
+	deep.advancements = ['story/enter_the_nether'];
+	assert.equal(nextKitStep(deep, { topUp: true }).count, 24, 'a re-entry uses the existing frame');
+});
 
 test('down a mine after an iron kit obtain with no chestplate, the habit mines the chestplate\'s iron with the kit\'s own', () => {
 	// Iron pickaxe and shield made, 1 raw iron left: one bucket (3) and flint and steel (1) are still owed, plus 8.

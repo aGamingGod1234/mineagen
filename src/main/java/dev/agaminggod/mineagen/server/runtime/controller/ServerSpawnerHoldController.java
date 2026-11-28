@@ -90,6 +90,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 	private ServerController openPart;
 	/** fight_target form: the call's end held back until the walled-up doorway is open again (the next call must see out). */
 	private TickResult pendingEnd;
+	private ServerFightUntilController.BlazeWithdrawal rodWithdrawal;
 	/** fight_target form: the tick the named blaze died with the hold fighting (not the open fight), for the rod's pickup. */
 	private long killTick = -1L, openKillTick = -1L;
 	private static final long KILL_COLLECT_TICKS = 60L, KILL_COLLECT_MAX_TICKS = 200L;
@@ -358,10 +359,33 @@ public final class ServerSpawnerHoldController implements ServerController {
 		// back), so the hold does not hand back first. Its timeout is the check above.
 		boolean openFightNext = SpawnerHold.OPEN_FIGHT && phase != Phase.HOLD && emergency == null;
 		float floor = target != null && (wallInLeft(player) || openFightNext) ? -1.0F : fleeAtHealth;
-		String code = SpawnerHold.handBack(new SpawnerHold.Sense(ServerFightUntilController.count(player, untilItem), untilCount, player.getHealth(),
+		int held = ServerFightUntilController.count(player, untilItem);
+		String code = SpawnerHold.handBack(new SpawnerHold.Sense(held, untilCount, player.getHealth(),
 				floor, player.getFoodData().getFoodLevel(), foodSlot(player) >= 0, elapsed, target != null ? Long.MAX_VALUE : timeoutMs, spawnerGone,
 				phase == Phase.HOLD ? elapsed - lastBlazeMs : 0L, phase == Phase.HOLD || emergency != null, sitesFailed, noSiteLeft,
 				phase == Phase.HOLD && SpawnerHold.breached(witherHits, player.level().getGameTime())));
+		if (ServerFightUntilController.BLAZE_SURVIVAL && target == null) {
+			if ("UNTIL_COUNT_REACHED".equals(code) && held > startHeld && spawner != null) {
+				if (sealed || partlySealed || reopening || sealWork != null) return hold(player, now, elapsed, inCell);
+				if (rodWithdrawal == null) {
+					cancelParts(player);
+					rodWithdrawal = new ServerFightUntilController.BlazeWithdrawal(Vec3.atCenterOf(spawner));
+				}
+				TickResult walked = rodWithdrawal.tick(player, now);
+				if (walked.state() == State.RUNNING) return walked;
+				note(walked.message());
+			}
+			if ("LOW_HEALTH_BAILOUT".equals(code) && phase == Phase.SCAN) {
+				HOLDING.remove(player.getUUID());
+				shieldInput.release();
+				fallback = ordinaryFight(player, now, elapsed);
+				return fallback.tick(player, now);
+			}
+			if ("LOW_HEALTH_BAILOUT".equals(code) && !BrinkGuard.needsFooting(player)) {
+				TickResult walling = emergency(player, now, elapsed);
+				if (walling != null) return walling;
+			}
+		}
 		// The open fight_target reports its own kill (and collects the drop first).
 		if (target != null && code == null && openPart == null) {
 			long tick = player.level().getGameTime();
@@ -388,7 +412,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 		}
 		if (target != null && SpawnerHold.OPEN_FIGHT && phase != Phase.HOLD && emergency == null
 				&& (!marginGone(player, 0.0D) || !canWallIn(player) || openPart != null && target.isDeadOrDying() && afterOpenKill
-						|| blazeInMelee(player) || openPart != null && meleeHeldPart && atFleeLine(player))) {
+						|| holdBackWallForMelee(player) || openPart != null && meleeHeldPart && atFleeLine(player) && canTradeBlows(player))) {
 			// A lull in the open fight: health regrows slowly, and the default eat waits for no hostile within 8 blocks, which
 			// a spawner room never has (blaze spawner rooms: bodies sat at 10 health for minutes, then died to the next crowd).
 			// A player eats then: no blaze in reach, nothing hit for 2 s, no volley charging, the blaze in sight. A hit ends
@@ -1020,6 +1044,14 @@ public final class ServerSpawnerHoldController implements ServerController {
 		return false;
 	}
 
+	private boolean holdBackWallForMelee(ServerPlayer player) {
+		return canTradeBlows(player) && blazeInMelee(player);
+	}
+
+	private boolean canTradeBlows(ServerPlayer player) {
+		return !ServerFightUntilController.BLAZE_SURVIVAL || !player.isOnFire() && player.getHealth() > 8.0F;
+	}
+
 	/** A wall-in is still possible this call (blocks and tries left), whatever the footing this tick. */
 	private boolean wallInLeft(ServerPlayer player) {
 		if (spawner == null || emergencyFails >= EMERGENCY_TRIES) return false;
@@ -1040,7 +1072,8 @@ public final class ServerSpawnerHoldController implements ServerController {
 			// them at a median 16.1). fight_until form, walking to or building its planned cell: only below TURTLE_HEALTH,
 			// since the margin there fired at 14-19 health on the spawner deck and the wall-in at a brink killed it (real
 			// fortress room, 9fd4736: deaths 3 -> 6 of 10).
-			boolean wallInNow = target != null ? marginGone(player, 0.0D) : player.getHealth() < SpawnerHold.TURTLE_HEALTH;
+			boolean wallInNow = target != null ? marginGone(player, 0.0D)
+					: player.getHealth() < SpawnerHold.TURTLE_HEALTH || ServerFightUntilController.BLAZE_SURVIVAL && player.getHealth() <= fleeAtHealth;
 			if (phase == Phase.HOLD || phase == Phase.SCAN || !wallInNow || !canWallIn(player)) return null;
 			String item = roofing.blockItem(player);
 			cancelParts(player);
@@ -1239,7 +1272,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 	}
 
 	/** The hotbar slot of the most filling ordinary food the body can eat now, or -1. */
-	private static int foodSlot(ServerPlayer player) {
+	static int foodSlot(ServerPlayer player) {
 		int best = -1;
 		int bestNutrition = 0;
 		for (int slot = 0; slot < 9; slot++) {
@@ -1555,6 +1588,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 	}
 
 	private void cancelParts(ServerPlayer player) {
+		if (rodWithdrawal != null) { rodWithdrawal.cancel(player); rodWithdrawal = null; }
 		if (defend != null) { defend.cancel(player); defend = null; }
 		stopEngine(player);
 		cancelWalk(player);

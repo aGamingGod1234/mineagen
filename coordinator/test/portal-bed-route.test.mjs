@@ -8,7 +8,7 @@ process.env.MINEAGEN_FOOD_FLOOR = 'off';
 
 // C33: a respawn bed by the Overworld portal before the first Nether entry, only from what is in reach right now.
 
-const KIT = [['iron_pickaxe', 1], ['water_bucket', 1], ['bucket', 1], ['shield', 1, 'offhand'], ['iron_chestplate', 1, 'chest'], ['iron_boots', 1, 'feet'], ['flint_and_steel', 1], ['cooked_beef', 10], ['cobblestone', 30]];
+const KIT = [['iron_pickaxe', 1], ['water_bucket', 1], ['bucket', 1], ['shield', 1, 'offhand'], ['iron_chestplate', 1, 'chest'], ['iron_boots', 1, 'feet'], ['iron_helmet', 1, 'head'], ['iron_leggings', 1, 'legs'], ['flint_and_steel', 1], ['cooked_beef', 10], ['cobblestone', 30]];
 const sample = (items = [], extra = {}) => ({ ready: true, observedAtEpochMs: 1, position: { x: 0, y: 64, z: 0 }, player: { health: 20, foodLevel: 20 },
 	world: { dimension: 'minecraft:overworld' }, inventory: { items: [...KIT, ...items].map(([id, count, slot]) => ({ itemId: `minecraft:${id}`, count, ...(slot ? { slot } : {}) })) }, ...extra });
 const litKnown = (extra = {}) => { const known = { ...emptyKnown(), ...extra }; known.frames = [{ dimension: 'minecraft:overworld', x: 3, y: 60, z: 4, obsidian: 10, lit: true }]; return known; };

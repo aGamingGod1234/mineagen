@@ -19,6 +19,8 @@ export const KIT_SMELT_MS = 12_000;
 export const IRON_TOPUP_MS = 150_000;
 /** The iron trip is down a mine: under cover and below this height (skill-fits MINE_Y). */
 const MINE_Y = 50;
+const IRON_LEVEL = 16;
+const IRON_ORE = /^minecraft:(deepslate_)?iron_ore$/;
 /** The obtains that make the route's iron kit: a top-up of the chestplate's iron follows only these. */
 export const IRON_KIT_ITEMS = /^(minecraft:)?(iron_pickaxe|iron_ingot|raw_iron|bucket|water_bucket|lava_bucket|shield|flint_and_steel)$/;
 
@@ -30,6 +32,21 @@ const ARMOUR = Object.freeze([
 	{ itemId: 'minecraft:iron_boots', slot: 'feet', iron: 4, part: /_boots$/ },
 	{ itemId: 'minecraft:iron_helmet', slot: 'head', iron: 5, part: /_helmet$/ },
 ]);
+const NETHER_ARMOUR = ARMOUR.map(piece => Object.freeze({
+	...piece,
+	part: new RegExp(`^minecraft:(iron|diamond|netherite)${piece.part.source}`),
+}));
+const NETHER_EQUIPMENT = [{ itemId: 'minecraft:shield', slot: 'offhand', iron: 1, part: /^minecraft:shield$/ }, ...NETHER_ARMOUR];
+export const netherKitEnabled = (environment = process.env) => getSwitch('kit.netherEntry', environment).value;
+
+export function needsIronLevel(o) {
+	const at = o.position ?? o.player?.position ?? o.player;
+	return o.world?.dimension === 'minecraft:overworld' && o.player?.skyOpen === false && at?.y < IRON_LEVEL - 8
+		&& !(o.blocks ?? []).some(block => block.visible !== false && IRON_ORE.test(block.blockId))
+		&& !(o.seenResources ?? []).some(row => row.distance <= 32 && IRON_ORE.test(row.id));
+}
+
+export const IRON_LEVEL_STAIRS = Object.freeze({ pattern: 'stairs_up', y: IRON_LEVEL, maxBlocks: 96, throughCaves: 'small', timeoutMs: 180_000 });
 const PLANKS = /^minecraft:[a-z_]+_planks$/;
 const LOGS = /^minecraft:[a-z_]+_(log|wood|stem|hyphae)$/;
 
@@ -39,20 +56,34 @@ const soundPickaxe = items => [...heldCounts({ inventory: { items } })].some(([i
 const numbered = item => Number.isInteger(item.slot) && item.slot >= 0 && item.slot <= 35;
 const bare = id => String(id ?? '').replace(/^minecraft:/, '');
 const inHotbar = item => item.slot === 'mainhand' || item.slot === 'offhand' || item.hotbar === true || Number.isInteger(item.slot) && item.slot <= 8;
+const inventorySlot = (item, selected) => numbered(item) ? item.slot
+	: item.slot === 'mainhand' && Number.isInteger(selected) && selected >= 0 && selected <= 8 ? selected : null;
+
+export function missingNetherEquipment(inventory) {
+	const items = (inventory?.items ?? []).filter(item => item.count > 0);
+	return NETHER_EQUIPMENT.flatMap(piece => {
+		const worn = items.find(item => item.slot === piece.slot);
+		if (piece.part.test(worn?.itemId)) return [];
+		const carried = items.find(item => piece.part.test(item.itemId) && inventorySlot(item, inventory.selectedSlot) !== null);
+		return [{ ...piece, worn, carried, sourceSlot: carried ? inventorySlot(carried, inventory.selectedSlot) : null }];
+	});
+}
 
 /**
  * Iron the rest of the route still needs from what is held now: an iron pickaxe (3), the shield (1), two buckets (3
  * each, a filled one counts) and flint and steel (1). Only iron beyond this goes to armour, so the habit never slows the
  * route to the portal.
  */
-export function ironReserved(items, { environment = process.env } = {}) {
+export function ironReserved(items, { environment = process.env, fullTrip = false, reentry = false } = {}) {
 	const has = re => items.some(item => re.test(item.itemId ?? ''));
 	const buckets = items.filter(item => /^minecraft:(bucket|water_bucket|lava_bucket)$/.test(item.itemId ?? '')).reduce((n, item) => n + item.count, 0);
 	// kit.rekit: the second bucket waits for the chestplate. With both buckets reserved, 13 iron in the bag made no armour
 	// (fresh game g5 on main 069e471), and 40 of 42 deaths in those 8 games had no armour on.
-	const wanted = rekitEnabled(environment) && !items.some(item => item.slot === 'chest') ? 1 : 2;
+	const frameHeld = fullTrip && items.filter(item => item.itemId === 'minecraft:obsidian').reduce((n, item) => n + item.count, 0) >= 10;
+	const deferSecond = !fullTrip && rekitEnabled(environment) && !items.some(item => item.slot === 'chest');
+	const wanted = reentry || frameHeld ? 0 : deferSecond ? 1 : 2;
 	return (soundPickaxe(items) ? 0 : 3) + (has(/^minecraft:shield$/) ? 0 : 1)
-		+ Math.max(0, wanted - buckets) * 3 + (has(/^minecraft:flint_and_steel$/) ? 0 : 1);
+		+ Math.max(0, wanted - buckets) * 3 + (reentry || has(/^minecraft:flint_and_steel$/) ? 0 : 1);
 }
 
 /** MINEAGEN_REKIT=off turns the re-kit changes off (an A/B round's off arm); they are on otherwise. */
@@ -98,7 +129,7 @@ export function craftsFromHeld(o, itemId, { reserved = null, count = 1 } = {}) {
  * topUp: kit.ironTripArmour may mine the chestplate's iron now (an iron kit obtain just ended, no top-up lately):
  * {kind:'craft', itemId:'minecraft:raw_iron', count, timeoutMs, topUp:true} when the body is down a mine with no chestplate.
  */
-export function nextKitStep(o, { reserved = null, topUp = false } = {}) {
+export function nextKitStep(o, { reserved = null, topUp = false, triedIronLevel = false } = {}) {
 	const items = (o?.inventory?.items ?? []).filter(item => item?.count > 0 && typeof item.itemId === 'string');
 	if (!Array.isArray(o?.inventory?.items)) return null;
 	const health = o?.player?.health;
@@ -109,7 +140,7 @@ export function nextKitStep(o, { reserved = null, topUp = false } = {}) {
 	const worn = slot => items.some(item => item.slot === slot);
 	// The selected hotbar slot is observed only as 'mainhand': shields and armour held there equip from its slot number.
 	const selected = o.inventory.selectedSlot;
-	const heldSlot = item => numbered(item) ? item.slot : item.slot === 'mainhand' && Number.isInteger(selected) && selected >= 0 && selected <= 8 ? selected : null;
+	const heldSlot = item => inventorySlot(item, selected);
 	const shields = items.filter(item => item.itemId === 'minecraft:shield');
 	// Another item in the off hand (torches) is the player's choice, and equip would not swap it: the shield waits.
 	const offhandFree = !items.some(item => item.slot === 'offhand' && item.itemId !== 'minecraft:shield');
@@ -138,7 +169,8 @@ export function nextKitStep(o, { reserved = null, topUp = false } = {}) {
 	const ingotsReserved = reserved !== null && reserved.ids.some(id => bare(id) === 'iron_ingot');
 	// A kit craft's nested obtain plans against everything held, and its smelt burns the best fuel held: raw iron is armour
 	// iron only after an iron kit obtain (none of those burns), so coal or planks just asked for are never the fuel.
-	const smelts = tripArmour && (reserved === null || reserved.ids.every(id => IRON_KIT_ITEMS.test(id)));
+	const smelts = tripArmour && (reserved === null || reserved.ids.every(id => IRON_KIT_ITEMS.test(id)
+		|| netherKitEnabled() && NETHER_ARMOUR.some(piece => piece.itemId === `minecraft:${bare(id)}`)));
 	const iron = smelts ? /^minecraft:(iron_ingot|raw_iron)$/ : /^minecraft:iron_ingot$/;
 	const heldIngots = count(/^minecraft:iron_ingot$/);
 	// Reserved raw iron stays: a craft smelts only what its ingots lack, at most the raw held beyond the reserved count.
@@ -156,12 +188,16 @@ export function nextKitStep(o, { reserved = null, topUp = false } = {}) {
 	// The iron pickaxe comes first: its 3 ingots are never spent on the shield (obtain iron_ingot count 3 for it would hand back 2).
 	const pickaxeOwed = soundPickaxe(items) ? 0 : 3;
 	if (shields.length === 0 && ingots >= 1 + pickaxeOwed && wood >= 6 && craftable('minecraft:shield')) return smeltFirst(1, KIT_CRAFT_TIMEOUT_MS + smeltTime(1)) ?? { kind: 'craft', itemId: 'minecraft:shield' };
-	const spare = ingots - ironReserved(items);
 	const chestplate = items.some(item => /_chestplate$/.test(item.itemId));
 	const at = o.position ?? o.player?.position ?? o.player;
 	const mineDown = (o.world?.dimension ?? 'minecraft:overworld') === 'minecraft:overworld' && o.player?.skyOpen === false && Number.isFinite(at?.y) && at.y < MINE_Y;
-	for (const piece of ARMOUR) {
-		if (worn(piece.slot) || items.some(item => piece.part.test(item.itemId))) continue;
+	const fullTrip = netherKitEnabled() && mineDown;
+	const reentry = fullTrip && (o.recovery?.lastDeath?.dimensionId === 'minecraft:the_nether'
+		|| (o.advancements ?? []).some(id => /^(minecraft:)?(nether\/root|story\/enter_the_nether)$/.test(id)));
+	const spare = ingots - ironReserved(items, { fullTrip, reentry });
+	const minesIron = [...heldCounts({ inventory: { items } })].some(([id, n]) => /^(stone|iron|diamond|netherite)_pickaxe$/.test(id) && n > 0);
+	for (const piece of fullTrip ? NETHER_ARMOUR : ARMOUR) {
+		if ((!fullTrip && worn(piece.slot)) || items.some(item => piece.part.test(item.itemId))) continue;
 		// kit.ironTripArmour: leggings take 7 of the chestplate's 8 for fewer points, so they wait for it (A/B game
 		// freshrb: 7 spare became leggings and the chestplate never came).
 		if (tripArmour && !chestplate && piece.slot === 'legs') continue;
@@ -169,7 +205,7 @@ export function nextKitStep(o, { reserved = null, topUp = false } = {}) {
 		if (!craftable(piece.itemId)) {
 			// kit.ironTripArmour: the chestplate's iron held but nothing to smelt it with (A/B game freshd1 ended with 10
 			// raw iron, a furnace and no fuel): its obtain gathers the fuel too, as a top-up, down a mine only.
-			if (smelts && topUp && piece.slot === 'chest' && mineDown) {
+			if (smelts && topUp && mineDown && (fullTrip || piece.slot === 'chest')) {
 				return smeltFirst(piece.iron, IRON_TOPUP_MS + smeltTime(piece.iron), true)
 					?? { kind: 'craft', itemId: piece.itemId, timeoutMs: IRON_TOPUP_MS + smeltTime(piece.iron), topUp: true };
 			}
@@ -180,12 +216,19 @@ export function nextKitStep(o, { reserved = null, topUp = false } = {}) {
 		return tripArmour && smeltTime(piece.iron) > 0 ? { kind: 'craft', itemId: piece.itemId, timeoutMs: KIT_CRAFT_TIMEOUT_MS + smeltTime(piece.iron) }
 			: { kind: 'craft', itemId: piece.itemId };
 	}
+	if (fullTrip && smelts && topUp && minesIron) {
+		const armourIron = missingNetherEquipment(o.inventory).filter(piece => piece.slot !== 'offhand' && !piece.carried).reduce((sum, piece) => sum + piece.iron, 0);
+		const short = armourIron - spare;
+		if (armourIron > 0 && short > 0) {
+			if (!triedIronLevel && needsIronLevel(o)) return { kind: 'dig', itemId: 'minecraft:raw_iron', topUp: true };
+			return { kind: 'craft', itemId: 'minecraft:raw_iron', count: count(/^minecraft:raw_iron$/) + short, timeoutMs: 300_000, topUp: true };
+		}
+	}
 	// kit.ironTripArmour: at the ore for the iron kit with no chestplate, the chestplate's 8 iron (with the kit's own still
 	// owed) is mined now, in the same trip. The route's armour row asked for it 93 times in 10 fresh games of 27 Nov and
 	// the model took it 0 times; a gate at the portal (#304) found no ore there. Down a mine only, with a pickaxe that
 	// mines iron, capped at IRON_TOPUP_MS; the runtime spaces top-ups out, so a seed short of iron never stalls on it.
-	const minesIron = [...heldCounts({ inventory: { items } })].some(([id, n]) => /^(stone|iron|diamond|netherite)_pickaxe$/.test(id) && n > 0);
-	if (smelts && topUp && !chestplate && mineDown && minesIron) {
+	if (!fullTrip && smelts && topUp && !chestplate && mineDown && minesIron) {
 		const short = ironReserved(items) + ARMOUR[0].iron - ingots;
 		if (short > 0) return { kind: 'craft', itemId: 'minecraft:raw_iron', count: count(/^minecraft:raw_iron$/) + short, timeoutMs: IRON_TOPUP_MS, topUp: true };
 	}
@@ -215,36 +258,50 @@ export function kitHabitEnabled(environment = {}) {
  */
 export async function keepKit(body, craft, { stopped = () => false, reserved = null, stop = {}, topUp = false, onTopUp = () => {} } = {}) {
 	const done = [], crafted = new Set();
-	let toppedUp = false;
+	let toppedUp = false, triedIronLevel = false;
+	const fullTrip = netherKitEnabled();
 	// A top-up adds two steps: the mining itself and the chestplate's craft after it (its equip is the usual one).
 	// A smelt step (reserved ingots) adds one too: it is the craft after it split in two.
-	let cap = KIT_MAX_STEPS + (topUp && ironTripArmourEnabled() ? 2 : 0);
+	let cap = KIT_MAX_STEPS + (topUp && ironTripArmourEnabled() ? (fullTrip ? 8 : 2) : 0);
+	const startTopUp = () => { if (!toppedUp) { toppedUp = true; onTopUp(); } };
 	for (let index = 0; index < cap && !stopped(); index += 1) {
 		// A top-up's chestplate may follow its raw iron in the same run (its fuel gathered then); a repeat of either ends the run.
-		const step = nextKitStep(await body.observe(), { reserved, topUp });
+		const step = nextKitStep(await body.observe(), { reserved, topUp, triedIronLevel });
 		if (step === null) break;
 		let result;
 		const name = step.itemId.replace(/^minecraft:/, '');
 		if (step.kind === 'equip') result = await body.act('equip_item', { sourceSlot: step.sourceSlot, targetSlot: step.targetSlot, expectedItemId: step.itemId });
 		else if (step.kind === 'hotbar') result = await body.act('select_tool', { sourceSlot: step.sourceSlot, hotbarSlot: step.hotbarSlot, expectedItemId: step.itemId, minRemainingDurability: 0 });
+		else if (step.kind === 'dig') {
+			triedIronLevel = true;
+			startTopUp();
+			result = await body.act('dig_to', IRON_LEVEL_STAIRS);
+			done.push(`stairs toward y16 for iron (${result?.reasonCode ?? result?.state ?? 'no result'})`);
+			if (['SUCCEEDED', 'FAILED', 'TIMED_OUT'].includes(result?.state)) continue;
+		}
 		else {
 			// A smelt to a higher count is a new step (the shield's ingot, then the chestplate's); a repeat of either ends the run.
 			const key = step.smelt ? `${step.itemId}:${step.count}` : step.itemId;
 			if (crafted.has(key)) break;
 			crafted.add(key);
 			if (step.smelt) cap += 1;
-			if (step.topUp && !toppedUp) { toppedUp = true; onTopUp(); }
+			if (step.topUp) startTopUp();
 			// count: the total to hold (a spare shield is the second one), as obtain counts.
 			result = await craft(step.itemId, step.count ?? 1, step.timeoutMs);
 		}
 		if (result?.state !== 'SUCCEEDED') {
 			stop.result = result ?? null;
-			done.push(step.topUp ? `${step.itemId === 'minecraft:raw_iron' ? 'mining the iron_chestplate\'s iron' : `${name} with its fuel`} stopped (${result?.reasonCode ?? result?.state ?? 'no result'})`
+			const iron = fullTrip ? 'the Nether kit\'s iron' : 'the iron_chestplate\'s iron';
+			done.push(step.topUp ? `${step.itemId === 'minecraft:raw_iron' ? `mining ${iron}` : `${name} with its fuel`} stopped (${result?.reasonCode ?? result?.state ?? 'no result'})`
 				: `${step.kind} ${name} stopped (${result?.reasonCode ?? result?.state ?? 'no result'})`);
+			if (fullTrip && step.topUp && name === 'raw_iron' && ['FAILED', 'TIMED_OUT'].includes(result?.state)) {
+				topUp = false;
+				continue;
+			}
 			break;
 		}
 		done.push(step.kind === 'equip' ? `wore ${name} (${step.targetSlot})` : step.kind === 'hotbar' ? `${name} to hotbar ${step.hotbarSlot}`
-			: step.topUp && step.itemId === 'minecraft:raw_iron' ? `mined ${step.count} raw_iron for the iron_chestplate`
+			: step.topUp && step.itemId === 'minecraft:raw_iron' ? `mined ${step.count} raw_iron for ${fullTrip ? 'the Nether kit' : 'the iron_chestplate'}`
 				: step.smelt ? `smelted iron_ingot to ${step.count}` : `crafted ${name}`);
 	}
 	return done;

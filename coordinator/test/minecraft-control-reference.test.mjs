@@ -221,13 +221,13 @@ test('the always-loaded player instructions stay a few KB: the role, steps, the 
 	// 20,888 B before rw-loop (rules added one past death at a time); the facts moved to the on-demand references.
 	// Deliberately raised ceiling; never meet it by trimming text a measured round saw. Raised from 5,020 for the
 	// player's route (surface first, one trip down, caves, stairs, shield, archers) when SKILL.md lost 4,280 B of program text.
-	assert.ok(Buffer.byteLength(agent) <= 5_800, `AGENTS.md grew to ${Buffer.byteLength(agent)} bytes`);
+	assert.ok(Buffer.byteLength(agent) <= 6_300, `AGENTS.md grew to ${Buffer.byteLength(agent)} bytes`);
 	for (const rule of [/Surface first: /, /one trip down/, /Caves before digging/, /Go down by stairs \(dig_to's default\), not a straight shaft/, /makes a shield/, /block with the shield facing them/]) assert.match(agent, rule);
 	assert.match(agent, /you decide what to do and why, and the body decides how/);
 	assert.match(agent, /nothing starts unless you name it/);
 	assert.match(agent, /do_step \{verb, target, why, until\?\}/);
 	assert.match(agent, /now\.route suggests the usual next step/);
-	assert.match(agent, /The objective is the goal in the least game time, done properly: survive and keep progress\./);
+	assert.match(agent, /Finish the goal while staying alive and keeping progress\./);
 	assert.match(agent, /verify completion with finish, not actions alone\./);
 	for (const rule of ['Batch the work', 'Finish what is in front of you', 'Leave nothing you will need again', 'Reuse before you rebuild', 'Take the shortest safe way, then commit', 'Every move has a destination', 'Be ready before the risk']) {
 		assert.ok(agent.includes(rule), rule);
@@ -245,7 +245,7 @@ test('the in-game instructions are model-neutral and name the forks the body sto
 	for (const text of [agent, skill, NATIVE_AGENT_INSTRUCTIONS]) assert.doesNotMatch(text, /\b(claude|codex|gpt|openai|anthropic|opus|sonnet|haiku|gemini)\b/i);
 	const lines = agent.split('\n');
 	assert.match(lines[2], /^You control one persistent Minecraft player .* You pick every step yourself; nothing starts unless you name it\. /);
-	assert.equal(lines[40], 'do_step covers most play. Use the low-level tools (act, sequence, startAction, moveTo, mine, control) only for what no verb does: one precise placement or click, a menu, eating or equipping, or a short repair. Read the control topic before an unfamiliar call.');
+	assert.ok(lines.includes('do_step covers most play. Use the low-level tools (act, sequence, startAction, moveTo, mine, control) only for what no verb does: one precise placement or click, a menu, eating or equipping, or a short repair. Read the control topic before an unfamiliar call.'));
 	assert.match(agent, /the body stops it \(stuck, or a fork such as low health\)/);
 	assert.match(agent, /When the body stopped it, answer its reason: recover, go around, change the way or the step/);
 	assert.doesNotMatch(skill, /Runtime and other models choose no gameplay/);

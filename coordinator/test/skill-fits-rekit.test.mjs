@@ -6,6 +6,7 @@ import { LiveTaskViews } from '../src/live-task-view.mjs';
 import { ObservedMemoryStore } from '../src/observed-memory-store.mjs';
 // These cases are the stock.foodFloor off arm (the route before the food floor); food-floor-route.test.mjs has the on arm.
 process.env.MINEAGEN_FOOD_FLOOR = 'off';
+process.env.MINEAGEN_NETHER_KIT = 'off';
 
 // EV-KIT-4: a death past the portal stage (a lit frame or a Nether visit) takes the kit, and the route asks for it again
 // (tools, iron pickaxe, shield, armour, food when hungry) before it sends the respawn back through the portal.
@@ -24,6 +25,17 @@ const SHIELD = ['shield', 1, 'offhand'];
 const ARMOUR = [['iron_chestplate', 1, 'chest'], ['iron_boots', 1, 'feet']];
 const TOOLS = [['iron_pickaxe', 1], ['furnace', 1]];
 const RETURN = /^usual next step: return via known Overworld portal at 30,-20,7 to the Nether/;
+
+test('the Nether kit route continues the after-death rebuild through all four armour slots', () => {
+	const kit = [...TOOLS, SHIELD, ...ARMOUR];
+	const step = items => routeLine({ observation: sample(items), known: visitedNether(), memory: portalMemory,
+		diedSincePortal: true, evaluate: evaluatePlanCheck, environment: { MINEAGEN_NETHER_KIT: 'on', MINEAGEN_FOOD_FLOOR: 'off' } });
+	assert.match(step(kit), /^usual next step: obtain iron_leggings/);
+	kit.push(['diamond_leggings', 1, 'legs']);
+	assert.match(step(kit), /^usual next step: obtain iron_helmet/);
+	kit.push(['netherite_helmet', 1, 'head']);
+	assert.match(step(kit), RETURN);
+});
 
 test('a respawn after a Nether death with a known portal re-kits before the portal return', () => {
 	// Before: the empty-handed respawn was sent straight back ("active portal needs no iron pick").
