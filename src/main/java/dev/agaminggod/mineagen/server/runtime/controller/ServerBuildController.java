@@ -688,7 +688,9 @@ public final class ServerBuildController implements ServerController {
 		Direction bestBack = null;
 		double bestCost = Double.MAX_VALUE;
 		boolean bestSure = true;
-		List<BlockPos> pool = casting ? castPool(player, center, SITE_RADIUS + (int) CAST_POOL_REACH) : List.of();
+		List<BlockPos> lava = casting ? castPool(player, center, SITE_RADIUS + (int) CAST_POOL_REACH) : List.of();
+		// Right after a carve the shore has faded from sight: judge the carved site by the pool the carve was judged by.
+		List<BlockPos> pool = casting && carved == null ? scoopable(player, lava) : lava;
 		int plain = casting ? plainCount(player) : 0;
 		int lavaRefused = 0;
 		for (Direction.Axis axis : new Direction.Axis[] { Direction.Axis.X, Direction.Axis.Z })
@@ -739,7 +741,7 @@ public final class ServerBuildController implements ServerController {
 				rejectedSites.add(carved.origin());
 				carved = null;
 			}
-			if (carve(player, pool, plain)) return running();
+			if (carve(player, pool, lava, plain)) return running();
 			best = kept;
 		}
 		if (best == null && carved != null) {
@@ -749,7 +751,7 @@ public final class ServerBuildController implements ServerController {
 		}
 		// Nothing seen by the lava is open floor (find's own tunnel, a closed cave): dig a site into the rock beside a spot
 		// the body can stand on, as a player does, before walking off to look for level ground.
-		if (best == null && casting && carves < MAX_CARVES && !pool.isEmpty() && carve(player, pool, plain)) return running();
+		if (best == null && casting && carves < MAX_CARVES && !pool.isEmpty() && carve(player, pool, lava, plain)) return running();
 		if (best == null && relocations < MAX_RELOCATIONS && requested == null) return relocate(player, now);
 		if (best == null)
 			return fail(player, "BUILD_NO_SITE", "No flat, dry 4-wide site within " + SITE_RADIUS + " blocks of " + xyz(center) + ": " + siteRejects + nextSite());
@@ -1924,11 +1926,36 @@ public final class ServerBuildController implements ServerController {
 	}
 
 	/**
+	 * The sources a site is judged by: those a bucket reaches from a seen dry spot (open-topped, a standing spot within
+	 * reach, as the fetch looks for one), so each of the ten trips has somewhere to stand. A site judged by a source under
+	 * a ledge or out in the pool stopped casts with every cell left and sources in view ("no lava source in reach", 11
+	 * of 240 gate runs on main). With none such seen, the whole pool, as before: the fetch looks round and walks the shore.
+	 */
+	private List<BlockPos> scoopable(ServerPlayer player, List<BlockPos> pool) {
+		ServerLevel level = (ServerLevel) player.level();
+		Vec3 from = Vec3.atCenterOf(center);
+		List<BlockPos> sorted = new ArrayList<>(pool);
+		sorted.sort(Comparator.comparingDouble(at -> Vec3.atCenterOf(at).distanceToSqr(from)));
+		List<BlockPos> out = new ArrayList<>();
+		for (BlockPos source : sorted.subList(0, Math.min(96, sorted.size()))) {
+			if (!surface(player, source)) continue;
+			Vec3 top = Vec3.atCenterOf(source).add(0.0D, 0.4D, 0.0D);
+			for (BlockPos at : BlockPos.betweenClosed(source.offset(-4, -1, -4), source.offset(4, 3, 4))) {
+				Vec3 eye = Vec3.atBottomCenterOf(at).add(0.0D, player.getEyeHeight(), 0.0D);
+				if (eye.distanceTo(top) > player.blockInteractionRange() - 0.3D || !standable(player, level, at) && !stoodOn(player, at)) continue;
+				out.add(source);
+				break;
+			}
+		}
+		return out.isEmpty() ? pool : out;
+	}
+
+	/**
 	 * No open site by the lava: choose one to carve beside a seen standing spot within {@link #CARVE_RADIUS} of the cast
 	 * center, the frame two cells from the spot (the row between dug too), within reach of the pool, fewest cells to dig
 	 * and nearest first. True when the dig starts; false (with the reasons added to the site rejects) when none fits.
 	 */
-	private boolean carve(ServerPlayer player, List<BlockPos> pool, int plain) {
+	private boolean carve(ServerPlayer player, List<BlockPos> pool, List<BlockPos> lava, int plain) {
 		ServerLevel level = (ServerLevel) player.level();
 		java.util.function.BiPredicate<BlockPos, BlockState> rock = (cell, state) -> state.isCollisionShapeFullBlock(level, cell)
 				&& state.getFluidState().isEmpty() && !(state.getBlock() instanceof EntityBlock);
@@ -1955,7 +1982,10 @@ public final class ServerBuildController implements ServerController {
 						double d = Vec3.atCenterOf(source).distanceTo(mid);
 						if (d < near) { near = d; rise = Math.abs(p.at(1, 1).getY() - 1 - source.getY()); }
 					}
-					if (near > CAST_POOL_REACH || rise > CAST_RISE || near < CARVE_POOL_MARGIN || nearMetLava(mid)) { far++; continue; }
+					// The margin keeps the dig off every seen source, scoopable or not: lava under a ledge sits in the rock dug here.
+					boolean close = false;
+					for (BlockPos source : lava) if (Vec3.atCenterOf(source).distanceTo(mid) < CARVE_POOL_MARGIN) { close = true; break; }
+					if (near > CAST_POOL_REACH || rise > CAST_RISE || close || nearMetLava(mid)) { far++; continue; }
 					int dig = carveDig(cell -> known(player, cell), rock, clearable, p, wall);
 					if (dig < 0) { ruled++; continue; }
 					int open = 0;
