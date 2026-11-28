@@ -48,8 +48,8 @@ import org.slf4j.LoggerFactory;
  */
 public final class BoatAccount {
 	private static final Logger LOGGER = LoggerFactory.getLogger(BoatAccount.class);
-	/** Filled in once the Mineagen OAuth app exists; {@code -Dmineagen.boatClientId} overrides it. */
-	static final String BUNDLED_CLIENT_ID = "";
+	/** The Mineagen boat OAuth app: a public PKCE client with no secret, so the id is not a credential. {@code -Dmineagen.boatClientId} overrides it. */
+	static final String BUNDLED_CLIENT_ID = "boatapp_5aykyhYynVhcsHfwlOihIqzg";
 	static final String AUTHORIZE_URL = "https://boat.dev/api/boat/oauth2/authorize";
 	static final String TOKEN_URL = "https://boat.dev/api/boat/oauth2/token";
 	static final String REVOKE_URL = "https://boat.dev/api/boat/oauth2/revoke";
