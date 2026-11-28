@@ -24,7 +24,7 @@ The default local command and `coordinator/test/decision-stake.test.mjs` use one
 
 ## PR visibility
 
-The Coordinator (Linux) job, on the coordinator host runner for drafts and ready PRs alike, publishes one marker comment and a `gameplay-stake` commit status. It evaluates the checked-out tree, which is GitHub's merge of the PR into its base, and publishes to the PR head SHA from the event. The comparison base is that merge's first parent. The step cannot stop the tests after it (`continue-on-error`); the `gameplay-stake` status carries its result, and a crash posts an `error` status. Superseded heads cannot update the current comment. The status links to the Actions summary.
+The first coordinator test shard in the Coordinator workflow, for drafts and ready PRs alike, publishes one marker comment and a `gameplay-stake` commit status. It evaluates the checked-out tree, which is GitHub's merge of the PR into its base, and publishes to the PR head SHA from the event. The comparison base is that merge's first parent. The step cannot stop the tests after it (`continue-on-error`); the `gameplay-stake` status carries its result, and a crash posts an `error` status. Superseded heads cannot update the current comment. The status links to the Actions summary.
 
 Two results are reported separately. **Head passes or fails** sets the status: invariants and expectations on the evaluated tree. **Base comparable** only adds the base → head deltas. A base that cannot be checked out or replayed reads "not comparable" and is neutral: a passing head stays green and a failing head stays red.
 

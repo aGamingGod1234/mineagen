@@ -4,7 +4,7 @@ on:
   pull_request:
     # Drafts skip every job here; marking one ready runs the mod build and Windows jobs. Coordinator (Linux) is in coordinator.yml.
     types: [opened, synchronize, reopened, ready_for_review]
-    # Changes only to docs, eval records or ops notes test nothing. Windows minutes bill at twice the Linux rate.
+    # Changes only to docs, eval records or ops notes test nothing.
     # coordinator.yml's Detect code changes step uses the same paths; keep them in step.
     paths-ignore: ['docs/**', 'evals/**', 'ops/**', 'README.md']
   push:
@@ -20,14 +20,19 @@ permissions:
 jobs:
   # Off unless the repository variable WINDOWS_CI is "on".
   coordinator-windows:
-    name: Coordinator (Windows)
+    name: Coordinator (Windows, shard ${{ matrix.shard }}/2)
     if: vars.WINDOWS_CI == 'on' && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     runs-on: windows-latest
-    # A hung test must not hold the runner for the 6 hour default; the job takes 5-8 minutes.
+    # A hung test must not hold the runner for the 6 hour default; a shard takes about 4 minutes.
     timeout-minutes: 30
     concurrency:
-      group: ${{ github.workflow }}-coordinator-windows-${{ github.event.pull_request.number || github.sha }}-${{ github.event.pull_request.draft }}
+      group: ${{ github.workflow }}-coordinator-windows-${{ matrix.shard }}-${{ github.event.pull_request.number || github.sha }}-${{ github.event.pull_request.draft }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # The suite takes about 7 minutes on one Windows runner; two shards split its test files between them.
+        shard: [1, 2]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -42,11 +47,18 @@ jobs:
         working-directory: coordinator
         run: npm ci --ignore-scripts --omit=dev
       - name: Check model-facing contracts
+        if: matrix.shard == 1
         working-directory: coordinator
         run: npm run test:contracts
-      - name: Test coordinator
+      # npm test's pretest step, which compiles the Windows job helper before any test waits on it. Its own step, so a
+      # failure stops the job; PowerShell reports only a script's last exit code.
+      - name: Prepare the owned job helper
         working-directory: coordinator
-        run: npm run test
+        run: node scripts/prepare-owned-job.mjs
+      - name: Test coordinator (shard ${{ matrix.shard }}/2)
+        working-directory: coordinator
+        # node directly: PowerShell can drop the -- that npm needs to pass the shard flag through.
+        run: node scripts/run-public-suite.mjs --test-shard=${{ matrix.shard }}/2
 
   java-targets:
     name: Mod on Minecraft ${{ matrix.mc }}
@@ -71,7 +83,17 @@ jobs:
         with:
           distribution: temurin
           java-version: '25'
-          cache: gradle
+      # The repository allows only GitHub's own actions, so the Gradle cache uses actions/cache directly: every job
+      # restores its own entry (one per Minecraft target here), and only a passing push to main saves one, once per change to the build files.
+      - name: Restore the Gradle cache
+        id: gradle-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-mc${{ matrix.mc }}-${{ hashFiles('**/*.gradle', 'gradle.properties', 'gradle/mc/*.properties', 'gradle/wrapper/gradle-wrapper.properties', '**/gradle.lockfile', 'gradle/locks/**') }}
+          restore-keys: gradle-${{ runner.os }}-mc${{ matrix.mc }}-
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -93,6 +115,14 @@ jobs:
           python3 -B -m unittest discover -s src/test/python -p 'test_*.py'
       - name: Boot a live ${{ matrix.mc }} server with the mod set
         run: python3 scripts/live-server.py --target ${{ matrix.mc }}
+      - name: Save the Gradle cache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.gradle-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ steps.gradle-cache.outputs.cache-primary-key }}
       - name: Upload the ${{ matrix.mc }} mod JAR
         # Only main keeps a JAR. Artifact storage can run out, and that must not fail a tested build.
         if: github.event_name == 'push'
@@ -125,7 +155,17 @@ jobs:
         with:
           distribution: temurin
           java-version: '25'
-          cache: gradle
+      # The repository allows only GitHub's own actions, so the Gradle cache uses actions/cache directly: every job
+      # restores its own entry, and only a passing push to main saves one, once per change to the build files.
+      - name: Restore the Gradle cache
+        id: gradle-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-windows-package-${{ hashFiles('**/*.gradle', 'gradle.properties', 'gradle/mc/*.properties', 'gradle/wrapper/gradle-wrapper.properties', '**/gradle.lockfile', 'gradle/locks/**') }}
+          restore-keys: gradle-${{ runner.os }}-windows-package-
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -140,11 +180,26 @@ jobs:
           $properties = ConvertFrom-StringData (Get-Content -LiteralPath .\gradle.properties -Raw)
           "MOD_VERSION=$($properties.mod_version)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "DISTRIBUTION_NAME=mineagen-modpack-$($properties.mod_version)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      # install-node-runtime.ps1 checks the pinned hash and version of a restored node.exe and downloads it only if
+      # they differ. Like the Gradle cache, only a push to main saves it; the save comes right after the install, so a
+      # later packaging failure can still save it, which is safe because every restore re-checks the hash and version.
+      - name: Restore the pinned Node runtime
+        id: node-runtime-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: runtime/toolchains/node
+          key: node-runtime-${{ runner.os }}-${{ hashFiles('scripts/install-node-runtime.ps1') }}
       - name: Assemble pinned standalone Node runtime
         shell: powershell
         run: |
           .\scripts\install-node-runtime.ps1 -ProjectRoot .
           .\scripts\verify-startup-packaging.ps1 -PackageRoot .
+      - name: Save the pinned Node runtime
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.node-runtime-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: runtime/toolchains/node
+          key: ${{ steps.node-runtime-cache.outputs.cache-primary-key }}
       - name: Fetch third-party mod JARs
         shell: bash
         run: ./scripts/fetch-libs.sh
@@ -194,6 +249,14 @@ jobs:
             $version = "$env:MOD_VERSION+mc$target"
             .\scripts\verify-windows-distribution.ps1 -ArchivePath ".\build\distributions\mineagen-modpack-$version.zip" -BuiltJarPath ".\build\libs\mineagen-$version.jar"
           }
+      - name: Save the Gradle cache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.gradle-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ steps.gradle-cache.outputs.cache-primary-key }}
       - name: Upload verified standalone distribution
         # Only main keeps a ZIP. Artifact storage can run out, and that must not fail a tested build.
         if: github.event_name == 'push'
