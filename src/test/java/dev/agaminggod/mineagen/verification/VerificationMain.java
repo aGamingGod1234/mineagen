@@ -184,6 +184,7 @@ public final class VerificationMain {
 		passedAssertions += dev.agaminggod.mineagen.server.WindowsCoordinatorJobDrainVerification.verify();
 		passedAssertions += CoordinatorStartupSmokeVerification.verify();
 		passedAssertions += dev.agaminggod.mineagen.server.ProviderApiKeyVerification.verify();
+		passedAssertions += dev.agaminggod.mineagen.server.BoatAccountVerification.verify();
 		passedAssertions += CoordinatorVoiceTimeoutLifecycleVerification.verify();
 		passedAssertions += CoordinatorVoiceEndpointVerification.verify();
 		passedAssertions += CoordinatorVoiceEndpointRefreshVerification.verify();

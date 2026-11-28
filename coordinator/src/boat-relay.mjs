@@ -242,7 +242,10 @@ export function coordinatorSession({ sessionRoot, coordinatorRoot, log, spawnPro
 			const started = child;
 			child.once('exit', (code, signal) => {
 				log('coordinator-exit', { code, signal, running: started === child });
-				if (started === child) send(`exited:${JSON.stringify({ code, signal })}`);
+				if (started !== child) return;
+				// The last lines of its log say why it ended; the session folder is wiped at stop.
+				readFile(path.join(sessionRoot, 'coordinator.log'), 'utf8').catch(() => '')
+					.then(text => send(`exited:${JSON.stringify({ code, signal, tail: text.slice(-1200) })}`));
 			});
 			log('session-started', { pid: child.pid, files: files.length });
 			return { pid: child.pid };
