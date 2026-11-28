@@ -118,6 +118,14 @@ export const SWITCHES = Object.freeze([
 	entry({ name: 'find.portalSkipFailed', env: 'MINEAGEN_PORTAL_SKIP_FAILED', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
 		reason: 'The portal-room search remembers a passage spot it could not walk to and tries the next one instead of handing back the same spot: a 27 Nov twelve-eyes game spent 87 min inside a stronghold, handed back the same unreachable spots 3-5 times each and never came within 40 blocks of the portal room; off is the A/B off arm.',
 		readers: ['coordinator/src/find-portal-room.mjs skipFailed (per call)'] }),
+	// coordinator/src/find-portal-room.mjs floorOnly(): per call.
+	entry({ name: 'find.portalFloorOnly', env: 'MINEAGEN_PORTAL_FLOOR_ONLY', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
+		reason: 'The portal-room search treats a full masonry block at or above the feet as wall, not floor (stairs and slabs there are still steps up), and walks to a spot more than one block above the feet only once it has climbed near it: in two 27 Nov twelve-eyes games 51 and 127 portal-search walks failed 1-3 blocks short of a wall or ceiling top 1-4 blocks above the body, and neither reached the portal room; off is the A/B off arm.',
+		readers: ['coordinator/src/find-portal-room.mjs floorOnly (per call)'] }),
+	// coordinator/src/find-portal-room.mjs sightPassages(): per call.
+	entry({ name: 'find.portalSight', env: 'MINEAGEN_PORTAL_SIGHT', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
+		reason: 'The portal-room search looks along the four compass headings and walks where the crosshair shows the way open (nothing within reach, or a wooden door, stair or slab ahead), straight on first, and at a fork of two or more new ways it hands back what each heading shows (corridor, door, step, wall, walked, way back) for the model to pick the branch: the body sees at most 8 blocks of each kind within 6 blocks, so in four 27 Nov floor-only stronghold games 30 of 57 searches handed back "no unvisited passage" with an open corridor at hand, and none reached the portal room; a 27 Nov A/B that climbed to higher floor instead drifted 58-59 blocks the wrong way twice; off is the A/B off arm.',
+		readers: ['coordinator/src/find-portal-room.mjs sightPassages (per call)'] }),
 	// coordinator/src/find-eyes.mjs longLegs(): per call.
 	entry({ name: 'find.eyeLongLegs', env: 'MINEAGEN_EYE_LONG_LEGS', side: 'coordinator', default: true, parser: OFF_WORD, status: 'default-on',
 		reason: 'The eye search walks up to 300 blocks between throws while the eye keeps its bearing or the throw\'s crossing puts the stronghold far ahead, counts its search circle from the last throw, and walks on instead of throwing over the sea: a 27 Nov twelve-eyes game threw 8 eyes 60 blocks apart on one bearing over an ocean, lost 7 and never reached a stronghold about 1,000 blocks off; off is the A/B off arm.',
