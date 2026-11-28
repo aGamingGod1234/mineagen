@@ -101,7 +101,7 @@ public final class ProviderApiKeyStore {
 	}
 
 	/** The protected form when the platform protector works; otherwise the bare key, still in an owner-only file. */
-	private static String sealed(String key) {
+	static String sealed(String key) {
 		ProviderKeyProtector active = protector;
 		if (active == null) return key;
 		try {
@@ -114,7 +114,7 @@ public final class ProviderApiKeyStore {
 		}
 	}
 
-	private static String unsealed(String content) {
+	static String unsealed(String content) {
 		if (!content.startsWith(PROTECTED_HEADER)) return content;
 		String body = content.substring(PROTECTED_HEADER.length());
 		int separator = body.indexOf(':');
@@ -131,7 +131,7 @@ public final class ProviderApiKeyStore {
 		}
 	}
 
-	private static void ownerOnly(Path path, boolean directory) throws IOException {
+	static void ownerOnly(Path path, boolean directory) throws IOException {
 		if (Files.getFileStore(path).supportsFileAttributeView("posix")) {
 			Files.setPosixFilePermissions(path, PosixFilePermissions.fromString(directory ? "rwx------" : "rw-------"));
 		} else {

@@ -135,6 +135,34 @@ public final class AgentControlClient {
 		} catch (RuntimeException failure) { return false; }
 	}
 
+	/** Boat account, Runs on and model sign-in actions; the server honours them only for this machine's own host. */
+	public static boolean sendBoatAction(String action) {
+		try {
+			if (!canSaveProviderApiKey()) return false;
+			if (!ClientPlayNetworking.canSend(dev.agaminggod.mineagen.control.BoatControlPayload.TYPE)) return false;
+			ClientPlayNetworking.send(new dev.agaminggod.mineagen.control.BoatControlPayload(action));
+			refreshCountdown = 2;
+			return true;
+		} catch (RuntimeException failure) { return false; }
+	}
+
+	/**
+	 * The boat panel's state, read from this machine's runtime folder: the host's own computer runs the coordinator's
+	 * runner, so no network message is needed. Off a local host there is nothing to show.
+	 */
+	public static dev.agaminggod.mineagen.server.BoatAccount.Status boatStatus() {
+		if (!canSaveProviderApiKey()) return null;
+		try {
+			return dev.agaminggod.mineagen.server.BoatAccount.status(dev.agaminggod.mineagen.server.BoatAccount.localRuntimeRoot());
+		} catch (RuntimeException failure) { return null; }
+	}
+
+	public static dev.agaminggod.mineagen.server.BoatAccount.Settings boatSettings() {
+		try {
+			return dev.agaminggod.mineagen.server.BoatAccount.settings(dev.agaminggod.mineagen.server.BoatAccount.localRuntimeRoot());
+		} catch (RuntimeException failure) { return new dev.agaminggod.mineagen.server.BoatAccount.Settings(false, false); }
+	}
+
 	public static void requestProviderRescan() {
 		if (ClientPlayNetworking.canSend(dev.agaminggod.mineagen.control.ProviderRescanPayload.TYPE)) {
 			ClientPlayNetworking.send(dev.agaminggod.mineagen.control.ProviderRescanPayload.INSTANCE);

@@ -483,7 +483,17 @@ export async function runBoatCoordinator({ argv = process.argv.slice(2), env = p
 		if (gone) quickExit('owner-gone');
 	}, 2_000);
 	ownerWatch.unref?.();
-	watchCaptureShutdown(env.ARENA_CAPTURE_SHUTDOWN_PATH, () => finish('capture-shutdown'));
+	// The harness waits for the acknowledgement file, so the runner must not exit before it is in place.
+	let acknowledged = null, captureRequested = false;
+	watchCaptureShutdown(env.ARENA_CAPTURE_SHUTDOWN_PATH, () => { captureRequested = true; return finish('capture-shutdown'); }, {
+		write: (file, text) => (acknowledged = (async () => { await writeFile(`${file}.tmp`, text); await rename(`${file}.tmp`, file); })()),
+	});
+	const settle = async code => {
+		await finished;
+		for (let i = 0; captureRequested && !acknowledged && i < 40; i++) await sleep(50);
+		await acknowledged?.catch(() => {});
+		return code;
+	};
 
 	try {
 		await status();
@@ -495,7 +505,7 @@ export async function runBoatCoordinator({ argv = process.argv.slice(2), env = p
 			}
 		};
 		await sweep(entry => entry.name?.startsWith(`${NAME_PREFIX}${install}-`), 'leftover');
-		if (finished) return await finished;
+		if (finished) return await settle(await finished);
 		// 2. Create the machine.
 		const key = randomBytes(32).toString('base64url');
 		const relaySource = await readFile(path.join(COORDINATOR_ROOT, 'src/boat-relay.mjs'), 'utf8');
@@ -515,7 +525,7 @@ export async function runBoatCoordinator({ argv = process.argv.slice(2), env = p
 		log('machine-created', { machine: machine.id, ms: Date.now() - t0, backend: boat.kind });
 		if (reaper) reaperHandle = startReaper({ machine: machine.id, statusFile, logFile, url: null, key, sent: [] }, log);
 		await status();
-		if (finished) return await finished;
+		if (finished) return await settle(await finished);
 		keepAlive = setInterval(() => {
 			boat.extend(machine.id, TTL_SECONDS).catch(error => log('extend-failed', { message: error.message }));
 		}, EXTEND_EVERY_MS);
@@ -552,7 +562,7 @@ export async function runBoatCoordinator({ argv = process.argv.slice(2), env = p
 			await sleep(1_500);
 		}
 		log('relay-ready', { ms: Date.now() - t0 });
-		if (finished) return await finished;
+		if (finished) return await settle(await finished);
 		const bundle = await bundleCoordinator();
 		await control.request(`install:${bundle.toString('base64')}`, ['installed'], 120_000);
 		log('installed', { bytes: bundle.length, ms: Date.now() - t0 });
@@ -587,11 +597,11 @@ export async function runBoatCoordinator({ argv = process.argv.slice(2), env = p
 				}
 			}
 		}
-		return await finished;
+		return await settle(await finished);
 	} catch (error) {
 		log('failed', { message: error.message });
 		await status({ error: error.message });
-		return await finish('failed', 1);
+		return await settle(await finish('failed', 1));
 	}
 }
 
