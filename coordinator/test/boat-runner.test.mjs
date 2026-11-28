@@ -9,6 +9,9 @@ import test from 'node:test';
 import { coordinatorSession, dialRelay, serveRelay } from '../src/boat-relay.mjs';
 import { parseCliJson, remoteConfig, remoteEnvironment, runBoatCoordinator, writeBackSignIns } from '../src/boat-runner.mjs';
 
+// The relay's coordinator session runs on the Linux boat machine; it ends the coordinator by process group, which
+// Windows does not have.
+const onlyOnMachine = process.platform === 'win32' && 'the coordinator session runs on the Linux boat machine';
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function until(check, timeoutMs = 20_000) {
 	const deadline = Date.now() + timeoutMs;
@@ -66,7 +69,7 @@ test('a refreshed sign-in is written back only over the copy that was sent', asy
 	} finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test('a session starts the coordinator on the machine, carries the bridge, copies a refreshed sign-in back and deletes the machine', async () => {
+test('a session starts the coordinator on the machine, carries the bridge, copies a refreshed sign-in back and deletes the machine', { skip: onlyOnMachine }, async () => {
 	const root = mkdtempSync(path.join(os.tmpdir(), 'boat-runner-'));
 	const relays = [];
 	try {
@@ -153,7 +156,7 @@ test('a bridge connection that timed out waiting for the PC does not swallow the
 	}
 });
 
-test('mirrored logs wait out a disconnected PC and follow a rotated file', async () => {
+test('mirrored logs wait out a disconnected PC and follow a rotated file', { skip: onlyOnMachine }, async () => {
 	const root = mkdtempSync(path.join(os.tmpdir(), 'boat-mirror-'));
 	let connected = false, received = '';
 	const send = text => {
