@@ -170,18 +170,19 @@ final class BoardLiveView {
 		AgentBody body = frame.body();
 		int sw = stageWidth(hero);
 		int sx = hero.left(), sy = hero.top(), sh = hero.height();
-		// The body stands on a soft floor shadow, lit by nothing but the world behind the panel.
+		// The body stands on one hairline floor.
 		int floorY = sy + sh - 6;
-		ConsoleDraw.surface(graphics, sx + sw / 2 - sw * 3 / 10, floorY - 2, sw * 6 / 10, 6, ConsoleDraw.RADIUS_SMALL, 0x2E000000);
-		ConsoleDraw.surface(graphics, sx + sw / 2 - sw / 5, floorY - 1, sw * 2 / 5, 4, ConsoleDraw.RADIUS_SMALL, 0x4C000000);
+		ConsoleDraw.hairline(graphics, sx + sw / 2 - sw * 3 / 10, sx + sw / 2 + sw * 3 / 10, floorY + 1, 0x24FFFFFF);
 		if (body != null && body.entity() != null) {
 			int boxTop = sy + 2, boxBottom = floorY + 1;
 			int size = (boxBottom - boxTop) * 30 / 66;
 			McClientCompat.entityPreview(graphics, sx, boxTop, sx + sw, boxBottom, size, 0.0625F, frame.mouseX(), frame.mouseY(), body.entity());
 		} else {
-			int tile = Math.min(40, sw - 12);
-			int fx = sx + (sw - tile) / 2, fy = sy + (sh - tile) / 2 - 8;
-			AgentFaces.tile(graphics, agent, fx, fy, tile);
+			// The provider's bare mark where the body would stand.
+			int tile = BrandMarks.LARGE;
+			BrandMarks.Mark mark = BrandMarks.forProvider(agent.provider());
+			int fx = sx + (sw - BrandMarks.width(mark, tile)) / 2, fy = sy + (sh - tile) / 2 - 8;
+			BrandMarks.draw(graphics, mark, fx, fy, tile);
 			String away = tr("screen.mineagen.board.out_of_view");
 			ConsoleDraw.label(graphics, font, away, sx + (sw - ConsoleDraw.labelWidth(font, away)) / 2, fy + tile + 7, ConsoleTheme.SUBTLE);
 		}

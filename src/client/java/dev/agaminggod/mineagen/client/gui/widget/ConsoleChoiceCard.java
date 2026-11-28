@@ -32,6 +32,7 @@ public final class ConsoleChoiceCard extends AbstractWidget implements ConsoleFo
 	private final ConsoleMotion hover = new ConsoleMotion();
 	private final ConsoleMotion pick = new ConsoleMotion();
 	private ConsoleDraw.Icon markIcon;
+	private dev.agaminggod.mineagen.client.gui.BrandMarks.Mark brand;
 
 	public ConsoleChoiceCard(Font font, int x, int y, int width, int height, String title, String status, int statusColor,
 			String detail, int mark, boolean selected, Runnable onPress) {
@@ -55,6 +56,12 @@ public final class ConsoleChoiceCard extends AbstractWidget implements ConsoleFo
 		return this;
 	}
 
+	/** Draws the owner's bare logo instead of the tinted glyph square; a mark that is not shipped keeps the glyph. */
+	public ConsoleChoiceCard withBrand(dev.agaminggod.mineagen.client.gui.BrandMarks.Mark brand) {
+		this.brand = brand;
+		return this;
+	}
+
 	public ConsoleChoiceCard animateSelection() {
 		pick.toward(0F, 0);
 		return this;
@@ -64,7 +71,7 @@ public final class ConsoleChoiceCard extends AbstractWidget implements ConsoleFo
 	protected void extractWidgetRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
 		float lift = ConsoleMotion.smooth(hover.toward(active && (isHovered() || isFocused()) ? 1F : 0F, 120));
 		float chosen = ConsoleMotion.smooth(pick.toward(selected ? 1F : 0F, 180));
-		int base = !active ? ConsoleTheme.ROSTER_UNAVAILABLE_SURFACE : ConsoleDraw.mix(ConsoleTheme.SURFACE, ConsoleTheme.SURFACE_HOVER, lift);
+		int base = !active ? ConsoleTheme.BUTTON_INACTIVE : ConsoleDraw.mix(ConsoleTheme.BUTTON_INACTIVE, ConsoleTheme.BUTTON_HOVER, lift);
 		int fill = ConsoleDraw.mix(base, ConsoleTheme.SURFACE_SELECTED, selected ? chosen : 0F);
 		ConsoleDraw.surface(graphics, getX(), getY(), getWidth(), getHeight(), ConsoleDraw.RADIUS_CARD, fill);
 		if (selected) {
@@ -77,8 +84,11 @@ public final class ConsoleChoiceCard extends AbstractWidget implements ConsoleFo
 		int markX = getX() + 7;
 		int markY = getY() + (getHeight() - markSize) / 2;
 		int markColor = active ? mark : ConsoleDraw.mix(mark, ConsoleTheme.SURFACE, 0.6F);
-		ConsoleDraw.surface(graphics, markX, markY, markSize, markSize, ConsoleDraw.RADIUS_CONTROL, ConsoleDraw.withAlpha(markColor, 0.22F));
-		if (markIcon != null) {
+		int brandWidth = dev.agaminggod.mineagen.client.gui.BrandMarks.width(brand, dev.agaminggod.mineagen.client.gui.BrandMarks.LARGE);
+		if (brandWidth > 0) {
+			dev.agaminggod.mineagen.client.gui.BrandMarks.draw(graphics, brand, markX + (markSize - brandWidth) / 2,
+					markY + (markSize - dev.agaminggod.mineagen.client.gui.BrandMarks.LARGE) / 2, dev.agaminggod.mineagen.client.gui.BrandMarks.LARGE);
+		} else if (markIcon != null) {
 			ConsoleDraw.icon(graphics, markIcon, markX + (markSize - 12) / 2, markY + (markSize - 12) / 2, markColor);
 		} else {
 			Component initialText = ConsoleText.strong(title.isEmpty() ? "?" : title.substring(0, 1));

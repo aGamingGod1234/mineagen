@@ -425,7 +425,7 @@ public final class AgentControlScreen extends Screen {
 		int panelHeight = layout.panelBottom() - layout.panelTop();
 		ConsoleDraw.shadow(graphics, layout.panelLeft(), layout.panelTop(), panelWidth, panelHeight, 0xB0);
 		ConsoleDraw.surface(graphics, layout.panelLeft(), layout.panelTop(), panelWidth, panelHeight, ConsoleDraw.RADIUS_PANEL, PANEL);
-		ConsoleDraw.hairline(graphics, layout.panelLeft() + ConsoleDraw.RADIUS_PANEL, layout.panelRight() - ConsoleDraw.RADIUS_PANEL,
+		ConsoleDraw.hairline(graphics, layout.panelLeft(), layout.panelRight(),
 				layout.panelTop(), 0x1AFFFFFF);
 		renderShell(graphics);
 		renderBanner(graphics);
@@ -694,7 +694,7 @@ public final class AgentControlScreen extends Screen {
 		AgentControlLayout.Bounds railView = new AgentControlLayout.Bounds(drawer.left(), Math.min(drawer.bottom(), drawer.top() + DRAWER_HEADER),
 				drawer.right(), drawer.bottom() - 6);
 		int railWidth = Math.max(40, drawer.width() - DRAWER_PAD * 2);
-		int railScrollMaximum = Math.max(0, buildRail(0, 0, railWidth).bottom() + 4 - railView.height());
+		int railScrollMaximum = Math.max(0, buildRail(0, 0, railWidth).bottom() + 16 - railView.height());
 		railScroll = Math.clamp(railScroll, 0, railScrollMaximum);
 		Rail rail = buildRail(drawer.left() + DRAWER_PAD, railView.top() + 2 - railScroll, railWidth);
 		if (computeOpen) {
@@ -921,13 +921,13 @@ public final class AgentControlScreen extends Screen {
 
 	/** Places the rail's parts from {@code top}; measured with top 0 first so a folded column knows how far it scrolls. */
 	private Rail buildRail(int left, int top, int width) {
-		int inner = Math.max(24, width - 16);
+		int inner = Math.max(24, width);
 		int y = top + LABEL_HEIGHT - 2 + MissionBoardLayout.ROW + 8;
 		int consentY = -1;
 		List<String> consent = List.of();
 		if (consentPending) {
 			consentY = y;
-			consent = wrap(tr(BoatPanelPresentation.CONSENT_KEY), width);
+			consent = wrap(tr(BoatPanelPresentation.CONSENT_KEY), width - 10);
 			y += consent.size() * 10 + 4 + MissionBoardLayout.ROW + 8;
 		}
 		BoatPanelPresentation.Machine machine = BoatPanelPresentation.machine(boatStatus, boatSettings);
@@ -959,7 +959,9 @@ public final class AgentControlScreen extends Screen {
 		height += 6;
 		y = machineY + height + 8;
 		int providersY = y;
-		List<BoatPanelPresentation.ProviderRow> providers = BoatPanelPresentation.providerRows(AgentControlCatalog.providerRows(), boatStatus);
+		// Boat's own sign-in lives in the machine section just above, so its provider row would repeat it.
+		List<BoatPanelPresentation.ProviderRow> providers = BoatPanelPresentation.providerRows(AgentControlCatalog.providerRows(), boatStatus)
+				.stream().filter(row -> !"boat".equals(row.id())).toList();
 		y += 12 + providers.size() * 22 - 2;
 		return new Rail(left, width, top, consentY, consent, machineY, height, machine, List.copyOf(head), titleLines,
 				costY, progressY, errorY, errors, actionY, providersY, providers, y);
@@ -995,11 +997,11 @@ public final class AgentControlScreen extends Screen {
 		BoatPanelPresentation.Machine machine = rail.machine();
 		if (rail.actionY() >= 0) {
 			String label = tr(machine.actionKey());
-			int x = rail.left() + 8, w = rail.width() - 16;
+			int x = rail.left(), w = rail.width();
 			ConsoleButton action = switch (machine.action()) {
 				case STOP_MACHINE -> dangerButton(label, x, rail.actionY(), w, 18, () -> boatRailAction(machine.action().command(),
 						tr("screen.mineagen.boat.stopping_sent")));
-				case SIGN_OUT -> ghostButton(label, x - 8, rail.actionY(), ConsoleButton.fittedWidth(font, label, false, true), 18,
+				case SIGN_OUT -> ghostButton(label, x - 6, rail.actionY(), ConsoleButton.fittedWidth(font, label, false, true), 18,
 						() -> boatRailAction(machine.action().command(), tr("screen.mineagen.boat.signing_out"))).small();
 				default -> consoleButton(Component.literal(label), x, rail.actionY(), w, 18, false,
 						() -> boatRailAction(machine.action().command(), tr("screen.mineagen.boat.opening", tr("screen.mineagen.provider.boat"))));
@@ -1211,7 +1213,7 @@ public final class AgentControlScreen extends Screen {
 		graphics.nextStratum();
 		ConsoleDraw.shadow(graphics, drawer.left(), drawer.top(), drawer.width(), drawer.height(), 0x90);
 		ConsoleDraw.surface(graphics, drawer.left(), drawer.top(), drawer.width(), drawer.height(), ConsoleDraw.RADIUS_CARD, ConsoleTheme.POPUP);
-		ConsoleDraw.hairline(graphics, drawer.left() + ConsoleDraw.RADIUS_CARD, drawer.right() - ConsoleDraw.RADIUS_CARD, drawer.top(), 0x1CFFFFFF);
+		ConsoleDraw.hairline(graphics, drawer.left(), drawer.right(), drawer.top(), 0x1CFFFFFF);
 		int left = drawer.left() + DRAWER_PAD;
 		graphics.text(font, ConsoleText.strong(fitStrong(tr("screen.mineagen.board.compute"), drawer.width() - DRAWER_PAD * 2)), left, drawer.top() + 10, TEXT, false);
 		ConsoleDraw.label(graphics, font, fitLabel(tr("screen.mineagen.board.compute_hint"), drawer.width() - DRAWER_PAD * 2), left, drawer.top() + 22,
@@ -1225,7 +1227,10 @@ public final class AgentControlScreen extends Screen {
 			graphics.disableScissor();
 		}
 		if (railScroll < current.railScrollMaximum()) {
-			ConsoleDraw.icon(graphics, ConsoleDraw.Icon.CHEVRON_DOWN, (view.left() + view.right()) / 2 - 6, view.bottom() - 6, ConsoleTheme.SUBTLE);
+			// Fade the rows out under the chevron so it never sits on a name.
+			graphics.fillGradient(drawer.left(), view.bottom() - 22, drawer.right(), view.bottom(),
+					ConsoleDraw.withAlpha(ConsoleTheme.POPUP, 0F), ConsoleTheme.POPUP);
+			ConsoleDraw.icon(graphics, ConsoleDraw.Icon.CHEVRON_DOWN, (view.left() + view.right()) / 2 - 6, view.bottom() - 10, ConsoleTheme.SUBTLE);
 		}
 	}
 
@@ -1257,38 +1262,39 @@ public final class AgentControlScreen extends Screen {
 		}
 		BoatPanelPresentation.Machine machine = rail.machine();
 		int tone = boatToneColor(machine.tone());
-		// The machine: one tonal block, its state in a dot and the title, then plain lines.
-		ConsoleDraw.surface(graphics, left, rail.machineY(), width, rail.machineHeight(), ConsoleDraw.RADIUS_CARD, 0x0DFFFFFF);
-		int mark = BrandMarks.draw(graphics, BrandMarks.Mark.BOAT, left + 8, rail.machineY() + 4, BrandMarks.SMALL);
+		// The machine: a section between two hairlines, not a card; its state in a dot after the title.
+		ConsoleDraw.hairline(graphics, left, left + width, rail.machineY(), ConsoleTheme.HAIRLINE);
+		ConsoleDraw.hairline(graphics, left, left + width, rail.machineY() + rail.machineHeight(), ConsoleTheme.HAIRLINE);
+		int mark = BrandMarks.draw(graphics, BrandMarks.Mark.BOAT, left, rail.machineY() + 4, BrandMarks.SMALL);
 		for (int index = 0; index < rail.head().size(); index++) {
 			String line = rail.head().get(index);
 			int y = rail.machineY() + 6 + index * MACHINE_LINE + (index >= rail.titleLines() ? MACHINE_TITLE_GAP : 0);
 			if (index < rail.titleLines()) {
-				int x = left + 8 + (index == 0 && mark > 0 ? mark + 5 : 0);
+				int x = left + (index == 0 && mark > 0 ? mark + 5 : 0);
 				graphics.text(font, ConsoleText.strong(line), x, y, TEXT, false);
 				if (index == 0) {
 					int dotX = x + ConsoleText.strongWidth(font, line) + 6;
 					if (dotX + 5 <= left + width - 6) ConsoleDraw.surface(graphics, dotX, y + 2, 5, 5, ConsoleDraw.RADIUS_SMALL, tone);
 				}
 			} else {
-				graphics.text(font, ConsoleText.component(line), left + 8, y, index == rail.head().size() - 1 && machine.specShown() ? ConsoleTheme.SUBTLE : MUTED, false);
+				graphics.text(font, ConsoleText.component(line), left, y, index == rail.head().size() - 1 && machine.specShown() ? ConsoleTheme.SUBTLE : MUTED, false);
 			}
 		}
 		if (rail.costY() >= 0 && boatStatus != null) {
 			graphics.text(font, ConsoleText.strong(fit(tr("screen.mineagen.boat.cost", BoatPanelPresentation.dollars(boatStatus.costDollars())),
-					width - 16)), left + 8, rail.costY(), TEXT, false);
+					width)), left, rail.costY(), TEXT, false);
 		}
 		if (rail.progressY() >= 0) {
-			int track = width - 16;
-			graphics.fill(left + 8, rail.progressY() + 1, left + 8 + track, rail.progressY() + 3, 0x14FFFFFF);
+			int track = width;
+			graphics.fill(left, rail.progressY() + 1, left + track, rail.progressY() + 3, 0x14FFFFFF);
 			// The runner reports no percentage while a machine starts, so the bar sweeps instead of claiming progress.
 			int segment = Math.max(8, track / 3);
 			int offset = (int) ((System.currentTimeMillis() / 12L) % (track + segment)) - segment;
 			int from = Math.max(0, offset), to = Math.min(track, offset + segment);
-			if (to > from) graphics.fill(left + 8 + from, rail.progressY() + 1, left + 8 + to, rail.progressY() + 3, ConsoleTheme.WARNING);
+			if (to > from) graphics.fill(left + from, rail.progressY() + 1, left + to, rail.progressY() + 3, ConsoleTheme.WARNING);
 		}
 		for (int index = 0; index < rail.errors().size(); index++) {
-			graphics.text(font, ConsoleText.component(rail.errors().get(index)), left + 8, rail.errorY() + index * 10, ERROR, false);
+			graphics.text(font, ConsoleText.component(rail.errors().get(index)), left, rail.errorY() + index * 10, ERROR, false);
 		}
 		ConsoleDraw.label(graphics, font, tr("screen.mineagen.board.found"), left, rail.providersY() + 2, ConsoleTheme.SUBTLE);
 		for (int index = 0; index < rail.providers().size(); index++) {
@@ -1429,7 +1435,7 @@ public final class AgentControlScreen extends Screen {
 	}
 
 	private void addOverviewActions(int x, int y, int width) {
-		ConsoleButton create = primaryButton("New agent", x, y, width, ROW_HEIGHT, () -> show(Page.CREATE))
+		ConsoleButton create = consoleButton("New agent", x, y, width, ROW_HEIGHT, false, () -> show(Page.CREATE))
 				.withIcon(ConsoleDraw.Icon.PLUS);
 		create.active = canControl();
 		addRenderableWidget(create);
@@ -1453,8 +1459,8 @@ public final class AgentControlScreen extends Screen {
 				false, () -> show(Page.TASK)).withIcon(ConsoleDraw.Icon.TASK);
 		task.active = canUseAutomation() && selectedAgent() != null;
 		addRenderableWidget(task);
-		ConsoleButton create = primaryButton("New agent", x + (buttonWidth + GAP) * 2, y, width - (buttonWidth + GAP) * 2,
-				ROW_HEIGHT, () -> show(Page.CREATE)).withIcon(ConsoleDraw.Icon.PLUS);
+		ConsoleButton create = consoleButton("New agent", x + (buttonWidth + GAP) * 2, y, width - (buttonWidth + GAP) * 2,
+				ROW_HEIGHT, false, () -> show(Page.CREATE)).withIcon(ConsoleDraw.Icon.PLUS);
 		create.active = canControl();
 		addRenderableWidget(create);
 	}
@@ -1566,7 +1572,7 @@ public final class AgentControlScreen extends Screen {
 			boolean chosen = offered && row.id().equals(provider);
 			ConsoleChoiceCard card = new ConsoleChoiceCard(font, cardX, cardY, cardWidth, cardHeight,
 					providerTitle(row), providerStatus(row), providerStatusColor(row), providerDetail(row),
-					ConsoleTheme.providerColor(row.id()), chosen, () -> chooseProvider(row.id())).withMark(providerMark(row.id()));
+					ConsoleTheme.providerColor(row.id()), chosen, () -> chooseProvider(row.id())).withMark(providerMark(row.id())).withBrand(BrandMarks.forProvider(row.id()));
 			if (chosen && pickAnimated) card.animateSelection();
 			card.active = canControl() && offered;
 			addRenderableWidget(card);
@@ -1828,7 +1834,12 @@ public final class AgentControlScreen extends Screen {
 
 	private void renderProviderMark(GuiGraphicsExtractor graphics, String id, String title, int x, int y, int size) {
 		int mark = ConsoleTheme.providerColor(id);
-		ConsoleDraw.surface(graphics, x, y, size, size, ConsoleDraw.RADIUS_CONTROL, ConsoleDraw.withAlpha(mark, 0.22F));
+		// The owner's bare logo on the panel; the tinted glyph square is only the fallback when no logo ships.
+		int brandWidth = BrandMarks.width(BrandMarks.forProvider(id), BrandMarks.LARGE);
+		if (brandWidth > 0) {
+			BrandMarks.draw(graphics, BrandMarks.forProvider(id), x + (size - brandWidth) / 2, y + (size - BrandMarks.LARGE) / 2, BrandMarks.LARGE);
+			return;
+		}
 		ConsoleDraw.Icon icon = providerMark(id);
 		if (icon != null) {
 			ConsoleDraw.icon(graphics, icon, x + (size - 12) / 2, y + (size - 12) / 2, mark);
@@ -1853,7 +1864,7 @@ public final class AgentControlScreen extends Screen {
 		for (var row : AgentControlCatalog.providerRows()) {
 			boolean editing = editingKeyProvider.equals(row.id());
 			int rowHeight = PROVIDER_KEY_ROW_HEIGHT - 4 + (editing ? 30 : 0);
-			ConsoleDraw.surface(graphics, x, y, width, rowHeight, ConsoleDraw.RADIUS_CARD, ConsoleTheme.SURFACE);
+			ConsoleDraw.hairline(graphics, x, x + width, y + rowHeight, ConsoleTheme.HAIRLINE);
 			renderProviderMark(graphics, row.id(), row.label(), x + 8, y + 10, 20);
 			String title = row.label() + (row.version() == null ? "" : "  v" + row.version());
 			graphics.text(font, ConsoleText.strong(fit(title, width - 150)), x + 36, y + 9, TEXT, false);
@@ -1863,9 +1874,14 @@ public final class AgentControlScreen extends Screen {
 			y += PROVIDER_KEY_ROW_HEIGHT + (editing ? 30 : 0);
 		}
 		// Off the host machine a key cannot be saved at all, so that reason replaces the billing note.
-		graphics.textWithWordWrap(font, ConsoleText.component(AgentControlClient.canSaveProviderApiKey()
+		String note = AgentControlClient.canSaveProviderApiKey()
 				? KEY_BILLING_NOTE + " A key set in the server's environment overrides one saved here."
-				: AgentControlClient.LOCAL_KEY_ONLY_REASON), x, y + 4, width, ConsoleTheme.SUBTLE);
+				: AgentControlClient.LOCAL_KEY_ONLY_REASON;
+		int lineY = y + 6;
+		for (String line : wrap(note, width)) {
+			ConsoleDraw.label(graphics, font, line, x, lineY, ConsoleTheme.SUBTLE);
+			lineY += 11;
+		}
 	}
 
 	private static String ago(long elapsedMs) {
@@ -2032,8 +2048,8 @@ public final class AgentControlScreen extends Screen {
 		AgentControlLayout layout = layout();
 		int left = layout.contentLeft();
 		int middle = layout.panelTop() + AgentControlLayout.HEADER_HEIGHT / 2 + 2;
-		ConsoleDraw.icon(graphics, ConsoleDraw.Icon.LOGO, left, middle - 8, 16, 0xFFFFFFFF);
-		int x = left + 22;
+		// A wordmark only: the drawn diamond read as clip art.
+		int x = left;
 		graphics.text(font, ConsoleText.strong("Mineagen"), x, middle - 4, TEXT, false);
 		x += ConsoleText.strongWidth(font, "Mineagen");
 		String crumb = crumb(layout);
@@ -2123,7 +2139,7 @@ public final class AgentControlScreen extends Screen {
 			int detailTop = top + 96;
 			int detailBottom = layout.contentBottom();
 			if (detailBottom - detailTop < 60) return;
-			ConsoleDraw.surface(graphics, x, detailTop, width, detailBottom - detailTop, ConsoleDraw.RADIUS_CARD, ConsoleTheme.SURFACE);
+			ConsoleDraw.vhairline(graphics, x, detailTop, detailBottom, ConsoleTheme.HAIRLINE);
 			int inner = x + 12;
 			ConsoleDraw.label(graphics, font, "Now", inner, detailTop + 10, ConsoleTheme.SUBTLE);
 			graphics.text(font, ConsoleText.strong(fit(selected.displayName(), width - 24)), inner, detailTop + 23, TEXT, false);
@@ -2135,7 +2151,7 @@ public final class AgentControlScreen extends Screen {
 	}
 
 	private void renderNowCard(GuiGraphicsExtractor graphics, AgentControlAgent agent, AgentControlLayout.Bounds area, boolean named) {
-		ConsoleDraw.surface(graphics, area.left(), area.top(), area.width(), area.height(), ConsoleDraw.RADIUS_CARD, ConsoleTheme.SURFACE);
+		ConsoleDraw.hairline(graphics, area.left(), area.right(), area.top(), ConsoleTheme.HAIRLINE);
 		renderNowRows(graphics, agent, area.left() + 10, area.top() + NOW_PAD, area.right() - 10, area.bottom() - NOW_PAD, named, false);
 	}
 
@@ -2313,7 +2329,7 @@ public final class AgentControlScreen extends Screen {
 
 	/** Where the header status may start: after the logo, the name and the page's name. */
 	private int headerStatusLeft(AgentControlLayout layout) {
-		int x = layout.contentLeft() + 22 + ConsoleText.strongWidth(font, "Mineagen");
+		int x = layout.contentLeft() + ConsoleText.strongWidth(font, "Mineagen");
 		String crumb = crumb(layout);
 		if (!crumb.isEmpty()) x += 16 + ConsoleText.width(font, crumb);
 		return x + 12;

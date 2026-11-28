@@ -1,6 +1,5 @@
 package dev.agaminggod.mineagen.client.gui.widget;
 
-import dev.agaminggod.mineagen.client.gui.AgentFaces;
 import dev.agaminggod.mineagen.client.gui.ConsoleDraw;
 import dev.agaminggod.mineagen.client.gui.ConsoleFocusTarget;
 import dev.agaminggod.mineagen.client.gui.ConsoleMotion;
@@ -59,28 +58,31 @@ public final class AgentListRow extends AbstractWidget implements ConsoleFocusTa
 		if (isFocused()) ConsoleDraw.ring(graphics, x, y, w, h, ConsoleDraw.RADIUS_CONTROL, ConsoleTheme.FOCUS);
 		AgentControlPresentation.StateCue cue = AgentControlPresentation.stateCue(agent.state());
 		int stateColor = ConsoleTheme.stateColor(cue.tone());
-		int tile = Math.min(20, h - 6);
 		if (w < COMPACT_WIDTH) {
-			int tileX = x + (w - tile) / 2, tileY = y + (h - tile) / 2;
-			AgentFaces.tile(graphics, agent, tileX, tileY, tile);
-			// The state as a dot on the tile's corner, cut out of the panel colour so it reads over any skin.
-			ConsoleDraw.surface(graphics, tileX + tile - 5, tileY + tile - 5, 8, 8, ConsoleDraw.RADIUS_SMALL, ConsoleTheme.NAVIGATION);
-			ConsoleDraw.surface(graphics, tileX + tile - 4, tileY + tile - 4, 6, 6, ConsoleDraw.RADIUS_SMALL, stateColor);
+			// Too narrow for names: the first two letters, which tell two agents on one model apart, and a state dot.
+			String name = agent.displayName() == null ? "?" : agent.displayName().strip();
+			String mono = name.isEmpty() ? "?" : name.substring(0, Math.min(2, name.length()));
+			int monoWidth = ConsoleText.strongWidth(font, mono);
+			int monoX = x + (w - monoWidth) / 2 - 2;
+			graphics.text(font, ConsoleText.strong(mono), monoX, y + (h - 8) / 2, ConsoleTheme.TEXT, false);
+			ConsoleDraw.surface(graphics, monoX + monoWidth + 2, y + (h - 8) / 2 + 1, 3, 3, 0, stateColor);
 			return;
 		}
-		int tileX = x + 6, tileY = y + (h - tile) / 2;
-		AgentFaces.tile(graphics, agent, tileX, tileY, tile);
-		int textLeft = tileX + tile + 6;
+		// No picture: an agent's head is its provider's logo, so a row of them read as stickers. The name leads.
+		int textLeft = x + 10;
 		int room = x + w - 6 - textLeft;
 		boolean twoLines = h >= 24;
 		int nameY = twoLines ? y + h / 2 - 9 : y + (h - 8) / 2;
 		graphics.text(font, ConsoleText.strong(fit(agent.displayName(), room, true)), textLeft, nameY, ConsoleTheme.TEXT, false);
 		if (twoLines) {
-			// What it is doing, in its state colour, then the model it runs: "Working · gpt-5.5".
+			// The provider's bare mark, what it is doing in its state colour, then the model it runs.
+			int markWidth = dev.agaminggod.mineagen.client.gui.BrandMarks.draw(graphics,
+					dev.agaminggod.mineagen.client.gui.BrandMarks.forProvider(agent.provider()), textLeft, nameY + 11, 7);
+			int stateLeft = textLeft + (markWidth > 0 ? markWidth + 4 : 0);
 			String state = AgentControlPresentation.stateLabel(agent.state());
-			String line = fitLabel(state, room);
-			ConsoleDraw.label(graphics, font, line, textLeft, nameY + 11, stateColor);
-			int after = textLeft + ConsoleDraw.labelWidth(font, line);
+			String line = fitLabel(state, x + w - 6 - stateLeft);
+			ConsoleDraw.label(graphics, font, line, stateLeft, nameY + 11, stateColor);
+			int after = stateLeft + ConsoleDraw.labelWidth(font, line);
 			String model = "  " + AgentControlPresentation.profileLabel(agent);
 			if (line.equals(state) && after + 16 < x + w - 6) {
 				ConsoleDraw.label(graphics, font, fitLabel(model, x + w - 6 - after), after, nameY + 11, ConsoleTheme.SUBTLE);

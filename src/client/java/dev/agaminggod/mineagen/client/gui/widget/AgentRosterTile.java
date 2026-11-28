@@ -18,7 +18,6 @@ import java.util.function.ToIntFunction;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.AbstractWidget;
-import net.minecraft.client.gui.components.PlayerFaceExtractor;
 import net.minecraft.client.gui.narration.NarratedElementType;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.client.input.KeyEvent;
@@ -89,28 +88,24 @@ public final class AgentRosterTile extends AbstractWidget implements ConsoleFocu
 		int surface = surfaceColor(selected, entry.selectable(), isHovered());
 		dev.agaminggod.mineagen.client.gui.ConsoleDraw.surface(graphics, getX(), getY(), getWidth(), getHeight(),
 				dev.agaminggod.mineagen.client.gui.ConsoleDraw.RADIUS_CARD, surface);
-		if (focusVisible(isFocused(), contextFocused.getAsBoolean())) {
-			dev.agaminggod.mineagen.client.gui.ConsoleDraw.ring(graphics, getX(), getY(), getWidth(), getHeight(),
-					dev.agaminggod.mineagen.client.gui.ConsoleDraw.RADIUS_CARD, ConsoleTheme.FOCUS);
-		} else if (selected) {
+		boolean focus = focusVisible(isFocused(), contextFocused.getAsBoolean());
+		// Keyboard focus lifts the tile and shows the accent bar; an outline would read as a box.
+		if (focus && !selected) {
+			dev.agaminggod.mineagen.client.gui.ConsoleDraw.surface(graphics, getX(), getY(), getWidth(), getHeight(),
+					dev.agaminggod.mineagen.client.gui.ConsoleDraw.RADIUS_CARD, ConsoleTheme.BUTTON_HOVER);
+		}
+		if (selected || focus) {
 			graphics.fill(getX(), getY() + 6, getX() + 2, getBottom() - 6, ConsoleTheme.ACCENT);
 		}
 
 		Bounds portrait = metrics.portraitBounds();
-		// The same per-agent colour tile as the board's list, so two agents on one model still look different.
-		int pad = portrait.width() >= 28 ? 3 : 2;
-		dev.agaminggod.mineagen.client.gui.ConsoleDraw.surface(graphics, portrait.left(), portrait.top(), portrait.width(), portrait.width(),
-				dev.agaminggod.mineagen.client.gui.ConsoleDraw.RADIUS_SMALL, dev.agaminggod.mineagen.client.gui.AgentFaces.tint(entry.id()));
-		PlayerFaceExtractor.extractRenderState(
-				graphics,
-				texture,
-				portrait.left() + pad,
-				portrait.top() + pad,
-				portrait.width() - pad * 2,
-				true,
-				false,
-				0xFFFFFFFF
-		);
+		// The provider's bare mark, centred where a face would sit: an agent's head is that logo on a coloured
+		// square, which read as a sticker. The name beside it tells two agents on one model apart.
+		dev.agaminggod.mineagen.client.gui.BrandMarks.Mark brand = dev.agaminggod.mineagen.client.gui.BrandMarks.forProvider(entry.provider());
+		int markHeight = portrait.width() >= 20 ? dev.agaminggod.mineagen.client.gui.BrandMarks.LARGE : 7;
+		int markWidth = dev.agaminggod.mineagen.client.gui.BrandMarks.width(brand, markHeight);
+		dev.agaminggod.mineagen.client.gui.BrandMarks.draw(graphics, brand, portrait.left() + (portrait.width() - markWidth) / 2,
+				portrait.top() + (portrait.width() - markHeight) / 2, markHeight);
 
 		if (metrics.showPrimaryText()) {
 			Bounds primary = metrics.primaryTextBounds();
@@ -134,7 +129,8 @@ public final class AgentRosterTile extends AbstractWidget implements ConsoleFocu
 	public static int surfaceColor(boolean selected, boolean selectable, boolean hovered) {
 		if (!selectable) return ConsoleTheme.ROSTER_UNAVAILABLE_SURFACE;
 		if (selected) return ConsoleTheme.ROSTER_SELECTED_SURFACE;
-		return hovered ? ConsoleTheme.SURFACE_HOVER : ConsoleTheme.SURFACE;
+		// Flat at rest: the grid is rows of names on the panel, not a wall of cards.
+		return hovered ? ConsoleTheme.BUTTON_HOVER : 0x00000000;
 	}
 
 	/** What the tile draws for its entry's state: read from the raw lifecycle state, never from the label text. */

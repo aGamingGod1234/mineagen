@@ -41,18 +41,41 @@ public final class ConsoleDraw {
 		return minecraft == null ? 2 : Math.max(1, minecraft.getWindow().getGuiScale());
 	}
 
-	/** A filled rounded rectangle in GUI pixels, tinted with an ARGB color. */
+	/**
+	 * A filled rectangle in GUI pixels, tinted with an ARGB color. Corners are square with a one-screen-pixel chamfer:
+	 * the console is a crisp tool, not a stack of rounded cards. {@code radius} 0 draws a fully square block; any
+	 * other value only asks for the chamfer, whatever its size.
+	 */
 	public static void surface(GuiGraphicsExtractor graphics, int x, int y, int width, int height, int radius, int color) {
 		if (width <= 0 || height <= 0 || (color >>> 24) == 0) return;
-		int fitted = Math.min(radius, Math.min(width, height) / 2);
-		shape(graphics, "fill", nearestRadius(fitted), x, y, width, height, color);
+		int scale = guiScale();
+		graphics.pose().pushMatrix();
+		graphics.pose().scale(1F / scale, 1F / scale);
+		int left = x * scale, top = y * scale, right = (x + width) * scale, bottom = (y + height) * scale;
+		if (radius <= 0 || right - left < 4 || bottom - top < 4) {
+			graphics.fill(left, top, right, bottom, color);
+		} else {
+			// Three bands that never overlap, so a translucent fill stays even.
+			graphics.fill(left + 1, top, right - 1, bottom, color);
+			graphics.fill(left, top + 1, left + 1, bottom - 1, color);
+			graphics.fill(right - 1, top + 1, right, bottom - 1, color);
+		}
+		graphics.pose().popMatrix();
 	}
 
-	/** A one-GUI-pixel rounded outline, used for keyboard focus and the selected choice. */
+	/** An outline one screen pixel thick (two from GUI scale 4), used for keyboard focus. */
 	public static void ring(GuiGraphicsExtractor graphics, int x, int y, int width, int height, int radius, int color) {
 		if (width <= 0 || height <= 0 || (color >>> 24) == 0) return;
-		int fitted = Math.min(radius, Math.min(width, height) / 2);
-		shape(graphics, "ring", nearestRadius(fitted), x, y, width, height, color);
+		int scale = guiScale();
+		int line = scale >= 4 ? 2 : 1;
+		graphics.pose().pushMatrix();
+		graphics.pose().scale(1F / scale, 1F / scale);
+		int left = x * scale, top = y * scale, right = (x + width) * scale, bottom = (y + height) * scale;
+		graphics.fill(left + 1, top, right - 1, top + line, color);
+		graphics.fill(left + 1, bottom - line, right - 1, bottom, color);
+		graphics.fill(left, top + line, left + line, bottom - line, color);
+		graphics.fill(right - line, top + line, right, bottom - line, color);
+		graphics.pose().popMatrix();
 	}
 
 	/**
