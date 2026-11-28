@@ -149,6 +149,7 @@ const READS = [
 	['obtain.fillEdge', 'coordinator/src/obtain-runner.mjs', "const FILL_EDGE = getSwitch('obtain.fillEdge').value;"],
 	['route.forestPearls', 'coordinator/src/skill-fits.mjs', "getSwitch('route.forestPearls').value"],
 	['kit.habit', 'coordinator/src/kit-habit.mjs', "getSwitch('kit.habit', environment)"],
+	['kit.netherEntry', 'coordinator/src/kit-habit.mjs', "getSwitch('kit.netherEntry', environment)"],
 	['night.cover', 'coordinator/src/night-cover.mjs', "getSwitch('night.cover', environment)"],
 	['tools.program', 'coordinator/src/native-minecraft-tools.mjs', "getSwitch('tools.program', environment)"],
 	['experience', 'coordinator/src/experience-store.mjs', "getSwitch('experience', environment)"],

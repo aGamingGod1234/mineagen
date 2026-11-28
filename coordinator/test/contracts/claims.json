@@ -48593,12 +48593,12 @@
       "reason": "Goal verification and fact/hypothesis separation are exercised. Respecting user limits and world rules is normative instruction to the model; server permissions remain separately enumerated."
     },
     {
-      "predicate": "The objective and death handling are model guidance; death and respawn keep the same goal and its intent.",
+      "predicate": "Stay alive while completing the goal. Recover safely after a death or rebuild the lost supplies.",
       "checks": [],
-      "id": "agent:09bdccc5fb698cfb:554eb813f6d2aa60",
+      "id": "agent:09bdccc5fb698cfb:c343a72062719c44",
       "contract": {
-        "id": "agent:09bdccc5fb698cfb:554eb813f6d2aa60",
-        "claim": "The objective is the goal in the least game time, done properly: survive and keep progress. Death interrupts the project: recover drops if safe, or rebuild.",
+        "id": "agent:09bdccc5fb698cfb:c343a72062719c44",
+        "claim": "Finish the goal while staying alive and keeping progress. After a death, recover drops if safe or rebuild.",
         "kind": "agent-reference",
         "topic": "Your role"
       },
@@ -48607,14 +48607,7 @@
         "line": 7
       },
       "status": "advisory",
-      "reason": "An instruction about how the model should choose its next step; the runtime leaves that choice to the model, so a deterministic tool test cannot prove arbitrary model compliance. Objective restored verbatim; only the redundant clause \", not actions alone\" is trimmed, with verify completion with finish retained, to fit 5000 bytes.",
-      "documentationChecks": [
-        {
-          "file": "coordinator/test/minecraft-control-reference.test.mjs",
-          "test": "the always-loaded player instructions stay a few KB: the role, steps, the route, seven rules and reflexes on",
-          "type": "node-behavior"
-        }
-      ]
+      "reason": "The model chooses how to recover and which supplies to replace."
     },
     {
       "predicate": "find is one of the do_step verbs the in-game instructions list; it searches for an unseen block, biome, mob or structure and stops when it is seen. obtain {item, count} runs the whole chain to hold the item (re-planned from the held inventory each round: raw items gathered once in full, sources it cannot see searched with find, crafts at a table it finds or places, smelting, hunting, its placed table and furnace picked back up) and returns when held, stuck with what is missing and why, or interrupted by danger.; do_step accepts exactly the listed verbs with target as that verb's own call arguments and a one-line why shown in game chat; until \"seen:<block>\" stops travel_to/dig_to in the body and wakes the model for the other background verbs; other until text is only a label.; rest is a do_step verb.; it searches for an unseen block, biome, mob or structure and stops when it is seen. (merged: the verb list names both find and rest). (merged with verb-survive-rest: the verb list names obtain, find and rest).; build (nether_portal, pillar, bridge, shelter) is one of the verbs. escape {} runs the escape body job: out of water, a hole or shooter sight, stopping the running step and handing back once safe.",
@@ -48844,7 +48837,7 @@
       ]
     },
     {
-      "predicate": "The route is advisory and starts nothing. The casting kit still counts two bucket forms and flint and steel, with obtain bucket counts meaning total empties to hold. The urgent food cue requires observed hunger or health <=14/20. Separately, before mineral gathering the route stocks eight cooked meat even while healthy, totals mixed meats, and selects held raw meat or a currently seen nearby adult animal; it releases that stock for the rest of the life after a cooked-meat obtain or meat-animal find hands back without a source, at any hunger or health (later stages then carry the low hunger/health restock cue), and, while health and hunger are above 14, at four cooked meat with no raw meat held and no animal in view. Post-Nether recovery keeps priority. Before any Nether entry while the respawn is not set by the portal, at a lit Overworld portal the route asks to place and use a bed by it, ahead of entry, only from a bed held or in view, 3 wool of one colour held, or one colour reaching 3 from held wool, wool blocks in view and adult unsheared sheep of a known colour in view; it names no wool search, gives the skip reason with entry otherwise, and drops the step once a respawn is set within 24 blocks of the lit frame or the Nether was visited. Before lighting it only makes such a bed ready. Other bed advice requires a fresh local opportunity, follows an available stage and is suppressed at an open portal. These presentations neither dispatch nor refuse a model action.",
+      "predicate": "The route presents the casting tools, counts filled buckets toward the two needed and advises using a bed near the portal when its materials are in reach.",
       "checks": [
         {
           "file": "coordinator/test/route-line.test.mjs",
@@ -48852,115 +48845,15 @@
           "type": "node-behavior"
         },
         {
-          "file": "coordinator/test/route-line.test.mjs",
-          "test": "the route walks the usual Overworld order from nothing to a lit portal",
-          "type": "node-behavior"
-        },
-        {
-          "file": "coordinator/test/obtain.test.mjs",
-          "test": "gate2B-6: two buckets right after the iron pickaxe, no ore in view: mine raw iron, never smelt the pickaxe down for nuggets",
-          "type": "node-behavior"
-        },
-        {
-          "file": "coordinator/test/route-line.test.mjs",
-          "test": "offhand:<id> holds only for the item in the off hand slot",
-          "type": "node-behavior"
-        },
-        {
-          "file": "coordinator/test/route-line.test.mjs",
-          "test": "urgent spawn food gives way to tools, then cooked stock precedes iron",
-          "type": "node-behavior"
-        },
-        {
-          "file": "coordinator/test/survival-advice.test.mjs",
-          "test": "round1 lit-portal detour: healthy player has an entry suggestion, not food stocks or a bed hunt",
-          "type": "node-behavior"
-        },
-        {
-          "file": "coordinator/test/survival-advice.test.mjs",
-          "test": "quick bed advice uses fresh visible opportunities, never a wool search from an empty or partial inventory",
-          "type": "node-behavior"
-        },
-        {
-          "file": "coordinator/test/surface-food-route.test.mjs",
-          "test": "food stocking stays before the first iron descent even while healthy",
-          "type": "node-behavior"
-        },
-        {
-          "file": "coordinator/test/surface-food-route.test.mjs",
-          "test": "food stocking names the nearest actually seen animal, not beef in a sheep field",
-          "type": "node-behavior"
-        },
-        {
-          "file": "coordinator/test/surface-food-route.test.mjs",
-          "test": "lit portal entry and post-Nether rebuild never acquire a new food quota",
-          "type": "node-behavior"
-        },
-        {
-          "file": "coordinator/test/food-stock-release.test.mjs",
-          "test": "four cooked meat with no animal in view and nothing to cook releases the stock",
-          "type": "node-behavior"
-        },
-        {
-          "file": "coordinator/test/food-stock-release.test.mjs",
-          "test": "a food hand-back releases the stock at any hunger or health, with the restock suffix when low",
-          "type": "node-behavior"
-        },
-        {
-          "file": "coordinator/test/food-stock-release.test.mjs",
-          "test": "only a sourceless food obtain or animal find counts as a hand-back",
-          "type": "node-behavior"
-        },
-        {
-          "file": "coordinator/test/food-stock-release.test.mjs",
-          "test": "the production coordinator records a failed food obtain before the next wake",
-          "type": "node-behavior"
-        },
-        {
           "file": "coordinator/test/portal-bed-route.test.mjs",
           "test": "a bed held at the lit portal: place it by the portal and use it, ahead of entering",
           "type": "node-behavior"
-        },
-        {
-          "file": "coordinator/test/portal-bed-route.test.mjs",
-          "test": "three matching wool held: craft the bed, then place and use it",
-          "type": "node-behavior"
-        },
-        {
-          "file": "coordinator/test/portal-bed-route.test.mjs",
-          "test": "wool in view: adult unsheared sheep of a known colour and wool blocks, counted per colour",
-          "type": "node-behavior"
-        },
-        {
-          "file": "coordinator/test/portal-bed-route.test.mjs",
-          "test": "a bed in view: use it when it is by the portal, otherwise move it there",
-          "type": "node-behavior"
-        },
-        {
-          "file": "coordinator/test/portal-bed-route.test.mjs",
-          "test": "nothing in reach: enter now and say why the bed is skipped; never a wool search",
-          "type": "node-behavior"
-        },
-        {
-          "file": "coordinator/test/portal-bed-route.test.mjs",
-          "test": "a respawn already set by the portal needs no step; one set far away does not count",
-          "type": "node-behavior"
-        },
-        {
-          "file": "coordinator/test/portal-bed-route.test.mjs",
-          "test": "after the first entry, and in the Nether, the route has no portal bed step",
-          "type": "node-behavior"
-        },
-        {
-          "file": "coordinator/test/portal-bed-route.test.mjs",
-          "test": "before lighting: the bed is made ready from wool or sheep in reach; a held bed needs nothing yet",
-          "type": "node-behavior"
         }
       ],
-      "id": "agent:13e34df494c1ec73:e4e640d859f1e2dc",
+      "id": "agent:13e34df494c1ec73:3345c2dccaf3870f",
       "contract": {
-        "id": "agent:13e34df494c1ec73:e4e640d859f1e2dc",
-        "claim": "For \"beat the game\", now.route suggests the usual next step and starts nothing; take it or choose better. A checked now.plan step is not the full casting kit: iron pickaxe, shield, 2 buckets, flint_and_steel (11 iron). One bucket holds water, one moves lava. obtain bucket count 2 with no filled bucket, count 1 with one filled bucket; count is total empty buckets to hold. When safe, advance the available stage. At hunger or health <=14/20, eat carried food or get nearby food, then resume. Before any Nether entry, set respawn by the portal (bed) if bed/3 same wool/sheep in reach. Next: water_bucket, find lava, build nether_portal. Enter a lit portal when health/hunger allow; carry blocks. Stage facts: capabilities strategy topics.",
+        "id": "agent:13e34df494c1ec73:3345c2dccaf3870f",
+        "claim": "For \"beat the game\", now.route suggests the usual next step and starts nothing; take it or choose better. The casting tools are an iron pickaxe, 2 buckets and flint_and_steel. One bucket holds water, one moves lava. obtain bucket count 2 with no filled bucket, count 1 with one filled bucket. The count is total empty buckets to hold. Next: water_bucket, find lava, build nether_portal. If a bed, 3 matching wool or sheep are in reach, set respawn by the portal. At hunger or health <=14/20, eat or get food before moving on. Stage facts: capabilities strategy topics.",
         "kind": "agent-reference",
         "topic": "The route"
       },
@@ -48969,7 +48862,40 @@
         "line": 19
       },
       "status": "partial",
-      "reason": "Reviewed advice-only presenters and executable witnesses cover healthy cooked-food stocking before mineral gathering, mixed/held meat counts and current animal sightings, urgent low-health/low-hunger advice, stale or heard-only evidence, portal/recovery priority, the in-reach portal bed step before a Nether entry while the respawn is not by the portal and its skip reasons, unchanged bucket counts and offhand facts. These presenters start no action and do not establish that a real model follows the route or that the bed sets the respawn in play; the authorized fresh seed-5 scout is still pending."
+      "reason": "The checks establish route advice and bucket arithmetic. The player chooses the casting and bed actions."
+    },
+    {
+      "predicate": "An Overworld portal walk checks the offhand shield, worn iron or better in all four armour slots, and cooked supplies. The underground iron trip plans the full armour set and searches higher when deep ore is absent.",
+      "checks": [
+        {
+          "file": "coordinator/test/portal-stock-gate.test.mjs",
+          "test": "first entry and the next life check worn gear and cooked supplies against the live underground inventory",
+          "type": "node-behavior"
+        },
+        {
+          "file": "coordinator/test/kit-habit-iron-trip-armour.test.mjs",
+          "test": "the Nether trip mines all four pieces and climbs from dry deepslate toward y16",
+          "type": "node-behavior"
+        },
+        {
+          "file": "coordinator/test/skill-fits-rekit.test.mjs",
+          "test": "the Nether kit route continues the after-death rebuild through all four armour slots",
+          "type": "node-behavior"
+        }
+      ],
+      "id": "agent:13e34df494c1ec73:b62467878ed4e308",
+      "contract": {
+        "id": "agent:13e34df494c1ec73:b62467878ed4e308",
+        "claim": "Before entering the Nether, including after a death, wear an iron-or-better helmet, chestplate, leggings and boots, equip a shield in the off hand, and stock 16–32 cooked food or at least 128 prepared food points. Carry a sword and cover blocks. Casting tools and armour take 35 iron with the shield. Make the pickaxe and shield early, then finish mining in the same trip. Use seen ore first or stair up to y16 from a dry lower mine. Follow kit preparation returned by the portal walk.",
+        "kind": "agent-reference",
+        "topic": "The route"
+      },
+      "location": {
+        "file": "coordinator/config/minecraft-agent/AGENTS.md",
+        "line": 21
+      },
+      "status": "partial",
+      "reason": "The coordinator tests cover observed inventory and the iron plan. Full gameplay is needed to measure the time it takes to finish the kit."
     },
     {
       "predicate": "Seven general rules of play the model is asked to follow; no runtime enforces them.",
@@ -48983,7 +48909,7 @@
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/AGENTS.md",
-        "line": 23
+        "line": 25
       },
       "status": "advisory",
       "documentationChecks": [
@@ -49007,7 +48933,7 @@
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/AGENTS.md",
-        "line": 33
+        "line": 35
       },
       "status": "advisory",
       "reason": "An instruction about how the model should plan the route and fight archers. The runtime leaves those choices to the model, so a deterministic tool test cannot prove compliance; the decision test and full games measure it."
@@ -49077,7 +49003,7 @@
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/AGENTS.md",
-        "line": 37
+        "line": 39
       },
       "status": "partial",
       "reason": "The fourteen default configurations, independent removal and same-id replacement are exercised. The flow default wires the existing known-flow sensor to the existing escape; physical rescue remains unverified. Adding rules for missed dangers and making escape the first call are model guidance. The added blaze-cover configuration and disclosure do not establish physical survival efficacy."
@@ -49100,7 +49026,7 @@
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/AGENTS.md",
-        "line": 41
+        "line": 43
       },
       "status": "advisory",
       "reason": "An instruction about how the model should choose its next step; the runtime leaves that choice to the model, so a deterministic tool test cannot prove arbitrary model compliance."
@@ -49138,7 +49064,7 @@
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/AGENTS.md",
-        "line": 43
+        "line": 45
       },
       "status": "partial",
       "reason": "Goal terminal/confirmation/adoption states are exercised. Following completion conversational rules and waiting rather than requesting unrelated work are normative model behavior, not a tool-generated autonomous wait."
@@ -49176,7 +49102,7 @@
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/AGENTS.md",
-        "line": 45
+        "line": 47
       },
       "status": "partial",
       "reason": "Explicit communication routing and closed execution capabilities are exercised. Treating world prose as clues instead of higher-priority control instructions is normative model instruction; this is not a universal claim that arbitrary prompt injection can never influence model choices."

@@ -118,7 +118,8 @@ test('agent planning guidance leaves suggestions revisable and preparation bound
 	const skill = readFileSync(new URL('../config/minecraft-agent/.codex/skills/minecraft-control/SKILL.md', import.meta.url), 'utf8');
 	// The route line and the plan only suggest; the step is the model's (moved from AGENTS.md to the control workflow topic).
 	assert.match(agent, /now\.route suggests the usual next step and starts nothing; take it or choose better\./);
-	assert.match(agent, /A checked now\.plan step is not the full casting kit:/);
+	assert.match(agent, /The casting tools are an iron pickaxe, 2 buckets and flint_and_steel/);
+	assert.match(agent, /Before entering the Nether, including after a death, wear an iron-or-better helmet, chestplate, leggings and boots, equip a shield in the off hand, and stock 16–32 cooked food/);
 	assert.match(agent, /count 2 with no filled bucket, count 1 with one filled bucket/);
 	assert.match(agent, /Next: water_bucket, find lava, build nether_portal/);
 	assert.match(agent, /Stage facts: capabilities strategy topics/);

@@ -8,7 +8,7 @@ import { emptyKnown, evaluatePlanCheck } from '../src/plan-checks.mjs';
 // 8-cooked-meat hint (surface-food-route.test.mjs and the other route tests pin it).
 
 const ON = {};
-const OFF = { MINEAGEN_FOOD_FLOOR: 'off' };
+const OFF = { MINEAGEN_FOOD_FLOOR: 'off', MINEAGEN_NETHER_KIT: 'off' };
 const item = (id, count = 1, slot) => ({ itemId: `minecraft:${id}`, count, ...(slot ? { slot } : {}) });
 const TOOLS = [item('stone_pickaxe'), item('furnace')];
 const cow = (n, distance = 8) => ({ stableId: `cow-${n}`, type: 'minecraft:cow', distance, alive: true, x: distance, y: 64, z: n });
@@ -86,8 +86,8 @@ test('a portal cast underground is entered with what is carried: no climb back u
 	const known = litFrame();
 	const deep = line(sample([item('iron_pickaxe'), item('cooked_beef', 2), item('oak_log', 3)], { y: -54, skyOpen: false }), { known });
 	assert.ok(deep.startsWith(`usual next step: ${PORTAL_ENTRY_NEXT}`), deep);
-	assert.doesNotMatch(deep, /obtain|points|before entering/);
-	assert.match(deep, /food stocks are optional unless health or hunger is low/);
+	assert.doesNotMatch(deep, /obtain|before entering/);
+	assert.match(deep, /offhand shield, full iron or better, and 16 cooked food or 128 food points before crossing/);
 	// Raw meat already carried is cooked there first, with no hunt: a furnace held or stone for one, and fuel.
 	const raw = line(sample([item('iron_pickaxe'), item('cooked_beef', 2), item('beef', 3), item('cobblestone', 20), item('oak_log', 3)], { y: -54, skyOpen: false }), { known });
 	assert.match(raw, /^usual next step: obtain cooked_beef count 5 using a furnace before entering the portal \(3 raw beef held: cook it here, no hunt/);

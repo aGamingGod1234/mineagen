@@ -3,6 +3,7 @@ import { getSwitch } from './switches.mjs';
 import { endKit } from './end-readiness.mjs';
 import { foodAdviceNeeded, portalBedSource } from './survival-advice.mjs';
 import { heldCounts, keepPickaxeMakings, planObtain } from './obtain-plan.mjs';
+import { missingNetherEquipment, needsIronLevel, netherKitEnabled } from './kit-habit.mjs';
 
 // One wake fact: a goal skill (fight_until, barter_until, build nether_portal by casting, cast_obsidian) whose preconditions hold right now, with the
 // call's fields and the facts that make it fit. It names a call the model may make; nothing runs from it.
@@ -119,11 +120,10 @@ export const FOOD_FLOOR_DESCENT = 320;
 export const WOOD_FLOOR = 12;
 const woodFloor = f => WOOD_FLOOR + (f.count(/^minecraft:(coal|charcoal)$/) >= 3 ? 0 : 3);
 export const foodFloorOn = (environment = process.env) => getSwitch('stock.foodFloor', environment).value;
-// The PORTAL_LIT hint cannot see the inventory or the depth, and a portal cast underground has no animal near it: its
-// food clause stays the plain one. The descent's larger floor is what carries the food to an underground portal.
 const ENTRY_FOOD = 'food stocks are optional unless health or hunger is low';
+const ENTRY_KIT = 'offhand shield, full iron or better, and 16 cooked food or 128 food points before crossing';
 // Also the PORTAL_LIT result's hint, which cannot see the inventory, so it names the bed step's condition.
-export const PORTAL_ENTRY_PREP = `place and use a bed by the portal first if a bed, 3 matching wool or sheep are in reach; ${ENTRY_FOOD}`;
+export const portalEntryPrep = () => `place and use a bed by the portal first if a bed, 3 matching wool or sheep are in reach; ${netherKitEnabled() ? ENTRY_KIT : ENTRY_FOOD}`;
 // A respawn set this close to the portal already brings a Nether death back to it.
 const BED_NEAR = 24;
 // Height counts: a surface bed above an underground portal is still a long way back from a Nether death.
@@ -183,6 +183,23 @@ const FOOD_POINTS = Object.freeze({ cooked_beef: 15.8, cooked_porkchop: 15.8, go
 	carrot: 6.6, apple: 5.4, beef: 4.8, porkchop: 4.8, rabbit: 4.8, mutton: 3.2, chicken: 3.2, melon_slice: 3.2, sweet_berries: 2.4, glow_berries: 2.4,
 	cod: 2.4, salmon: 2.4, cookie: 2.4, beetroot: 2.2, potato: 1.6, dried_kelp: 1.6 });
 const foodPoints = items => Math.round(items.reduce((sum, i) => sum + (FOOD_POINTS[String(i.itemId ?? '').replace(/^minecraft:/, '')] ?? 0) * i.count, 0));
+const NETHER_FOOD_COUNT = 16;
+const NETHER_FOOD_POINTS = 128;
+
+export function netherFoodNeed(o, tried = 0) {
+	const items = o.inventory.items.filter(item => item.count > 0);
+	const cooked = items.filter(item => FOOD.test(item.itemId));
+	const portions = cooked.reduce((sum, item) => sum + item.count, 0);
+	const points = foodPoints(cooked);
+	if (portions >= NETHER_FOOD_COUNT || points >= NETHER_FOOD_POINTS) return null;
+	const seen = meatInView(o);
+	const count = id => items.filter(item => item.itemId === `minecraft:${id}`).reduce((sum, item) => sum + item.count, 0);
+	const options = [...MEATS].sort((a, b) => count(b) - count(a) || (seen[b] ?? 0) - (seen[a] ?? 0)
+		|| count(`cooked_${b}`) - count(`cooked_${a}`));
+	const item = `cooked_${options[tried % options.length]}`;
+	const short = Math.min(NETHER_FOOD_COUNT - portions, Math.ceil((NETHER_FOOD_POINTS - points) / FOOD_POINTS[item]));
+	return { item, count: count(item) + short, portions, points };
+}
 // Adult meat animals in view within 32 blocks, per meat: each drops at least one.
 function meatInView(o) {
 	if (remembered(o, 'entities')) return {};
@@ -276,6 +293,15 @@ const CAST_BLOCKS = 13;
 const EYES = 12;
 // The armour step: a carried kit piece put on, else the next piece crafted from iron the rest of the kit does not need.
 function armourStep(f) {
+	if (f.netherKit) {
+		const missing = f.netherEquipment.find(piece => piece.slot !== 'offhand');
+		if (!missing) return null;
+		const id = (missing.carried?.itemId ?? missing.itemId).slice(10);
+		if (missing.carried) return [`equip_item ${id} to ${missing.slot}`, 'Nether kit needs iron or better in all four slots'];
+		const kept = f.rekit ? 0 : f.kitOther;
+		if (kept > 0 && f.iron - kept < missing.iron) return null;
+		return [`obtain ${id}, then equip_item it to ${missing.slot}`, `Nether kit needs ${id}, ${missing.iron} iron`];
+	}
 	const missing = KIT_ARMOUR.filter(piece => !f.worn.has(piece.slot));
 	// The carried piece's own id: a golden chestplate in the pack is put on as it is, not named as the iron one.
 	const carried = missing.map(piece => ({ piece, id: f.carriedId(piece.part) })).find(c => c.id);
@@ -316,7 +342,8 @@ const ROUTE = [
 	{ id: 'trip_wood', done: 'frame:lit | visited:minecraft:the_nether', held: f => f.below || f.woodHandedBack || f.tripLogs === 0 && (!f.floorOn || f.woodLogs >= woodFloor(f)),
 		next: f => [`obtain log count ${f.logs + (f.floorOn ? Math.max(f.tripLogs, Math.ceil(woodFloor(f) - f.woodLogs)) : f.tripLogs)} before going down`, `wood for the kit's crafts and smelting, so the trip needs no climb back; ${f.wood} logs/planks held`] },
 	{ id: 'iron_trip', done: 'frame:lit | visited:minecraft:the_nether', held: f => f.kitIron <= f.ingots,
-		next: f => [`obtain iron_ingot count ${f.kitIron} in one trip, then craft the kit`, `kit iron ${f.kitIron}: ${f.kitParts}; ${f.iron} iron held`] },
+		next: f => f.ironLevel ? ['dig_to stairs_up y:16 and mine seen ore on the way', 'the deep mine has no iron in sight']
+			: [`obtain iron_ingot count ${f.kitIron} in one trip, then craft the kit`, `kit iron ${f.kitIron}: ${f.kitParts}; ${f.iron} iron held`] },
 	{ id: 'iron_pickaxe', done: 'tool:pickaxe:iron+', next: f => ['obtain iron_pickaxe', f.iron ? `stone tools, ${f.iron}/3 iron held` : 'stone tools, no iron yet'] },
 	// Skeletons killed 8 of 12 scripted deaths; a shield in the off hand blocks their arrows.
 	// A shield lost after the portal is lit (or the Nether visited) no longer holds the route back.
@@ -465,9 +492,13 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 	const carriedId = re => items.find(i => !['head', 'chest', 'legs', 'feet'].includes(i.slot) && re.test(i.itemId ?? ''))?.itemId?.replace(/^minecraft:/, '') ?? null;
 	Object.assign(facts, { worn, carriedId });
 	const kit = kitLeft(count);
-	Object.assign(facts, { kitIron: kit.iron, kitParts: kit.parts, kitOther: kit.other });
+	const netherKit = netherKitEnabled(environment);
+	const netherEquipment = netherKit && dimension === 'minecraft:overworld' ? missingNetherEquipment(o.inventory) : [];
+	Object.assign(facts, { kitIron: kit.iron, kitParts: kit.parts, kitOther: kit.other, netherKit, netherEquipment, ironLevel: netherKit && needsIronLevel(o) });
+	const armourForTrip = netherEquipment.filter(piece => piece.slot !== 'offhand' && !piece.carried)
+		.map(piece => ({ id: piece.itemId.slice(10), count: 1 }));
 	// Planned only when the route reaches the step: a whole-kit obtain plan per wake is not free.
-	Object.defineProperty(facts, 'tripLogs', { get: () => tripLogs(o, kit) });
+	Object.defineProperty(facts, 'tripLogs', { get: () => tripLogs(o, { items: [...kit.items, ...armourForTrip] }) });
 	// The re-kit after a death past the portal stage: the kit rows in route order, each ended by its rekit condition.
 	const kitFacts = Object.create(facts, { rekit: { value: true } });
 	const rekit = () => {
@@ -600,8 +631,9 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 		if ((rodsMissing > 0 || pearlsMissing > 0) && portal) {
 			const stock = portalStock();
 			if (stock !== null) return stock;
-			const survival = foodAdviceNeeded(o) ? `low health/hunger, food ${food} held: recover first; ` : 'food stocking optional while healthy; ';
-			return line(`return via known Overworld portal at ${portal.x},${portal.y},${portal.z} to the Nether`, `${survival}active portal needs no iron pick or ignition; use held tools`);
+			const survival = foodAdviceNeeded(o) ? `low health/hunger, food ${food} held: recover first; ` : '';
+			const entry = netherKit ? ENTRY_KIT : 'active portal needs no iron pick or ignition; use held tools';
+			return line(`return via known Overworld portal at ${portal.x},${portal.y},${portal.z} to the Nether`, `${survival}${!netherKit && survival === '' ? 'food stocking optional while healthy; ' : ''}${entry}`);
 		}
 		// Without a retained portal, keep the existing preparation route; no coordinates are inferred from history.
 		const rebuild = ROUTE.slice(0, ROUTE.findIndex(row => row.id === 'iron_pickaxe') + 1).find(row => !['food_stock', 'trip_wood', 'iron_trip'].includes(row.id) && !done(row));
@@ -626,7 +658,7 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 		// The bed comes first: it is only offered from what is in reach now, and may be gone after a hunt.
 		const bed = portalBed(o, known, { lit: true, frame: litFrame(o, known) });
 		if (bed.step) return line(...bed.step);
-		const held = facts.floorOn && facts.foodPoints >= FOOD_FLOOR_PORTAL ? `food ${facts.foodPoints}/${FOOD_FLOOR_PORTAL} points held` : ENTRY_FOOD;
+		const held = facts.floorOn && facts.foodPoints >= FOOD_FLOOR_PORTAL ? `food ${facts.foodPoints}/${FOOD_FLOOR_PORTAL} points held` : netherKit ? ENTRY_KIT : ENTRY_FOOD;
 		return portalStock() ?? line(PORTAL_ENTRY_NEXT, `${bed.skip}; ${held}`);
 	}
 	const stage = (instincts === true ? INSTINCT_ROUTE : ROUTE).find(row => !done(row));

@@ -18,7 +18,7 @@ const STOCK = { line: 'usual next step: obtain cooked_porkchop count 9 using a f
 	item: 'cooked_porkchop', count: 9, portals: [PORTAL], worldId: 'w', deaths: 0 };
 const walk = (x, z) => normalizeMinecraftToolCall('do_step', { verb: 'travel_to', target: { x, y: 64, z, tolerance: 1 }, why: 'use the lit portal' });
 
-async function harness(t, { stock = () => STOCK, gate } = {}) {
+async function harness(t, { stock = () => STOCK, gate, observation = sample } = {}) {
 	const before = process.env.MINEAGEN_PORTAL_STOCK_GATE;
 	if (gate === undefined) delete process.env.MINEAGEN_PORTAL_STOCK_GATE; else process.env.MINEAGEN_PORTAL_STOCK_GATE = gate;
 	const commands = [], traces = [];
@@ -32,8 +32,9 @@ async function harness(t, { stock = () => STOCK, gate } = {}) {
 			if (type === 'action_command') setTimeout(() => runtime.onActionResult(record, { actionId: payload.actionId, goalRevision: 1,
 				state: arrives ? 'SUCCEEDED' : 'FAILED', reasonCode: arrives ? 'ARRIVED' : 'NO_ROUTE', executionStarted: true, physicalAttempted: true }), 1);
 		} },
-		requestObservation: async () => ({ observation: sample(), eventSequence: ++n + 1 }) });
-	runtime.updateObservation(record, sample(), { eventSequence: 1 });
+		requestObservation: async () => ({ observation: observation(), eventSequence: ++n + 1 }) });
+	const publish = () => runtime.updateObservation(record, observation(), { eventSequence: ++n + 1 });
+	publish();
 	t.after(async () => {
 		await runtime.dispose(record.agentId, 'test_complete');
 		if (before === undefined) delete process.env.MINEAGEN_PORTAL_STOCK_GATE; else process.env.MINEAGEN_PORTAL_STOCK_GATE = before;
@@ -50,8 +51,68 @@ async function harness(t, { stock = () => STOCK, gate } = {}) {
 	};
 	const walksToPortal = () => commands.filter(row => row.type === 'action_command' && row.payload.actionType === 'travel_to'
 		&& Math.abs(row.payload.arguments?.x - PORTAL.x) <= 3 && Math.abs(row.payload.arguments?.z - PORTAL.z) <= 3).length;
-	return { step, commands, traces, walksToPortal, leases };
+	return { step, commands, traces, walksToPortal, leases, publish };
 }
+
+test('first entry and the next life check worn gear and cooked supplies against the live underground inventory', async t => {
+	const o = sample();
+	o.player.y = o.position.y = 64;
+	o.player.skyOpen = false;
+	o.sighted = { portalFrames: [PORTAL] };
+	o.inventory.items = [
+		{ itemId: 'minecraft:diamond_helmet', slot: 'head', count: 1 },
+		{ itemId: 'minecraft:netherite_leggings', slot: 'legs', count: 1 },
+		{ itemId: 'minecraft:iron_boots', slot: 'feet', count: 1 },
+		{ itemId: 'minecraft:shield', slot: 'offhand', count: 1 },
+		{ itemId: 'minecraft:iron_chestplate', slot: 11, count: 1 },
+		{ itemId: 'minecraft:beef', slot: 12, count: 32 },
+	];
+	const h = await harness(t, { stock: () => null, observation: () => structuredClone(o) });
+	const crossing = walk(104.5, 695.5);
+	const gear = await h.step(crossing);
+	assert.equal(h.walksToPortal(), 0);
+	assert.equal(gear.stockedTool.actionType, 'equip_item');
+	assert.equal(gear.stockedTool.arguments.targetSlot, 'chest');
+	o.inventory.items[4].slot = 'chest';
+	const food = await h.step(crossing);
+	assert.equal(h.walksToPortal(), 0);
+	assert.equal(food.stockedTool.arguments.item, 'cooked_beef');
+	assert.equal(food.stockedTool.arguments.count, 9);
+	o.inventory.items[5] = { itemId: 'minecraft:cooked_beef', slot: 12, count: 9 };
+	await h.step(crossing);
+	assert.equal(h.walksToPortal(), 1);
+	o.status = 'PLAYER_DEAD';
+	h.publish();
+	delete o.status;
+	o.inventory.items = o.inventory.items.filter(item => item.slot !== 'offhand');
+	h.publish();
+	const rekit = await h.step(crossing);
+	assert.equal(h.walksToPortal(), 1);
+	assert.equal(rekit.stockedTool.arguments.item, 'minecraft:shield');
+});
+
+test('two searches that find no food release the portal until the next life', async t => {
+	const o = sample();
+	o.sighted = { portalFrames: [PORTAL] };
+	o.inventory.items = Object.entries({ head: 'iron_helmet', chest: 'iron_chestplate', legs: 'iron_leggings', feet: 'iron_boots', offhand: 'shield' })
+		.map(([slot, id]) => ({ itemId: `minecraft:${id}`, slot, count: 1 }));
+	const h = await harness(t, { stock: () => null, observation: () => structuredClone(o) });
+	const crossing = walk(104.5, 695.5);
+	for (const item of ['cooked_beef', 'cooked_porkchop']) {
+		const search = await h.step(crossing);
+		assert.equal(search.stockedTool.arguments.item, item);
+		assert.equal(search.reasonCode, 'NO_SOURCE');
+	}
+	await h.step(crossing);
+	assert.equal(h.walksToPortal(), 1);
+	o.status = 'PLAYER_DEAD';
+	h.publish();
+	delete o.status;
+	h.publish();
+	const search = await h.step(crossing);
+	assert.equal(search.stockedTool.arguments.item, 'cooked_beef');
+	assert.equal(h.walksToPortal(), 1);
+});
 
 test('a walk into the lit portal below the minimum runs the stock obtain instead, and says so', async t => {
 	const h = await harness(t);
