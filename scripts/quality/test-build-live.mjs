@@ -168,6 +168,13 @@ for await (const { item: [, spot], dir, server, error: bootError } of warmBoots(
 			const { x, y, z } = spot.startAt;
 			await s.command(`forceload add ${x} ${z}`);
 			for (let wait = 0; wait < 600 && !/time is/i.test(await s.command(`execute if loaded ${x} 0 ${z} run time query gametime`)); wait++) await sleep(100);
+			// preCommands (absolute coordinates) shape the world before the body arrives, such as reopening the tunnel a
+			// search dug to this cell, so it never stands inside rock.
+			if (spot.preCommands?.length) {
+				await s.command(`forceload add ${x - 16} ${z - 16} ${x + 16} ${z + 16}`);
+				for (let wait = 0; wait < 600 && !/time is/i.test(await s.command(`execute if loaded ${x + 16} 0 ${z + 16} run time query gametime`)); wait++) await sleep(100);
+				for (const text of spot.preCommands) row.preSetup = [...(row.preSetup ?? []), String(await s.command(text)).slice(0, 80)];
+			}
 			row.teleport = String(await s.command(`tp ${AGENT} ${x + 0.5} ${y} ${z + 0.5}`)).slice(0, 160);
 			await s.idleSleep(3000);
 		} else if (spot.startAt) {

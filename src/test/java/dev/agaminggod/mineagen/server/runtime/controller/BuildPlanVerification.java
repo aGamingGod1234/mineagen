@@ -46,7 +46,7 @@ public final class BuildPlanVerification {
 			if (ServerBuildController.order(portal.frame(), List.of(), cell -> false) != null) throw new AssertionError("A frame in the air has no order");
 			checks++;
 		}
-		return checks + verifyCastPlan() + verifySpill() + verifyCrossPour() + verifyCastTiming() + verifyCastBlocks() + verifyMaterials() + verifyHoleLanding() + verifyLineCells() + verifyStepCrouch() + verifyCarve();
+		return checks + verifyCastPlan() + verifySpill() + verifyCrossPour() + verifyCastTiming() + verifyCastBlocks() + verifyMaterials() + verifyHoleLanding() + verifyLineCells() + verifyStepCrouch() + verifyCarve() + verifyWayRound();
 	}
 
 	/**
@@ -138,6 +138,47 @@ public final class BuildPlanVerification {
 			if (ServerBuildController.spillMeetsLava(world, portal, wall, ServerBuildController.QUICK_SPILL_CELLS))
 				throw new AssertionError("Water scooped the tick after it lands, down a sloping floor toward a pool " + pool + " cells out, frame axis " + portal.axis() + ", met lava");
 			checks += 2;
+		}
+		return checks;
+	}
+
+	/**
+	 * A pool behind the mould on flat stone: reached round the frame's ends while they are open, not once walls close both
+	 * ends (each fetch would be walled off by the mould), nor when the pool lies sealed under rock beside an open shore.
+	 */
+	private static int verifyWayRound() {
+		int checks = 0;
+		// A bucket looking past a corner: blocked when both side columns are solid, clear when one is open.
+		BlockPos feet = new BlockPos(0, 64, 0);
+		for (BlockPos source : new BlockPos[] { new BlockPos(1, 63, 1), new BlockPos(2, 62, 2), new BlockPos(2, 63, 1) }) {
+			Set<BlockPos> sides = new HashSet<>();
+			for (int x = 0; x <= source.getX(); x++) for (int z = 0; z <= source.getZ(); z++)
+				if (!(x == source.getX() && z == source.getZ()) && ((x == 0) != (z == 0) || x != z && (x == source.getX() || z == source.getZ()))) for (int y = 60; y <= 66; y++) sides.add(new BlockPos(x, y, z));
+			if (ServerBuildController.scoopsFrom(cell -> !sides.contains(cell), feet, source)) throw new AssertionError("A bucket reaches " + source + " past two solid corners");
+			if (!ServerBuildController.scoopsFrom(cell -> true, feet, source)) throw new AssertionError("A bucket reaches " + source + " in the open");
+			checks += 2;
+		}
+		for (Direction.Axis axis : new Direction.Axis[] { Direction.Axis.X, Direction.Axis.Z }) {
+			var portal = new ServerBuildController.Portal(new BlockPos(10, 64, -5), axis);
+			Direction wall = portal.normal();
+			BlockPos source = portal.at(1, 0).relative(wall, 4);
+			BlockPos along = portal.at(1, 0).subtract(portal.at(0, 0));
+			for (int shape = 0; shape < 3; shape++) {
+				final int walled = shape;
+				java.util.function.Function<BlockPos, BlockState> world = cell -> {
+					if (cell.equals(source)) return Blocks.LAVA.defaultBlockState();
+					if (cell.getY() <= 64) return Blocks.STONE.defaultBlockState();
+					BlockPos d = cell.subtract(portal.origin());
+					int i = d.getX() * along.getX() + d.getZ() * along.getZ();
+					if (walled == 1 && (i == -1 || i == 4)) return Blocks.STONE.defaultBlockState();
+					if (walled == 2 && cell.equals(source.above())) return Blocks.STONE.defaultBlockState();
+					return Blocks.AIR.defaultBlockState();
+				};
+				boolean way = ServerBuildController.wayRound(cell -> world.apply(cell).isAir(), cell -> world.apply(cell).is(Blocks.STONE),
+						cell -> world.apply(cell).is(Blocks.LAVA), portal, wall, List.of(source));
+				if (way != (walled == 0)) throw new AssertionError("Way round to a pool behind the mould, axis " + axis + ", shape " + walled + ": " + way);
+				checks++;
+			}
 		}
 		return checks;
 	}
