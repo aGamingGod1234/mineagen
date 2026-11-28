@@ -15,7 +15,7 @@ const litKnown = (extra = {}) => { const known = { ...emptyKnown(), ...extra }; 
 const route = (observation, known = litKnown()) => routeLine({ observation, known, evaluate: evaluatePlanCheck });
 const sheep = (n, appearance = { woolColor: 'white' }, extra = {}) => Array.from({ length: n }, (_, i) => ({ type: 'minecraft:sheep', distance: 6 + i, x: 6 + i, y: 64, z: 0, appearance, ...extra }));
 const ENTRY = 'usual next step: enter the Nether through the lit portal now';
-const NO_BED = `${ENTRY} (no bed, 3 matching wool or sheep in reach: no portal bed; food stocks are optional unless health or hunger is low)`;
+const NO_BED = `${ENTRY} (no bed, 3 matching wool or sheep in reach: no portal bed; offhand shield, full iron or better, and 16 cooked food or 128 food points before crossing)`;
 
 test('a bed held at the lit portal: place it by the portal and use it, ahead of entering', () => {
 	assert.equal(route(sample([['red_bed', 1]])),
@@ -61,7 +61,7 @@ test('nothing in reach: enter now and say why the bed is skipped; never a wool s
 
 test('a respawn already set by the portal needs no step; one set far away does not count', () => {
 	const near = { kind: 'set', dimension: 'minecraft:overworld', x: 5, y: 60, z: 10, at: 1, source: 'used' };
-	assert.equal(route(sample([['red_bed', 1]]), litKnown({ spawn: near })), `${ENTRY} (respawn set by the portal; food stocks are optional unless health or hunger is low)`);
+	assert.equal(route(sample([['red_bed', 1]]), litKnown({ spawn: near })), `${ENTRY} (respawn set by the portal; offhand shield, full iron or better, and 16 cooked food or 128 food points before crossing)`);
 	assert.match(route(sample([['red_bed', 1]]), litKnown({ spawn: { ...near, x: 300 } })), /^usual next step: place_block red_bed/);
 	assert.match(route(sample([['red_bed', 1]]), litKnown({ spawn: { kind: 'world', at: 1, source: 'missing' } })), /^usual next step: place_block red_bed/);
 	// Height counts: a surface respawn straight above an underground portal is not by it.

@@ -15,7 +15,7 @@ const sample = (health = 20, foodLevel = 20) => ({ ready: true, observedAtEpochM
 });
 const assertEntry = (message) => {
 	assert.match(message, /enter the Nether through the lit portal now/);
-	assert.match(message, /food stocks are optional unless health or hunger is low/);
+	assert.match(message, /offhand shield, full iron or better, and 16 cooked food or 128 food points before crossing/);
 };
 
 for (const [health, hunger] of [[20, 20], [15, 20], [5, 20], [20, 6], [5, 6]]) test(`lit portal route names entry with recovery exception at health${health}/hunger${hunger}`, () => {

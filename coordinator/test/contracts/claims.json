@@ -48898,29 +48898,6 @@
       "reason": "The coordinator tests cover observed inventory and the iron plan. Full gameplay is needed to measure the time it takes to finish the kit."
     },
     {
-      "predicate": "The Nether route asks for seven rods for the full eye budget and advances to pearls after the count is held.",
-      "checks": [
-        {
-          "file": "coordinator/test/fortress-gold-route.test.mjs",
-          "test": "gold suggestions do not replace other stages or use stale inventory",
-          "type": "node-behavior"
-        }
-      ],
-      "id": "agent:13e34df494c1ec73:4a943ead6ff46234",
-      "contract": {
-        "id": "agent:13e34df494c1ec73:4a943ead6ff46234",
-        "claim": "At a fortress, fight_until for 7 blaze rods. Break line of sight and eat when hurt. At 7, leave the spawner area by the route you came in and secure the rods.",
-        "kind": "agent-reference",
-        "topic": "The route"
-      },
-      "location": {
-        "file": "coordinator/config/minecraft-agent/AGENTS.md",
-        "line": 23
-      },
-      "status": "partial",
-      "reason": "The route test checks the seven-rod target. It does not simulate combat, healing or the exit from the fortress."
-    },
-    {
       "predicate": "Seven general rules of play the model is asked to follow; no runtime enforces them.",
       "checks": [],
       "id": "agent:13a6b22428cd17c4:f63499c2970bd496",
@@ -48932,7 +48909,7 @@
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/AGENTS.md",
-        "line": 23
+        "line": 25
       },
       "status": "advisory",
       "documentationChecks": [
@@ -48956,7 +48933,7 @@
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/AGENTS.md",
-        "line": 33
+        "line": 35
       },
       "status": "advisory",
       "reason": "An instruction about how the model should plan the route and fight archers. The runtime leaves those choices to the model, so a deterministic tool test cannot prove compliance; the decision test and full games measure it."
@@ -49026,7 +49003,7 @@
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/AGENTS.md",
-        "line": 37
+        "line": 39
       },
       "status": "partial",
       "reason": "The fourteen default configurations, independent removal and same-id replacement are exercised. The flow default wires the existing known-flow sensor to the existing escape; physical rescue remains unverified. Adding rules for missed dangers and making escape the first call are model guidance. The added blaze-cover configuration and disclosure do not establish physical survival efficacy."
@@ -49049,7 +49026,7 @@
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/AGENTS.md",
-        "line": 41
+        "line": 43
       },
       "status": "advisory",
       "reason": "An instruction about how the model should choose its next step; the runtime leaves that choice to the model, so a deterministic tool test cannot prove arbitrary model compliance."
@@ -49087,7 +49064,7 @@
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/AGENTS.md",
-        "line": 43
+        "line": 45
       },
       "status": "partial",
       "reason": "Goal terminal/confirmation/adoption states are exercised. Following completion conversational rules and waiting rather than requesting unrelated work are normative model behavior, not a tool-generated autonomous wait."
@@ -49125,7 +49102,7 @@
       },
       "location": {
         "file": "coordinator/config/minecraft-agent/AGENTS.md",
-        "line": 45
+        "line": 47
       },
       "status": "partial",
       "reason": "Explicit communication routing and closed execution capabilities are exercised. Treating world prose as clues instead of higher-priority control instructions is normative model instruction; this is not a universal claim that arbitrary prompt injection can never influence model choices."

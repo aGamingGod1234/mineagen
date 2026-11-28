@@ -120,11 +120,10 @@ export const FOOD_FLOOR_DESCENT = 320;
 export const WOOD_FLOOR = 12;
 const woodFloor = f => WOOD_FLOOR + (f.count(/^minecraft:(coal|charcoal)$/) >= 3 ? 0 : 3);
 export const foodFloorOn = (environment = process.env) => getSwitch('stock.foodFloor', environment).value;
-// The PORTAL_LIT hint cannot see the inventory or the depth, and a portal cast underground has no animal near it: its
-// food clause stays the plain one. The descent's larger floor is what carries the food to an underground portal.
 const ENTRY_FOOD = 'food stocks are optional unless health or hunger is low';
+const ENTRY_KIT = 'offhand shield, full iron or better, and 16 cooked food or 128 food points before crossing';
 // Also the PORTAL_LIT result's hint, which cannot see the inventory, so it names the bed step's condition.
-export const PORTAL_ENTRY_PREP = `place and use a bed by the portal first if a bed, 3 matching wool or sheep are in reach; ${ENTRY_FOOD}`;
+export const portalEntryPrep = () => `place and use a bed by the portal first if a bed, 3 matching wool or sheep are in reach; ${netherKitEnabled() ? ENTRY_KIT : ENTRY_FOOD}`;
 // A respawn set this close to the portal already brings a Nether death back to it.
 const BED_NEAR = 24;
 // Height counts: a surface bed above an underground portal is still a long way back from a Nether death.
@@ -195,7 +194,8 @@ export function netherFoodNeed(o, tried = 0) {
 	if (portions >= NETHER_FOOD_COUNT || points >= NETHER_FOOD_POINTS) return null;
 	const seen = meatInView(o);
 	const count = id => items.filter(item => item.itemId === `minecraft:${id}`).reduce((sum, item) => sum + item.count, 0);
-	const options = [...MEATS].sort((a, b) => count(b) - count(a) || (seen[b] ?? 0) - (seen[a] ?? 0));
+	const options = [...MEATS].sort((a, b) => count(b) - count(a) || (seen[b] ?? 0) - (seen[a] ?? 0)
+		|| count(`cooked_${b}`) - count(`cooked_${a}`));
 	const item = `cooked_${options[tried % options.length]}`;
 	const short = Math.min(NETHER_FOOD_COUNT - portions, Math.ceil((NETHER_FOOD_POINTS - points) / FOOD_POINTS[item]));
 	return { item, count: count(item) + short, portions, points };
@@ -479,12 +479,10 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 	const eyeFacts = `rods ${rods}/${rodsNeeded}, pearls ${pearls}/${eyesNeeded}, eyes ${eyesHeld} held + ${filled} set of ${EYES}`;
 	// The Nether gathers to the eye plan (eye-plan.mjs): throws and lost drops cost eyes before the frame.
 	// Eyes already made to fill the frame are enough: the margin is for raw rods and pearls, never a trip back.
-	const blazeSurvival = getSwitch('fight.blazeSurvival', environment).value;
-	const eyeTarget = blazeSurvival ? Math.min(EYE_PLAN, 14) : EYE_PLAN;
-	const eyesPlanned = portalOpen || eyesHeld + filled >= EYES ? 0 : Math.max(0, eyeTarget - eyesHeld - filled);
+	const eyesPlanned = portalOpen || eyesHeld + filled >= EYES ? 0 : Math.max(0, EYE_PLAN - eyesHeld - filled);
 	const rodsPlanned = Math.ceil(Math.max(0, eyesPlanned - count(/^minecraft:blaze_powder$/)) / 2);
 	const rodsShort = Math.max(0, rodsPlanned - rods), pearlsShort = Math.max(0, eyesPlanned - pearls);
-	const planFacts = `rods ${rods}/${rodsPlanned}, pearls ${pearls}/${eyesPlanned}, eyes ${eyesHeld} held + ${filled} set; plan ${eyeTarget} eyes, ${EYES} fill the frame`;
+	const planFacts = `rods ${rods}/${rodsPlanned}, pearls ${pearls}/${eyesPlanned}, eyes ${eyesHeld} held + ${filled} set; plan ${EYE_PLAN} eyes, ${EYES} fill the frame`;
 	const facts = { count, foodNeeded: foodAdviceNeeded(o), foodHandedBack: foodHandedBack === true, food: count(EDIBLE), cookedMeat: count(COOKED_MEAT), rawMeat: count(RAW_FOOD), nearbyMeat: nearbyMeat(o), blocks: count(MOULD), wood: count(/^minecraft:([a-z_]+_(log|planks|stem))$/), iron: count(/^minecraft:(iron_ingot|raw_iron)$/),
 		buckets: count(/^minecraft:(bucket|water_bucket|lava_bucket)$/), pools: (known.lavaPools ?? []).filter(p => p?.dimension === dimension).length,
 		below: belowGround(o), woodHandedBack: woodHandedBack === true, logs: count(/^minecraft:[a-z_]+_log$/), ingots: count(/^minecraft:iron_ingot$/),
@@ -633,8 +631,9 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 		if ((rodsMissing > 0 || pearlsMissing > 0) && portal) {
 			const stock = portalStock();
 			if (stock !== null) return stock;
-			const survival = foodAdviceNeeded(o) ? `low health/hunger, food ${food} held: recover first; ` : 'food stocking optional while healthy; ';
-			return line(`return via known Overworld portal at ${portal.x},${portal.y},${portal.z} to the Nether`, `${survival}active portal needs no iron pick or ignition; use held tools`);
+			const survival = foodAdviceNeeded(o) ? `low health/hunger, food ${food} held: recover first; ` : '';
+			const entry = netherKit ? ENTRY_KIT : 'active portal needs no iron pick or ignition; use held tools';
+			return line(`return via known Overworld portal at ${portal.x},${portal.y},${portal.z} to the Nether`, `${survival}${!netherKit && survival === '' ? 'food stocking optional while healthy; ' : ''}${entry}`);
 		}
 		// Without a retained portal, keep the existing preparation route; no coordinates are inferred from history.
 		const rebuild = ROUTE.slice(0, ROUTE.findIndex(row => row.id === 'iron_pickaxe') + 1).find(row => !['food_stock', 'trip_wood', 'iron_trip'].includes(row.id) && !done(row));
@@ -659,7 +658,7 @@ export function routeLine({ observation: o = null, known = null, memory = null, 
 		// The bed comes first: it is only offered from what is in reach now, and may be gone after a hunt.
 		const bed = portalBed(o, known, { lit: true, frame: litFrame(o, known) });
 		if (bed.step) return line(...bed.step);
-		const held = facts.floorOn && facts.foodPoints >= FOOD_FLOOR_PORTAL ? `food ${facts.foodPoints}/${FOOD_FLOOR_PORTAL} points held` : ENTRY_FOOD;
+		const held = facts.floorOn && facts.foodPoints >= FOOD_FLOOR_PORTAL ? `food ${facts.foodPoints}/${FOOD_FLOOR_PORTAL} points held` : netherKit ? ENTRY_KIT : ENTRY_FOOD;
 		return portalStock() ?? line(PORTAL_ENTRY_NEXT, `${bed.skip}; ${held}`);
 	}
 	const stage = (instincts === true ? INSTINCT_ROUTE : ROUTE).find(row => !done(row));

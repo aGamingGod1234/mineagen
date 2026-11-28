@@ -38,7 +38,7 @@ import { resolveObtainItem } from './obtain-plan.mjs';
 import { IRON_KIT_ITEMS, KIT_CRAFT_TIMEOUT_MS, keepKit, missingNetherEquipment, netherKitEnabled } from './kit-habit.mjs';
 import { nightFor, restsFirst } from './night-cover.mjs';
 import { runInventoryRepair } from './inventory-repair.mjs';
-import { netherFoodNeed, PORTAL_ENTRY_NEXT, PORTAL_ENTRY_PREP } from './skill-fits.mjs';
+import { netherFoodNeed, PORTAL_ENTRY_NEXT, portalEntryPrep } from './skill-fits.mjs';
 import { NativeProgramExecutor } from './native-program-executor.mjs';
 import { nativeOperationRejection } from './native-operation-contract.mjs';
 import { parseArenaScript } from './arena-script/parser.mjs';
@@ -475,11 +475,9 @@ export class NativeToolRuntime {
 		// methods still clone at their boundaries, so sharing here does not expose
 		// mutable coordinator state while avoiding a duplicate deep copy per update.
 		const storedObservation = structuredClone(raw);
-		if (storedObservation.death != null || storedObservation.status === 'PLAYER_DEAD' || storedObservation.player?.dead === true
-			|| storedObservation.world?.dimension === 'minecraft:the_nether') {
-			this.#netherKitAttempts.delete(record.agentId);
-			if (netherKitEnabled() && storedObservation.world?.dimension !== 'minecraft:the_nether') this.#ironTopUps.delete(record.agentId);
-		}
+		const dead = storedObservation.death != null || storedObservation.status === 'PLAYER_DEAD' || storedObservation.player?.dead === true;
+		if (dead || storedObservation.world?.dimension === 'minecraft:the_nether') this.#netherKitAttempts.delete(record.agentId);
+		if (dead && netherKitEnabled()) this.#ironTopUps.delete(record.agentId);
 		const program = this.#programRuns.get(record.agentId);
 		// Remember invalidation even if the player returns before storage resolves.
 		const lookupWorld = program?.noteLookupWorld;
@@ -1031,17 +1029,21 @@ export class NativeToolRuntime {
 		if (!netherKitEnabled() || request.tool.after !== undefined) return null;
 		const latest = this.#observations.get(record.agentId);
 		const o = latest?.goalRevision === record.goalRevision ? latest.observation : null;
-		if (o?.world?.dimension !== 'minecraft:overworld' || o.ready !== true) return null;
+		const dimension = o?.world?.dimension;
+		if (dimension && dimension !== 'minecraft:overworld') return null;
 		const tool = request.tool;
 		const moves = (tool.kind === 'sequence' ? tool.actions : ['action', 'start_action', 'replace_action'].includes(tool.kind) ? [tool] : [])
 			.filter(action => TRAVEL_ACTIONS.has(action.actionType));
 		if (moves.length === 0) return null;
+		const explicit = moves.find(action => action.arguments?.dimension === 'minecraft:the_nether');
+		if (explicit) return this.#prepareNetherKit(record, request, explicit);
+		if (!o) return null;
 		const known = this.#occupancy.knownSources?.(record.agentId, o, /^minecraft:nether_portal$/);
 		const portals = [...(o.sighted?.portalFrames ?? []).filter(frame => frame.lit === true),
 			...[...(o.blocks ?? []), ...(o.landmarks ?? []), ...(known?.blocks ?? [])].filter(row => row.blockId === 'minecraft:nether_portal'),
 			...(known?.sightings ?? []).filter(row => /^(minecraft:)?nether_portal$/.test(row.what))];
-		const crossing = moves.find(({ arguments: target = {} }) => target.dimension === 'minecraft:the_nether'
-			|| [target.x, target.z].every(Number.isFinite) && portals.some(p => Math.abs(p.x - target.x) <= 3 && Math.abs(p.z - target.z) <= 3
+		const crossing = moves.find(({ arguments: target = {} }) => [target.x, target.z].every(Number.isFinite)
+			&& portals.some(p => Math.abs(p.x - target.x) <= 3 && Math.abs(p.z - target.z) <= 3
 				&& (!Number.isFinite(target.y) || !Number.isFinite(p.y) || Math.abs(p.y - target.y) <= 4)));
 		if (!crossing) return null;
 		return this.#prepareNetherKit(record, request, crossing);
@@ -1097,6 +1099,7 @@ export class NativeToolRuntime {
 			} else {
 				const slot = { head: 5, chest: 6, legs: 7, feet: 8, offhand: 45 }[targetSlot];
 				const { menu } = await this.#inspect({ kind: 'inspect', section: 'menu', offset: slot, limit: 1 }, record, { withSearch: false });
+				if (this.#executionEpoch(record.agentId) !== epoch) throw codedError('STALE_NATIVE_TOOL', 'Nether kit check outlived its lifecycle');
 				const menuId = menu?.menuId ?? menu?.type;
 				if (menuId !== 'minecraft:inventory' || menu.cursor?.count > 0)
 					return blocked('NETHER_KIT_REQUIRED', `Close the open menu and ${target} before entering the Nether.`);
@@ -3768,7 +3771,7 @@ export class NativeToolRuntime {
 		const rawMessage = payload.message === undefined ? undefined : String(payload.message).slice(0, 2_048);
 		let message = state === 'SUCCEEDED' && reasonCode === 'PORTAL_LIT' && active.actionType === 'build'
 			&& active.arguments?.structure === 'nether_portal' && active.dimension === 'minecraft:overworld'
-			? `Next stage: ${PORTAL_ENTRY_NEXT}; ${PORTAL_ENTRY_PREP}.${rawMessage ? ` ${rawMessage}` : ''}`.slice(0, 2_048) : rawMessage;
+			? `Next stage: ${PORTAL_ENTRY_NEXT}; ${portalEntryPrep()}.${rawMessage ? ` ${rawMessage}` : ''}`.slice(0, 2_048) : rawMessage;
 		const currentBody = this.#observations.get(record.agentId)?.observation;
 		const partialFrame = /; frame at (-?\d+),(-?\d+),(-?\d+) axis ([xz]): [1-9]\/10 cells seen cast\b/.exec(rawMessage ?? '');
 		if (state === 'FAILED' && ['NO_STAND_SPOT', 'FRAME_CELL_UNSEEN', 'FRAME_CELL_BLOCKED', 'NO_LAVA_IN_REACH'].includes(reasonCode)
@@ -3909,6 +3912,8 @@ export class NativeToolRuntime {
 		if (['goal_dead', 'goal_respawn', 'dead_registration_replaced'].includes(reason)) {
 			this.#receipts.delete(agentId);
 			this.#failedRequests.delete(agentId);
+			this.#netherKitAttempts.delete(agentId);
+			if (netherKitEnabled()) this.#ironTopUps.delete(agentId);
 		}
 		// A new goal revision retires authored intent; death/respawn keep the same goal and its policies.
 		if (/^goal_(?!dead$|respawn$)/.test(String(reason))) this.#standing.clearGuards(agentId);
@@ -3983,6 +3988,7 @@ export class NativeToolRuntime {
 		if (FORGET_REASONS.test(String(reason)) && (this.#spatialWrites.get(agentId) ?? 0) === spatialWrites) {
 			this.#portalSearches.delete(agentId);
 			this.#netherKitAttempts.delete(agentId);
+			this.#ironTopUps.delete(agentId);
 			this.#occupancy.clear(agentId);
 			this.#memoryReady.delete(agentId);
 			this.#pendingSpatial.delete(agentId);

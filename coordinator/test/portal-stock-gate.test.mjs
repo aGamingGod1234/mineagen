@@ -91,6 +91,29 @@ test('first entry and the next life check worn gear and cooked supplies against 
 	assert.equal(rekit.stockedTool.arguments.item, 'minecraft:shield');
 });
 
+test('two searches that find no food release the portal until the next life', async t => {
+	const o = sample();
+	o.sighted = { portalFrames: [PORTAL] };
+	o.inventory.items = Object.entries({ head: 'iron_helmet', chest: 'iron_chestplate', legs: 'iron_leggings', feet: 'iron_boots', offhand: 'shield' })
+		.map(([slot, id]) => ({ itemId: `minecraft:${id}`, slot, count: 1 }));
+	const h = await harness(t, { stock: () => null, observation: () => structuredClone(o) });
+	const crossing = walk(104.5, 695.5);
+	for (const item of ['cooked_beef', 'cooked_porkchop']) {
+		const search = await h.step(crossing);
+		assert.equal(search.stockedTool.arguments.item, item);
+		assert.equal(search.reasonCode, 'NO_SOURCE');
+	}
+	await h.step(crossing);
+	assert.equal(h.walksToPortal(), 1);
+	o.status = 'PLAYER_DEAD';
+	h.publish();
+	delete o.status;
+	h.publish();
+	const search = await h.step(crossing);
+	assert.equal(search.stockedTool.arguments.item, 'cooked_beef');
+	assert.equal(h.walksToPortal(), 1);
+});
+
 test('a walk into the lit portal below the minimum runs the stock obtain instead, and says so', async t => {
 	const h = await harness(t);
 	const result = await h.step(walk(104.5, 695.5));

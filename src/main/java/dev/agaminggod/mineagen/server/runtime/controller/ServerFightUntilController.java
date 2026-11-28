@@ -278,8 +278,6 @@ public final class ServerFightUntilController implements ServerController {
 	private long recoverMs;
 	/** Fixture A/B switch (-Dmineagen.fight.recover=false); on by default. */
 	static final boolean RECOVER = dev.agaminggod.mineagen.server.Switches.get("fight.recover");
-	static final boolean BLAZE_SURVIVAL = dev.agaminggod.mineagen.server.Switches.get("fight.blazeSurvival");
-	private BlazeWithdrawal withdrawal;
 	static final float RECOVER_MARGIN = 8.0F;
 	static final float RECOVER_DONE = 18.0F;
 	static final long RECOVER_MS = 30_000L;
@@ -491,24 +489,13 @@ public final class ServerFightUntilController implements ServerController {
 			hazard.observe(player);
 		}
 		if (!player.isAlive()) return stop(player, TickResult.failed("AGENT_DEAD", "Agent player died during fight_until", progress(player)));
-		if (withdrawal != null) {
-			TickResult walked = withdrawal.tick(player, nowEpochMs);
-			if (walked.state() == State.RUNNING) return walked;
-			return stop(player, rodCountReached(count(player, untilItem), walked.message()));
-		}
 		if (bailout != null) {
 			TickResult result = bailout.tick(player, nowEpochMs);
 			return result.state() == State.RUNNING ? result : stop(player, result);
 		}
 		int held = count(player, untilItem);
-		if (held >= untilCount && melee == null && volley == null) {
-			if (blazeSurvival() && choices.mayReposition() && lastKillAt != null) {
-				cancelParts(player);
-				withdrawal = new BlazeWithdrawal(lastKillAt);
-				return TickResult.running(1.0D);
-			}
-			return stop(player, rodCountReached(held, ""));
-		}
+		if (held >= untilCount && melee == null && volley == null)
+			return stop(player, TickResult.succeeded("UNTIL_COUNT_REACHED", "Holds " + held + " " + untilItemId + " (asked " + untilCount + ")"));
 		if (elapsed >= timeoutMs)
 			return stop(player, TickResult.timedOut("FIGHT_UNTIL_TIMED_OUT", String.format(Locale.ROOT, "%.0f s timeout reached", timeoutMs / 1000.0D), progress(player)));
 		if (step != null && stepIdle(player.level().getGameTime(), stepTick)) {
@@ -521,7 +508,7 @@ public final class ServerFightUntilController implements ServerController {
 		if (HazardEntry.IN_LAVA.equals(entered))
 			return stop(player, TickResult.failed(entered, CombatMoveText.hazardStop(entered, player, "fight_until"), progress(player)));
 		if (perchBase != null) return perchTick(player, elapsed, nowEpochMs);
-		if (!blazeSurvival() && CombatPlanning.shouldBailOut(player.getHealth(), fleeAtHealth)) {
+		if (CombatPlanning.shouldBailOut(player.getHealth(), fleeAtHealth)) {
 			if (startPerch(player)) return perchTick(player, elapsed, nowEpochMs);
 			return startBailout(player, elapsed, nowEpochMs);
 		}
@@ -551,18 +538,11 @@ public final class ServerFightUntilController implements ServerController {
 		boolean shielding = shieldHand != null && shotFrom != null && gameTick - shotTick <= GUARD_HOLD_TICKS;
 		// A kill's drop pickup runs inside the engagement; the shield waits for it.
 		boolean collecting = (melee != null || volley != null) && current != null && current.isDeadOrDying();
-		if (blazeSurvival() && !fireContact && RECOVER && choices.guardShield(true)) {
-			TickResult recovering = tickRecover(player, nowEpochMs, elapsed);
-			if (recovering != null) return recovering;
-		}
-		if (blazeSurvival() && !fireContact && CombatPlanning.shouldBailOut(player.getHealth(), fleeAtHealth))
-			return startBailout(player, elapsed, nowEpochMs);
 		// A ledge trip in mid-pillar is not dropped for a shot (fire still stops it): a player finishes the climb.
-		if ((shielding && (ledge == null || !ledge.climbing()) || fireContact) && (!collecting || blazeSurvival() && fireContact))
-			return guard(player, shieldHand, shielding, fireContact, elapsed);
+		if ((shielding && (ledge == null || !ledge.climbing()) || fireContact) && !collecting) return guard(player, shieldHand, shielding, fireContact, elapsed);
 		releaseGuard();
 
-		if (!blazeSurvival() && !roof && mob == McEntityTypes.BLAZE && RECOVER && choices.guardShield(true)) {
+		if (!roof && mob == McEntityTypes.BLAZE && RECOVER && choices.guardShield(true)) {
 			TickResult recovering = tickRecover(player, nowEpochMs, elapsed);
 			if (recovering != null) return recovering;
 		}
@@ -1902,11 +1882,9 @@ public final class ServerFightUntilController implements ServerController {
 	 */
 	private TickResult tickRecover(ServerPlayer player, long now, long elapsed) {
 		float health = player.getHealth();
-		int food = blazeSurvival() ? ServerSpawnerHoldController.foodSlot(player) : -1;
-		boolean hungry = player.getFoodData().getFoodLevel() < 18;
 		if (recoverSinceMs < 0L) {
 			boolean low = health <= fleeAtHealth + RECOVER_MARGIN && health < RECOVER_DONE;
-			if (!low || hungry && food < 0 || !(player.getOffhandItem().getItem() instanceof ShieldItem)
+			if (!low || player.getFoodData().getFoodLevel() < 18 || !(player.getOffhandItem().getItem() instanceof ShieldItem)
 					|| elapsed - recoverEndedMs < RECOVER_GAP_MS) return null;
 			recoverSinceMs = elapsed;
 			recovers++;
@@ -1928,7 +1906,7 @@ public final class ServerFightUntilController implements ServerController {
 			if (walk != null) { walk.cancel(player); walk = null; }
 			note(String.format(Locale.ROOT, "health %.1f: backing off to heal", health));
 		}
-		if (health >= RECOVER_DONE || elapsed - recoverSinceMs >= RECOVER_MS || hungry && food < 0) {
+		if (health >= RECOVER_DONE || elapsed - recoverSinceMs >= RECOVER_MS || player.getFoodData().getFoodLevel() < 18) {
 			recoverMs += elapsed - recoverSinceMs;
 			recoverSinceMs = -1L;
 			recoverEndedMs = elapsed;
@@ -1937,7 +1915,6 @@ public final class ServerFightUntilController implements ServerController {
 			note(String.format(Locale.ROOT, "healed to %.1f", health));
 			return null;
 		}
-		if (blazeSurvival() && guardHeld) releaseGuard();
 		lastTargetMs = elapsed;
 		if (melee != null) {
 			// A blaze that came into sword reach is fought from where the body stands.
@@ -1946,7 +1923,12 @@ public final class ServerFightUntilController implements ServerController {
 			return finished;
 		}
 		LivingEntity close = attackerInReach(player);
-		if (!blazeSurvival() && close != null) return recoverDefend(player, close, elapsed, now);
+		if (close != null) {
+			if (step != null) { step.cancel(player); step = null; }
+			guardInput.release();
+			engageMelee(player, close, elapsed, now);
+			return TickResult.running(progress(player));
+		}
 		List<LivingEntity> shooters = new ArrayList<>();
 		for (LivingEntity entity : player.level().getEntitiesOfClass(LivingEntity.class, player.getBoundingBox().inflate(radius),
 				e -> e.getType() == mob && e.isAlive() && !e.isDeadOrDying()))
@@ -1975,7 +1957,7 @@ public final class ServerFightUntilController implements ServerController {
 		if (recoverGoal != null && player.position().distanceTo(recoverGoal) > 0.4D) {
 			if (step == null || !recoverGoal.equals(stepGoal)) {
 				if (step != null) step.cancel(player);
-				step = new ServerNavigationController(recoverGoal, 0.4D, !blazeSurvival(), now, 8_000L, false).crouched(blazeSurvival() || choices.sneak());
+				step = new ServerNavigationController(recoverGoal, 0.4D, true, now, 8_000L, false).crouched(choices.sneak());
 				stepGoal = recoverGoal;
 			}
 			guardInput.release();
@@ -1997,13 +1979,6 @@ public final class ServerFightUntilController implements ServerController {
 			recoverGoal = null;
 			return TickResult.running(progress(player));
 		}
-		if (close != null) return recoverDefend(player, close, elapsed, now);
-		if (blazeSurvival() && shooters.isEmpty() && food >= 0 && player.getFoodData().getFoodLevel() < 20
-				&& ReflexSensors.blockableShot(player, 1.5D) == null) {
-			applyGuard(player, new AgentInputState(0.0F, 0.0F, false, choices.sneak(), false, false, true,
-					player.getYRot(), player.getXRot(), food, InteractionHand.MAIN_HAND));
-			return TickResult.running(progress(player));
-		}
 		// Shield toward the nearest seen blaze; the shot guard above turns it to a fireball on its way.
 		LivingEntity nearest = null;
 		for (LivingEntity shooter : shooters) if (nearest == null || shooter.distanceToSqr(player) < nearest.distanceToSqr(player)) nearest = shooter;
@@ -2016,13 +1991,6 @@ public final class ServerFightUntilController implements ServerController {
 		}
 		applyGuard(player, new AgentInputState(0.0F, 0.0F, false, choices.sneak(), false, false, nearest != null, yaw, pitch,
 				player.getInventory().getSelectedSlot(), InteractionHand.OFF_HAND));
-		return TickResult.running(progress(player));
-	}
-
-	private TickResult recoverDefend(ServerPlayer player, LivingEntity close, long elapsed, long now) {
-		if (step != null) { step.cancel(player); step = null; }
-		guardInput.release();
-		engageMelee(player, close, elapsed, now);
 		return TickResult.running(progress(player));
 	}
 
@@ -2451,7 +2419,6 @@ public final class ServerFightUntilController implements ServerController {
 	}
 
 	private void cancelParts(ServerPlayer player) {
-		if (withdrawal != null) { withdrawal.cancel(player); withdrawal = null; }
 		if (bailout != null) bailout.cancel(player);
 		releaseGuard(true);
 		stanceInput.release();
@@ -2479,42 +2446,6 @@ public final class ServerFightUntilController implements ServerController {
 		melee = null;
 		volley = null;
 		walk = null;
-	}
-
-	private boolean blazeSurvival() {
-		return BLAZE_SURVIVAL && !roof && !roofed && choices.mayReposition() && mob == McEntityTypes.BLAZE && untilItem == net.minecraft.world.item.Items.BLAZE_ROD;
-	}
-
-	private TickResult rodCountReached(int held, String note) {
-		return TickResult.succeeded("UNTIL_COUNT_REACHED", "Holds " + held + " " + untilItemId + " (asked " + untilCount + ")"
-				+ (note.isEmpty() ? "" : "; " + note));
-	}
-
-	/** Retreat over seen connected footing. A blocked retreat is reported separately from attaining the rod count. */
-	static final class BlazeWithdrawal implements ServerController {
-		private final Vec3 danger;
-		private ServerNavigationController walk;
-
-		BlazeWithdrawal(Vec3 danger) { this.danger = danger; }
-
-		@Override
-		public TickResult tick(ServerPlayer player, long now) {
-			if (walk == null) {
-				var path = SafeStep.awayPath(ObservedTerrain.of(player), CombatMoveText.feet(player), danger.x, danger.z,
-						18, 256, 4.0D, cell -> false, 1);
-				if (path == null || path.isEmpty()) return TickResult.failed("NO_ROUTE", "held the rods; no seen retreat route", 1.0D);
-				var end = path.getLast();
-				walk = new ServerNavigationController(new Vec3(end.x() + 0.5D, end.y(), end.z() + 0.5D), 0.4D, false, now, 15_000L, false)
-						.crouched(true).keepsKnockbackMargin(new KnockbackHolds());
-			}
-			TickResult moved = walk.tick(player, now);
-			if (moved.state() == State.RUNNING) return TickResult.running(1.0D);
-			return new TickResult(moved.state(), moved.reasonCode(), moved.state() == State.SUCCEEDED
-					? "withdrew with the rods" : "held the rods; retreat ended " + moved.reasonCode(), 1.0D);
-		}
-
-		@Override
-		public void cancel(ServerPlayer player) { if (walk != null) walk.cancel(player); }
 	}
 
 	@Override

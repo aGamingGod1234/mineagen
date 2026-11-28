@@ -14,7 +14,6 @@ import { join } from 'node:path';
 // These cases are the stock.foodFloor off arm (the route before the food floor); food-floor-route.test.mjs has the on arm.
 process.env.MINEAGEN_FOOD_FLOOR = 'off';
 process.env.MINEAGEN_NETHER_KIT = 'off';
-process.env.MINEAGEN_BLAZE_SURVIVAL = 'false';
 
 // The route to beat the game as data: one wake line suggesting the usual next step from the player's state.
 

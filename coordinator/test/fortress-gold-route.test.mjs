@@ -14,8 +14,8 @@ const sample = (items = [], extra = {}) => ({ ready: true, observedAtEpochMs: 1_
 	world: { worldId: 'w', dimension: NETHER }, position: { x: 37.3, y: 77, z: -12.5 },
 	player: { dead: false, health: 20, foodLevel: 20 }, inventory: { items }, entities: [], blocks: [], ...extra });
 const route = observation => routeLine({ observation, known: emptyKnown(), evaluate: evaluatePlanCheck });
-const fortress = 'find a fortress and fight_until 7 blaze_rods';
-const facts = 'rods 0/7, pearls 0/14, eyes 0 held + 0 set; plan 14 eyes, 12 fill the frame';
+const fortress = 'find a fortress and fight_until 8 blaze_rods';
+const facts = 'rods 0/8, pearls 0/15, eyes 0 held + 0 set; plan 15 eyes, 12 fill the frame';
 const bare = `usual next step: ${fortress} (${facts})`;
 const optional = 'consider gold armour if safely nearby; skip a gold hunt';
 
@@ -38,10 +38,10 @@ test('every carried gold armour piece is preferred, but any worn piece preserves
 });
 
 test('gold suggestions do not replace other stages or use stale inventory', () => {
-	assert.match(route(sample([item('blaze_rod', 7)])), /^usual next step: get 14 ender_pearls/);
-	assert.match(route(sample([item('blaze_rod', 7), item('ender_pearl', 14)])), /^usual next step: return home/);
+	assert.match(route(sample([item('blaze_rod', 8)])), /^usual next step: get 15 ender_pearls/);
+	assert.match(route(sample([item('blaze_rod', 8), item('ender_pearl', 15)])), /^usual next step: return home/);
 	assert.match(route(sample([item('ender_eye', 12)])), /^usual next step: return home/);
-	assert.match(route(sample([item('blaze_powder', 14)])), /^usual next step: get 14 ender_pearls/);
+	assert.match(route(sample([item('blaze_powder', 16)])), /^usual next step: get 15 ender_pearls/);
 	assert.equal(route(sample([], { world: { dimension: 'minecraft:overworld' } })), 'usual next step: obtain wooden_pickaxe (no tools yet)');
 	assert.equal(route(sample([], { world: { dimension: 'minecraft:the_end' } })), 'usual next step: kill the ender_dragon: break the end crystals first (in the End)');
 	for (const inventory of [undefined, {}, { items: [] }, { items: [item('golden_boots', 1, 'feet')] }]) {
@@ -64,7 +64,7 @@ test('the 220-byte route preserves UTF-8 ellipsis and fortress progress when cli
 	for (const gold of [[], [item('golden_chestplate')]]) {
 		const line = route(sample([...gold, item('ender_pearl', Number.MAX_SAFE_INTEGER)]));
 		assert.ok(Buffer.byteLength(line) <= 220);
-		assert.match(line, /find a fortress and fight_until 7 blaze_rods/);
+		assert.match(line, /find a fortress and fight_until 8 blaze_rods/);
 		assert.equal(Buffer.from(line).toString('utf8'), line);
 		assert.doesNotMatch(line, /\uFFFD/);
 	}
@@ -85,7 +85,7 @@ for (const [name, observation, expected] of [
 	['scout inventory', sample(scoutInventory), optional],
 	['scout carrying boots', sample([...scoutInventory, item('golden_boots', 1, 8)]), 'consider equip_item golden_boots before searching'],
 	['scout wearing boots', sample([...scoutInventory, item('golden_boots', 1, 'feet')]), bare],
-	['rods complete', sample([item('blaze_rod', 7)]), 'usual next step: get 14 ender_pearls'],
+	['rods complete', sample([item('blaze_rod', 8)]), 'usual next step: get 15 ender_pearls'],
 	['eyes complete', sample([item('ender_eye', 12)]), 'usual next step: return home'],
 	['Overworld', sample([], { world: { worldId: 'w', dimension: 'minecraft:overworld' } }), 'usual next step: obtain wooden_pickaxe'],
 	['End', sample([], { world: { worldId: 'w', dimension: 'minecraft:the_end' } }), 'usual next step: kill the ender_dragon'],
