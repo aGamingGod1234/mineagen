@@ -105,6 +105,12 @@ public final class BoatAccount {
 
 	public static boolean oauthSignedIn(Path root) { return Files.isRegularFile(folder(root).resolve("oauth.key"), LinkOption.NOFOLLOW_LINKS); }
 
+	/** True while a runner reports a machine starting, running or stopping. */
+	static boolean machineActive(Path root) {
+		String phase = status(root).phase();
+		return phase.equals("starting") || phase.equals("running") || phase.equals("stopping");
+	}
+
 	public static Status status(Path root) {
 		boolean oauth = oauthSignedIn(root);
 		boolean cli = !oauth && !oauthAvailable() && BoatCli.signedIn();

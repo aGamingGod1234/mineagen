@@ -159,8 +159,8 @@ export function coordinatorSession({ sessionRoot, coordinatorRoot, log, spawnPro
 			if (!bytes) continue;
 			const name = path.basename(file), hash = sha256(bytes);
 			if (!sent.has(name) || sent.get(name) === hash || pushed.get(file) === hash) continue;
+			if (!send(`signin:${Buffer.from(JSON.stringify({ name, content: bytes.toString('base64') })).toString('base64')}`)) return;
 			pushed.set(file, hash);
-			send(`signin:${Buffer.from(JSON.stringify({ name, content: bytes.toString('base64') })).toString('base64')}`);
 			log('sign-in-pushed', { name });
 		}
 	};
@@ -175,8 +175,10 @@ export function coordinatorSession({ sessionRoot, coordinatorRoot, log, spawnPro
 					const chunk = Buffer.allocUnsafe(256 * 1024);
 					const { bytesRead } = await handle.read(chunk, 0, chunk.length, mirror.offset);
 					if (bytesRead === 0) break;
+					// Advance only past bytes handed to a connected PC: while the control socket is down the output waits
+					// on the machine and is sent after it reconnects.
+					if (!send(`file:${mirror.name}:${chunk.subarray(0, bytesRead).toString('base64')}`)) break;
 					mirror.offset += bytesRead;
-					send(`file:${mirror.name}:${chunk.subarray(0, bytesRead).toString('base64')}`);
 				}
 			} finally { await handle.close(); }
 		}
@@ -296,14 +298,18 @@ function keyMatches(offered, key) {
  * URL to it) and presents the bridge on 127.0.0.1:bridgePort.
  */
 export function serveRelay({ key, bridgePort, wsPort, host = '127.0.0.1', now = Date.now, sessionRoot = DEFAULT_SESSION_ROOT,
-	coordinatorRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'), watchdogMs = WATCHDOG_MS, spawnProcess = spawn }) {
+	coordinatorRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'), watchdogMs = WATCHDOG_MS, spawnProcess = spawn, spareWaitMs = SPARE_WAIT_MS }) {
 	if (!key || key.length < 32) throw new Error('BOAT_RELAY_KEY must hold at least 32 characters');
 	const spares = [];
 	const waiting = [];
 	const live = new Set();
 	const controls = new Set();
 	let lastControlAt = now();
-	const session = coordinatorSession({ sessionRoot, coordinatorRoot, log, spawnProcess, send: text => { for (const peer of controls) peer.sendText(text); } });
+	const session = coordinatorSession({ sessionRoot, coordinatorRoot, log, spawnProcess, send: text => {
+		let delivered = false;
+		for (const peer of controls) if (!peer.closed) { peer.sendText(text); delivered = true; }
+		return delivered;
+	} });
 	const httpServer = http.createServer((request, response) => {
 		response.writeHead(request.url === '/health' ? 200 : 404, { 'content-type': 'text/plain' });
 		response.end(request.url === '/health' ? `ok spares=${spares.length} live=${live.size}\n` : 'not found\n');
@@ -350,8 +356,9 @@ export function serveRelay({ key, bridgePort, wsPort, host = '127.0.0.1', now = 
 	});
 	const takeSpare = () => new Promise(resolve => {
 		while (spares.length) { const peer = spares.shift(); if (!peer.closed) { resolve(peer); return; } }
-		const timer = setTimeout(() => { const i = waiting.indexOf(resolve); if (i >= 0) waiting.splice(i, 1); resolve(null); }, SPARE_WAIT_MS);
-		waiting.push(peer => { clearTimeout(timer); resolve(peer); });
+		const waiter = peer => { clearTimeout(timer); resolve(peer); };
+		const timer = setTimeout(() => { const i = waiting.indexOf(waiter); if (i >= 0) waiting.splice(i, 1); resolve(null); }, spareWaitMs);
+		waiting.push(waiter);
 	});
 	const bridgeServer = net.createServer(async tcp => {
 		tcp.setNoDelay(true);

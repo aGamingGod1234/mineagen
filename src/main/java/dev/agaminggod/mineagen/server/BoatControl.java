@@ -48,19 +48,32 @@ final class BoatControl {
 					}));
 				}
 				case "sign_out:boat" -> {
-					BoatAccount.signOut(root);
 					if (settings.runsOnBoat()) {
 						BoatAccount.saveSettings(root, new BoatAccount.Settings(false, settings.signInConsent()));
 						AgentServerRuntime.reloadProviderCredentials(server);
 					}
-					say(player, "Signed out of boat.");
+					say(player, "Signing out of boat...");
+					// Off the server thread: revoking is a network call. It waits for the runner to delete its machine
+					// first, because the runner reads the access token that sign-out removes.
+					CompletableFuture.runAsync(() -> {
+						long deadline = System.currentTimeMillis() + 90_000L;
+						while (BoatAccount.machineActive(root) && System.currentTimeMillis() < deadline) {
+							try { Thread.sleep(500L); } catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); return; }
+						}
+						BoatAccount.signOut(root);
+					}).whenComplete((ignored, failure) -> server.execute(() -> {
+						say(player, failure == null ? "Signed out of boat." : "Boat sign-out did not finish.");
+						AgentControlSync.requestSnapshot(player);
+					}));
 				}
 				case "sign_in:codex", "sign_in:claude" -> {
 					String provider = action.substring("sign_in:".length());
 					say(player, "Opening " + (provider.equals("codex") ? "Codex" : "Claude") + " sign-in...");
 					providerLogin(provider).whenComplete((ignored, failure) -> server.execute(() -> {
 						say(player, failure == null ? "Signed in. Scanning model CLIs..." : "Sign-in did not finish.");
-						AgentServerRuntime.requestProviderRescan(server);
+						// On boat the machine holds the sign-in copied at start, so a new sign-in needs a coordinator restart.
+						if (failure == null && BoatAccount.settings(root).runsOnBoat()) AgentServerRuntime.reloadProviderCredentials(server);
+						else AgentServerRuntime.requestProviderRescan(server);
 					}));
 				}
 				default -> throw new IllegalArgumentException("Unknown boat action");

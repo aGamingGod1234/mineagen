@@ -6,7 +6,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { serveRelay } from '../src/boat-relay.mjs';
+import { dialRelay, serveRelay } from '../src/boat-relay.mjs';
 import { parseCliJson, remoteConfig, remoteEnvironment, runBoatCoordinator, writeBackSignIns } from '../src/boat-runner.mjs';
 
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -123,6 +123,32 @@ test('a session starts the coordinator on the machine, carries the bridge, copie
 		bridge.close();
 	} finally {
 		for (const relay of relays) await relay.close();
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test('a bridge connection that timed out waiting for the PC does not swallow the next spare', async () => {
+	const root = mkdtempSync(path.join(os.tmpdir(), 'boat-spare-'));
+	const pc = net.createServer(socket => socket.pipe(socket));
+	await new Promise(resolve => pc.listen(0, '127.0.0.1', resolve));
+	const key = 'k'.repeat(40);
+	const relay = await serveRelay({ key, bridgePort: 0, wsPort: 0, sessionRoot: path.join(root, 's'), spareWaitMs: 200 });
+	let dialer = null;
+	try {
+		// No PC yet: the coordinator's connection is refused once its wait ends.
+		const early = net.connect(relay.bridgePort, '127.0.0.1');
+		await new Promise(resolve => early.on('close', resolve));
+		dialer = dialRelay({ url: `ws://127.0.0.1:${relay.wsPort}/bridge`, key, bridgePort: pc.address().port });
+		await wait(500);
+		const late = net.connect(relay.bridgePort, '127.0.0.1', () => late.write('after-timeout'));
+		let echoed = '';
+		late.on('data', data => { echoed += data; });
+		await until(() => echoed === 'after-timeout', 5_000);
+		late.destroy();
+	} finally {
+		dialer?.close();
+		await relay.close();
+		pc.close();
 		rmSync(root, { recursive: true, force: true });
 	}
 });
