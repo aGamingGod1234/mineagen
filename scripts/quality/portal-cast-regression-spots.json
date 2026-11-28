@@ -1,0 +1,186 @@
+[
+  {
+    "name": "cast-single-source-fall",
+    "seed": "20261029",
+    "monsters": false,
+    "time": 1000,
+    "startAt": {
+      "x": 0,
+      "y": -53,
+      "z": 0
+    },
+    "inventory": [
+      {
+        "item": "minecraft:iron_pickaxe",
+        "count": 1
+      },
+      {
+        "item": "minecraft:water_bucket",
+        "count": 1
+      },
+      {
+        "item": "minecraft:bucket",
+        "count": 1
+      },
+      {
+        "item": "minecraft:flint_and_steel",
+        "count": 1
+      },
+      {
+        "item": "minecraft:cobblestone",
+        "count": 48
+      },
+      {
+        "item": "minecraft:bread",
+        "count": 8
+      }
+    ],
+    "commands": [
+      "fill -10 128 -10 12 135 10 minecraft:air",
+      "fill -9 128 -9 12 129 9 minecraft:stone",
+      "fill 4 130 -2 4 132 2 minecraft:stone",
+      "setblock 5 134 0 minecraft:lava",
+      "setblock 5 133 -1 minecraft:stone",
+      "tp @s 0.5 130 0.5 -90 -12"
+    ],
+    "calls": [
+      {
+        "name": "do_step",
+        "arguments": {
+          "verb": "cast_obsidian",
+          "target": {
+            "frame": true,
+            "x": 2,
+            "y": 129,
+            "z": -1,
+            "axis": "z",
+            "timeoutMs": 55000
+          },
+          "why": "cast a frame from the lava on the hillside"
+        }
+      }
+    ],
+    "expectCode": "LAVA_POOL_TOO_SMALL"
+  },
+  {
+    "name": "dig-heard-lake-window",
+    "seed": "20261029",
+    "monsters": false,
+    "time": 1000,
+    "startAt": {
+      "x": 0,
+      "y": -53,
+      "z": 0
+    },
+    "inventory": [
+      {
+        "item": "minecraft:iron_pickaxe",
+        "count": 1
+      },
+      {
+        "item": "minecraft:water_bucket",
+        "count": 1
+      },
+      {
+        "item": "minecraft:bucket",
+        "count": 1
+      },
+      {
+        "item": "minecraft:flint_and_steel",
+        "count": 1
+      },
+      {
+        "item": "minecraft:cobblestone",
+        "count": 48
+      },
+      {
+        "item": "minecraft:bread",
+        "count": 8
+      }
+    ],
+    "commands": [
+      "fill ~-6 ~-3 ~-8 ~10 ~6 ~8 minecraft:deepslate",
+      "fill ~-5 ~ ~ ~ ~1 ~ minecraft:air",
+      "fill ~2 ~-1 ~-5 ~8 ~-1 ~5 minecraft:lava",
+      "fill ~2 ~ ~-5 ~8 ~3 ~5 minecraft:air",
+      "tp @s ~ ~ ~ -90 0"
+    ],
+    "calls": [
+      {
+        "name": "do_step",
+        "arguments": {
+          "verb": "dig_to",
+          "target": {
+            "pattern": "tunnel",
+            "heading": "east",
+            "maxBlocks": 4,
+            "stopWhenSeen": "minecraft:lava",
+            "timeoutMs": 25000
+          },
+          "why": "open a window to the pool heard behind the rock"
+        }
+      }
+    ],
+    "expectCode": "TARGET_SEEN"
+  },
+  {
+    "name": "cast-tight-deepslate-bank",
+    "seed": "20261029",
+    "monsters": false,
+    "time": 1000,
+    "startAt": {
+      "x": 0,
+      "y": -53,
+      "z": 0
+    },
+    "inventory": [
+      {
+        "item": "minecraft:iron_pickaxe",
+        "count": 1
+      },
+      {
+        "item": "minecraft:water_bucket",
+        "count": 1
+      },
+      {
+        "item": "minecraft:bucket",
+        "count": 1
+      },
+      {
+        "item": "minecraft:flint_and_steel",
+        "count": 1
+      },
+      {
+        "item": "minecraft:cobblestone",
+        "count": 48
+      },
+      {
+        "item": "minecraft:bread",
+        "count": 8
+      }
+    ],
+    "commands": [
+      "fill ~-6 ~-4 ~-9 ~12 ~7 ~9 minecraft:deepslate",
+      "fill ~-6 ~-4 ~-9 ~-3 ~7 ~9 minecraft:bedrock",
+      "fill ~ ~ ~ ~2 ~1 ~ minecraft:air",
+      "fill ~3 ~-2 ~-4 ~9 ~-1 ~4 minecraft:lava",
+      "fill ~3 ~ ~-4 ~9 ~4 ~4 minecraft:air",
+      "tp @s ~ ~ ~ -90 0"
+    ],
+    "calls": [
+      {
+        "name": "do_step",
+        "arguments": {
+          "verb": "build",
+          "target": {
+            "structure": "nether_portal",
+            "timeoutMs": 240000
+          },
+          "why": "carve and light a portal in the dry bank beside the lake"
+        }
+      }
+    ],
+    "expect": "portal",
+    "barSeconds": 240
+  }
+]

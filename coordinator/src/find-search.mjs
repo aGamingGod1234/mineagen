@@ -780,7 +780,10 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 		const timeout = Math.min(left(), 600_000, args.timeoutMs ?? Infinity);
 		// Controllers enforce the original circle on every tick, including retrace detours.
 		if (profile.ids.has('minecraft:water') && ['travel_to', 'dig_to'].includes(actionType)) args = { ...args, boundaryX: origin.x, boundaryZ: origin.z, boundaryRadius: within };
-		const result = await body.act(actionType, TIMED.has(actionType) ? { ...args, timeoutMs: Math.max(MIN_LEG_MS, Math.floor(timeout)) } : args, { watch: sight ?? ((sample) => sightingOf(profile, sample, null, excluded) ?? (until?.(sample) ? { until: true } : null)) });
+		// Let a lava tunnel finish opening or plugging its window before taking a sighting from that opening.
+		const lavaTunnel = actionType === 'dig_to' && args.pattern === 'tunnel' && args.stopWhenSeen === 'minecraft:lava';
+		const watch = sight ?? ((sample) => (lavaTunnel ? null : sightingOf(profile, sample, null, excluded)) ?? (until?.(sample) ? { until: true } : null));
+		const result = await body.act(actionType, TIMED.has(actionType) ? { ...args, timeoutMs: Math.max(MIN_LEG_MS, Math.floor(timeout)) } : args, { watch });
 		const entry = { how, actionType, state: result?.state, reasonCode: result?.reasonCode, underWater: /body is under water/i.test(String(result?.message ?? '')),
 			waterAt: result?.reasonCode === 'WATER_AHEAD' ? waterOf(result?.message) : null };
 		legs.push(entry);

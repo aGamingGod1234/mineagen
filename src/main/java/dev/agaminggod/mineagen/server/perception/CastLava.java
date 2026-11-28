@@ -27,12 +27,18 @@ public final class CastLava {
 
 	public static boolean usable(ServerPlayer player, BlockPos source) {
 		BlockState state = player.level().getBlockState(source);
-		return !lava(state) || sources(player.level()::getBlockState, source, needed(player)) >= needed(player);
+		int need = needed(player);
+		return !lava(state) || sources(player, source, need) >= need;
+	}
+
+	public static int sources(ServerPlayer player, BlockPos source, int cap) {
+		var level = player.level();
+		return sources(at -> level.hasChunkAt(at) ? level.getBlockState(at) : null, source, cap);
 	}
 
 	/** Sources a bucket takes in the pool of {@code source}, counted up to {@code cap} within 16 blocks across and 3 below it. */
 	public static int sources(Function<BlockPos, BlockState> world, BlockPos source, int cap) {
-		if (!lava(world.apply(source))) return 0;
+		if (cap <= 0 || !lava(world.apply(source))) return 0;
 		Set<BlockPos> visited = new HashSet<>(Set.of(source.immutable()));
 		ArrayDeque<BlockPos> open = new ArrayDeque<>(visited);
 		int count = 0;

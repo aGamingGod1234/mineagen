@@ -187,6 +187,7 @@ public final class ServerBuildController implements ServerController {
 	static final int MAX_CARVES = 2;
 	static final int CARVE_RADIUS = 10;
 	static final double CARVE_POOL_MARGIN = 6.0D;
+	static final double TIGHT_CARVE_POOL_MARGIN = 3.0D;
 	/**
 	 * Open pool sources a cast wants in view before it starts: one bucket per frame cell and two spare. A pool met from the
 	 * side or through one opened block shows one source (sight stops at the first lava), and a scooped source refills as
@@ -603,9 +604,9 @@ public final class ServerBuildController implements ServerController {
 							+ xyz(center) + " and none is after a look around; find lava first (find block minecraft:lava), then build here again");
 					// The nearest pool that feeds the whole cast, by the rule find stops on (CastLava): a pocket is no cast site.
 					int need = CastLava.needed(player);
-					poolAt = pool.stream().filter(at -> CastLava.sources(player.level()::getBlockState, at, need) >= need).findFirst().orElse(null);
+					poolAt = pool.stream().filter(at -> CastLava.sources(player, at, need) >= need).findFirst().orElse(null);
 					if (poolAt == null) return fail(player, "BUILD_NO_SITE", "The lava seen near " + xyz(center) + " is a pocket of "
-							+ CastLava.sources(player.level()::getBlockState, pool.get(0), need) + " source(s) a bucket takes, and the cast needs " + need
+							+ CastLava.sources(player, pool.get(0), need) + " source(s) a bucket takes, and the cast needs " + need
 							+ " (one per frame cell not carried as obsidian); find lava (find block minecraft:lava) for a bigger pool, then build there");
 					if (requested == null) center = castCenter(player, poolAt);
 					phase = Phase.APPROACH;
@@ -972,6 +973,7 @@ public final class ServerBuildController implements ServerController {
 		Vec3 eye = player.getEyePosition();
 		if (TargetSightline.block(player.level(), CollisionContext.of(player), eye, cell, player.blockInteractionRange(), null) == null) {
 			BlockPos spot = standFor(player, e -> TargetSightline.block(player.level(), CollisionContext.of(player), e, cell, player.blockInteractionRange() - 0.3D, null) != null);
+			if (spot == null && carving && carves < MAX_CARVES) return chooseAgain(player, now, "no dry standing spot reaches " + xyz(cell));
 			if (spot == null) return fail(player, "NO_STAND_SPOT", "No seen standing spot reaches " + describe(state) + " at " + xyz(cell) + lastWalk());
 			return walkTo(player, spot, now);
 		}
@@ -1955,13 +1957,15 @@ public final class ServerBuildController implements ServerController {
 						double d = Vec3.atCenterOf(source).distanceTo(mid);
 						if (d < near) { near = d; rise = Math.abs(p.at(1, 1).getY() - 1 - source.getY()); }
 					}
-					if (near > CAST_POOL_REACH || rise > CAST_RISE || near < CARVE_POOL_MARGIN || nearMetLava(mid)) { far++; continue; }
+					if (near > CAST_POOL_REACH || rise > CAST_RISE || near < TIGHT_CARVE_POOL_MARGIN || nearMetLava(mid)) { far++; continue; }
 					int dig = carveDig(cell -> known(player, cell), rock, clearable, p, wall);
 					if (dig < 0) { ruled++; continue; }
 					int open = 0;
 					for (BlockPos cell : wallCells(p, wall)) { BlockState state = known(player, cell); if (state != null && !rock.test(cell, state)) open++; }
 					if (castBlocks(open) > plain) { blocks++; continue; }
 					double cost = 0.5D * dig + 0.6D * open + 0.4D * near + 0.8D * rise + 0.3D * Math.sqrt(stand.distSqr(from));
+					// A tight shore can still have a dry wall with room for the mould. Keep the ordinary setback when it fits.
+					if (near < CARVE_POOL_MARGIN) cost += 2.0D * LOOSE_SITE_COST;
 					if (spillMeetsLava(cell -> known(player, cell), p, wall, SURE_SPILL_CELLS)) cost += LOOSE_SITE_COST;
 					// The dig breaks each cell through clear's own lava gate, which also refuses lava heard just behind the rock
 					// (lava-gate-7: both carves went beside lava the find heard but never saw, and the first break was refused).
@@ -1974,7 +1978,7 @@ public final class ServerBuildController implements ServerController {
 			siteRejects += String.format(Locale.ROOT, "; no site to carve either (%d seen standing spots within %d blocks: %d sites over %.0f blocks from, "
 					+ "or %.0f above or below, or within %.0f of, the lava, %d with water or lava seen in or beside the dig or the ground not rock, %d short of plain blocks for the mould, "
 					+ "%d with lava heard right behind a cell the dig would break)",
-					stands, CARVE_RADIUS, far, CAST_POOL_REACH, CAST_RISE, CARVE_POOL_MARGIN, ruled, blocks, heard);
+					stands, CARVE_RADIUS, far, CAST_POOL_REACH, CAST_RISE, TIGHT_CARVE_POOL_MARGIN, ruled, blocks, heard);
 			return false;
 		}
 		carves++;
