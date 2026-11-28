@@ -288,10 +288,11 @@ test('the Overworld crafts the margin it brought home, not only the 12 the frame
 	assert.match(route([['blaze_rod', 8], ['ender_pearl', 15]]), /^usual next step: craft 15 ender_eyes/);
 	assert.match(route([['blaze_rod', 7], ['ender_pearl', 12]]), /^usual next step: craft 12 ender_eyes/);
 	assert.match(route([['blaze_rod', 7], ['ender_pearl', 13]]), /^usual next step: craft 13 ender_eyes/);
+	// With the ranged kit held (a bowless body gets the bow first: late-game-readiness.test.mjs).
 	// Twelve made, makings for three more held: those too, before the search.
-	assert.match(route([['ender_eye', 12], ['ender_pearl', 3], ['blaze_powder', 4]]), /^usual next step: craft 3 spare ender_eyes/);
-	assert.match(route([['ender_eye', 15], ['ender_pearl', 1], ['blaze_powder', 1]]), /^usual next step: find structure stronghold/);
-	assert.match(route([['ender_eye', 12]]), /^usual next step: find structure stronghold/);
+	assert.match(route([['ender_eye', 12], ['ender_pearl', 3], ['blaze_powder', 4], ['bow', 1], ['arrow', 32]]), /^usual next step: craft 3 spare ender_eyes/);
+	assert.match(route([['ender_eye', 15], ['ender_pearl', 1], ['blaze_powder', 1], ['bow', 1], ['arrow', 32]]), /^usual next step: find structure stronghold/);
+	assert.match(route([['ender_eye', 12], ['bow', 1], ['arrow', 32]]), /^usual next step: find structure stronghold/);
 });
 
 test('a receipt that turns from unseen to dropped during the search walk is followed to where it dropped', async () => {
