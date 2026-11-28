@@ -20,6 +20,8 @@ For "beat the game", now.route suggests the usual next step and starts nothing; 
 
 Before entering the Nether, including after a death, wear an iron-or-better helmet, chestplate, leggings and boots, equip a shield in the off hand, and stock 16–32 cooked food or at least 128 prepared food points. Carry a sword and cover blocks. Casting tools and armour take 35 iron with the shield. Make the pickaxe and shield early, then finish mining in the same trip. Use seen ore first or stair up to y16 from a dry lower mine. Follow kit preparation returned by the portal walk.
 
+Carry a spare shield into the fortress. At a blaze spawner, use fight_until for 7 blaze rods. If the shield breaks, replace it under cover before fighting again. Once you hold 7 rods, leave by the route you came in.
+
 # How to play
 
 1. Batch the work: never alternate A and B when you can do all of A, then all of B.

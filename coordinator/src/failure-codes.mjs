@@ -362,6 +362,7 @@ export const FAILURE_CODES = Object.freeze({
 	ROOF_BLOCKS_MISSING: ['rule', null],
 	// fight_until blaze spawner hold (ServerSpawnerHoldController, wall breaker rods).
 	HOLD_BREACHED: ['threat', null],
+	BLAZE_SHIELD_NEEDED: ['item', null],
 	OUT_OF_FOOD: ['item', null],
 	SPAWNER_GONE: ['cell', null],
 	SPAWNER_UNREACHABLE: ['cell', null],
@@ -398,7 +399,7 @@ export const FAILURE_CODES = Object.freeze({
 	WATCHER_UNAUTHORIZED: ['rule', 'watcher handlers do not chat, finish or pause', ['this.#watcherExecution']],
 	// travel_to's stall watchdog: feet moved under a block in 10 s with no block placed or mined.
 	STALLED_IN_PLACE: ['cell', null],
-	TRAVEL_TIMEOUT: ['handle', 'the trip arrives before its timeoutMs', ['nowEpochMs - startedAt >= timeoutMs', 'result.reasonCode().equals("TRAVEL_TIMEOUT")']],
+	TRAVEL_TIMEOUT: ['handle', 'the trip arrives before its timeoutMs', ['nowEpochMs - startedAt >= timeoutMs', 'result.reasonCode().equals("TRAVEL_TIMEOUT")', 'left <= 0L']],
 	STANDING_ORDER_BODY_BUSY: ['handle', 'no other program owns the body', ['this.#programRuns.has(agentId)']],
 	ACTION_ALREADY_ACTIVE: ['handle', 'no other action of yours is in flight', ['actionInFlight']],
 	ACTION_BUSY: ['handle', null],

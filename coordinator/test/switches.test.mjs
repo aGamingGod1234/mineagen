@@ -150,6 +150,7 @@ const READS = [
 	['route.forestPearls', 'coordinator/src/skill-fits.mjs', "getSwitch('route.forestPearls').value"],
 	['kit.habit', 'coordinator/src/kit-habit.mjs', "getSwitch('kit.habit', environment)"],
 	['kit.netherEntry', 'coordinator/src/kit-habit.mjs', "getSwitch('kit.netherEntry', environment)"],
+	['fight.blazeSurvival', 'coordinator/src/skill-fits.mjs', "getSwitch('fight.blazeSurvival', environment)"],
 	['night.cover', 'coordinator/src/night-cover.mjs', "getSwitch('night.cover', environment)"],
 	['tools.program', 'coordinator/src/native-minecraft-tools.mjs', "getSwitch('tools.program', environment)"],
 	['experience', 'coordinator/src/experience-store.mjs', "getSwitch('experience', environment)"],
@@ -172,6 +173,7 @@ const READS = [
 	['travel.endermanFight', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerTravelController.java', 'static final boolean ENDERMAN_FIGHT = dev.agaminggod.mineagen.server.Switches.get("travel.endermanFight");'],
 	['fight.chargeGuard', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerFightUntilController.java', 'static final boolean CHARGE_GUARD = dev.agaminggod.mineagen.server.Switches.get("fight.chargeGuard");'],
 	['fight.recover', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerFightUntilController.java', 'static final boolean RECOVER = dev.agaminggod.mineagen.server.Switches.get("fight.recover");'],
+	['fight.blazeSurvival', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/ServerFightUntilController.java', 'Switches.get("fight.blazeSurvival")'],
 	['dig.floorLavaGuard', 'src/main/java/dev/agaminggod/mineagen/server/runtime/ServerActionExecutor.java', 'static boolean FLOOR_LAVA_GUARD = dev.agaminggod.mineagen.server.Switches.get("dig.floorLavaGuard");'],
 	['reflex.plugInflow', 'src/main/java/dev/agaminggod/mineagen/server/runtime/reflex/ReflexActions.java', 'static boolean PLUG_INFLOW = dev.agaminggod.mineagen.server.Switches.get("reflex.plugInflow");'],
 	['fight.spawnerHold', 'src/main/java/dev/agaminggod/mineagen/server/runtime/controller/SpawnerHold.java', 'public static final boolean ENABLED = dev.agaminggod.mineagen.server.Switches.get("fight.spawnerHold");'],
@@ -447,7 +449,7 @@ test('the Java Switches mirror resolves and describes the same values as the coo
 			const expected = describeSwitches(resolveSwitches(env, { properties, sides: ['server', 'both'] })).line;
 			assert.equal(line, expected, `env ${JSON.stringify(env)} -D ${JSON.stringify(properties)}`);
 			// And each value is what the old Java reader gave for the same environment and properties.
-			assert.equal(line.replace(/@\w+/g, ''), old, `old readers: env ${JSON.stringify(env)} -D ${JSON.stringify(properties)}`);
+			assert.equal(line.replace(/ fight\.blazeSurvival=\S+/, '').replace(/@\w+/g, ''), old, `old readers: env ${JSON.stringify(env)} -D ${JSON.stringify(properties)}`);
 		});
 	} finally {
 		rmSync(work, { recursive: true, force: true });
