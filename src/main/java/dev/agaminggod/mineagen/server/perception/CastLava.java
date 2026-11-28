@@ -13,6 +13,7 @@ import net.minecraft.world.level.material.Fluids;
 
 public final class CastLava {
 	public static final int FRAME_CELLS = 10;
+	public static final String FIND_BIGGER_POOL = "Leave this pocket using do_step({verb:\"find\",target:{block:\"minecraft:lava\"},why:\"find a larger lava pool for the portal\"}).";
 	private static final int REACH = 16, DEPTH = 3, MAX_CELLS = 1024;
 
 	private CastLava() { }

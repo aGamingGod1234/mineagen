@@ -46,7 +46,7 @@ import { arenaScriptDiagnosticFields } from './arena-script/errors.mjs';
 import { compileProgramPrecondition, evaluateProgramPrecondition } from './program-precondition.mjs';
 import { MAX_STANDING_SOURCE_BYTES, StandingOrderBook, standingOrderCause, guardEpisodeFacts } from './standing-orders.mjs';
 import { ReflexBook } from './reflexes.mjs';
-import { searchFor } from './find-search.mjs';
+import { searchFor, SMALL_POOL, UNREACHABLE_POOL } from './find-search.mjs';
 import { STEP_ACTIONS } from './wake-filter.mjs';
 import { CONTEXT_TRIGGERS, SURVIVAL_TRIGGERS } from './arena-script/program-engine.mjs';
 import { defaultServiceTier } from './constants.mjs';
@@ -3769,6 +3769,20 @@ export class NativeToolRuntime {
 		const repeatedFailure = active.actionType === 'chat' ? null : this.#repeatedFailures.record(record.agentId, {
 			goalRevision: record.goalRevision, actionType: active.actionType, arguments: active.arguments, state, reasonCode, ...this.#failureStamp(observation) });
 		const rawMessage = payload.message === undefined ? undefined : String(payload.message).slice(0, 2_048);
+		const rejectedPool = reasonCode === 'LAVA_POOL_TOO_SMALL' ? SMALL_POOL : reasonCode === 'LAVA_POOL_UNREACHABLE' ? UNREACHABLE_POOL : null;
+		if (state === 'FAILED' && rejectedPool !== null && (active.actionType === 'cast_obsidian' || active.actionType === 'build')) {
+			const pocket = /\bThe lava pocket at (-?\d+),(-?\d+),(-?\d+)\b/.exec(rawMessage ?? '');
+			if (pocket !== null) {
+				const [, x, y, z] = pocket;
+				const rows = this.#missedPlaces.get(record.agentId) ?? [];
+				const place = { x: Number(x), y: Number(y), z: Number(z), dimension: active.dimension, blockId: 'minecraft:lava', why: rejectedPool };
+				const previous = rows.findIndex(row => row.blockId === place.blockId && row.dimension === place.dimension && row.x === place.x && row.y === place.y && row.z === place.z);
+				if (previous >= 0) rows.splice(previous, 1);
+				rows.push(place);
+				if (rows.length > MISSED_PLACES) rows.shift();
+				this.#missedPlaces.set(record.agentId, rows);
+			}
+		}
 		let message = state === 'SUCCEEDED' && reasonCode === 'PORTAL_LIT' && active.actionType === 'build'
 			&& active.arguments?.structure === 'nether_portal' && active.dimension === 'minecraft:overworld'
 			? `Next stage: ${PORTAL_ENTRY_NEXT}; ${portalEntryPrep()}.${rawMessage ? ` ${rawMessage}` : ''}`.slice(0, 2_048) : rawMessage;

@@ -305,7 +305,9 @@ test('script-first r4 seed 1: a lava pocket too small for the cast is no sightin
 	assert.equal(result.reasonCode, 'FIND_SEEN');
 	assert.deepEqual([result.find.seen.x, result.find.seen.y], [9, -57], 'the pool past the pocket');
 	assert.deepEqual(missed.map(({ x, y, z, why }) => [x, y, z, why]), [[4, -55, 3, 'pocket too small to cast']]);
-	assert.equal((await run([{ state: 'SUCCEEDED', survey: { blocks: [{ blockId: 'minecraft:lava', x: 4, y: -55, z: 3, small: true }] } }]).done).reasonCode, 'FIND_SEEN');
+	const retry = await run([{ state: 'SUCCEEDED', survey: { blocks: [{ blockId: 'minecraft:lava', x: 5, y: -55, z: 3 }] } }]).done;
+	assert.equal(retry.reasonCode, 'FIND_SEEN');
+	assert.equal(retry.find.seen.x, 9, 'a later survey can omit the small flag, but the rejected pocket stays excluded');
 	assert.equal(missed.length, 1, 'a pocket already spent is not recorded again');
 });
 

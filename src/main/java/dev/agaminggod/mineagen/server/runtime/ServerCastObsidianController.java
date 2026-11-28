@@ -761,8 +761,7 @@ public final class ServerCastObsidianController implements ServerController {
 				if (largestPool == null) return lookForLava(player, level, "No bucketable lava source seen within " + LAVA_SEARCH
 						+ " blocks; find block minecraft:lava before carving or casting", "NO_LAVA_IN_REACH");
 				return lookForLava(player, level, "The lava pocket at " + xyz(largestPool) + " has " + largestPoolSources
-						+ " bucketable source(s); this frame still needs " + need + " from the pool. Leave this pocket and use find block minecraft:lava"
-						+ " to look elsewhere (in the Overworld, search around y -54)", "LAVA_POOL_TOO_SMALL");
+						+ " bucketable source(s); this frame still needs " + need + " from the pool. " + CastLava.FIND_BIGGER_POOL, "LAVA_POOL_TOO_SMALL");
 			}
 		}
 		framePoolVerified = true;

@@ -182,5 +182,67 @@
     ],
     "expect": "portal",
     "barSeconds": 240
+  },
+  {
+    "name": "cast-covered-pool-window",
+    "seed": "20261029",
+    "monsters": false,
+    "time": 1000,
+    "startAt": {
+      "x": 0,
+      "y": -53,
+      "z": 0
+    },
+    "inventory": [
+      {
+        "item": "minecraft:iron_pickaxe",
+        "count": 1
+      },
+      {
+        "item": "minecraft:water_bucket",
+        "count": 1
+      },
+      {
+        "item": "minecraft:bucket",
+        "count": 1
+      },
+      {
+        "item": "minecraft:flint_and_steel",
+        "count": 1
+      },
+      {
+        "item": "minecraft:cobblestone",
+        "count": 48
+      },
+      {
+        "item": "minecraft:bread",
+        "count": 8
+      }
+    ],
+    "commands": [
+      "fill ~-10 ~-4 ~-9 ~14 ~7 ~9 minecraft:deepslate",
+      "fill ~-8 ~ ~-6 ~3 ~4 ~6 minecraft:air",
+      "fill ~3 ~-3 ~-3 ~10 ~-2 ~3 minecraft:lava",
+      "fill ~3 ~-1 ~-3 ~10 ~-1 ~3 minecraft:air",
+      "fill ~3 ~-1 ~-3 ~3 ~-1 ~3 minecraft:deepslate",
+      "setblock ~3 ~-1 ~ minecraft:air",
+      "fill ~4 ~ ~-3 ~10 ~ ~3 minecraft:deepslate",
+      "tp @s ~2 ~ ~ -90 35"
+    ],
+    "calls": [
+      {
+        "name": "do_step",
+        "arguments": {
+          "verb": "build",
+          "target": {
+            "structure": "nether_portal",
+            "timeoutMs": 240000
+          },
+          "why": "cast and light a portal at a lava pool with a narrow scoop window"
+        }
+      }
+    ],
+    "expect": "portal",
+    "barSeconds": 240
   }
 ]

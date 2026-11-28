@@ -801,8 +801,15 @@ public final class ServerDigController implements ServerController {
 				BlockPos visible = seenFluidBeside(player, cell, true);
 				if (visible != null) return fluidStop(player, cell, visible, true);
 			}
-			if (lava != null && !canOpenLavaWindow(player, cell, lava))
+		if (lava != null && !canOpenLavaWindow(player, cell, lava)) {
+			// A cut can expose a source between sight checks. Hand it back before the next cell's lava guard stops the dig.
+			if ("minecraft:lava".equals(stopWhenSeen)) {
+				BlockPos source = ServerTravelController.sees(player, "minecraft:lava", true);
+				TickResult found = source == null ? null : seen(player, source);
+				if (found != null) return found;
+			}
 				return stop(player, "LAVA_AHEAD", "Lava is " + lava + "; not breaking " + blockId(state) + " at " + cell(cell));
+		}
 			BlockPos water = seenFluidBeside(player, cell, false);
 			if (water != null) return fluidStop(player, cell, water, false);
 			if (active != Pattern.SHAFT && restsOnlyOn(player, cell)) return startRecenter(player, feet, Phase.MINE);
