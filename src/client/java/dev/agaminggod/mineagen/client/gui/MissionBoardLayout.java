@@ -12,7 +12,8 @@ public record MissionBoardLayout(
 		AgentControlLayout.Bounds centre,
 		AgentControlLayout.Bounds rail,
 		AgentControlLayout.Bounds taskRow,
-		boolean railFolded
+		boolean railFolded,
+		boolean listCompact
 ) {
 	/** Content narrower than this folds the rail under the live view: a 1080p screen at GUI scale 4 (480x270) folds, scale 3 keeps it. */
 	public static final int RAIL_BREAKPOINT = 560;
@@ -21,6 +22,9 @@ public record MissionBoardLayout(
 	public static final int RAIL_MINIMUM = 160;
 	public static final int RAIL_MAXIMUM = 196;
 	public static final int ROW = 20;
+	/** Below this content width the list shows each agent as its head only, so the live view keeps its room. */
+	public static final int LIST_COMPACT_BREAKPOINT = 700;
+	public static final int LIST_COMPACT = 30;
 
 	public static MissionBoardLayout calculate(int width, int height) {
 		return calculate(width, height, 0);
@@ -28,7 +32,7 @@ public record MissionBoardLayout(
 
 	/** Never throws: on GUIs below the design minimum every region shrinks but stays ordered and inside the panel. */
 	public static MissionBoardLayout calculate(int width, int height, int bannerInset) {
-		AgentControlLayout shell = AgentControlLayout.calculate(width, height, bannerInset);
+		AgentControlLayout shell = AgentControlLayout.calculateBoard(width, height, bannerInset);
 		int left = shell.contentLeft();
 		int right = shell.contentRight();
 		int top = shell.contentTop();
@@ -36,7 +40,8 @@ public record MissionBoardLayout(
 		int contentWidth = right - left;
 		int gap = shell.panelWidth() < 400 ? 8 : 10;
 		boolean folded = contentWidth < RAIL_BREAKPOINT;
-		int listWidth = Math.min(Math.max(LIST_MINIMUM, contentWidth * 22 / 100), LIST_MAXIMUM);
+		boolean compact = contentWidth < LIST_COMPACT_BREAKPOINT;
+		int listWidth = compact ? LIST_COMPACT : Math.min(Math.max(LIST_MINIMUM, contentWidth * 20 / 100), LIST_MAXIMUM);
 		// On a GUI too small for both columns the list keeps a third and the centre the rest.
 		if (contentWidth - listWidth - gap < 120) listWidth = Math.max(0, Math.min(listWidth, contentWidth / 3));
 		int listRight = Math.min(right, left + listWidth);
@@ -50,7 +55,7 @@ public record MissionBoardLayout(
 		int taskTop = shell.footerY();
 		AgentControlLayout.Bounds task = new AgentControlLayout.Bounds(left, taskTop, right,
 				Math.max(taskTop, Math.min(shell.panelBottom(), taskTop + AgentControlLayout.CONTROL_HEIGHT)));
-		return new MissionBoardLayout(shell, list, centre, rail, task, folded);
+		return new MissionBoardLayout(shell, list, centre, rail, task, folded, compact);
 	}
 
 	/** Width of the rail's content: its own column, or the centre column once folded under the live view. */

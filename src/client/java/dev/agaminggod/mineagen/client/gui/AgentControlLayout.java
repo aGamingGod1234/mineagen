@@ -54,14 +54,27 @@ public record AgentControlLayout(
 	 * just below the header (from {@code headerBottom + 4}) never overlaps a page's controls or its Now card.
 	 */
 	public static AgentControlLayout calculate(int requestedWidth, int requestedHeight, int bannerInset) {
+		return calculate(requestedWidth, requestedHeight, bannerInset, MAXIMUM_PANEL_WIDTH, MAXIMUM_PANEL_HEIGHT);
+	}
+
+	/** The mission board's shell: it shows a whole agent at once, so its panel may grow past the forms' reading width. */
+	public static final int BOARD_PANEL_WIDTH = 920;
+	public static final int BOARD_PANEL_HEIGHT = 500;
+
+	public static AgentControlLayout calculateBoard(int requestedWidth, int requestedHeight, int bannerInset) {
+		return calculate(requestedWidth, requestedHeight, bannerInset, BOARD_PANEL_WIDTH, BOARD_PANEL_HEIGHT);
+	}
+
+	private static AgentControlLayout calculate(int requestedWidth, int requestedHeight, int bannerInset, int maximumWidth,
+			int maximumHeight) {
 		int screenWidth = Math.max(1, requestedWidth);
 		int screenHeight = Math.max(1, requestedHeight);
 		int horizontalMargin = screenWidth < MINIMUM_WIDTH + OUTER_MARGIN * 2 ? 4 : OUTER_MARGIN;
-		int panelWidth = Math.max(1, Math.min(MAXIMUM_PANEL_WIDTH, screenWidth - horizontalMargin * 2));
+		int panelWidth = Math.max(1, Math.min(maximumWidth, screenWidth - horizontalMargin * 2));
 		int panelLeft = (screenWidth - panelWidth) / 2;
 		int verticalMargin = screenHeight <= 280 ? 4 : OUTER_MARGIN;
 		// On tall GUIs the panel stops growing and centers, so a short form doesn't float above a tall empty sheet.
-		int panelHeight = Math.max(1, Math.min(MAXIMUM_PANEL_HEIGHT, screenHeight - verticalMargin * 2));
+		int panelHeight = Math.max(1, Math.min(maximumHeight, screenHeight - verticalMargin * 2));
 		int panelTop = (screenHeight - panelHeight) / 2;
 		int panelRight = panelLeft + panelWidth;
 		int panelBottom = panelTop + panelHeight;

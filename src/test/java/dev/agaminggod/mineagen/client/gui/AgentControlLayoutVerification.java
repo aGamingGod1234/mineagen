@@ -112,7 +112,8 @@ public final class AgentControlLayoutVerification {
 			assertTrue(!board.railFolded(), "the rail keeps its own column" + at);
 			assertTrue(board.rail().width() >= MissionBoardLayout.RAIL_MINIMUM, "the rail is wide enough for a sign-in button" + at);
 			assertTrue(board.centre().width() >= 240, "the live view keeps a readable width beside the rail" + at);
-			assertTrue(board.list().width() >= MissionBoardLayout.LIST_MINIMUM, "the agent list keeps readable names" + at);
+			assertTrue(board.listCompact() ? board.list().width() == MissionBoardLayout.LIST_COMPACT
+					: board.list().width() >= MissionBoardLayout.LIST_MINIMUM, "the agent list shows full rows or heads only" + at);
 			assertTrue(board.centre().height() >= AgentControlScreen.LIVE_NATURAL, "every live view row fits without scrolling" + at);
 			assertEquals(0, board.centreScrollMaximum(AgentControlScreen.LIVE_NATURAL + 400), "an unfolded centre never scrolls" + at);
 			assertions += 6;
@@ -130,6 +131,10 @@ public final class AgentControlLayoutVerification {
 					"the folded column scrolls exactly as far as the stack overflows" + at);
 			assertions += 5;
 		}
+		assertTrue(!MissionBoardLayout.calculate(960, 540).listCompact(), "at GUI scale 2 the list shows names");
+		assertTrue(MissionBoardLayout.calculate(640, 360).listCompact(), "at GUI scale 3 the list shows heads so the live view keeps its room");
+		assertTrue(MissionBoardLayout.calculate(640, 360).centre().width() >= BoardLiveView.SIDE_BY_SIDE,
+				"at GUI scale 3 Mission and Activity sit side by side");
 		MissionBoardLayout scaleFour = MissionBoardLayout.calculate(480, 270);
 		assertTrue(scaleFour.centre().width() >= 300, "at GUI scale 4 the folded column is wide enough for the rail's rows");
 		assertTrue(scaleFour.centreScrollMaximum(AgentControlScreen.LIVE_NATURAL + AgentControlScreen.STACK_GAP + 150) > 0,
@@ -166,7 +171,32 @@ public final class AgentControlLayoutVerification {
 		assertTrue(!AgentControlScreen.boatShapeChanged(new dev.agaminggod.mineagen.server.BoatAccount.Status("running", true, "oauth", "m", 0.01D, null),
 				new dev.agaminggod.mineagen.server.BoatAccount.Status("running", true, "oauth", "m", 0.02D, null)),
 				"the cost ticking up redraws in place without a rebuild");
-		return assertions + 3 + 13;
+		return assertions + 3 + 13 + 3 + verifyLiveViewData();
+	}
+
+	private static int verifyLiveViewData() {
+		com.google.gson.JsonObject view = com.google.gson.JsonParser.parseString("""
+				{"plan":{"steps":[{"label":"Find wood","status":"complete"},{"id":"craft","status":"active"},{"label":" "}]},
+				 "events":[{"stage":"tool","message":"mine log","at":5},{"stage":"live_delta","message":"looking\nfor trees"},{"stage":"x","message":""}],
+				 "decision":{"action":"Mine the oak","purpose":"planks"}}""").getAsJsonObject();
+		com.google.gson.JsonObject usage = new com.google.gson.JsonObject();
+		usage.addProperty("inputTokens", 12_400);
+		view.add("usage", usage);
+		List<BoardLiveView.Step> steps = BoardLiveView.steps(view);
+		assertEquals(2, steps.size(), "plan steps without any name are left out");
+		assertEquals("craft", steps.get(1).label(), "a step with no label falls back to its id");
+		List<BoardLiveView.Event> events = BoardLiveView.events(view);
+		assertEquals(2, events.size(), "events without a message are left out");
+		assertEquals("thinking", events.get(0).tag(), "events show newest first, thoughts tagged as thinking");
+		assertEquals("looking for trees", events.get(0).message(), "a multi-line event reads as one line");
+		assertEquals("Mine the oak: planks", BoardLiveView.decision(view), "the next decision shows its action and purpose");
+		assertEquals("", BoardLiveView.decision(null), "no live view means no decision");
+		assertEquals("", BoardLiveView.usage(null), "no usage is left out, not shown as zero");
+		assertEquals("12.4k", BoardLiveView.tokens(12_400), "token counts read in thousands");
+		assertEquals("Nether", AgentBody.dimensionLabel("minecraft:the_nether"), "dimensions read by name");
+		assertEquals("Deep dark", AgentBody.dimensionLabel("mod:deep_dark"), "a modded dimension reads in title case");
+		assertTrue(BoardLiveView.naturalHeight(400) < BoardLiveView.naturalHeight(300), "a narrow live view stacks its panels");
+		return 12;
 	}
 
 	/** Pending feedback is neutral, and a long offline reason gets a measured banner that the Now card stays below. */

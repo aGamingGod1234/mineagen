@@ -410,6 +410,8 @@ public final class AgentControlScreen extends Screen {
 
 	@Override
 	public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
+		boardMouseX = mouseX;
+		boardMouseY = mouseY;
 		// While the control center is open the selected agent's live view keeps coming, for its Now card.
 		dev.agaminggod.mineagen.client.control.LiveAgentWindows.watch();
 		// Every agent, not just the selected one, so a switch back does not show a duration it never watched.
@@ -419,7 +421,14 @@ public final class AgentControlScreen extends Screen {
 		int panelWidth = layout.panelRight() - layout.panelLeft();
 		int panelHeight = layout.panelBottom() - layout.panelTop();
 		ConsoleDraw.shadow(graphics, layout.panelLeft(), layout.panelTop(), panelWidth, panelHeight, 0xB0);
-		ConsoleDraw.surface(graphics, layout.panelLeft(), layout.panelTop(), panelWidth, panelHeight, ConsoleDraw.RADIUS_PANEL, PANEL);
+		boolean glassPanel = page == Page.OVERVIEW;
+		ConsoleDraw.surface(graphics, layout.panelLeft(), layout.panelTop(), panelWidth, panelHeight, ConsoleDraw.RADIUS_PANEL,
+				glassPanel ? BOARD_GLASS : PANEL);
+		if (glassPanel) {
+			ConsoleDraw.ring(graphics, layout.panelLeft(), layout.panelTop(), panelWidth, panelHeight, ConsoleDraw.RADIUS_PANEL, 0x22FFFFFF);
+			graphics.fill(layout.panelLeft() + ConsoleDraw.RADIUS_PANEL, layout.panelTop(), layout.panelRight() - ConsoleDraw.RADIUS_PANEL,
+					layout.panelTop() + 1, 0x30FFFFFF);
+		}
 		renderShell(graphics);
 		renderBanner(graphics);
 		renderHeader(graphics);
@@ -542,11 +551,13 @@ public final class AgentControlScreen extends Screen {
 	private static final int BOAT_POLL_TICKS = 10;
 	/** How long the switch shows a just-sent Runs on choice before trusting the settings file again. */
 	private static final long RUNS_ON_PENDING_MS = 8_000L;
-	static final int LIST_ROW = 22;
+	static final int LIST_ROW = 26;
 	static final int LIST_ROW_GAP = 3;
+	/** The mission board's panel: dark glass that lets the blurred world show through. */
+	private static final int BOARD_GLASS = 0xD80B0F15;
 	static final int LIVE_BUTTON = 20;
-	/** The live view's rows: header 18, task 33, now 33, plan 18, vitals 12, attention 12, gap 4, buttons 20. */
-	static final int LIVE_NATURAL = 150;
+	/** The live view's height when folded at the narrowest side-by-side width: hero, Mission and Activity, buttons. */
+	static final int LIVE_NATURAL = BoardLiveView.naturalHeight(BoardLiveView.SIDE_BY_SIDE);
 	static final int STACK_GAP = 10;
 
 	private record Board(MissionBoardLayout layout, AgentControlLayout.Bounds view, AgentControlLayout.Bounds railView,
@@ -567,9 +578,6 @@ public final class AgentControlScreen extends Screen {
 		}
 	}
 
-	record Vitals(int health, int maxHealth, int food) {
-	}
-
 	private Page keysReturn = Page.CREATE;
 	private BoatAccount.Status boatStatus;
 	private BoatAccount.Settings boatSettings = new BoatAccount.Settings(false, false);
@@ -578,7 +586,10 @@ public final class AgentControlScreen extends Screen {
 	private Boolean runsOnPending;
 	private long runsOnPendingAt;
 	private boolean consentPending;
-	private Vitals vitals;
+	private AgentBody body;
+	private float boardMouseX;
+	private float boardMouseY;
+	private BoardLiveView liveView;
 	private int listScroll;
 	private int centreScroll;
 	/** The unfolded rail scrolls on its own when consent, an error and the sign-in rows are taller than its column. */
@@ -619,7 +630,7 @@ public final class AgentControlScreen extends Screen {
 			widgetRefreshPending = true;
 		}
 		if (boatShapeChanged(before, boatStatus) || !settingsBefore.equals(boatSettings)) widgetRefreshPending = true;
-		vitals = readVitals(selectedAgent());
+		body = AgentBody.read(minecraft, selectedAgent());
 	}
 
 	/** True when the rail's layout changes; the cost ticking up only redraws in place. */
@@ -633,35 +644,11 @@ public final class AgentControlScreen extends Screen {
 		return runsOnPending != null ? runsOnPending : boatSettings.runsOnBoat();
 	}
 
-	/** The agent's health and food from this PC's own world; null on a remote server or before its body loads. */
-	private Vitals readVitals(AgentControlAgent agent) {
-		if (agent == null || minecraft == null) return null;
-		try {
-			var server = minecraft.getSingleplayerServer();
-			if (server != null) {
-				var player = server.getPlayerList().getPlayerByName(agent.playerName());
-				if (player != null) {
-					return new Vitals(Math.round(player.getHealth()), Math.round(player.getMaxHealth()), player.getFoodData().getFoodLevel());
-				}
-			}
-			if (minecraft.level != null) {
-				for (var player : minecraft.level.players()) {
-					if (player.getName().getString().equals(agent.playerName())) {
-						return new Vitals(Math.round(player.getHealth()), Math.round(player.getMaxHealth()), -1);
-					}
-				}
-			}
-		} catch (RuntimeException unavailable) {
-			// read off the server thread for display only; a list changing under us just skips this refresh
-		}
-		return null;
-	}
-
 	private void initBoard() {
 		if (!boatRead) readBoat();
 		MissionBoardLayout layout = MissionBoardLayout.calculate(width, height, builtBannerInset);
 		AgentControlAgent agent = selectedAgent();
-		if (vitals == null) vitals = readVitals(agent);
+		if (body == null) body = AgentBody.read(minecraft, agent);
 
 		// Left: the agent list, "All" to the full roster, and New agent at the bottom.
 		AgentControlLayout.Bounds list = layout.list();
@@ -670,12 +657,16 @@ public final class AgentControlScreen extends Screen {
 		int newTop = list.bottom() - LIST_ROW;
 		int rowsBottom = Math.max(rowsTop, newTop - 6);
 		boolean moreAbove = false, moreBelow = false;
-		if (list.width() >= 48 && newTop >= list.top()) {
-			ConsoleButton create = primaryButton(tr("screen.mineagen.board.new_agent"), list.left(), newTop, list.width(), LIST_ROW,
+		boolean compact = layout.listCompact();
+		if (compact) rowsTop = list.top();
+		if (list.width() >= MissionBoardLayout.LIST_COMPACT && newTop >= list.top()) {
+			// A narrow list keeps New agent as its plus alone, named by its tooltip.
+			ConsoleButton create = primaryButton(compact ? "" : tr("screen.mineagen.board.new_agent"), list.left(), newTop, list.width(), LIST_ROW,
 					() -> show(Page.CREATE)).withIcon(ConsoleDraw.Icon.PLUS);
 			create.active = canControl();
+			if (compact) create.setTooltip(net.minecraft.client.gui.components.Tooltip.create(Component.translatable("screen.mineagen.board.new_agent")));
 			addRenderableWidget(create);
-			if (!agents.isEmpty()) {
+			if (!agents.isEmpty() && !compact) {
 				String all = tr("screen.mineagen.board.all");
 				int allWidth = ConsoleButton.fittedWidth(font, all, false, true);
 				ConsoleButton roster = ghostButton(all, list.right() - allWidth + 8, list.top(), allWidth, 12, () -> show(Page.ROSTER)).small();
@@ -689,7 +680,7 @@ public final class AgentControlScreen extends Screen {
 				addRenderableWidget(new AgentListRow(font, list.left(), rowsTop + index * (LIST_ROW + LIST_ROW_GAP), list.width(), LIST_ROW,
 						row, row.agentId().equals(managementSelection.selectedAgentId()), () -> {
 							selectAgent(row.agentId());
-							vitals = readVitals(selectedAgent());
+							body = AgentBody.read(minecraft, selectedAgent());
 							rebuildWidgets();
 						}, () -> {
 							selectAgent(row.agentId());
@@ -703,12 +694,13 @@ public final class AgentControlScreen extends Screen {
 		// Centre: the live view; folded, the rail follows it and the column scrolls.
 		AgentControlLayout.Bounds view = layout.centre();
 		int railWidth = layout.railContentWidth();
-		int stack = layout.railFolded() ? LIVE_NATURAL + STACK_GAP + (buildRail(0, 0, railWidth).bottom()) : 0;
+		int natural = BoardLiveView.naturalHeight(view.width());
+		int stack = layout.railFolded() ? natural + STACK_GAP + (buildRail(0, 0, railWidth).bottom()) : 0;
 		int scrollMaximum = layout.centreScrollMaximum(stack);
 		centreScroll = Math.clamp(centreScroll, 0, scrollMaximum);
 		int liveTop = view.top() - centreScroll;
 		AgentControlLayout.Bounds live = new AgentControlLayout.Bounds(view.left(), liveTop, view.right(),
-				liveTop + layout.liveHeight(LIVE_NATURAL));
+				liveTop + layout.liveHeight(natural));
 		int railScrollMaximum = layout.railFolded() ? 0
 				: Math.max(0, buildRail(0, 0, railWidth).bottom() - layout.rail().height());
 		railScroll = Math.clamp(railScroll, 0, railScrollMaximum);
@@ -889,7 +881,7 @@ public final class AgentControlScreen extends Screen {
 			if (!row.signIn()) continue;
 			int y = rail.providersY() + 12 + index * 22;
 			String label = tr(row.signInKey());
-			int nameRoom = 18 + ConsoleText.strongWidth(font, tr(row.nameKey())) + 8;
+			int nameRoom = providerNameLeft(row.id(), 0) + ConsoleText.strongWidth(font, tr(row.nameKey())) + 8;
 			int w = Math.max(40, Math.min(ConsoleButton.fittedWidth(font, label, false, true), rail.width() - nameRoom));
 			ConsoleButton signIn = consoleButton(Component.literal(label), rail.left() + rail.width() - w, y + 1, w, 18, false,
 					() -> boatRailAction(row.signInAction(), tr("screen.mineagen.boat.opening", tr(row.nameKey())))).small();
@@ -1036,6 +1028,8 @@ public final class AgentControlScreen extends Screen {
 		renderLive(graphics, current);
 		renderRail(graphics, current);
 		if (centreScroll < current.centreScrollMaximum()) {
+			// Fade the last rows under the chevron so it never sits on top of text.
+			graphics.fillGradient(current.view().left(), current.view().bottom() - 18, current.view().right(), current.view().bottom(), 0x000B0F15, 0xF20B0F15);
 			ConsoleDraw.icon(graphics, ConsoleDraw.Icon.CHEVRON_DOWN, (current.view().left() + current.view().right()) / 2 - 6,
 					current.view().bottom() - 8, ConsoleTheme.SUBTLE);
 		}
@@ -1047,6 +1041,12 @@ public final class AgentControlScreen extends Screen {
 
 	private void renderBoardList(GuiGraphicsExtractor graphics, Board current) {
 		AgentControlLayout.Bounds list = current.layout().list();
+		if (current.layout().listCompact()) {
+			int middle = (list.left() + list.right()) / 2 - 4;
+			if (current.listMoreAbove()) ConsoleDraw.icon(graphics, ConsoleDraw.Icon.CHEVRON_DOWN, middle, current.listRowsTop() - 6, 8, ConsoleTheme.SUBTLE);
+			if (current.listMoreBelow()) ConsoleDraw.icon(graphics, ConsoleDraw.Icon.CHEVRON_DOWN, middle, current.listRowsBottom() - 2, 8, ConsoleTheme.SUBTLE);
+			return;
+		}
 		if (list.width() < 48) return;
 		int count = snapshot == null ? 0 : snapshot.agents().size();
 		ConsoleDraw.label(graphics, font, tr("screen.mineagen.board.agents", count), list.left(), list.top() + 2, MUTED);
@@ -1070,74 +1070,25 @@ public final class AgentControlScreen extends Screen {
 		}
 		AgentControlAgent agent = selectedAgent();
 		if (agent == null) return;
-		int y = live.top();
-		if (shows(view, y, 12)) {
-			ConsoleDraw.stateMark(graphics, agent.state(), left, y);
-			String state = AgentControlPresentation.stateLabel(agent.state());
-			int stateColor = ConsoleTheme.stateColor(AgentControlPresentation.stateCue(agent.state()).tone());
-			int stateWidth = ConsoleText.width(font, state);
-			graphics.text(font, ConsoleText.component(state), right - stateWidth, y + 2, stateColor, false);
-			int nameLeft = left + 16;
-			String name = fitStrong(agent.displayName(), Math.max(16, right - stateWidth - 8 - nameLeft));
-			graphics.text(font, ConsoleText.strong(name), nameLeft, y + 2, ConsoleTheme.rosterProviderColor(agent.provider()), false);
-			int after = nameLeft + ConsoleText.strongWidth(font, name) + 8;
-			int room = right - stateWidth - 8 - after;
-			if (room > 30) ConsoleDraw.label(graphics, font, fitLabel(AgentControlPresentation.profileLabel(agent), room), after, y + 3, MUTED);
-		}
-		y += 18;
-		boolean noTask = agent.currentGoal().isBlank();
-		y = renderLiveField(graphics, view, tr("screen.mineagen.board.task"), noTask ? tr("screen.mineagen.board.no_task") : agent.currentGoal(),
-				noTask ? MUTED : TEXT, left, y, width);
-		com.google.gson.JsonObject liveView = dev.agaminggod.mineagen.client.control.LiveAgentWindows.liveView(agent);
-		AgentNowCard.Live now = AgentNowCard.Live.from(liveView);
-		String doing = !now.doing().isBlank() ? now.doing() : !now.decision().isBlank() ? now.decision()
-				: !agent.lastSummary().isBlank() ? agent.lastSummary() : tr("screen.mineagen.board.waiting_live");
-		boolean known = !now.doing().isBlank() || !now.decision().isBlank() || !agent.lastSummary().isBlank();
-		y = renderLiveField(graphics, view, tr("screen.mineagen.board.now"), doing, known ? TEXT : MUTED, left, y, width);
-		int[] plan = planProgress(liveView);
-		if (shows(view, y, 14)) {
-			String plabel = tr("screen.mineagen.board.plan");
-			ConsoleDraw.label(graphics, font, plabel, left, y, ConsoleTheme.SUBTLE);
-			String steps = plan[1] == 0 ? tr("screen.mineagen.board.no_plan") : tr("screen.mineagen.board.plan_progress", plan[0], plan[1]);
-			ConsoleDraw.label(graphics, font, steps, right - ConsoleDraw.labelWidth(font, steps), y, MUTED);
-			ConsoleDraw.surface(graphics, left, y + 10, width, 4, 2, TRACK);
-			if (plan[1] > 0 && plan[0] > 0) {
-				ConsoleDraw.surface(graphics, left, y + 10, Math.max(4, width * plan[0] / plan[1]), 4, 2, SUCCESS);
-			}
-		}
-		y += 22;
-		if (shows(view, y, 10)) {
-			List<String> parts = new ArrayList<>();
-			Vitals body = vitals;
-			if (body != null) {
-				parts.add(tr("screen.mineagen.board.health", body.health(), body.maxHealth()));
-				if (body.food() >= 0) parts.add(tr("screen.mineagen.board.food", body.food()));
-			}
-			long stateMs = stateMs(agent);
-			if (stateMs >= 0) parts.add(tr("screen.mineagen.board.in_state", ago(stateMs)));
-			if (!parts.isEmpty()) graphics.text(font, ConsoleText.component(fit(String.join("  ·  ", parts), width)), left, y, MUTED, false);
-		}
-		y += 12;
-		int attentionY = y;
-		if (shows(view, attentionY, 10)) {
-			AgentNowCard.rows(agent, stateMs(agent), now).stream()
-					.filter(row -> row.kind() == AgentNowCard.Kind.WARNING || row.kind() == AgentNowCard.Kind.ERROR)
-					.findFirst()
-					.ifPresent(row -> graphics.text(font, ConsoleText.component(fit(row.label() + ": " + row.text(), width)), left, attentionY,
-							ConsoleTheme.stateColor(row.tone()), false));
-		}
+		com.google.gson.JsonObject liveJson = dev.agaminggod.mineagen.client.control.LiveAgentWindows.liveView(agent);
+		AgentNowCard.Live now = AgentNowCard.Live.from(liveJson);
+		long stateMs = stateMs(agent);
+		String inState = stateMs >= 0 ? tr("screen.mineagen.board.in_state", ago(stateMs)) : "";
+		var attention = AgentNowCard.rows(agent, stateMs, now).stream()
+				.filter(row -> row.kind() == AgentNowCard.Kind.WARNING || row.kind() == AgentNowCard.Kind.ERROR)
+				.findFirst();
+		if (liveView == null) liveView = new BoardLiveView(font);
+		liveView.render(graphics, view, current.live(), new BoardLiveView.Frame(agent, body, liveJson, boardAccent(agent), inState,
+				attention.map(row -> row.label() + ": " + row.text()).orElse(""),
+				attention.map(row -> ConsoleTheme.stateColor(row.tone())).orElse(ConsoleTheme.WARNING), boardMouseX, boardMouseY));
 	}
 
-	/** A small label over up to two lines of text; returns where the next field starts (33 below). */
-	private int renderLiveField(GuiGraphicsExtractor graphics, AgentControlLayout.Bounds view, String label, String text, int color,
-			int left, int y, int width) {
-		if (shows(view, y, 9)) ConsoleDraw.label(graphics, font, label, left, y, ConsoleTheme.SUBTLE);
-		List<String> lines = twoLines(text, width);
-		for (int index = 0; index < lines.size(); index++) {
-			int lineY = y + 10 + index * 10;
-			if (shows(view, lineY, 9)) graphics.text(font, ConsoleText.component(lines.get(index)), left, lineY, color, false);
-		}
-		return y + 33;
+	/** The board's accent: boat blue while agents run on a boat machine, else the selected agent's state colour. */
+	private int boardAccent(AgentControlAgent agent) {
+		if (BoatPanelPresentation.pillShowsBoat(boatStatus, boatSettings)) return ConsoleTheme.BOAT;
+		var tone = AgentControlPresentation.stateCue(agent.state()).tone();
+		int color = ConsoleTheme.stateColor(tone);
+		return color == ConsoleTheme.MUTED || color == ConsoleTheme.SUBTLE ? ConsoleTheme.ACCENT : color;
 	}
 
 	/** Complete and total steps of the live plan; {0, 0} with no plan. */
@@ -1167,16 +1118,23 @@ public final class AgentControlScreen extends Screen {
 		BoatPanelPresentation.Machine machine = rail.machine();
 		int tone = boatToneColor(machine.tone());
 		if (shows(view, rail.machineY(), rail.machineHeight())) {
-			ConsoleDraw.surface(graphics, left, rail.machineY(), width, rail.machineHeight(), ConsoleDraw.RADIUS_CARD,
-					machine.tone() == BoatPanelPresentation.Tone.BOAT ? ConsoleTheme.BOAT_SURFACE : TRACK);
+			AgentControlLayout.Bounds card = new AgentControlLayout.Bounds(left, rail.machineY(), left + width, rail.machineY() + rail.machineHeight());
+			boolean onBoat = machine.tone() == BoatPanelPresentation.Tone.BOAT;
+			if (onBoat) BoardLiveView.glow(graphics, card, ConsoleTheme.BOAT);
+			BoardLiveView.glass(graphics, card, onBoat ? 0xC014263A : BoardLiveView.CARD);
+			if (onBoat) {
+				graphics.fillGradient(left + 2, card.top() + 2, left + width - 2, card.top() + Math.min(28, card.height() - 2),
+						ConsoleDraw.withAlpha(ConsoleTheme.BOAT, 0.16F), ConsoleDraw.withAlpha(ConsoleTheme.BOAT, 0F));
+			}
+			int mark = BrandMarks.draw(graphics, BrandMarks.Mark.BOAT, left + 8, rail.machineY() + 4, BrandMarks.SMALL);
 			for (int index = 0; index < rail.head().size(); index++) {
 				String line = rail.head().get(index);
 				int y = rail.machineY() + 6 + index * MACHINE_LINE + (index >= rail.titleLines() ? MACHINE_TITLE_GAP : 0);
-				if (index < rail.titleLines()) graphics.text(font, ConsoleText.strong(line), left + 8, y, tone, false);
+				if (index < rail.titleLines()) graphics.text(font, ConsoleText.strong(line), left + 8 + (index == 0 && mark > 0 ? mark + 5 : 0), y, tone, false);
 				else graphics.text(font, ConsoleText.component(line), left + 8, y, MUTED, false);
 			}
 			if (rail.costY() >= 0 && boatStatus != null) {
-				graphics.text(font, ConsoleText.component(fit(tr("screen.mineagen.boat.cost", BoatPanelPresentation.dollars(boatStatus.costDollars())),
+				graphics.text(font, ConsoleText.strong(fit(tr("screen.mineagen.boat.cost", BoatPanelPresentation.dollars(boatStatus.costDollars())),
 						width - 16)), left + 8, rail.costY(), TEXT, false);
 			}
 			if (rail.progressY() >= 0) {
@@ -1197,21 +1155,27 @@ public final class AgentControlScreen extends Screen {
 			BoatPanelPresentation.ProviderRow row = rail.providers().get(index);
 			int y = rail.providersY() + 12 + index * 22;
 			if (!shows(view, y, 20)) continue;
-			ConsoleDraw.surface(graphics, left, y, width, 20, ConsoleDraw.RADIUS_CONTROL, SURFACE);
-			int mark = row.id().equals("boat") ? ConsoleTheme.BOAT : ConsoleTheme.providerColor(row.id());
-			ConsoleDraw.surface(graphics, left + 5, y + 5, 10, 10, ConsoleDraw.RADIUS_SMALL, ConsoleDraw.withAlpha(mark, 0.28F));
-			ConsoleDraw.Icon icon = providerMark(row.id());
-			if (icon != null) ConsoleDraw.icon(graphics, icon, left + 5, y + 5, 10, mark);
-			else ConsoleDraw.surface(graphics, left + 8, y + 8, 4, 4, 1, mark);
+			AgentControlLayout.Bounds card = new AgentControlLayout.Bounds(left, y, left + width, y + 20);
+			BoardLiveView.glass(graphics, card, 0x701A2230);
+			int accent = row.id().equals("boat") ? ConsoleTheme.BOAT : ConsoleTheme.providerColor(row.id());
+			graphics.fill(left + 1, y + 5, left + 2, y + 15, accent);
+			int nameLeft = providerNameLeft(row.id(), left);
+			BrandMarks.draw(graphics, BrandMarks.forProvider(row.id()), left + 8, y + 5, BrandMarks.SMALL);
 			String name = tr(row.nameKey());
-			graphics.text(font, ConsoleText.strong(name), left + 20, y + 6, TEXT, false);
+			graphics.text(font, ConsoleText.strong(name), nameLeft, y + 6, TEXT, false);
 			if (!row.signIn()) {
 				String status = tr(row.statusKey());
-				int room = width - 20 - ConsoleText.strongWidth(font, name) - 14;
+				int room = width - (nameLeft - left) - ConsoleText.strongWidth(font, name) - 14;
 				String shown = fitLabel(status, Math.max(12, room));
 				ConsoleDraw.label(graphics, font, shown, left + width - 6 - ConsoleDraw.labelWidth(font, shown), y + 7, boatToneColor(row.tone()));
 			}
 		}
+	}
+
+	/** Where a provider row's name starts: after its logo when the logo ships, else at the row's padding. */
+	private static int providerNameLeft(String id, int left) {
+		int mark = BrandMarks.width(BrandMarks.forProvider(id), BrandMarks.SMALL);
+		return left + 8 + (mark > 0 ? mark + 5 : 0);
 	}
 
 	static int boatToneColor(BoatPanelPresentation.Tone tone) {
@@ -2234,7 +2198,8 @@ public final class AgentControlScreen extends Screen {
 	/** The status text broken into banner lines, or none when it fits on the header line. */
 	private List<String> bannerLines() {
 		if (font == null) return List.of();
-		AgentControlLayout base = AgentControlLayout.calculate(width, height);
+		AgentControlLayout base = page == Page.OVERVIEW ? AgentControlLayout.calculateBoard(width, height, 0)
+				: AgentControlLayout.calculate(width, height);
 		String text = status().text();
 		int headerRoom = Math.max(24, base.contentRight() - headerStatusLeft(base) - 10);
 		if (ConsoleText.width(font, text) <= headerRoom) return List.of();
@@ -2678,7 +2643,8 @@ public final class AgentControlScreen extends Screen {
 	}
 
 	private AgentControlLayout layout() {
-		return AgentControlLayout.calculate(width, height, builtBannerInset);
+		return page == Page.OVERVIEW ? AgentControlLayout.calculateBoard(width, height, builtBannerInset)
+				: AgentControlLayout.calculate(width, height, builtBannerInset);
 	}
 
 	private static String capitalize(String value) {
