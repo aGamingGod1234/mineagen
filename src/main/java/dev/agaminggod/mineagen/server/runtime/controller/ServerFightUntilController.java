@@ -554,15 +554,15 @@ public final class ServerFightUntilController implements ServerController {
 		boolean shielding = shieldHand != null && shotFrom != null && gameTick - shotTick <= GUARD_HOLD_TICKS;
 		// A kill's drop pickup runs inside the engagement; the shield waits for it.
 		boolean collecting = (melee != null || volley != null) && current != null && current.isDeadOrDying();
-		if (blazeSurvival() && !spawnerHandlesRecovery && !fireContact && RECOVER && choices.guardShield(true)) {
+		// Guard the incoming shot before resuming the recovery walk. A ledge trip in mid-pillar finishes its climb unless on fire.
+		if ((shielding && (ledge == null || !ledge.climbing()) || fireContact) && (!collecting || blazeSurvival() && fireContact))
+			return guard(player, shieldHand, shielding, fireContact, elapsed);
+		if (blazeSurvival() && !spawnerHandlesRecovery && RECOVER && choices.guardShield(true)) {
 			TickResult recovering = tickRecover(player, nowEpochMs, elapsed);
 			if (recovering != null) return recovering;
 		}
-		if (blazeSurvival() && !fireContact && CombatPlanning.shouldBailOut(player.getHealth(), fleeAtHealth))
+		if (blazeSurvival() && CombatPlanning.shouldBailOut(player.getHealth(), fleeAtHealth))
 			return startBailout(player, elapsed, nowEpochMs);
-		// A ledge trip in mid-pillar is not dropped for a shot (fire still stops it): a player finishes the climb.
-		if ((shielding && (ledge == null || !ledge.climbing()) || fireContact) && (!collecting || blazeSurvival() && fireContact))
-			return guard(player, shieldHand, shielding, fireContact, elapsed);
 		releaseGuard();
 
 		if (!blazeSurvival() && !spawnerHandlesRecovery && !roof && mob == McEntityTypes.BLAZE && RECOVER && choices.guardShield(true)) {

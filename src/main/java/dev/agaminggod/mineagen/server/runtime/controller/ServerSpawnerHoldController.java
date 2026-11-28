@@ -383,11 +383,10 @@ public final class ServerSpawnerHoldController implements ServerController {
 				}
 				if (rodWithdrawal == null && phase == Phase.HOLD && !inCell)
 					return backToCell(player, now, "rod count reached; returning to the covered cell before leaving");
-				if (inCell && (player.isOnFire() || player.getHealth() < SpawnerHold.TURTLE_HEALTH)) {
-					coverWanted = true;
-					return hold(player, now, elapsed, true);
-				}
-				if (sealed || partlySealed || reopening || sealWork != null) return hold(player, now, elapsed, inCell);
+				boolean needsCover = inCell && (player.isOnFire() || player.getHealth() < SpawnerHold.TURTLE_HEALTH);
+				if (needsCover) coverWanted = true;
+				if (needsCover || sealed || partlySealed || reopening || sealWork != null)
+					return hold(player, now, elapsed, inCell, true);
 				if (rodWithdrawal == null) {
 					cancelParts(player);
 					Vec3 doorwayExit = inCell ? Vec3.atBottomCenterOf(cell.relative(opening, 2)) : null;
@@ -506,7 +505,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 			case WALK -> walkToSite(player, now);
 			case BUILD -> build(player, now);
 			case LINTEL -> lintel(player, now);
-			case HOLD -> hold(player, now, elapsed, inCell);
+			case HOLD -> hold(player, now, elapsed, inCell, false);
 		};
 	}
 
@@ -778,7 +777,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 		return TickResult.running(progress(player));
 	}
 
-	private TickResult hold(ServerPlayer player, long now, long elapsed, boolean inCell) {
+	private TickResult hold(ServerPlayer player, long now, long elapsed, boolean inCell, boolean withdrawing) {
 		// A blaze in the doorway can stop the blocks being placed and keep hitting throughout a meal.
 		if (ServerFightUntilController.BLAZE_SURVIVAL && inCell && (turtleSinceMs >= 0L || eatTicks >= 0 || marginGone(player, 0.0D))) {
 			TickResult guardingCell = defend(player, now, true);
@@ -914,20 +913,23 @@ public final class ServerSpawnerHoldController implements ServerController {
 			healWinners.merge(winner + " " + keys, 1, Integer::sum);
 			return TickResult.running(progress(player));
 		}
-		if (turtleSinceMs >= 0L) {
+		boolean finishedHealing = turtleSinceMs >= 0L;
+		if (finishedHealing) {
 			note(String.format(Locale.ROOT, "healed to %.1f in %.0f s", player.getHealth(), (elapsed - turtleSinceMs) / 1000.0D));
 			turtleSinceMs = -1L;
 			shieldInput.release();
 			// Healed while the wall-in was still being placed: stop it and open whatever of the doorway it already closed.
 			if (sealWork != null) { sealWork.cancel(player); sealWork = null; partlySealed = true; }
-			if (sealed || partlySealed) {
-				partlySealed = false;
-				reopening = true;
-				TickResult opening = reopen(player, now);
-				if (opening != null) return opening;
-				if (target != null && phase != Phase.HOLD) return TickResult.running(progress(player));
-			}
 		}
+		if ((finishedHealing || withdrawing) && (sealed || partlySealed)) {
+			partlySealed = false;
+			reopening = true;
+			TickResult opening = reopen(player, now);
+			if (opening != null) return opening;
+			if (target != null && phase != Phase.HOLD) return TickResult.running(progress(player));
+		}
+		// With the quota met, the next tick starts the exit instead of another fight from the open doorway.
+		if (withdrawing) return TickResult.running(progress(player));
 		boolean blazeInReach = blazeNear(player);
 		int slot = foodSlot(player);
 		if (inCell && SpawnerHold.shouldEat(player.getFoodData().getFoodLevel(), player.getHealth(), !shot && biteSafe(player), blazeInReach, slot >= 0)) {
