@@ -84,7 +84,7 @@ import { killTraceFields } from './kill-trace.mjs';
 import { DeathRecorder } from './death-record.mjs';
 import { codedRuntimeError, loadDynamicConfig, normalizeDynamicConfig, parseDynamicCliArguments, positiveInteger, resolveDynamicCliRuntime } from './dynamic-config.mjs';
 import { createVoiceSupervisor } from './voice-worker.mjs';
-import { blockPosition, classifyObservationTrigger, dangerWakeRank, dangerWakeTrigger, DIMENSION_CHANGED_TRIGGER, factualProgressDetails, factualProgressSignature, finiteOrNull, imminentLavaFlow, inHazardContact, isHazardContactRequest, isSelfPreservationTool, isSurvivalReissueTool, KNOCKBACK_LEAD_MS, KNOCKBACK_SETTLE_MS, knockbackHurt, lavaFlowWakeDue, mergeAttentionTrigger, mergePlannerRequest, movementEvidence, nativeBlockPositionKey, nativeObservationSignature, NO_TASK_WAKE_TRIGGERS, rememberResources, routinePerceptionChange, sampleMovement, settleOwnBreak, startOwnBreak, SURVIVAL_EPISODE_QUIET_MS, SURVIVAL_RESTART_MIN_CALL_AGE_MS, survivalDangerShown, survivalFactKeys, withdrawShovedSteps, withoutOwnSightings } from './observation-facts.mjs';
+import { blockPosition, classifyObservationTrigger, dangerWakeRank, dangerWakeTrigger, DIMENSION_CHANGED_TRIGGER, factualProgressDetails, factualProgressSignature, finiteOrNull, imminentLavaFlow, inHazardContact, isHazardContactRequest, isSelfPreservationTool, isSurvivalReissueTool, KNOCKBACK_LEAD_MS, KNOCKBACK_SETTLE_MS, knockbackHurt, lavaFlowWakeDue, mergeAttentionTrigger, mergePlannerRequest, movementEvidence, nativeBlockPositionKey, nativeObservationSignature, NO_TASK_WAKE_TRIGGERS, rememberResources, routinePerceptionChange, agentLineNames, sampleMovement, settleOwnBreak, startOwnBreak, SURVIVAL_EPISODE_QUIET_MS, SURVIVAL_RESTART_MIN_CALL_AGE_MS, survivalDangerShown, survivalFactKeys, withdrawShovedSteps, withoutOwnSightings } from './observation-facts.mjs';
 import { burnFacts, DANGER_DECISION_TRIGGERS, fightSteerDecision, HEALING_EVENT_TRIGGERS, healingFacts, healNudgeVerdict, healWakeVerdict, isConfirmationContextTool, LOW_HEALTH_RECOVERY_TRIGGERS, rejectionTraceFields } from './danger-lines.mjs';
 import { StepStatusPublisher } from './step-status.mjs';
 import { buildNativeEventInput, CONTEXT_ENTRY_TRIGGER, DEFAULT_TASK_REQUEST_TIMEOUT_MS, NEW_CONTEXT_TRIGGERS, UUID_TEXT } from './wake-input.mjs';
@@ -461,8 +461,9 @@ export class DynamicCoordinator extends EventEmitter {
 		const latest = Number.isSafeInteger(perception?.latestSequence) ? perception.latestSequence : null;
 		const previous = this.#perceptionSequences.get(agentId);
 		if (latest !== null) this.#perceptionSequences.set(agentId, latest);
-		const agentNames = this.#registry.list().map((record) => record.name);
-		return routinePerceptionChange(payload, wireObservation, previous, this.#registry.get(agentId)?.name, agentNames) ? { ...payload, attention: false, changedFacts: [] } : payload;
+		const agentNames = agentLineNames(this.#registry.list());
+		const own = this.#registry.get(agentId);
+		return routinePerceptionChange(payload, wireObservation, previous, own?.name, agentNames, own?.chatLabel) ? { ...payload, attention: false, changedFacts: [] } : payload;
 	}
 
 	/**

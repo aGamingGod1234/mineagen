@@ -1947,7 +1947,7 @@ function normalizeCoordinatorStatus(value) {
 
 function normalizeRegisteredAgent(value, field) {
 	if (!isPlainObject(value)) throw new ProtocolV2Error('INVALID_PAYLOAD', `${field} must be an object`);
-	const keys = ['schemaVersion', 'agentId', 'entityUuid', 'name', 'provider', 'model', 'reasoningEffort', 'serviceTier', 'gameMode', 'skinVariant', 'state', 'currentGoal', 'currentGoalSpec', 'goalRevision', 'queue', 'queueGoalSpecs', 'lastSummary', 'death', 'createdAtEpochMs', 'updatedAtEpochMs', 'lastError'];
+	const keys = ['schemaVersion', 'agentId', 'entityUuid', 'name', 'chatLabel', 'provider', 'model', 'reasoningEffort', 'serviceTier', 'gameMode', 'skinVariant', 'state', 'currentGoal', 'currentGoalSpec', 'goalRevision', 'queue', 'queueGoalSpecs', 'lastSummary', 'death', 'createdAtEpochMs', 'updatedAtEpochMs', 'lastError'];
 	const required = ['schemaVersion', 'agentId', 'model', 'reasoningEffort', 'skinVariant', 'state', 'goalRevision', 'queue', 'createdAtEpochMs', 'updatedAtEpochMs'];
 	exactKeys(value, keys, required, field);
 	const queue = boundedArray(value.queue, `${field}.queue`, 256).map((goal, index) => boundedText(goal, `${field}.queue[${index}]`, MAX_GOAL_LENGTH));
@@ -1970,6 +1970,7 @@ function normalizeRegisteredAgent(value, field) {
 		agentId: requireIdentifier(value.agentId, `${field}.agentId`),
 		entityUuid: value.entityUuid === undefined ? null : requireIdentifier(value.entityUuid, `${field}.entityUuid`),
 		name: value.name === undefined ? null : boundedText(value.name, `${field}.name`, MAX_IDENTIFIER_LENGTH),
+		chatLabel: value.chatLabel === undefined ? null : boundedText(value.chatLabel, `${field}.chatLabel`, MAX_IDENTIFIER_LENGTH),
 		provider,
 		model: requireIdentifier(value.model, `${field}.model`),
 		reasoningEffort: requireIdentifier(value.reasoningEffort, `${field}.reasoningEffort`),

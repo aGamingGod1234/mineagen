@@ -2982,12 +2982,17 @@ export class NativeToolRuntime {
 				}
 				if (result?.state !== 'SUCCEEDED') break;
 			}
+			lastResult = result;
 			return result;
 		};
+		// The look after a move takes the sample the server publishes with that move's result, not one more collect.
+		let lastResult = null;
 		const body = {
 			observe: async () => {
 				if (!current()) throw codedError('NATIVE_ACTION_CANCELLED', 'obtain cancelled');
-				const facts = await this.#observe(record, { includeMetadata: false, deliver: false });
+				const afterResult = lastResult;
+				lastResult = null;
+				const facts = await this.#observe(record, { includeMetadata: false, deliver: false, afterResult });
 				if (facts.freshness?.fresh !== true) throw codedError('FRESH_OBSERVATION_REQUIRED', 'obtain needs a fresh observation at each step');
 				return this.#withResources(record.agentId, facts.observation ?? {});
 			},
@@ -3165,13 +3170,21 @@ export class NativeToolRuntime {
 				result = await this.#executeAction(request, record, action, steps);
 				if (result.state !== 'SUCCEEDED') break;
 			}
+			lastResult = result;
 			return result;
+		};
+		// The look after a step takes the sample the server publishes with that step's result, not one more collect.
+		let lastResult = null;
+		const lookAfterStep = () => {
+			const afterResult = lastResult;
+			lastResult = null;
+			return this.#observe(record, { includeMetadata: false, deliver: false, afterResult });
 		};
 		const end = (state, reasonCode, why) => ({ state, reasonCode, held, broken, picked, steps,
 			message: `${why}. Holding ${held} ${itemId} (asked ${count}, ${held - (startHeld ?? held)} gained); broke ${broken} block(s), picked up ${picked} drop(s) in ${steps} step(s) over ${Math.round((now() - startedAt) / 1000)} s` });
 		while (true) {
 			if (this.#executionEpoch(record.agentId) !== executionEpoch) throw codedError('NATIVE_ACTION_CANCELLED', 'gather cancelled before its next step');
-			const facts = await this.#observe(record, { includeMetadata: false, deliver: false });
+			const facts = await lookAfterStep();
 			if (facts.freshness?.fresh !== true) throw codedError('FRESH_OBSERVATION_REQUIRED', 'gather needs a fresh observation at each step');
 			const o = facts.observation ?? {};
 			held = (o.inventory?.items ?? []).filter((item) => counted.has(item?.itemId)).reduce((sum, item) => sum + (item.count ?? 0), 0);
@@ -3239,7 +3252,7 @@ export class NativeToolRuntime {
 			if (!gatherInReach(body, target)) {
 				const stand = gatherStand(o, wanted, target, body);
 				const moved = await step({ name: 'moveTo', arguments: { x: stand.x, y: stand.y, z: stand.z, tolerance: 1.5, timeoutMs: gatherStepTimeout(20_000, startedAt + timeoutMs, now()) } }, 'walk');
-				const after = gatherBodyAt((await this.#observe(record, { includeMetadata: false, deliver: false })).observation ?? {});
+				const after = gatherBodyAt((await lookAfterStep()).observation ?? {});
 				// A walk toward a far sighting brings the exact blocks into the 6-block observation; the next step picks them.
 				if (target.far && after !== null && !gatherInReach(after, target)) {
 					failed.add(key);
@@ -3288,13 +3301,17 @@ export class NativeToolRuntime {
 		const eyeSearchState = this.#portalSearches.get(agentId).state;
 		const live = () => { if (this.#executionEpoch(agentId) !== executionEpoch) throw codedError('NATIVE_ACTION_CANCELLED', `${label} cancelled before its next step`); };
 		const latest = () => this.#observations.get(agentId)?.observation ?? {};
+		// The look after a leg takes the sample the server publishes with that leg's result, not one more collect.
+		let lastResult = null;
 		return {
 			eyeSearchState,
 			now: () => this.#stepNow(),
 			progress: (facts) => { blockingRun[label] = { step: steps, ...facts }; },
 			observe: async () => {
 				live();
-				const facts = await this.#observe(record, { includeMetadata: false, deliver: false });
+				const afterResult = lastResult;
+				lastResult = null;
+				const facts = await this.#observe(record, { includeMetadata: false, deliver: false, afterResult });
 				if (facts.freshness?.fresh !== true) throw codedError('FRESH_OBSERVATION_REQUIRED', `${label} needs a fresh observation at each step`);
 				return this.#withResources(agentId, facts.observation ?? {});
 			},
@@ -3340,6 +3357,7 @@ export class NativeToolRuntime {
 				let result;
 				try { result = await this.#executeAction(request, record, action, steps); }
 				finally { stop(); }
+				lastResult = result;
 				await watcher;
 				return seen === null ? result : { ...result, seen };
 			},

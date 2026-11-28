@@ -76,6 +76,8 @@ public final class AgentGoalVerification {
             require(wire.get("state").getAsString().equals("DEAD"), "Registration preserves physical death"); assertions++;
             require(wire.get("goalRevision").getAsLong() == revised.goalRevision(), "Registration publishes revised intent fence"); assertions++;
             require(wire.getAsJsonObject("death").get("diedAtEpochMs").getAsLong() == 1002, "Registration keeps death facts"); assertions++;
+            // Activity lines show this label, not the player name; the coordinator needs it to tell them apart from news.
+            require(wire.get("chatLabel").getAsString().equals("GPT 6-Astra"), "Registration carries the chat label of a default-named agent"); assertions++;
         }
         return assertions;
     }

@@ -60,3 +60,22 @@ test('Minecraft\'s lines for public and nearby chat ride the next wake; DM lines
 	assert.equal(routinePerceptionChange(payload, wire('[DM] Alex -> Iris: hi'), 3, 'Iris', ['Iris', 'Axiom']), false, 'a DM line still wakes');
 	assert.equal(routinePerceptionChange(payload, wire('You may not rest now; there are monsters nearby'), 3, 'Iris'), false, 'other system messages keep their wake');
 });
+
+test('a default-named bot\'s activity lines, shown under its label rather than its player name, do not wake other bots', async () => {
+	const { AgentRegistry } = await import('../src/agent-registry.mjs');
+	const { agentLineNames } = await import('../src/observation-facts.mjs');
+	const registry = new AgentRegistry();
+	// The server's agent_registered payload for two bots that kept their default names.
+	for (const [agentId, name, chatLabel] of [['agent-a', 'Claude_Opus_5_5', 'Opus 5.5'], ['agent-b', 'Claude_Opus_5_52', 'Opus 5.5 2']]) {
+		const payload = validateProtocolV2Payload('agent_registered', { schemaVersion: 1, agentId, name, chatLabel, provider: 'claude', model: 'claude-opus-5-5', reasoningEffort: 'low',
+			gameMode: 'survival', skinVariant: 'variant-0', state: 'IDLE', goalRevision: 0, queue: [], createdAtEpochMs: 1, updatedAtEpochMs: 1 });
+		registry.register(payload);
+	}
+	const names = agentLineNames(registry.list());
+	const payload = { attention: true, changedFacts: ['perception'] };
+	const wire = (text) => ({ perception: { events: [{ sequence: 4, type: 'system_message', text }] } });
+	assert.equal(routinePerceptionChange(payload, wire('[Opus 5.5 2] Working on it.'), 3, 'Claude_Opus_5_5', names, 'Opus 5.5'), true, "another bot's activity line");
+	assert.equal(routinePerceptionChange(payload, wire('[Opus 5.5] Mining a block'), 3, 'Claude_Opus_5_5', [], 'Opus 5.5'), true, 'its own activity line');
+	assert.equal(routinePerceptionChange(payload, wire('<Claude_Opus_5_52> anyone have iron?'), 3, 'Claude_Opus_5_5', names, 'Opus 5.5'), true, 'chat still matches the player name');
+	assert.equal(routinePerceptionChange(payload, wire('[Server] restarting soon'), 3, 'Claude_Opus_5_5', names, 'Opus 5.5'), false, 'an unknown bracketed name keeps its wake');
+});
