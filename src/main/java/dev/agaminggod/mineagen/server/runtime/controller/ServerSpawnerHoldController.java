@@ -381,11 +381,8 @@ public final class ServerSpawnerHoldController implements ServerController {
 					note("held the rods; retreat ran out of time while getting to safety");
 					return stop(player, handBackResult(player, code, elapsed));
 				}
-				if (rodWithdrawal == null && phase == Phase.HOLD && !inCell) {
-					TickResult covering = coverOnReturn(player, now, elapsed);
-					if (covering != null) return covering;
+				if (rodWithdrawal == null && phase == Phase.HOLD && !inCell)
 					return backToCell(player, now, "rod count reached; returning to the covered cell before leaving");
-				}
 				if (inCell && (player.isOnFire() || player.getHealth() < SpawnerHold.TURTLE_HEALTH)) {
 					coverWanted = true;
 					return hold(player, now, elapsed, true);
@@ -400,11 +397,8 @@ public final class ServerSpawnerHoldController implements ServerController {
 				if (walked.state() == State.RUNNING) return walked;
 				note(walked.message());
 			}
-			if (phase == Phase.HOLD && !inCell && shieldLost(player)) {
-				TickResult covering = coverOnReturn(player, now, elapsed);
-				if (covering != null) return covering;
+			if (phase == Phase.HOLD && !inCell && shieldLost(player))
 				return backToCell(player, now, "shield broke during the fight; back to cover to replace it");
-			}
 			if ("LOW_HEALTH_BAILOUT".equals(code) && phase == Phase.SCAN) {
 				HOLDING.remove(player.getUUID());
 				shieldInput.release();
@@ -934,8 +928,6 @@ public final class ServerSpawnerHoldController implements ServerController {
 				if (target != null && phase != Phase.HOLD) return TickResult.running(progress(player));
 			}
 		}
-		// Once the seventh rod is held, opening cover hands control back to the withdrawal on the next tick.
-		if (rodExitStarted >= 0L) return TickResult.running(progress(player));
 		boolean blazeInReach = blazeNear(player);
 		int slot = foodSlot(player);
 		if (inCell && SpawnerHold.shouldEat(player.getFoodData().getFoodLevel(), player.getHealth(), !shot && biteSafe(player), blazeInReach, slot >= 0)) {
@@ -1148,16 +1140,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 		return item != null && ServerFightUntilController.count(player, BuiltInRegistries.ITEM.getValue(Identifier.parse(item))) >= 10;
 	}
 
-	private TickResult coverOnReturn(ServerPlayer player, long now, long elapsed) {
-		if (emergency == null && (!marginGone(player, toCell(player)) || BrinkGuard.needsFooting(player) || blazeInMelee(player))) return null;
-		return emergency(player, now, elapsed, true);
-	}
-
 	private TickResult emergency(ServerPlayer player, long now, long elapsed) {
-		return emergency(player, now, elapsed, false);
-	}
-
-	private TickResult emergency(ServerPlayer player, long now, long elapsed, boolean returningForCover) {
 		if (emergency == null) {
 			// fight_target form (no cell walk): the same margin rule as the hold's turn-back, with the cell where the body
 			// stands (round 2220d78: a fixed "below 12" began heals at 2.4-8.3 under blaze volleys and fire; the margin began
@@ -1166,7 +1149,7 @@ public final class ServerSpawnerHoldController implements ServerController {
 			// fortress room, 9fd4736: deaths 3 -> 6 of 10).
 			boolean wallInNow = target != null ? marginGone(player, 0.0D)
 					: player.getHealth() < SpawnerHold.TURTLE_HEALTH || ServerFightUntilController.BLAZE_SURVIVAL && player.getHealth() <= fleeAtHealth;
-			if (phase == Phase.SCAN || !returningForCover && (phase == Phase.HOLD || !wallInNow) || !canWallIn(player)) return null;
+			if (phase == Phase.HOLD || phase == Phase.SCAN || !wallInNow || !canWallIn(player)) return null;
 			String item = roofing.blockItem(player);
 			cancelParts(player);
 			blockItem = item;
