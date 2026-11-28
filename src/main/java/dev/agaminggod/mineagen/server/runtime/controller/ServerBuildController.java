@@ -1658,12 +1658,27 @@ public final class ServerBuildController implements ServerController {
 			if (!read.containsKey(at)) read.put(at, world.apply(at));
 			return read.get(at);
 		};
-		Predicate<BlockPos> open = at -> {
-			if (at.equals(lava) || at.equals(water) || solid.contains(at)) return false;
-			BlockState state = terrain.apply(at);
-			return state != null && state.getFluidState().isEmpty() && (state.isAir() || state.canBeReplaced());
-		};
 		Predicate<BlockPos> pool = at -> !at.equals(lava) && !solid.contains(at) && lavaSource(terrain.apply(at));
+		// Water left standing carries a pour on, and a cell the eye has not seen within 2 of the pool may be open: a trace
+		// that stopped at either would call a pour safe whose real run-off reaches the lava. An unseen cell is open only to
+		// a side step: as a drop it would carry the trace down into rock nobody saw and lose it under the pool.
+		Map<BlockPos, Boolean> seenOpenAt = new HashMap<>(), sideOpenAt = new HashMap<>();
+		Predicate<BlockPos> drop = at -> seenOpenAt.computeIfAbsent(at, cell -> {
+			if (cell.equals(lava) || cell.equals(water) || solid.contains(cell)) return false;
+			BlockState state = terrain.apply(cell);
+			return state != null && (state.is(Blocks.WATER) || state.getFluidState().isEmpty() && (state.isAir() || state.canBeReplaced()));
+		});
+		Predicate<BlockPos> open = at -> {
+			Boolean known = sideOpenAt.get(at);
+			if (known != null) return known;
+			boolean result = drop.test(at);
+			if (!result && terrain.apply(at) == null && !at.equals(lava) && !at.equals(water) && !solid.contains(at)) {
+				for (int dx = -2; dx <= 2 && !result; dx++) for (int dy = -2; dy <= 2 && !result; dy++) for (int dz = -2; dz <= 2 && !result; dz++)
+					result = pool.test(at.offset(dx, dy, dz));
+			}
+			sideOpenAt.put(at, result);
+			return result;
+		};
 		Map<BlockPos, Integer> strength = new HashMap<>();
 		ArrayDeque<BlockPos> queue = new ArrayDeque<>();
 		strength.put(water, 8);
@@ -1673,7 +1688,7 @@ public final class ServerBuildController implements ServerController {
 			BlockPos below = at.below();
 			if (pool.test(below)) return true;
 			for (Direction side : Direction.Plane.HORIZONTAL) if (pool.test(at.relative(side))) return true;
-			if (open.test(below)) {
+			if (drop.test(below)) {
 				if (strength.getOrDefault(below, 0) < 8) {
 					strength.put(below, 8);
 					queue.add(below);
@@ -1687,7 +1702,7 @@ public final class ServerBuildController implements ServerController {
 			for (Direction side : Direction.Plane.HORIZONTAL) {
 				BlockPos neighbour = at.relative(side);
 				if (!open.test(neighbour)) continue;
-				int distance = waterDropDistance(neighbour, side.getOpposite(), open, 4);
+				int distance = waterDropDistance(neighbour, side.getOpposite(), open, drop, 4);
 				if (distance < nearestDrop) {
 					best.clear();
 					nearestDrop = distance;
@@ -1702,15 +1717,18 @@ public final class ServerBuildController implements ServerController {
 		return false;
 	}
 
-	/** Vanilla water prefers the nearest downward opening within four more side steps, including ties. */
-	private static int waterDropDistance(BlockPos at, Direction back, Predicate<BlockPos> open, int remaining) {
-		if (open.test(at.below())) return 0;
+	/**
+	 * Vanilla water prefers the nearest downward opening within four more side steps, including ties: {@code open} is a
+	 * cell water may step into sideways, {@code drop} one it may fall into.
+	 */
+	private static int waterDropDistance(BlockPos at, Direction back, Predicate<BlockPos> open, Predicate<BlockPos> drop, int remaining) {
+		if (drop.test(at.below())) return 0;
 		if (remaining == 0) return Integer.MAX_VALUE;
 		int best = Integer.MAX_VALUE;
 		for (Direction side : Direction.Plane.HORIZONTAL) {
 			BlockPos next = at.relative(side);
 			if (side == back || !open.test(next)) continue;
-			int distance = waterDropDistance(next, side.getOpposite(), open, remaining - 1);
+			int distance = waterDropDistance(next, side.getOpposite(), open, drop, remaining - 1);
 			if (distance != Integer.MAX_VALUE) best = Math.min(best, distance + 1);
 		}
 		return best;

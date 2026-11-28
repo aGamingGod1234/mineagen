@@ -167,7 +167,34 @@ public final class BuildPlanVerification {
 			throw new AssertionError("A filled drop restores the flat path toward lava");
 		if (ServerBuildController.crossPourMeetsLava(terrain, water, frame, Set.of(drop, water.east())))
 			throw new AssertionError("Solid frame blocks the flat path to the pool");
-		return 6;
+		// Standing water left from an earlier pour lies between the pour and a pool 4 cells out: the run-off goes through it.
+		var standing = (java.util.function.Function<BlockPos, BlockState>) cell -> cell.equals(lava) ? Blocks.LAVA.defaultBlockState()
+				: cell.getY() == 40 && cell.getZ() == 0 && (cell.getX() == 1 || cell.getX() == 2) ? Blocks.WATER.defaultBlockState()
+				: cell.getY() == 40 && cell.getZ() == 0 ? Blocks.AIR.defaultBlockState() : Blocks.STONE.defaultBlockState();
+		if (!ServerBuildController.crossPourMeetsLava(standing, water, frame, Set.of()))
+			throw new AssertionError("Water already standing on the way to the pool carries the pour on to the lava");
+		// The two cells before the pool were never seen: they may be open, so the pour may run on into the lava.
+		var unseen = (java.util.function.Function<BlockPos, BlockState>) cell -> cell.equals(lava) ? Blocks.LAVA.defaultBlockState()
+				: cell.getY() == 40 && cell.getZ() == 0 && (cell.getX() == 2 || cell.getX() == 3) ? null
+				: cell.getY() == 40 && cell.getZ() == 0 ? Blocks.AIR.defaultBlockState() : Blocks.STONE.defaultBlockState();
+		if (!ServerBuildController.crossPourMeetsLava(unseen, water, frame, Set.of()))
+			throw new AssertionError("Unseen cells next to the pool may carry the pour into it");
+		// The floor under the run and the cells around the pool were never seen either, with the pool level with the floor:
+		// the run-off goes on over the unseen floor into the lava, not down into rock nobody saw.
+		var level = water.east(4).below();
+		var unseenFloor = (java.util.function.Function<BlockPos, BlockState>) cell -> cell.equals(level) ? Blocks.LAVA.defaultBlockState()
+				: cell.getY() == 40 && cell.getZ() == 0 && cell.getX() >= 0 && cell.getX() <= 4 ? Blocks.AIR.defaultBlockState()
+				: cell.getY() <= 39 && Math.abs(cell.getX() - 3) <= 3 && Math.abs(cell.getZ()) <= 2 ? null : Blocks.STONE.defaultBlockState();
+		if (!ServerBuildController.crossPourMeetsLava(unseenFloor, water, frame, Set.of()))
+			throw new AssertionError("Run-off over an unseen floor beside a pool level with it meets the lava");
+		// Unseen cells away from any pool lava stay walls: a pool 8 cells out behind three unseen cells is safe.
+		var far = water.east(8);
+		var unseenFar = (java.util.function.Function<BlockPos, BlockState>) cell -> cell.equals(far) ? Blocks.LAVA.defaultBlockState()
+				: cell.getY() == 40 && cell.getZ() == 0 && cell.getX() >= 1 && cell.getX() <= 3 ? null
+				: cell.getY() == 40 && cell.getZ() == 0 ? Blocks.AIR.defaultBlockState() : Blocks.STONE.defaultBlockState();
+		if (ServerBuildController.crossPourMeetsLava(unseenFar, water, frame, Set.of()))
+			throw new AssertionError("Unseen cells far from the pool stop the trace");
+		return 10;
 	}
 
 	/**
