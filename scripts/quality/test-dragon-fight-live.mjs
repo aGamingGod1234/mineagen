@@ -78,6 +78,12 @@ const SKY_WAIT = cli.includes('--sky-wait');
 // --crystal (practice room): the fight up to the last crystal down, endermen about. Pass: alive with a full water bucket
 // when the tenth crystal breaks, within CRYSTAL_MS (wave 5: 42 of 122 runs died before then, 19 of them to endermen).
 const CRYSTAL = cli.includes('--crystal');
+// --tall-spots (trial): a spot the bot names past the bow's reach pillars up instead of stepping 24 back in, where the tallest
+// hides again (wave 6: the y104 crystal was left in 21 of 60 rooms a side, 162 walks for 28 shots). --tall-only: only the two
+// tallest crystals stand. Either way the two tallest are judged (tallLeft).
+const TALL_SPOTS = cli.includes('--tall-spots'), TALL_ONLY = cli.includes('--tall-only');
+// Eye-to-crystal distance a full-draw arrow still reaches (the bot refused at 83 and 86 and hit at 81).
+const BOW_REACH = 76;
 const [outArg, jarArg] = cli.filter(arg => !arg.startsWith('--'));
 const template = process.env.ARENA_HEADLESS_SERVER_TEMPLATE, port = Number(process.env.SLOT_PORT_BASE);
 if (!outArg || !template || !port || !process.env.JAVA_HOME) { console.error('Usage: OUT_DIR [JAR] [--no-bow] [--survive] under slot.sh live with ARENA_HEADLESS_SERVER_TEMPLATE and JAVA_HOME'); process.exit(2); }
@@ -194,6 +200,24 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 			for (const y of [80, 83]) if (/passed/i.test(String(await end(s, `execute if block ${x + 2} ${y} ${z} minecraft:iron_bars`).catch(() => '')))) cagedSpots.push({ x: x + 0.5, y, z: z + 0.5 });
 		}
 		results.cagedSpots = cagedSpots;
+		// --tall-only: the pillar tops (a crystal sits on each), the two tallest kept and the rest removed before the fight.
+		const tallSpots = [];
+		if (CRYSTAL) {
+			const tops = [];
+			for (let i = 0; i < 10; i++) {
+				const x = Math.floor(42 * Math.cos(2 * (-Math.PI + Math.PI / 10 * i))), z = Math.floor(42 * Math.sin(2 * (-Math.PI + Math.PI / 10 * i)));
+				tops.push({ x: x + 0.5, y: await groundY(x, z), z: z + 0.5 });
+			}
+			tops.sort((a, b) => b.y - a.y);
+			tallSpots.push(...tops.slice(0, 2));
+			results.tallSpots = tallSpots;
+			if (TALL_ONLY) {
+				for (const t of tops.slice(2)) await end(s, `kill @e[type=minecraft:end_crystal,x=${t.x},y=${t.y},z=${t.z},distance=..4]`);
+				cagedSpots.length = 0;
+			}
+		}
+		const tallLeft = async () => { const left = []; for (const t of tallSpots) left.push(/passed/i.test(String(await end(s, `execute if entity @e[type=minecraft:end_crystal,x=${t.x},y=${t.y},z=${t.z},distance=..4]`)))); return left; };
+		const STANDING = TALL_ONLY ? 2 : 10;
 		const cagedLeft = async () => { let n = 0; for (const c of cagedSpots) if (/passed/i.test(String(await end(s, `execute if entity @e[type=minecraft:end_crystal,x=${c.x},y=${c.y},z=${c.z},distance=..2]`)))) n += 1; return n; };
 		const readDamage = await damageCounter(text => s.command(text), AGENT);
 		await s.command('scoreboard objectives add qo_death deathCount');
@@ -312,10 +336,10 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 						await s.clock.sleep(300);
 						v = await view().catch(() => null);
 						remember(v?.entities ?? [], v);
-						if (!(v?.entities ?? []).some(e => e.stableId === c.id)) { note(`${what} ${where(c)}: not in view from here`, null); return { state: 'FAILED', reasonCode: 'NOT_IN_VIEW', full: '' }; }
+							if (!(v?.entities ?? []).some(e => e.stableId === c.id)) { note(`${what} ${where(c)}: not in view from here`, null); return { state: 'FAILED', reasonCode: 'NOT_IN_VIEW', full: '' }; }
 					}
 					const r = await act('use_ranged', { targetId: c.id, drawDurationMs: 1100, timeoutMs: 6000 });
-					shots += 1;
+					if (r.reasonCode !== 'TARGET_NOT_VISIBLE' && r.reasonCode !== 'RANGED_TARGET_OUT_OF_REACH') shots += 1;
 					const broke = r.state === 'SUCCEEDED' && /broke/.test(r.full) && !/something else/.test(r.full);
 					if (broke) crystalBreaks += 1;
 					// A target the bot no longer finds is gone (a shot whose impact it lost sight of may have broken it).
@@ -347,6 +371,12 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 				// An open crystal: shoot from where the body stands; a refusal that names how far out the crystal clears its
 				// pillar's edge (or a miss) moves it, along the line from the pillar toward the island centre, a little further
 				// round on each later spot.
+				const tallPlan = c => {
+					const { E, R } = c.edge;
+					let h = c.raiseMin ?? 0;
+					while (h < 20 && Math.hypot(E * (R - h) / R + 2, R - h - 1) > BOW_REACH) h += 1;
+					c.raise = h; c.want = Math.max(12, E * (R - h) / R + 2);
+				};
 				const openShot = async (c, me) => {
 					const P = { x: Math.floor(c.x) + 0.5, z: Math.floor(c.z) + 0.5 };
 					const flat = Math.hypot(me.x - P.x, me.z - P.z);
@@ -355,11 +385,24 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 						const r = await shoot(c, 'shoot');
 						if (c.gone) return;
 						const edge = Number((/clears that edge from about (\d+) blocks out/.exec(r.full) ?? [])[1]);
+						if (TALL_SPOTS && (Number.isFinite(edge) || r.reasonCode === 'RANGED_TARGET_OUT_OF_REACH')) {
+							// The bot's edge distance scales with the eye's rise to the crystal's top: from h blocks up it is E*(R-h)/R.
+							// Pick the lowest stand (ground, else a pillar) whose spot is both past the edge and in the bow's reach.
+							const R = c.y + 2 - (me.y + 1.62);
+							if (Number.isFinite(edge)) c.edge = { E: edge, R };
+							else c.raiseMin = (c.raise ?? 0) + 4;
+							// No edge named yet: EndSpikeFeature's pillar i is 76+3i high and 2+i/3 wide, so its top edge is known.
+							if (!c.edge) { const i = Math.max(0, Math.round((Math.floor(c.y) - 1 - 76) / 3)); c.edge = { E: R * (2 + Math.floor(i / 3) + 0.5) / 3, R }; }
+							tallPlan(c); c.tries = 2;
+							const h = c.raise;
+							note(`crystal ${where(c)}: shows over its pillar from ${Math.round(c.want)} out, ${h} blocks up`, null);
+							return;
+						}
 						if (Number.isFinite(edge)) { c.want = Math.min(80, Math.max(edge + 4, 12)); c.tries = 2; }
 						else if (r.reasonCode === 'RANGED_TARGET_OUT_OF_REACH') { c.want = Math.max(16, flat - 24); c.tries = 2; }
 						// Not in view close in is mostly the pillar's own top edge (the bot names no distance for a target it cannot
 						// see): further out each time.
-						else if (r.reasonCode === 'NOT_IN_VIEW') { c.want = Math.min(80, Math.max(c.want ?? 0, flat) + 10); c.tries = 2; }
+						else if (r.reasonCode === 'NOT_IN_VIEW' || (TALL_SPOTS && r.reasonCode === 'TARGET_NOT_VISIBLE')) { c.want = Math.min(80, Math.max(c.want ?? 0, flat) + 10); c.tries = 2; }
 						else if (r.state !== 'SUCCEEDED') c.tries = 2;
 						return;
 					}
@@ -370,6 +413,22 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 					// Past the island centre, the exit fountain is no spot to stand on.
 					if (Math.hypot(P.x + Math.cos(toward) * d, P.z + Math.sin(toward) * d) < 7) d += 9;
 					const r = await goTo(P.x + Math.cos(toward) * d, P.z + Math.sin(toward) * d, `to ${Math.round(d)} out from crystal ${where(c)}`);
+					if (TALL_SPOTS) {
+						// A spot off the island is tried round the next way, never closer in, where the crystal hides again.
+						if (r.state !== 'SUCCEEDED' || !(c.raise > 0)) return;
+						const f = await feetNow();
+						if (!f) return;
+						const base = f.y;
+						await dragonAway('before the shooting pillar');
+						const p = await act('build', { structure: 'pillar', size: c.raise, timeoutMs: 60000 }); note(`pillar ${c.raise} up to shoot crystal ${where(c)}`, p);
+						const up = await feetNow();
+						if (up && up.y > base) {
+							for (let k = 0; k < 2 && !c.gone; k++) { const s2 = await shoot(c, 'shoot from the pillar'); if (s2.reasonCode === 'RANGED_TARGET_OUT_OF_REACH') { c.raiseMin = c.raise + 3; if (c.edge) tallPlan(c); break; } }
+							await comeDown(base);
+						}
+						if (!c.gone) c.tries = 2;
+						return;
+					}
 					if (r.reasonCode === 'NO_GROUND' && c.want !== null) c.want = Math.max(12, c.want - 8);
 				};
 				// A caged crystal (CAGED_CRYSTAL_FACTS): from the ground on the side facing the island centre a shot is refused with
@@ -864,7 +923,7 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 				// Arrows spent through the last command too (a dead body has dropped its bag: its count stays the last one seen).
 				if (!row.died) { const last = await view().catch(() => null); const n = (last?.inventory?.items ?? []).filter(i => /^minecraft:(arrow|spectral_arrow|tipped_arrow)$/.test(i.itemId)).reduce((sum, i) => sum + i.count, 0); if (last?.inventory && Number.isFinite(n)) arrowsNow = n; }
 				const cagedEnd = await cagedLeft().catch(() => NaN);
-				Object.assign(row, { cagedBroken: cagedSpots.length - cagedEnd, openBroken: Number.isFinite(row.crystalsLeft) ? 10 - cagedSpots.length - (row.crystalsLeft - cagedEnd) : null,
+				Object.assign(row, { cagedBroken: cagedSpots.length - cagedEnd, openBroken: Number.isFinite(row.crystalsLeft) ? STANDING - cagedSpots.length - (row.crystalsLeft - cagedEnd) : null, tallLeft: CRYSTAL ? await tallLeft() : undefined,
 					crystalsClearedAt: clearedAt, clutchArmed, arrowsUsed: Number.isFinite(arrowsStart) && Number.isFinite(arrowsNow) ? arrowsStart - arrowsNow : null, crystalTimeline, hurtLog,
 					deathMessages: await readFile(path.join(out, 'server-0', 'server.log'), 'utf8').then(text => text.split('\n').filter(line => new RegExp(`System chat: ${AGENT} (was|fell|hit|died|blew|burned|tried|went|walked|drowned|experienced|froze|starved|suffocated|withered|didn)`).test(line)).map(line => line.replace(/^.*System chat: /, ''))).catch(() => null) });
 				row.deaths = row.deathEvidence.deaths;
@@ -872,7 +931,7 @@ for await (const { server: s, error: bootError } of warmBoots([{ name: 'dragon-f
 				row.staleRefusals = staleRefusals;
 				row.observeMisses = observeMisses;
 				// A fresh fight starts with a full dragon and all ten crystals; a repeat after a lost fight does not.
-				const fresh = Number.isFinite(dragon) && dragon >= 200 && row.start.crystals === 10;
+				const fresh = Number.isFinite(dragon) && dragon >= 200 && row.start.crystals === STANDING;
 				const missing = [!row.deathEvidence.valid && 'death counter unreadable', !row.placed && `body not placed on the ${SURVIVE ? 'island' : 'arrival platform'}`,
 					!Number.isFinite(dragon) && 'no dragon at the start', !fresh && Number.isFinite(dragon) && `not a fresh fight (dragon ${dragon}, crystals ${row.start.crystals})`,
 					!row.armed.includes('default-breath') && 'the End reflexes never armed', row.harnessErrors > 0 && `${row.harnessErrors} harness error(s) sending commands`, observeMisses > 2 && `${observeMisses} live samples lost`,
