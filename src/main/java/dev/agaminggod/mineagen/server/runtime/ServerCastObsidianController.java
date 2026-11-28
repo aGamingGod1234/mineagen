@@ -1,6 +1,7 @@
 package dev.agaminggod.mineagen.server.runtime;
 
 import dev.agaminggod.mineagen.agent.AgentDomainException;
+import dev.agaminggod.mineagen.server.perception.CastLava;
 import dev.agaminggod.mineagen.server.perception.ThreatPerception;
 import dev.agaminggod.mineagen.server.runtime.controller.ServerController;
 import dev.agaminggod.mineagen.server.runtime.controller.ServerLookController;
@@ -82,6 +83,9 @@ public final class ServerCastObsidianController implements ServerController {
 	static final int LOOK_TICKS = 15;
 	private boolean siteChosen;
 	private int siteLooks;
+	private boolean framePoolVerified;
+	private BlockPos largestPool;
+	private int largestPoolSources;
 	private Vec3 siteAim;
 	private static final Direction[] COOLING = { Direction.UP, Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST };
 
@@ -609,10 +613,14 @@ public final class ServerCastObsidianController implements ServerController {
 	 * the eyes lowered, as a player looks around, before giving up.
 	 */
 	private TickResult lookForLava(ServerPlayer player, ServerLevel level, String why) {
+		return lookForLava(player, level, why, "NO_LAVA_IN_REACH");
+	}
+
+	private TickResult lookForLava(ServerPlayer player, ServerLevel level, String why, String code) {
 		if (lookSteps >= 7) {
 			lookSteps = 0;
 			lookAim = null;
-			return stop(player, "NO_LAVA_IN_REACH", why + " after a full look around");
+			return stop(player, code, why + " after a full look around");
 		}
 		if (lookAim == null) {
 			Vec3 eye = player.getEyePosition();
@@ -737,6 +745,31 @@ public final class ServerCastObsidianController implements ServerController {
 		return at.equals(along(0, 0)) || at.equals(along(3, 0)) || at.equals(along(0, 4)) || at.equals(along(3, 4));
 	}
 
+	private TickResult verifyFramePool(ServerPlayer player, ServerLevel level, FrameRead read) {
+		int filled = carried(player, Items.LAVA_BUCKET);
+		int need = read.missing().size() - filled;
+		if (need > 0) {
+			for (BlockPos source : seenLavaSources(player, level, LAVA_SEARCH)) {
+				int sources = CastLava.sources(player, source, need);
+				if (sources > largestPoolSources) {
+					largestPoolSources = sources;
+					largestPool = source;
+				}
+				if (largestPoolSources >= need) break;
+			}
+			if (largestPoolSources < need) {
+				if (largestPool == null) return lookForLava(player, level, "No bucketable lava source seen within " + LAVA_SEARCH
+						+ " blocks; find block minecraft:lava before carving or casting", "NO_LAVA_IN_REACH");
+				return lookForLava(player, level, "The lava pocket at " + xyz(largestPool) + " has " + largestPoolSources
+						+ " bucketable source(s); this frame still needs " + need + " from the pool. " + CastLava.FIND_BIGGER_POOL, "LAVA_POOL_TOO_SMALL");
+			}
+		}
+		framePoolVerified = true;
+		lookSteps = 0;
+		lookAim = null;
+		return null;
+	}
+
 	private TickResult planFrame(ServerPlayer player, ServerLevel level, long now) {
 		FrameRead read = readFrame(frameCells(), refused, knownView(player));
 		lastRead = read;
@@ -750,6 +783,10 @@ public final class ServerCastObsidianController implements ServerController {
 			Step scoop = scoopStep(player, level, placedWater);
 			if (scoop != null) { step = scoop; return null; }
 			return walkNear(player, level, placedWater, now, "the water poured at " + xyz(placedWater) + " is out of the bucket's reach");
+		}
+		if (!framePoolVerified && !read.missing().isEmpty()) {
+			TickResult supply = verifyFramePool(player, level, read);
+			if (supply != null) return supply;
 		}
 		if (!digs.isEmpty()) return digNext(player, level, now);
 		if (cell == null) {

@@ -170,7 +170,8 @@ const MAX_MOB_RETREATS = 1;
 // missed-place reason that keeps a later search from walking to one again.
 const MAX_SPILLS = 3;
 const NO_SOURCE = 'no source seen';
-const SMALL_POOL = 'pocket too small to cast';
+export const SMALL_POOL = 'pocket too small to cast';
+export const UNREACHABLE_POOL = 'pocket cannot feed the cast from safe footing';
 const smallLava = (row) => row?.small === true && row.blockId === 'minecraft:lava';
 // Biomes trees grow in (a tree search heads for them when they are in sight).
 // (Not plains: a tree here and there, and the plains beside a beach spawn drew every leg back to it.)
@@ -562,21 +563,22 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 	const left = () => nightEnded !== null ? 0 : deadline - body.now();
 	const armed = () => (observation?.inventory?.items ?? []).some((item) => WEAPON.test(item?.itemId ?? ''));
 	const forTarget = (place) => place.blockId === undefined || profile.ids.has(place.blockId);
+	const lavaSearch = profile.ids.has('minecraft:lava');
+	const spent = lavaSearch ? (body.missedPlaces?.() ?? []).filter((place) => [SMALL_POOL, UNREACHABLE_POOL].includes(place.why) && forTarget(place)) : [];
+	const spentNear = (at, reach = SAME_PLACE) => spent.some((place) => Math.hypot(place.x - at.x, place.y - at.y, place.z - at.z) <= reach);
 	const unreached = (body.missedPlaces?.() ?? []).filter((place) => place.why === UNREACHED && forTarget(place)).map(({ x, y, z }) => ({ x, y, z }));
 	const unreachedKeys = new Set(unreached.map(({ x, y, z }) => `${x},${y},${z}`));
 	const spots = profile.ids.has('minecraft:water') ? (body.missedPlaces?.() ?? []).filter((place) => place.why === UNREACHED_SPOT) : [];
-	const excluded = unreached.length === 0 && spots.length === 0 ? null : (rows) => {
+	const excluded = unreached.length === 0 && spots.length === 0 && !lavaSearch ? null : (rows) => {
 		const vein = sameVein(unreached, rows);
 		for (const { x, y, z } of vein) if (!unreachedKeys.has(`${x},${y},${z}`)) { unreachedKeys.add(`${x},${y},${z}`); unreached.push({ x, y, z }); }
-		for (const row of rows) if (spots.some((place) => Math.hypot(place.x - row.x, place.y - row.y, place.z - row.z) <= SAME_PLACE)) vein.add(row);
+		for (const row of rows) if (spentNear(row) || spots.some((place) => Math.hypot(place.x - row.x, place.y - row.y, place.z - row.z) <= SAME_PLACE)) vein.add(row);
 		return vein;
 	};
-	const spent = (body.missedPlaces?.() ?? []).filter((place) => place.why === SMALL_POOL);
-	const spentNear = (at, reach = SAME_PLACE) => spent.some((place) => Math.hypot(place.x - at.x, place.y - at.y, place.z - at.z) <= reach);
 	const check = (survey = null) => {
 		for (const source of [observation, observation?.sighted, survey]) for (const section of ['blocks', 'veins']) for (const row of (Array.isArray(source?.[section]) ? source[section] : [])) {
-			const cell = smallLava(row) && profile.ids.has('minecraft:lava') ? cellOf(row) : null;
-			if (cell !== null && !spentNear(cell)) { const at = { x: Math.floor(cell.x), y: Math.floor(cell.y), z: Math.floor(cell.z) }; spent.push(at); body.missPlace?.(at, SMALL_POOL); }
+			const cell = smallLava(row) && lavaSearch ? cellOf(row) : null;
+			if (cell !== null && !spentNear(cell)) { const at = { x: Math.floor(cell.x), y: Math.floor(cell.y), z: Math.floor(cell.z), blockId: 'minecraft:lava' }; spent.push(at); body.missPlace?.(at, SMALL_POOL); }
 		}
 		return sightingOf(profile, observation, survey, excluded);
 	};
@@ -751,7 +753,7 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 		const spill = [observation?.sighted, survey].flatMap((source) => ['blocks', 'veins'].flatMap((section) => (Array.isArray(source?.[section]) ? source[section] : [])))
 			.filter((row) => row?.flowing === true && BUCKET_FLUIDS.has(row.blockId) && profile.ids.has(row.blockId))
 			.map((row) => ({ ...cellOf(row), id: row.blockId })).filter((cell) => Number.isFinite(cell.x) && insideBoundary(cell)
-				&& !spilled.some(near(cell)) && !missedSpills.some(near(cell)))
+				&& !spentNear(cell) && !spilled.some(near(cell)) && !missedSpills.some(near(cell)))
 			.sort((a, b) => Math.hypot(a.x - at.x, a.y - at.y, a.z - at.z) - Math.hypot(b.x - at.x, b.y - at.y, b.z - at.z))[0];
 		if (spill === undefined) return { seen: null };
 		spilled.push(spill);
@@ -780,7 +782,10 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 		const timeout = Math.min(left(), 600_000, args.timeoutMs ?? Infinity);
 		// Controllers enforce the original circle on every tick, including retrace detours.
 		if (profile.ids.has('minecraft:water') && ['travel_to', 'dig_to'].includes(actionType)) args = { ...args, boundaryX: origin.x, boundaryZ: origin.z, boundaryRadius: within };
-		const result = await body.act(actionType, TIMED.has(actionType) ? { ...args, timeoutMs: Math.max(MIN_LEG_MS, Math.floor(timeout)) } : args, { watch: sight ?? ((sample) => sightingOf(profile, sample, null, excluded) ?? (until?.(sample) ? { until: true } : null)) });
+		// Let a lava tunnel finish opening or plugging its window before taking a sighting from that opening.
+		const lavaTunnel = actionType === 'dig_to' && args.pattern === 'tunnel' && args.stopWhenSeen === 'minecraft:lava';
+		const watch = sight ?? ((sample) => (lavaTunnel ? null : sightingOf(profile, sample, null, excluded)) ?? (until?.(sample) ? { until: true } : null));
+		const result = await body.act(actionType, TIMED.has(actionType) ? { ...args, timeoutMs: Math.max(MIN_LEG_MS, Math.floor(timeout)) } : args, { watch });
 		const entry = { how, actionType, state: result?.state, reasonCode: result?.reasonCode, underWater: /body is under water/i.test(String(result?.message ?? '')),
 			waterAt: result?.reasonCode === 'WATER_AHEAD' ? waterOf(result?.message) : null };
 		legs.push(entry);
@@ -1317,7 +1322,7 @@ async function searchLegs(target, body, { timeoutMs = DEFAULT_FIND_TIMEOUT_MS, w
 	const missed = (body.missedPlaces?.() ?? []).filter((place) => (place.why !== UNREACHED_SPOT || profile.ids.has('minecraft:water')) && forTarget(place));
 	// Remembered places the caller priced out (obtain: a remembered ore dearer to reach than a fresh search) are no trip.
 	for (const cell of Array.isArray(target?.skip) ? target.skip : []) if ([cell?.x, cell?.y, cell?.z].every(Number.isFinite)) missed.push({ x: cell.x, y: cell.y, z: cell.z, why: 'priced out' });
-	const wasMissed = (row) => missed.some((place) => Math.hypot(place.x - row.x, place.y - row.y, place.z - row.z) <= SAME_PLACE);
+	const wasMissed = (row) => spentNear(row) || missed.some((place) => Math.hypot(place.x - row.x, place.y - row.y, place.z - row.z) <= SAME_PLACE);
 	const miss = (place, why) => { missed.push({ ...place, why }); body.missPlace?.({ x: place.x, y: place.y, z: place.z }, why); };
 	const underground = !profile.surface && observation?.player?.skyOpen === false;
 	const known = rememberedPlaces(profile, body.known(observation), await body.places(profile).catch(() => []), origin)

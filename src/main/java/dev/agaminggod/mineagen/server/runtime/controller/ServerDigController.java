@@ -423,7 +423,7 @@ public final class ServerDigController implements ServerController {
 	 * stopWhenSeen block. A fan of sight lines across the view only: what the player is looking at, nothing behind rock.
 	 */
 	private TickResult sight(ServerPlayer player, long nowEpochMs) {
-		if (player.tickCount % 20 != 0) return null;
+		if (player.tickCount % 20 != 0 || openingLavaWindow) return null;
 		if (lavaFirst == null || "minecraft:lava".equals(stopWhenSeen)) {
 			BlockPos lava = ServerTravelController.sees(player, "minecraft:lava");
 			if (lava != null) noteLava(player, lava, nowEpochMs - startedAt);
@@ -746,6 +746,7 @@ public final class ServerDigController implements ServerController {
 				if (above.getBlock() instanceof FallingBlock) refills++;
 				cellIndex = index;
 				mining = null;
+				openingLavaWindow = false;
 				break;
 			}
 		}
@@ -768,6 +769,11 @@ public final class ServerDigController implements ServerController {
 						notes.add(blockId(mining) + " at " + cell(cell) + " yielded no block drops (wrong tool)");
 				}
 				mining = null;
+				if (openingLavaWindow) {
+					openingLavaWindow = false;
+					TickResult window = openedLavaWindow(player, cell);
+					if (window != null) return window;
+				}
 				// A shaft's broken floor drops the body at once: what it opened onto is judged on landing (lava there is
 				// doused), not plugged from a hole the body is already falling through.
 				TickResult shown = active == Pattern.SHAFT ? null : fluidShown(player, cell);
@@ -795,7 +801,15 @@ public final class ServerDigController implements ServerController {
 				BlockPos visible = seenFluidBeside(player, cell, true);
 				if (visible != null) return fluidStop(player, cell, visible, true);
 			}
-			if (lava != null) return stop(player, "LAVA_AHEAD", "Lava is " + lava + "; not breaking " + blockId(state) + " at " + cell(cell));
+		if (lava != null && !canOpenLavaWindow(player, cell, lava)) {
+			// A cut can expose a source between sight checks. Hand it back before the next cell's lava guard stops the dig.
+			if ("minecraft:lava".equals(stopWhenSeen)) {
+				BlockPos source = ServerTravelController.sees(player, "minecraft:lava", true);
+				TickResult found = source == null ? null : seen(player, source);
+				if (found != null) return found;
+			}
+				return stop(player, "LAVA_AHEAD", "Lava is " + lava + "; not breaking " + blockId(state) + " at " + cell(cell));
+		}
 			BlockPos water = seenFluidBeside(player, cell, false);
 			if (water != null) return fluidStop(player, cell, water, false);
 			if (active != Pattern.SHAFT && restsOnlyOn(player, cell)) return startRecenter(player, feet, Phase.MINE);
@@ -808,17 +822,20 @@ public final class ServerDigController implements ServerController {
 			TickResult room = inventoryRoom(player, cell, state);
 			if (room != null) return room;
 			mining = state;
+			openingLavaWindow = lava != null;
 			miningTicks = 0;
 			aimTicks = 0;
 		} else if (!state.equals(mining)) {
 			if (state.getBlock() instanceof FallingBlock) refills++;
 			mining = null;
+			openingLavaWindow = false;
 			return TickResult.running(progress(player));
 		}
 		int selected = player.getInventory().getSelectedSlot();
 		Vec3 aim = dev.agaminggod.mineagen.server.runtime.TargetSightline.block(level, net.minecraft.world.phys.shapes.CollisionContext.of(player),
 				player.getEyePosition(), cell, player.blockInteractionRange(), null);
 		if (aim == null) {
+			if (openingLavaWindow) return stop(player, "LAVA_AHEAD", "Cannot reach the lava window at " + cell(cell) + " from solid ground");
 			// Hidden behind the lip of the cut: crouch forward to the edge and look down, as a player leans over.
 			if (++aimTicks > AIM_TICKS * 2) return stop(player, "DIG_STUCK", "No part of " + blockId(state) + " at " + cell(cell) + " is in reach and view");
 			AgentInputState look = AgentInputStates.lookingAt(player, Vec3.atCenterOf(cell), 0.0F, 0.0F, false, false, false, false, false, InteractionHand.MAIN_HAND);
@@ -844,6 +861,30 @@ public final class ServerDigController implements ServerController {
 		applyInput(player, 0.0F, false, false, onTarget, yaw, pitch, selected);
 		if (onTarget && ++miningTicks > 600) return stop(player, "DIG_STUCK", blockId(state) + " at " + cell(cell) + " did not break in 30 s");
 		return TickResult.running(progress(player));
+	}
+
+	private boolean openingLavaWindow;
+
+	private boolean canOpenLavaWindow(ServerPlayer player, BlockPos at, String lava) {
+		// Keep the sill and the body's footing intact. The filled bucket is backup; sealing the window preserves the pool.
+		return "minecraft:lava".equals(stopWhenSeen) && active != Pattern.SHAFT && player.onGround()
+				&& at.equals(player.blockPosition().relative(heading).above())
+				&& (lava.startsWith("heard beside ") || lava.startsWith("heard below "))
+				&& bucketSlot(player) >= 0 && !evaporates(player, at) && filler(player) != null
+				&& standsOnOwnBlock(player)
+				&& sturdy(player.level(), at.below(), player.level().getBlockState(at.below()));
+	}
+
+	private TickResult openedLavaWindow(ServerPlayer player, BlockPos opening) {
+		for (Direction side : Direction.values()) {
+			BlockPos inlet = opening.relative(side);
+			// This block has just been exposed. Seal the opening itself before any of the source is used up.
+			if (!player.level().getFluidState(inlet).is(FluidTags.LAVA)) continue;
+			return startPlace(player, opening, Direction.UP, filler(player), "LAVA_AHEAD",
+					"Lava at " + cell(inlet) + " can flow through the window at " + cell(opening));
+		}
+		BlockPos source = ServerTravelController.sees(player, "minecraft:lava", true);
+		return source == null ? null : seen(player, source);
 	}
 
 	private TickResult fluidShown(ServerPlayer player, BlockPos cell) {

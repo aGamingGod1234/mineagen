@@ -6,6 +6,7 @@ import dev.agaminggod.mineagen.server.perception.BucketReach;
 import dev.agaminggod.mineagen.server.perception.CastLava;
 import dev.agaminggod.mineagen.server.perception.SeenTerrain;
 import dev.agaminggod.mineagen.server.perception.ThreatPerception;
+import dev.agaminggod.mineagen.server.runtime.ServerActionExecutor;
 import dev.agaminggod.mineagen.server.runtime.TargetSightline;
 import dev.agaminggod.mineagen.server.runtime.input.AgentInputRuntime;
 import dev.agaminggod.mineagen.server.runtime.input.AgentInputState;
@@ -187,6 +188,7 @@ public final class ServerBuildController implements ServerController {
 	static final int MAX_CARVES = 2;
 	static final int CARVE_RADIUS = 10;
 	static final double CARVE_POOL_MARGIN = 6.0D;
+	static final double TIGHT_CARVE_POOL_MARGIN = 3.0D;
 	/**
 	 * Open pool sources a cast wants in view before it starts: one bucket per frame cell and two spare. A pool met from the
 	 * side or through one opened block shows one source (sight stops at the first lava), and a scooped source refills as
@@ -410,6 +412,7 @@ public final class ServerBuildController implements ServerController {
 	/** This cell has no spot whose water line misses the lava's cell: pour it from a spot where it crosses (main's way). */
 	private boolean crossAllowed;
 	private int lavaTakes, fetchRetries, fetchWindows, fetchDigs;
+	private boolean returnedToScoop;
 	/** Walks of this cell's fetch that stopped where the seen way ends: the spot they were for lies past rock. */
 	private int frontierFetches;
 	/** Unknown cells the dig toward lava has turned to look at; one look each, so two unknown cells never take turns. */
@@ -603,10 +606,10 @@ public final class ServerBuildController implements ServerController {
 							+ xyz(center) + " and none is after a look around; find lava first (find block minecraft:lava), then build here again");
 					// The nearest pool that feeds the whole cast, by the rule find stops on (CastLava): a pocket is no cast site.
 					int need = CastLava.needed(player);
-					poolAt = pool.stream().filter(at -> CastLava.sources(player.level()::getBlockState, at, need) >= need).findFirst().orElse(null);
-					if (poolAt == null) return fail(player, "BUILD_NO_SITE", "The lava seen near " + xyz(center) + " is a pocket of "
-							+ CastLava.sources(player.level()::getBlockState, pool.get(0), need) + " source(s) a bucket takes, and the cast needs " + need
-							+ " (one per frame cell not carried as obsidian); find lava (find block minecraft:lava) for a bigger pool, then build there");
+					poolAt = pool.stream().filter(at -> CastLava.sources(player, at, need) >= need).findFirst().orElse(null);
+					if (poolAt == null) return fail(player, "LAVA_POOL_TOO_SMALL", "The lava pocket at " + xyz(pool.get(0)) + " has "
+							+ CastLava.sources(player, pool.get(0), need) + " source(s) a bucket takes, and the cast needs " + need
+							+ ". " + CastLava.FIND_BIGGER_POOL);
 					if (requested == null) center = castCenter(player, poolAt);
 					phase = Phase.APPROACH;
 					return running();
@@ -972,6 +975,7 @@ public final class ServerBuildController implements ServerController {
 		Vec3 eye = player.getEyePosition();
 		if (TargetSightline.block(player.level(), CollisionContext.of(player), eye, cell, player.blockInteractionRange(), null) == null) {
 			BlockPos spot = standFor(player, e -> TargetSightline.block(player.level(), CollisionContext.of(player), e, cell, player.blockInteractionRange() - 0.3D, null) != null);
+			if (spot == null && carving && carves < MAX_CARVES) return chooseAgain(player, now, "no dry standing spot reaches " + xyz(cell));
 			if (spot == null) return fail(player, "NO_STAND_SPOT", "No seen standing spot reaches " + describe(state) + " at " + xyz(cell) + lastWalk());
 			return walkTo(player, spot, now);
 		}
@@ -1344,6 +1348,10 @@ public final class ServerBuildController implements ServerController {
 			phase = Phase.SURVEY;
 			return running();
 		}
+		return openPoolCover(player, cell, now, true);
+	}
+
+	private TickResult openPoolCover(ServerPlayer player, BlockPos cell, long now, boolean survey) {
 		ServerLevel level = (ServerLevel) player.level();
 		if (known(player, cell) == null) {
 			if (!cell.equals(lookCell)) { lookCell = cell.immutable(); lookTicks = 0; }
@@ -1354,15 +1362,17 @@ public final class ServerBuildController implements ServerController {
 		BlockState state = known(player, cell);
 		if (state.isAir() || !state.getFluidState().isEmpty()) { uncoverDead.add(cell); return running(); }
 		if (TargetSightline.block(level, CollisionContext.of(player), player.getEyePosition(), cell, player.blockInteractionRange() - 0.3D, null) == null) {
-			BlockPos spot = uncoverWalks < 6 ? standFor(player, eye -> TargetSightline.block(level, CollisionContext.of(player), eye, cell, player.blockInteractionRange() - 0.3D, null) != null) : null;
+			boolean canWalk = survey ? uncoverWalks < 6 : walks < MAX_WALKS - 1;
+			BlockPos spot = canWalk ? standFor(player, eye -> TargetSightline.block(level, CollisionContext.of(player), eye, cell, player.blockInteractionRange() - 0.3D, null) != null) : null;
 			if (spot == null) { uncoverDead.add(cell); return running(); }
-			uncoverWalks++;
+			if (survey) uncoverWalks++;
 			return walkTo(player, spot, now);
 		}
 		uncoverCell = cell;
 		uncoverForFetch = false;
 		releaseInput();
 		try {
+			if (!survey) LOGGER.info("[build] {} reopens the scoop window at {}", player.getGameProfile().name(), xyz(cell));
 			return startChild(player, Child.UNCOVER, environment.uncover(player, cell, Math.min(15_000L, Math.max(1L, deadline - now))));
 		} catch (AgentDomainException refused) {
 			uncoverDead.add(cell);
@@ -1394,13 +1404,19 @@ public final class ServerBuildController implements ServerController {
 			BlockState over = known(player, source.above());
 			if (over != null && over.isAir()) openOver.add(source.above()); else candidates.add(source.above());
 		}
+		// Refilling flow hides the scoop after the first source is taken. The original pool lip still locates the cover.
+		if (phase == Phase.CAST) {
+			if (poolAt != null) openOver.add(poolAt.above());
+			if (lastFill != null) openOver.add(lastFill.above());
+		}
 		for (BlockPos opened : openOver) for (Direction side : Direction.Plane.HORIZONTAL) candidates.add(opened.relative(side));
 		BlockPos feet = player.blockPosition();
 		Vec3 eye = player.getEyePosition();
 		BlockPos best = null;
 		double bestCost = Double.MAX_VALUE;
 		for (BlockPos cell : candidates) {
-			if (uncovered.contains(cell) || uncoverDead.contains(cell) || cell.equals(feet) || cell.equals(feet.above()) || cell.equals(feet.below())) continue;
+			if (uncovered.contains(cell) || uncoverDead.contains(cell) || inFootprint(cell) || mould.contains(cell)
+					|| cell.equals(feet) || cell.equals(feet.above()) || cell.equals(feet.below()) || ServerDigController.restsOnlyOn(player, cell)) continue;
 			BlockState state = known(player, cell);
 			// Unseen is looked at when its turn comes.
 			if (state != null && (state.isAir() || !state.getFluidState().isEmpty() || clearTicks(player, level, cell, state) > MAX_CLEAR_TICKS)) continue;
@@ -1955,26 +1971,36 @@ public final class ServerBuildController implements ServerController {
 						double d = Vec3.atCenterOf(source).distanceTo(mid);
 						if (d < near) { near = d; rise = Math.abs(p.at(1, 1).getY() - 1 - source.getY()); }
 					}
-					if (near > CAST_POOL_REACH || rise > CAST_RISE || near < CARVE_POOL_MARGIN || nearMetLava(mid)) { far++; continue; }
+					if (near > CAST_POOL_REACH || rise > CAST_RISE || near < TIGHT_CARVE_POOL_MARGIN || nearMetLava(mid)) { far++; continue; }
 					int dig = carveDig(cell -> known(player, cell), rock, clearable, p, wall);
 					if (dig < 0) { ruled++; continue; }
 					int open = 0;
 					for (BlockPos cell : wallCells(p, wall)) { BlockState state = known(player, cell); if (state != null && !rock.test(cell, state)) open++; }
 					if (castBlocks(open) > plain) { blocks++; continue; }
 					double cost = 0.5D * dig + 0.6D * open + 0.4D * near + 0.8D * rise + 0.3D * Math.sqrt(stand.distSqr(from));
+					// A tight shore can still have a dry wall with room for the mould. Keep the ordinary setback when it fits.
+					if (near < CARVE_POOL_MARGIN) cost += 2.0D * LOOSE_SITE_COST;
 					if (spillMeetsLava(cell -> known(player, cell), p, wall, SURE_SPILL_CELLS)) cost += LOOSE_SITE_COST;
 					// The dig breaks each cell through clear's own lava gate, which also refuses lava heard just behind the rock
 					// (lava-gate-7: both carves went beside lava the find heard but never saw, and the first break was refused).
-					if (cost < bestCost && digRefusedByLava(player, carveBreaks(p, wall)) != null) { heard++; continue; }
-					if (cost < bestCost) { bestCost = cost; best = p; bestWall = wall; bestStand = stand; bestDig = dig; }
+					if (cost >= bestCost) continue;
+					List<BlockPos> breaks = carveBreaks(p, wall);
+					// A known pool can trigger that same gate while the body digs, even on a tick when it makes no sound.
+					double heardReach = ServerActionExecutor.LAVA_HEARD_REACH;
+					boolean besidePool = breaks.stream().anyMatch(cell -> {
+						BlockState state = known(player, cell);
+						return (state == null || !state.isAir()) && pool.stream().anyMatch(source -> source.distSqr(cell) <= heardReach * heardReach);
+					});
+					if (besidePool || digRefusedByLava(player, breaks) != null) { heard++; continue; }
+					bestCost = cost; best = p; bestWall = wall; bestStand = stand; bestDig = dig;
 				}
 			}
 		}
 		if (best == null) {
 			siteRejects += String.format(Locale.ROOT, "; no site to carve either (%d seen standing spots within %d blocks: %d sites over %.0f blocks from, "
 					+ "or %.0f above or below, or within %.0f of, the lava, %d with water or lava seen in or beside the dig or the ground not rock, %d short of plain blocks for the mould, "
-					+ "%d with lava heard right behind a cell the dig would break)",
-					stands, CARVE_RADIUS, far, CAST_POOL_REACH, CAST_RISE, CARVE_POOL_MARGIN, ruled, blocks, heard);
+					+ "%d with known or heard lava beside a cell the dig would break)",
+					stands, CARVE_RADIUS, far, CAST_POOL_REACH, CAST_RISE, TIGHT_CARVE_POOL_MARGIN, ruled, blocks, heard);
 			return false;
 		}
 		carves++;
@@ -2274,7 +2300,7 @@ public final class ServerBuildController implements ServerController {
 				// Taken back because the lava did not follow from here: pour the pair from another spot.
 				if (staleWater) { staleWater = false; staleScoops++; moveForClick = true; triedSpots.add(player.blockPosition().immutable()); }
 			}
-			case FILL -> { scoopSpots.remove(player.blockPosition()); scoopSpots.add(player.blockPosition().immutable()); fills++; triedSources.clear(); lastFill = target.immutable(); poolMemory.remove(lastFill); seekWalks = 0; }
+			case FILL -> { scoopSpots.remove(player.blockPosition()); scoopSpots.add(player.blockPosition().immutable()); fills++; triedSources.clear(); lastFill = target.immutable(); poolMemory.remove(lastFill); seekWalks = 0; returnedToScoop = false; }
 		}
 		return running();
 	}
@@ -2413,9 +2439,18 @@ public final class ServerBuildController implements ServerController {
 		recalled.sort(Comparator.comparingDouble(at -> Vec3.atCenterOf(at).distanceToSqr(here)));
 		sources.addAll(recalled);
 		sources.removeAll(triedSources);
+		for (BlockPos source : sources.subList(0, Math.min(12, sources.size())))
+			if (scoopClick(player, source) != null) { seekLooks = 0; return pour(player, now, Pour.FILL, source, null); }
+		if (castIndex > 0 && sources.size() < castOrder.size() - castIndex && uncovers < MAX_UNCOVERS) {
+			if (!returnedToScoop && !scoopSpots.isEmpty() && walks < MAX_WALKS - 1) {
+				returnedToScoop = true;
+				BlockPos shore = scoopSpots.getLast();
+				if (!shore.equals(player.blockPosition()) && !triedSpots.contains(shore)) return walkTo(player, shore, now);
+			}
+			BlockPos cover = nextUncover(player);
+			if (cover != null) return openPoolCover(player, cover, now, false);
+		}
 		if (!sources.isEmpty()) {
-			for (BlockPos source : sources.subList(0, Math.min(12, sources.size())))
-				if (scoopClick(player, source) != null) { seekLooks = 0; return pour(player, now, Pour.FILL, source, null); }
 			// One block between the eye and a source in reach: mine it and scoop from here, as a player does (lava-gate-2: the
 			// body stood in a one-wide dig beside the pool with a source a step below it behind one block of tuff, and walked
 			// 16 times toward spots beyond rock it could not see through).
@@ -2469,7 +2504,7 @@ public final class ServerBuildController implements ServerController {
 		}
 		remembered.removeAll(triedSources);
 		remembered.sort(Comparator.comparingDouble(at -> Vec3.atCenterOf(at).distanceToSqr(frame)));
-		while (seekWalks < 8) {
+		while (seekWalks < 8 && walks < MAX_WALKS - 1) {
 			int k = seekWalks++;
 			BlockPos toward = k < remembered.size() && k % 2 == 1 ? remembered.get(k) : k == 0 ? around : around.relative(Direction.from2DDataValue(k), 7);
 			BlockPos spot = nearestStand(player, toward, 5);
@@ -2490,9 +2525,9 @@ public final class ServerBuildController implements ServerController {
 		// 7 blocks of rock from a lava lake walled in on every side; 6 of 6 fetches gave up here): a player tunnels to it.
 		TickResult dug = digTowardLava(player, sources.isEmpty() ? remembered : sources, now);
 		if (dug != null) return dug;
-		return fail(player, "BUILD_SHORT", "Short of material: no lava source in reach after " + castIndex + " of 10 cells (" + sources.size() + " seen within "
-				+ CAST_FETCH_RANGE + " blocks of the frame, none with a dry spot beside it) after looking round and walking the shore near " + xyz(around)
-				+ "; find more lava and build again" + lastWalk());
+		return fail(player, "LAVA_POOL_UNREACHABLE", "The lava pocket at " + xyz(poolAt) + " could not feed the frame from safe footing after "
+				+ castIndex + " of 10 cells. Looked round and walked the shore near " + xyz(around)
+				+ ". " + CastLava.FIND_BIGGER_POOL + lastWalk());
 	}
 
 	/**
