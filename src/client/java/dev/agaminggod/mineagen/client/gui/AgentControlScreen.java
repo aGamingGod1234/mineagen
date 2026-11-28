@@ -312,6 +312,8 @@ public final class AgentControlScreen extends Screen {
 	@Override
 	protected void init() {
 		widgetRefreshPending = false;
+		if (computeOpenPending) computeOpen = true;
+		computeOpenPending = false;
 		builtBannerInset = bannerInset(bannerLines().size());
 		overviewNow = null;
 		nameInput = null;
@@ -606,6 +608,8 @@ public final class AgentControlScreen extends Screen {
 	private int railScroll;
 	/** The compute drawer: open from the header pill, closed by Escape or a click outside it. */
 	private boolean computeOpen;
+	// A new machine error waits for the next rebuild to open the drawer, so the drawer never shows stale rows or no controls.
+	private boolean computeOpenPending;
 	private ComputePill computePill;
 	private final List<AbstractWidget> drawerWidgets = new ArrayList<>();
 	private ConsoleEditBox taskInput;
@@ -644,7 +648,10 @@ public final class AgentControlScreen extends Screen {
 			widgetRefreshPending = true;
 		}
 		if (boatShapeChanged(before, boatStatus) || !settingsBefore.equals(boatSettings)) widgetRefreshPending = true;
-		if (newError(before, boatStatus)) computeOpen = true;
+		if (newError(before, boatStatus)) {
+			computeOpenPending = true;
+			widgetRefreshPending = true;
+		}
 		body = AgentBody.read(minecraft, selectedAgent());
 	}
 
@@ -711,6 +718,8 @@ public final class AgentControlScreen extends Screen {
 				addRenderableWidget(roster);
 			}
 			int capacity = Math.max(0, (rowsBottom - rowsTop + LIST_ROW_GAP) / (LIST_ROW + LIST_ROW_GAP));
+			// An overflowing list sets New agent 8px lower to clear the more-below chevron; reserve that gap too.
+			if (agents.size() > capacity) capacity = Math.max(0, (rowsBottom - 8 - rowsTop + LIST_ROW_GAP) / (LIST_ROW + LIST_ROW_GAP));
 			listScroll = Math.clamp(listScroll, 0, Math.max(0, agents.size() - capacity));
 			int shown = 0;
 			for (int index = 0; index < capacity && listScroll + index < agents.size(); index++) {
