@@ -2051,6 +2051,104 @@ test('keepalive --warm never deletes a pool machine matching --keep, and a lease
 	} finally { await fake.close(); }
 });
 
+test('idle records: gone machines are forgotten, a dead batch counts from its last heartbeat, and only a batch give-back writes one', { skip: process.platform === 'win32' }, async () => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'pool-idle-'));
+	try {
+		let clock = 1_000_000;
+		const store = leaseStore({ dir, now: () => clock });
+		for (const name of ['alive', 'gone', 'late']) { await store.take([name]); clock += 1000; await store.drop(name); }
+		// 'late' was given back at or after the listing was read: its machine may be newer than the listing, so it stays.
+		assert.equal(await store.forgetGone(['alive'], 1_002_500), 1);
+		assert.deepEqual(Object.keys(await store.idleSince()).sort(), ['alive', 'late']);
+		await assert.rejects(store.forgetGone([], undefined), /needs the time/);
+		// A batch that died holding 'alive' long after its give-back: breaking that lease moves the idle time to its last beat.
+		await writeFile(path.join(dir, 'leases/alive.json'), JSON.stringify({ token: 'dead', pid: 999999999, batch: 'gone-batch', heartbeatAt: 5_000_000 }));
+		clock = 9_000_000;
+		assert.equal(await store.take(['alive']), 'alive');
+		assert.equal((await store.idleSince()).alive, 5_000_000);
+		await store.drop('alive', { idle: false });
+		// An older heartbeat never moves a newer record back.
+		await writeFile(path.join(dir, 'leases/alive.json'), JSON.stringify({ token: 'dead', pid: 999999999, heartbeatAt: 10 }));
+		await store.take(['alive']);
+		assert.equal((await store.idleSince()).alive, 5_000_000);
+		await store.drop('alive', { idle: false });
+		// keepalive killed while it held a lease to delete the machine: that lease ran no room and moves nothing.
+		await writeFile(path.join(dir, 'leases/alive.json'), JSON.stringify({ token: 'dead', pid: 999999999, batch: 'boat-pool keepalive', heartbeatAt: 8_000_000 }));
+		assert.equal(await store.clear('alive'), true);
+		assert.equal((await store.idleSince()).alive, 5_000_000);
+		store.stop();
+	} finally { await rm(dir, { recursive: true, force: true }); }
+	const fake = await fakeBoat();
+	try {
+		const store = leaseStore({ dir: fake.poolDir });
+		const pool = warmBoatPool({ snapshot: 'img', type: 'default', store, log: quiet, roomPorts: [1, 0], startsPerMinute: 600 });
+		const made = await pool.startNew();
+		await pool.release(made);
+		// A --machines batch leases it by name and gives it back: a named machine gets no idle record of its own.
+		await store.forgetIdle(made.name);
+		const named = warmBoatPool({ snapshot: 'img', type: 'default', store, log: quiet, roomPorts: [1, 0], startsPerMinute: 600, machines: [made.id] });
+		await named.release(await named.create());
+		assert.equal((await store.idleSince())[made.name], undefined, 'a named machine given back writes no idle record');
+		// A machine set aside after a failed check is not idle in the pool: no record either.
+		const vm = await pool.create();
+		await pool.destroy(vm);
+		assert.equal((await store.idleSince())[vm.name], undefined, 'a set-aside machine gets no idle record');
+		// A start that fails leaves no record under the name it reserved for a machine that never came.
+		await rm(path.join(fake.dir, 'boat.mjs'));
+		await writeFile(path.join(fake.dir, 'boat.mjs'), "console.error('boat is down'); process.exit(1);\n");
+		await assert.rejects(pool.startNew(), /boat is down/);
+		assert.deepEqual(Object.keys(await store.idleSince()), [], 'no record for a machine that was never made');
+		store.stop();
+	} finally { await fake.close(); }
+});
+
+test('keepalive ranks idle machines by when they were last used and forgets gone ones; prune forgets them too', { skip: process.platform === 'win32' }, async () => {
+	const fake = await fakeBoat();
+	try {
+		const store = leaseStore({ dir: fake.poolDir });
+		const pool = warmBoatPool({ snapshot: 'img', type: 'default', store, log: quiet, roomPorts: [1, 0], startsPerMinute: 600 });
+		const [old, used, fresh] = [await pool.startNew(), await pool.startNew(), await pool.startNew()];
+		for (const vm of [old, used]) await pool.release(vm);
+		const idleDir = path.join(fake.poolDir, 'idle');
+		const hoursAgo = hours => Date.now() - hours * 3_600_000;
+		// Every machine was made 2 hours ago. 'old' was given back then; 'used' too, but a batch then used it and died holding
+		// it a minute ago; 'fresh' was taken by a batch that died before giving it back, so it has no idle record at all.
+		for (const vm of [old, used, fresh]) {
+			const box = path.join(fake.dir, 'sandboxes', `${vm.id}.json`);
+			await writeFile(box, JSON.stringify({ ...JSON.parse(await readFile(box, 'utf8')), createdAt: new Date(hoursAgo(2)).toISOString() }));
+		}
+		await writeFile(path.join(idleDir, `${old.name}.json`), JSON.stringify({ at: hoursAgo(2) }));
+		await writeFile(path.join(idleDir, `${used.name}.json`), JSON.stringify({ at: hoursAgo(2) }));
+		await writeFile(path.join(fake.poolDir, 'leases', `${used.name}.json`), JSON.stringify({ token: 'dead', pid: 999999999, batch: 'b', heartbeatAt: hoursAgo(1 / 60) }));
+		store.stop();
+		await writeFile(path.join(fake.poolDir, 'leases', `${fresh.name}.json`), JSON.stringify({ token: 'dead', pid: 999999999, batch: 'b' }));
+		// Records of machines long gone: one of this pool, one of a named machine.
+		await writeFile(path.join(idleDir, 'rbpool-gone-default-img-00000000-1.json'), JSON.stringify({ at: hoursAgo(30) }));
+		await writeFile(path.join(idleDir, 'named-box-1.json'), JSON.stringify({ at: hoursAgo(6) }));
+		const cli = fileURLToPath(new URL('../../scripts/quality/boat-pool.mjs', import.meta.url));
+		const run = args => spawnSync(process.execPath, [cli, ...args], { env: { ...process.env, ROOM_BATCH_POOL_DIR: fake.poolDir }, encoding: 'utf8' });
+		const kept = run(['keepalive', '--warm', '1', '--grace', '30']);
+		assert.equal(kept.status, 0, kept.stdout + kept.stderr);
+		assert.match(kept.stdout, /forgot the idle records of 2 machines that no longer exist/);
+		assert.ok(fake.exists(used.id), 'the machine a batch used a minute ago is the warm one');
+		assert.equal(fake.exists(old.id), false, 'the longest idle machine is deleted');
+		assert.match(kept.stdout, /idle 120 min\)/, 'its idle time is the real two hours');
+		assert.equal(fake.exists(fresh.id), false, 'the machine with no record counts as idle from when it was made, not forever');
+		assert.match(kept.stdout, /idle 120 min \(no idle record: counted from when it was made\)/);
+		assert.doesNotMatch(kept.stdout, /since before idle times were kept/);
+		assert.deepEqual(readdirSync(idleDir).sort(), [`${used.name}.json`], 'only the machine still there keeps a record');
+		// prune: a record whose machine went away between runs is forgotten as well, and clearing the dead batch's lease
+		// keeps its last heartbeat as the machine's idle time.
+		await writeFile(path.join(idleDir, 'rbpool-gone-default-img-00000000-2.json'), JSON.stringify({ at: hoursAgo(1) }));
+		const pruned = run(['prune']);
+		assert.equal(pruned.status, 0, pruned.stdout + pruned.stderr);
+		assert.match(pruned.stdout, /forgot 1 idle records of machines that no longer exist/);
+		assert.deepEqual(readdirSync(idleDir), [`${used.name}.json`]);
+		assert.ok(JSON.parse(readFileSync(path.join(idleDir, `${used.name}.json`), 'utf8')).at > hoursAgo(0.1), 'its record holds the dead batch\'s last heartbeat');
+		assert.equal(existsSync(path.join(fake.poolDir, 'leases', `${used.name}.json`)), false, 'the stale lease is cleared');
+	} finally { await fake.close(); }
+});
+
 test('a lock file another process holds or is deleting reads as held on Windows, not as an error', async () => {
 	const { lockHeld, lockWait } = await import('../../scripts/quality/lib/pool-leases.mjs');
 	const error = code => Object.assign(new Error(code), { code });
