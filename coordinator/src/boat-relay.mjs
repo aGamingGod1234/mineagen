@@ -171,16 +171,33 @@ export function coordinatorSession({ sessionRoot, coordinatorRoot, log, spawnPro
 			const handle = await open(mirror.file, 'r').catch(() => null);
 			if (!handle) continue;
 			try {
-				for (;;) {
-					const chunk = Buffer.allocUnsafe(256 * 1024);
-					const { bytesRead } = await handle.read(chunk, 0, chunk.length, mirror.offset);
-					if (bytesRead === 0) break;
-					// Advance only past bytes handed to a connected PC: while the control socket is down the output waits
-					// on the machine and is sent after it reconnects.
-					if (!send(`file:${mirror.name}:${chunk.subarray(0, bytesRead).toString('base64')}`)) break;
-					mirror.offset += bytesRead;
-				}
+				const { ino, size } = await handle.stat();
+				if (mirror.ino !== undefined && ino !== mirror.ino) {
+					// The writer rotated (RotatingJsonlSink renames the file to "<file>.1" and starts a new one): finish
+					// the old generation from where the mirror stopped, then follow the new file from its start.
+					const old = await open(`${mirror.file}.1`, 'r').catch(() => null);
+					let drained = true;
+					if (old) {
+						try { if ((await old.stat()).ino === mirror.ino) drained = await mirrorFrom(old, mirror); }
+						finally { await old.close(); }
+					}
+					if (!drained) continue;
+					mirror.offset = 0;
+				} else if (size < mirror.offset) mirror.offset = 0;
+				mirror.ino = ino;
+				await mirrorFrom(handle, mirror);
 			} finally { await handle.close(); }
+		}
+	};
+	// Sends a file's bytes past mirror.offset. Advances only past bytes handed to a connected PC: while the control socket
+	// is down the output waits on the machine and is sent after it reconnects. Returns whether it reached the end.
+	const mirrorFrom = async (handle, mirror) => {
+		for (;;) {
+			const chunk = Buffer.allocUnsafe(256 * 1024);
+			const { bytesRead } = await handle.read(chunk, 0, chunk.length, mirror.offset);
+			if (bytesRead === 0) return true;
+			if (!send(`file:${mirror.name}:${chunk.subarray(0, bytesRead).toString('base64')}`)) return false;
+			mirror.offset += bytesRead;
 		}
 	};
 	const expand = value => typeof value === 'string' ? value.replaceAll('${SESSION}', sessionRoot)
@@ -363,6 +380,8 @@ export function serveRelay({ key, bridgePort, wsPort, host = '127.0.0.1', now = 
 	const bridgeServer = net.createServer(async tcp => {
 		tcp.setNoDelay(true);
 		tcp.pause();
+		// A reset while waiting for the PC must not become an uncaught error that ends the relay.
+		tcp.on('error', () => tcp.destroy());
 		const peer = await takeSpare();
 		if (!peer || tcp.destroyed) { tcp.destroy(); peer?.close(); log('bridge-refused', { reason: peer ? 'gone' : 'no-pc' }); return; }
 		live.add(peer);

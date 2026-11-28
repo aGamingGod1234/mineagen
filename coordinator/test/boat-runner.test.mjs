@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { dialRelay, serveRelay } from '../src/boat-relay.mjs';
+import { coordinatorSession, dialRelay, serveRelay } from '../src/boat-relay.mjs';
 import { parseCliJson, remoteConfig, remoteEnvironment, runBoatCoordinator, writeBackSignIns } from '../src/boat-runner.mjs';
 
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -149,6 +149,55 @@ test('a bridge connection that timed out waiting for the PC does not swallow the
 		dialer?.close();
 		await relay.close();
 		pc.close();
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test('mirrored logs wait out a disconnected PC and follow a rotated file', async () => {
+	const root = mkdtempSync(path.join(os.tmpdir(), 'boat-mirror-'));
+	let connected = false, received = '';
+	const send = text => {
+		if (!connected) return false;
+		if (text.startsWith('file:audit:')) received += Buffer.from(text.slice('file:audit:'.length), 'base64').toString();
+		return true;
+	};
+	const session = coordinatorSession({ sessionRoot: path.join(root, 'session'), coordinatorRoot: root, log: () => {}, send,
+		spawnProcess: (execPath, _args, options) => spawn(execPath, ['-e', 'setInterval(() => {}, 1000)'], options) });
+	try {
+		await session.start({ config: {}, mirror: [{ name: 'audit', path: '${SESSION}/out/audit.jsonl' }] });
+		const file = path.join(root, 'session', 'out', 'audit.jsonl');
+		await writeFile(file, 'while-offline\n');
+		await wait(1_200);
+		assert.equal(received, '');
+		connected = true;
+		await until(() => received === 'while-offline\n', 5_000);
+		// Rotation as RotatingJsonlSink does it: a last line lands in the old file, which becomes ".1", then a new file starts.
+		connected = false;
+		await appendFile(file, 'last-before-rotation\n');
+		await rename(file, `${file}.1`);
+		await writeFile(file, 'first-after-rotation\n');
+		await wait(1_200);
+		connected = true;
+		await until(() => received === 'while-offline\nlast-before-rotation\nfirst-after-rotation\n', 5_000);
+	} finally {
+		await session.stop();
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test('a bridge connection reset while waiting for the PC does not end the relay', async () => {
+	const root = mkdtempSync(path.join(os.tmpdir(), 'boat-reset-'));
+	const relay = await serveRelay({ key: 'k'.repeat(40), bridgePort: 0, wsPort: 0, sessionRoot: path.join(root, 's'), spareWaitMs: 500 });
+	try {
+		const socket = net.connect(relay.bridgePort, '127.0.0.1');
+		await new Promise(resolve => socket.on('connect', resolve));
+		socket.resetAndDestroy();
+		await wait(800);
+		// Still serving: a new connection is accepted and refused cleanly when no PC comes.
+		const again = net.connect(relay.bridgePort, '127.0.0.1');
+		await new Promise((resolve, reject) => { again.on('close', resolve); again.on('error', reject); });
+	} finally {
+		await relay.close();
 		rmSync(root, { recursive: true, force: true });
 	}
 });
