@@ -81,6 +81,29 @@ public final class BoatPanelPresentation {
 		return active || settings != null && settings.runsOnBoat() && status.signedIn();
 	}
 
+	/**
+	 * The header's compute pill: where agents run in a word or two, the live cost while a machine runs, and a dot
+	 * when a model tool needs signing in. {@code arg} fills the key's one placeholder, empty when it has none.
+	 */
+	public record Pill(String key, String arg, Tone tone, boolean attention) {
+	}
+
+	public static Pill pill(BoatAccount.Status status, BoatAccount.Settings settings, List<ProviderRow> providers) {
+		boolean attention = providers != null && providers.stream()
+				.anyMatch(row -> !"boat".equals(row.id()) && row.signIn() && row.tone() == Tone.WARNING);
+		if (status == null) return new Pill("screen.mineagen.boat.pill_local", "", Tone.MUTED, attention);
+		if (status.error() != null && !status.error().isBlank()) return new Pill("screen.mineagen.boat.pill_error", "", Tone.ERROR, attention);
+		String phase = status.phase() == null ? "" : status.phase().toLowerCase(Locale.ROOT);
+		return switch (phase) {
+			case "starting" -> new Pill("screen.mineagen.boat.pill_starting", "", Tone.WARNING, attention);
+			case "stopping" -> new Pill("screen.mineagen.boat.pill_stopping", "", Tone.MUTED, attention);
+			case "running" -> new Pill("screen.mineagen.boat.pill", dollars(status.costDollars()), Tone.BOAT, attention);
+			default -> settings != null && settings.runsOnBoat() && status.signedIn()
+					? new Pill("screen.mineagen.boat.pill_ready", "", Tone.BOAT, attention)
+					: new Pill("screen.mineagen.boat.pill_local", "", Tone.MUTED, attention);
+		};
+	}
+
 	/** "$0.013": cents below a dollar keep a third digit so a few minutes of a small machine still shows. */
 	public static String dollars(double amount) {
 		double value = Double.isFinite(amount) ? Math.max(0D, amount) : 0D;

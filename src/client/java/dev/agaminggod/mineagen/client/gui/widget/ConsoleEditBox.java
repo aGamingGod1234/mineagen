@@ -92,10 +92,10 @@ public final class ConsoleEditBox extends EditBox implements ConsoleFocusTarget 
 	) {
 		float lift = ConsoleMotion.smooth(hover.toward(isHovered() || isFocused() ? 1F : 0F, 120));
 		ConsoleDraw.surface(graphics, outerX, outerY, outerWidth, outerHeight, ConsoleDraw.RADIUS_CONTROL,
-				ConsoleDraw.mix(ConsoleTheme.TRACK, 0xFF10151C, lift));
-		if (isFocused()) ConsoleDraw.ring(graphics, outerX, outerY, outerWidth, outerHeight, ConsoleDraw.RADIUS_CONTROL, ConsoleTheme.ACCENT);
+				ConsoleDraw.mix(0x66000000, 0x80000000, lift));
+		if (isFocused()) ConsoleDraw.ring(graphics, outerX, outerY, outerWidth, outerHeight, ConsoleDraw.RADIUS_CONTROL, ConsoleDraw.withAlpha(ConsoleTheme.ACCENT, 0.7F));
 		else ConsoleDraw.ring(graphics, outerX, outerY, outerWidth, outerHeight, ConsoleDraw.RADIUS_CONTROL,
-				ConsoleDraw.mix(0xFF1E252F, 0xFF2E3846, lift));
+				ConsoleDraw.mix(0x10FFFFFF, 0x1CFFFFFF, lift));
 		if (getValue().isEmpty() && !isFocused()) {
 			ConsoleText.text(graphics, font, placeholder, outerX + HORIZONTAL_PADDING,
 					outerY + (outerHeight - 8) / 2, ConsoleTheme.SUBTLE);

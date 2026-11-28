@@ -4,28 +4,39 @@ import java.util.Locale;
 
 /** Shared, contrast-auditable visual language for every Mineagen screen and HUD. */
 public final class ConsoleTheme {
-	// Diamond: deep ink surfaces separated by tone, not outlines; one cyan accent for the current choice and the
-	// main action. Every token is audited for contrast in ConsoleThemeVerification.
-	public static final int BACKDROP = 0xA6070A0F;
-	public static final int PANEL = 0xFA11151C;
-	public static final int NAVIGATION = 0xFF0E1218;
-	public static final int TRACK = 0xFF0B0F14;
-	public static final int SURFACE = 0xFF1A2029;
-	public static final int SURFACE_HOVER = 0xFF232B36;
-	public static final int SURFACE_RAISED = 0xFF2A3340;
-	public static final int SURFACE_SELECTED = 0xFF15303A;
-	public static final int POPUP = 0xFF1D242E;
-	public static final int BORDER = 0xFF2B3440;
-	public static final int FOCUS = 0xFFD8F5FF;
-	public static final int TEXT = 0xFFEEF1F5;
-	public static final int MUTED = 0xFF8F99A8;
-	public static final int SUBTLE = 0xFF6A7484;
-	public static final int ACCENT = 0xFF5FD4F4;
-	public static final int ACCENT_HOVER = 0xFF8BE2F8;
-	public static final int ACCENT_INK = 0xFF04212B;
-	public static final int ROSTER_FOCUS = 0xFFCAD2DC;
-	public static final int ROSTER_SELECTED_SURFACE = 0xFF15303A;
-	public static final int ROSTER_UNAVAILABLE_SURFACE = 0xFF151A21;
+	// Obsidian: neutral graphite surfaces over the blurred world, separated by tone rather than outlines. One soft
+	// emerald accent marks what is selected or alive; the main action is a quiet near-white button, not a neon one.
+	// Every token is audited for contrast in ConsoleThemeVerification.
+	public static final int BACKDROP = 0x8C000000;
+	public static final int PANEL = 0xE8131416;
+	/** Buttons are a faint lift of white over whatever they sit on, so they never read as a box inside a box. */
+	public static final int BUTTON = 0x12FFFFFF;
+	public static final int BUTTON_HOVER = 0x1FFFFFFF;
+	public static final int BUTTON_INACTIVE = 0x0AFFFFFF;
+	public static final int NAVIGATION = 0xFF17181B;
+	public static final int TRACK = 0xFF0D0E10;
+	public static final int SURFACE = 0xFF1D1F22;
+	public static final int SURFACE_HOVER = 0xFF25272B;
+	public static final int SURFACE_RAISED = 0xFF2D2F34;
+	public static final int SURFACE_SELECTED = 0xFF263129;
+	public static final int POPUP = 0xFF1B1C1F;
+	public static final int BORDER = 0xFF2E3035;
+	/** Screen-pixel dividers between regions: barely there, so space does the separating. */
+	public static final int HAIRLINE = 0x16FFFFFF;
+	public static final int FOCUS = 0xFFF4F4F2;
+	public static final int TEXT = 0xFFF1F1EE;
+	public static final int MUTED = 0xFF9C9EA3;
+	public static final int SUBTLE = 0xFF6C6F75;
+	public static final int ACCENT = 0xFF7FD69A;
+	public static final int ACCENT_HOVER = 0xFF9BE3B1;
+	public static final int ACCENT_INK = 0xFF0C1A11;
+	/** The one filled action per page (Start, Create agent): near-white with dark ink. */
+	public static final int PRIMARY = 0xFFE9E9E5;
+	public static final int PRIMARY_HOVER = 0xFFFFFFFF;
+	public static final int PRIMARY_INK = 0xFF131416;
+	public static final int ROSTER_FOCUS = 0xFFCDD0D4;
+	public static final int ROSTER_SELECTED_SURFACE = 0xFF263129;
+	public static final int ROSTER_UNAVAILABLE_SURFACE = 0xFF17181B;
 
 	/** The colour of a lifecycle state's tone, wherever the state is drawn. */
 	public static int stateColor(dev.agaminggod.mineagen.control.AgentControlPresentation.StateTone tone) {
@@ -36,16 +47,16 @@ public final class ConsoleTheme {
 			case NEUTRAL -> MUTED;
 		};
 	}
-	public static final int SUCCESS = 0xFF5EE0A0;
-	public static final int WARNING = 0xFFF5C451;
-	public static final int ERROR = 0xFFFF6B7A;
-	public static final int DANGER_SURFACE = 0xFF3A1E25;
-	public static final int DANGER_HOVER = 0xFF4B2630;
+	public static final int SUCCESS = ACCENT;
+	public static final int WARNING = 0xFFE6C276;
+	public static final int ERROR = 0xFFF2837E;
+	public static final int DANGER_SURFACE = 0xFF34201F;
+	public static final int DANGER_HOVER = 0xFF452926;
 	public static final int CODEX = 0xFF42D39B;
 	public static final int CLAUDE = 0xFFD97757;
 	/** Boat is where agents run, not a model: its pill, machine block and sign-in row share this blue. */
-	public static final int BOAT = 0xFF5AB4FF;
-	public static final int BOAT_SURFACE = 0xFF14263A;
+	public static final int BOAT = 0xFF8EC5FF;
+	public static final int BOAT_SURFACE = 0xFF1C2530;
 	// Slightly lighter Claude orange so roster text clears 4.5:1 on the selected surface.
 	public static final int ROSTER_CLAUDE = 0xFFE08A6D;
 

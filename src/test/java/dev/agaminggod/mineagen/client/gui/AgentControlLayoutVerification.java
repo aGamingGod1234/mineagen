@@ -87,7 +87,8 @@ public final class AgentControlLayoutVerification {
 
 	/**
 	 * The mission board at a 1080p screen's GUI scales 2, 3 and 4 (960x540, 640x360, 480x270) and the small sizes: the
-	 * rail has its own column at scales 2 and 3 and folds under the live view at scale 4, and no region overlaps another.
+	 * live view spans everything right of the list, the compute drawer opens over its right side, and no region
+	 * overlaps another.
 	 */
 	private static int verifyMissionBoard() {
 		int assertions = 0;
@@ -97,48 +98,42 @@ public final class AgentControlLayoutVerification {
 			AgentControlLayout shell = board.shell();
 			assertTrue(board.list().left() >= shell.contentLeft() && board.list().right() <= board.centre().left(),
 					"the agent list sits left of the live view" + at);
-			assertTrue(board.centre().right() <= (board.railFolded() ? shell.contentRight() : board.rail().left()),
-					"the live view ends before the rail" + at);
-			assertTrue(board.rail().right() <= shell.contentRight(), "the rail stays inside the panel" + at);
-			assertTrue(board.list().bottom() <= shell.contentBottom() && board.centre().bottom() <= shell.contentBottom(),
-					"the columns end above the task row" + at);
+			assertTrue(board.centre().right() <= shell.contentRight(), "the live view stays inside the panel" + at);
+			assertTrue(board.drawer().left() >= shell.contentLeft() && board.drawer().right() <= shell.contentRight(),
+					"the drawer opens inside the panel" + at);
+			assertTrue(board.list().bottom() <= shell.contentBottom() && board.centre().bottom() <= shell.contentBottom()
+					&& board.drawer().bottom() <= board.taskRow().top(), "the columns and the drawer end above the task row" + at);
 			assertTrue(board.taskRow().top() >= board.centre().bottom() && board.taskRow().bottom() <= shell.panelBottom(),
 					"the task row sits below the columns and inside the panel" + at);
+			assertions += 5;
+		}
+		for (int[] size : new int[][] {{960, 540}, {640, 360}, {480, 270}}) {
+			String at = " at " + size[0] + "x" + size[1];
+			MissionBoardLayout board = MissionBoardLayout.calculate(size[0], size[1]);
+			assertTrue(board.drawer().width() >= MissionBoardLayout.DRAWER_MINIMUM, "the drawer is wide enough for a sign-in button" + at);
+			assertTrue(board.drawer().left() >= board.centre().left(), "the drawer covers only the live view" + at);
+			assertEquals(board.shell().contentRight(), board.centre().right(), "the live view spans to the panel edge" + at);
+			assertTrue(board.listCompact() ? board.list().width() == MissionBoardLayout.LIST_COMPACT
+					: board.list().width() >= MissionBoardLayout.LIST_MINIMUM, "the agent list shows full rows or heads only" + at);
+			assertEquals(Math.max(board.centre().height(), AgentControlScreen.LIVE_NATURAL), board.liveHeight(AgentControlScreen.LIVE_NATURAL),
+					"the live view fills its column, or takes its natural height when that is taller" + at);
 			assertions += 5;
 		}
 		for (int[] size : new int[][] {{960, 540}, {640, 360}}) {
 			String at = " at " + size[0] + "x" + size[1];
 			MissionBoardLayout board = MissionBoardLayout.calculate(size[0], size[1]);
-			assertTrue(!board.railFolded(), "the rail keeps its own column" + at);
-			assertTrue(board.rail().width() >= MissionBoardLayout.RAIL_MINIMUM, "the rail is wide enough for a sign-in button" + at);
-			assertTrue(board.centre().width() >= 240, "the live view keeps a readable width beside the rail" + at);
-			assertTrue(board.listCompact() ? board.list().width() == MissionBoardLayout.LIST_COMPACT
-					: board.list().width() >= MissionBoardLayout.LIST_MINIMUM, "the agent list shows full rows or heads only" + at);
 			assertTrue(board.centre().height() >= AgentControlScreen.LIVE_NATURAL, "every live view row fits without scrolling" + at);
-			assertEquals(0, board.centreScrollMaximum(AgentControlScreen.LIVE_NATURAL + 400), "an unfolded centre never scrolls" + at);
-			assertions += 6;
+			assertEquals(0, board.centreScrollMaximum(AgentControlScreen.LIVE_NATURAL), "the centre does not scroll" + at);
+			assertTrue(!board.listCompact(), "the list shows names" + at);
+			assertions += 3;
 		}
-		for (int[] size : new int[][] {{480, 270}, {427, 240}, {320, 240}, {320, 180}}) {
-			String at = " at " + size[0] + "x" + size[1];
-			MissionBoardLayout board = MissionBoardLayout.calculate(size[0], size[1]);
-			assertTrue(board.railFolded(), "the rail folds under the live view" + at);
-			assertEquals(board.centre().width(), board.railContentWidth(), "the folded rail takes the live view's width" + at);
-			assertEquals(board.shell().contentRight(), board.centre().right(), "the live view spans to the panel edge once folded" + at);
-			assertEquals(AgentControlScreen.LIVE_NATURAL, board.liveHeight(AgentControlScreen.LIVE_NATURAL),
-					"folded, the live view takes its natural height and the rail follows" + at);
-			int stack = AgentControlScreen.LIVE_NATURAL + AgentControlScreen.STACK_GAP + 200;
-			assertTrue(board.centreScrollMaximum(stack) == Math.max(0, stack - board.centre().height()),
-					"the folded column scrolls exactly as far as the stack overflows" + at);
-			assertions += 5;
-		}
-		assertTrue(!MissionBoardLayout.calculate(960, 540).listCompact(), "at GUI scale 2 the list shows names");
-		assertTrue(MissionBoardLayout.calculate(640, 360).listCompact(), "at GUI scale 3 the list shows heads so the live view keeps its room");
+		assertTrue(MissionBoardLayout.calculate(480, 270).listCompact(), "at GUI scale 4 the list shows heads so the live view keeps its room");
 		assertTrue(MissionBoardLayout.calculate(640, 360).centre().width() >= BoardLiveView.SIDE_BY_SIDE,
 				"at GUI scale 3 Mission and Activity sit side by side");
 		MissionBoardLayout scaleFour = MissionBoardLayout.calculate(480, 270);
-		assertTrue(scaleFour.centre().width() >= 300, "at GUI scale 4 the folded column is wide enough for the rail's rows");
-		assertTrue(scaleFour.centreScrollMaximum(AgentControlScreen.LIVE_NATURAL + AgentControlScreen.STACK_GAP + 150) > 0,
-				"at GUI scale 4 the live view and rail scroll together");
+		assertTrue(scaleFour.centre().width() >= BoardLiveView.SIDE_BY_SIDE, "at GUI scale 4 Mission and Activity still sit side by side");
+		assertTrue(scaleFour.centreScrollMaximum(AgentControlScreen.LIVE_NATURAL + 60) == Math.max(0,
+				AgentControlScreen.LIVE_NATURAL + 60 - scaleFour.centre().height()), "a live view taller than its column scrolls exactly as far as it overflows");
 		MissionBoardLayout banner = MissionBoardLayout.calculate(640, 360, AgentControlScreen.bannerInset(2));
 		assertTrue(banner.centre().top() > AgentControlScreen.bannerBounds(banner.shell(), 2).bottom(),
 				"the board's columns start below a status banner");
@@ -171,13 +166,19 @@ public final class AgentControlLayoutVerification {
 		assertTrue(!AgentControlScreen.boatShapeChanged(new dev.agaminggod.mineagen.server.BoatAccount.Status("running", true, "oauth", "m", 0.01D, null),
 				new dev.agaminggod.mineagen.server.BoatAccount.Status("running", true, "oauth", "m", 0.02D, null)),
 				"the cost ticking up redraws in place without a rebuild");
-		return assertions + 3 + 13 + 3 + verifyLiveViewData();
+		dev.agaminggod.mineagen.server.BoatAccount.Status failed = new dev.agaminggod.mineagen.server.BoatAccount.Status(
+				"idle", true, "oauth", null, 0D, "quota reached");
+		assertTrue(AgentControlScreen.newError(signedIn, failed), "a new machine error opens the drawer");
+		assertTrue(!AgentControlScreen.newError(failed, failed), "the same error does not reopen a drawer the player closed");
+		return assertions + 4 + 13 + 3 + 2 + verifyLiveViewData();
 	}
 
 	private static int verifyLiveViewData() {
 		com.google.gson.JsonObject view = com.google.gson.JsonParser.parseString("""
 				{"plan":{"steps":[{"label":"Find wood","status":"complete"},{"id":"craft","status":"active"},{"label":" "}]},
-				 "events":[{"stage":"tool","message":"mine log","at":5},{"stage":"live_delta","message":"looking\nfor trees"},{"stage":"x","message":""}],
+				 "events":[{"stage":"live_tool","message":"mine {\\"blockId\\":\\"minecraft:oak_log\\",\\"count\\":3}","at":5},
+				   {"stage":"live_tool","message":"mine {\\"blockId\\":\\"minecraft:oak_log\\",\\"count\\":3}","at":7},
+				   {"stage":"planner","message":"Planning request queued"},{"stage":"live_delta","message":"looking\nfor trees"},{"stage":"x","message":""}],
 				 "decision":{"action":"Mine the oak","purpose":"planks"}}""").getAsJsonObject();
 		com.google.gson.JsonObject usage = new com.google.gson.JsonObject();
 		usage.addProperty("inputTokens", 12_400);
@@ -186,9 +187,12 @@ public final class AgentControlLayoutVerification {
 		assertEquals(2, steps.size(), "plan steps without any name are left out");
 		assertEquals("craft", steps.get(1).label(), "a step with no label falls back to its id");
 		List<BoardLiveView.Event> events = BoardLiveView.events(view);
-		assertEquals(2, events.size(), "events without a message are left out");
-		assertEquals("thinking", events.get(0).tag(), "events show newest first, thoughts tagged as thinking");
+		assertEquals(2, events.size(), "plumbing, unknown stages and empty messages are left out, and repeats fold");
+		assertTrue(events.get(0).thought(), "events show newest first, the thought marked as one");
 		assertEquals("looking for trees", events.get(0).message(), "a multi-line event reads as one line");
+		assertEquals("Mining 3 oak log", events.get(1).message(), "a tool call reads as what the agent does");
+		assertEquals(2, events.get(1).repeats(), "the same line back to back shows once with its count");
+		assertEquals(7L, events.get(1).at(), "a folded line keeps its newest time");
 		assertEquals("Mine the oak: planks", BoardLiveView.decision(view), "the next decision shows its action and purpose");
 		assertEquals("", BoardLiveView.decision(null), "no live view means no decision");
 		assertEquals("", BoardLiveView.usage(null), "no usage is left out, not shown as zero");
@@ -196,7 +200,7 @@ public final class AgentControlLayoutVerification {
 		assertEquals("Nether", AgentBody.dimensionLabel("minecraft:the_nether"), "dimensions read by name");
 		assertEquals("Deep dark", AgentBody.dimensionLabel("mod:deep_dark"), "a modded dimension reads in title case");
 		assertTrue(BoardLiveView.naturalHeight(400) < BoardLiveView.naturalHeight(300), "a narrow live view stacks its panels");
-		return 12;
+		return 15 + ActivityTextVerification.verify();
 	}
 
 	/** Pending feedback is neutral, and a long offline reason gets a measured banner that the Now card stays below. */
